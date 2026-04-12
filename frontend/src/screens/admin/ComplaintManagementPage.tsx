@@ -58,7 +58,7 @@ export default function ComplaintManagementPage() {
                   <td className="py-4 px-6">
                     <div className="font-medium text-surface-900 flex items-center gap-2">
                        {item.name}
-                       {item.id === 1 && <AlertTriangle className="h-4 w-4 text-red-500" title="綁定嚴重紅旗警示" />}
+                       {item.id === 1 && <AlertTriangle className="h-4 w-4 text-red-500" aria-label="綁定嚴重紅旗警示" />}
                     </div>
                   </td>
                   <td className="py-4 px-6 text-surface-600">{item.nameEn}</td>
