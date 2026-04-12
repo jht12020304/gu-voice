@@ -69,9 +69,17 @@ function normalizeSubjective(raw: Record<string, unknown>): SOAPSubjective {
 }
 
 function normalizeObjective(raw: Record<string, unknown>): SOAPObjective {
+  const vs = raw.vitalSigns;
+  const pe = raw.physicalExam;
   return {
-    vitalSigns: raw.vitalSigns as SOAPObjective['vitalSigns'],
-    physicalExam: raw.physicalExam as Record<string, string> | undefined,
+    // Only pass vitalSigns if it's a proper object (not a placeholder string)
+    vitalSigns: (vs && typeof vs === 'object' && !Array.isArray(vs))
+      ? vs as SOAPObjective['vitalSigns']
+      : undefined,
+    // Only pass physicalExam if it's a proper object
+    physicalExam: (pe && typeof pe === 'object' && !Array.isArray(pe))
+      ? pe as Record<string, string>
+      : undefined,
     labResults: Array.isArray(raw.labResults) ? raw.labResults as LabResult[] : undefined,
   };
 }
