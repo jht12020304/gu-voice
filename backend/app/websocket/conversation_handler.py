@@ -228,7 +228,6 @@ async def conversation_websocket(
                             conversation_history=conversation_history,
                             session_context=session_context,
                             settings=settings,
-                            db=db,
                         )
                     )
 
@@ -508,6 +507,21 @@ async def _handle_text_message(
         }
     )
 
+    # 儲存病患訊息至資料庫（持久化，不依賴 Redis TTL）
+    patient_conv_id: uuid.UUID | None = None
+    try:
+        from app.services.conversation_service import ConversationService
+        from uuid import UUID as _UUID
+        _conv = await ConversationService.create(db, _UUID(session_id), "patient", text)
+        await db.commit()
+        patient_conv_id = _conv.id
+    except Exception as _e:
+        logger.warning("病患訊息儲存失敗 | session=%s, error=%s", session_id, str(_e))
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
     message_id = str(uuid.uuid4())
 
     # 從 Redis 取得 Supervisor 指導
@@ -588,6 +602,19 @@ async def _handle_text_message(
         }
     )
 
+    # 儲存 AI 回應至資料庫
+    try:
+        from app.services.conversation_service import ConversationService
+        from uuid import UUID as _UUID
+        await ConversationService.create(db, _UUID(session_id), "assistant", full_response)
+        await db.commit()
+    except Exception as _e:
+        logger.warning("AI 回應記錄儲存失敗 | session=%s, error=%s", session_id, str(_e))
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
     # 觸發 Supervisor 背景分析
     asyncio.create_task(
         supervisor_engine.analyze_next_step(
@@ -645,6 +672,32 @@ async def _handle_text_message(
     if red_flag_alerts:
         for alert in red_flag_alerts:
             alert_id = str(uuid.uuid4())
+
+            # 儲存紅旗警示至資料庫
+            try:
+                from app.services.alert_service import AlertService
+                from app.models.enums import AlertSeverity, AlertType
+                from uuid import UUID as _UUID
+                _db_alert = await AlertService.create(db, {
+                    "session_id": _UUID(session_id),
+                    "conversation_id": patient_conv_id or uuid.uuid4(),
+                    "alert_type": AlertType(alert.get("alert_type", "semantic")),
+                    "severity": AlertSeverity(alert["severity"]),
+                    "title": alert["title"],
+                    "description": alert.get("description", ""),
+                    "trigger_reason": alert.get("trigger_reason", ""),
+                    "trigger_keywords": alert.get("trigger_keywords"),
+                    "suggested_actions": alert.get("suggested_actions", []),
+                    "matched_rule_id": _UUID(alert["matched_rule_id"]) if alert.get("matched_rule_id") else None,
+                })
+                await db.commit()
+                alert_id = str(_db_alert.id)
+            except Exception as _e:
+                logger.warning("紅旗警示儲存失敗 | session=%s, error=%s", session_id, str(_e))
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
 
             # 發送紅旗警示給前端
             await manager.send_to_session(
@@ -722,14 +775,15 @@ async def _generate_soap_report_async(
     conversation_history: list[dict[str, Any]],
     session_context: dict[str, Any],
     settings: Settings,
-    db: AsyncSession,
 ) -> None:
     """
     在問診結束後非同步生成 SOAP 報告並存入資料庫
+    （使用獨立 DB session，避免 WebSocket session 關閉後無法操作）
     """
     from datetime import datetime, timezone
     from uuid import UUID
 
+    from app.core.database import get_db_session
     from app.models.enums import ReportStatus, ReviewStatus
     from app.models.soap_report import SOAPReport
     from app.pipelines.soap_generator import SOAPGenerator
@@ -751,25 +805,26 @@ async def _generate_soap_report_async(
             role_label = {"patient": "病患", "assistant": "AI 助手"}.get(role, role)
             content = entry.get("content", "")
             transcript_lines.append(f"{role_label}：{content}")
-        raw_transcript = "\\n".join(transcript_lines)
+        raw_transcript = "\n".join(transcript_lines)
 
-        # 建立 SOAPReport 記錄
-        report = SOAPReport(
-            session_id=UUID(session_id),
-            status=ReportStatus.GENERATED,
-            review_status=ReviewStatus.PENDING,
-            subjective=soap_data.get("subjective"),
-            objective=soap_data.get("objective"),
-            assessment=soap_data.get("assessment"),
-            plan=soap_data.get("plan"),
-            summary=soap_data.get("summary"),
-            icd10_codes=soap_data.get("icd10_codes", []),
-            ai_confidence_score=soap_data.get("confidence_score"),
-            raw_transcript=raw_transcript,
-            generated_at=datetime.now(timezone.utc),
-        )
-        db.add(report)
-        await db.commit()
+        # 建立 SOAPReport 記錄（使用獨立 session，不依賴 WebSocket 的 db）
+        async with get_db_session() as db:
+            report = SOAPReport(
+                session_id=UUID(session_id),
+                status=ReportStatus.GENERATED,
+                review_status=ReviewStatus.PENDING,
+                subjective=soap_data.get("subjective"),
+                objective=soap_data.get("objective"),
+                assessment=soap_data.get("assessment"),
+                plan=soap_data.get("plan"),
+                summary=soap_data.get("summary"),
+                icd10_codes=soap_data.get("icd10_codes", []),
+                ai_confidence_score=soap_data.get("confidence_score"),
+                raw_transcript=raw_transcript,
+                generated_at=datetime.now(timezone.utc),
+            )
+            db.add(report)
+            # get_db_session() 會在 context 結束時自動 commit
 
         logger.info(
             "SOAP 報告生成完成並儲存 | session=%s, confidence=%.2f",

@@ -233,7 +233,7 @@ export default function ConversationPage() {
   // 結束問診
   const handleEndSession = () => {
     send('control', { action: 'end_session' });
-    navigate('/dashboard');
+    navigate(`/patient/session/${sessionId}/complete`);
   };
 
   if (!currentSession && !error) {
