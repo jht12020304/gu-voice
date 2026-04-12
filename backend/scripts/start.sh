@@ -40,7 +40,7 @@ trap cleanup SIGTERM SIGINT
 APP_ENV="${APP_ENV:-production}"
 PORT="${PORT:-8000}"
 WORKERS="${WORKERS:-4}"
-LOG_LEVEL="${LOG_LEVEL:-info}"
+LOG_LEVEL="$(echo "${LOG_LEVEL:-info}" | tr '[:upper:]' '[:lower:]')"
 
 echo "=============================================="
 echo " 泌尿科 AI 語音問診助手 — 後端服務"
