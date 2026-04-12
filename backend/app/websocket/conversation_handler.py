@@ -98,10 +98,27 @@ async def conversation_websocket(
             )
             return
 
-        # ── 步驟 3：建立連線並初始化管線 ────────────────
+        # ── 步驟 3：建立連線 ────────────────────────────
         await manager.connect_session(websocket, session_id)
 
-        # 初始化 AI 管線
+        # 立即發送 connection_ack（在任何 I/O 初始化之前）
+        await manager.send_to_session(
+            session_id,
+            {
+                "type": "connection_ack",
+                "payload": {
+                    "session_id": session_id,
+                    "status": "connected",
+                    "config": {
+                        "audio_format": "wav",
+                        "sample_rate": settings.GOOGLE_STT_SAMPLE_RATE,
+                        "max_chunk_size_bytes": 32768,  # 32KB
+                    },
+                },
+            },
+        )
+
+        # 初始化 AI 管線（在 ack 之後，避免初始化延遲導致客戶端逾時）
         stt_pipeline = STTPipeline(settings)
         llm_engine = LLMConversationEngine(settings)
         tts_pipeline = TTSPipeline(settings)
@@ -125,23 +142,6 @@ async def conversation_websocket(
         system_prompt = llm_engine.build_system_prompt(
             chief_complaint=session_context["chief_complaint"],
             patient_info=session_context["patient_info"],
-        )
-
-        # 發送 connection_ack
-        await manager.send_to_session(
-            session_id,
-            {
-                "type": "connection_ack",
-                "payload": {
-                    "session_id": session_id,
-                    "status": "connected",
-                    "config": {
-                        "audio_format": "wav",
-                        "sample_rate": settings.GOOGLE_STT_SAMPLE_RATE,
-                        "max_chunk_size_bytes": 32768,  # 32KB
-                    },
-                },
-            },
         )
 
         # 更新場次狀態為進行中
