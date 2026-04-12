@@ -15,6 +15,114 @@ import type {
   Treatment,
 } from '../../types';
 
+// ── AI 原始輸出正規化（處理型別不一致）─────────────────────
+function toStrArr(v: unknown): string[] {
+  if (!v) return [];
+  if (Array.isArray(v)) return (v as unknown[]).map(String).filter(Boolean);
+  if (typeof v === 'string') return v.trim() ? [v] : [];
+  return [];
+}
+
+function normalizeSubjective(raw: Record<string, unknown>): SOAPSubjective {
+  const hpiRaw = (raw.hpi ?? {}) as Record<string, unknown>;
+  return {
+    chiefComplaint: String(raw.chiefComplaint ?? raw.chief_complaint ?? ''),
+    hpi: {
+      onset:              String(hpiRaw.onset ?? ''),
+      location:           String(hpiRaw.location ?? ''),
+      duration:           String(hpiRaw.duration ?? ''),
+      characteristics:    String(hpiRaw.characteristics ?? ''),
+      severity:           String(hpiRaw.severity ?? ''),
+      aggravatingFactors: toStrArr(hpiRaw.aggravatingFactors ?? hpiRaw.aggravating_factors),
+      relievingFactors:   toStrArr(hpiRaw.relievingFactors ?? hpiRaw.relieving_factors),
+      associatedSymptoms: toStrArr(hpiRaw.associatedSymptoms ?? hpiRaw.associated_symptoms),
+      timing:             String(hpiRaw.timing ?? ''),
+      context:            String(hpiRaw.context ?? ''),
+    },
+    pastMedicalHistory: (() => {
+      const pmh = raw.pastMedicalHistory ?? raw.past_medical_history;
+      if (pmh && typeof pmh === 'object' && !Array.isArray(pmh)) {
+        const p = pmh as Record<string, unknown>;
+        return { conditions: toStrArr(p.conditions), surgeries: toStrArr(p.surgeries), hospitalizations: toStrArr(p.hospitalizations) };
+      }
+      return { conditions: toStrArr(pmh), surgeries: [], hospitalizations: [] };
+    })(),
+    medicationHistory: (() => {
+      const mh = raw.medicationHistory ?? raw.medication_history ?? raw.medications;
+      if (mh && typeof mh === 'object' && !Array.isArray(mh)) {
+        const m = mh as Record<string, unknown>;
+        return { current: toStrArr(m.current), past: toStrArr(m.past), otc: toStrArr(m.otc) };
+      }
+      return { current: toStrArr(mh), past: [], otc: [] };
+    })(),
+    systemReview: (() => {
+      const sr = raw.systemReview ?? raw.system_review ?? raw.reviewOfSystems ?? raw.review_of_systems;
+      if (sr && typeof sr === 'object' && !Array.isArray(sr)) return sr as Record<string, string>;
+      return {};
+    })(),
+    socialHistory: (() => {
+      const sh = raw.socialHistory ?? raw.social_history;
+      if (sh && typeof sh === 'object' && !Array.isArray(sh)) return sh as Record<string, string>;
+      return {};
+    })(),
+  };
+}
+
+function normalizeObjective(raw: Record<string, unknown>): SOAPObjective {
+  return {
+    vitalSigns: raw.vitalSigns as SOAPObjective['vitalSigns'],
+    physicalExam: raw.physicalExam as Record<string, string> | undefined,
+    labResults: Array.isArray(raw.labResults) ? raw.labResults as LabResult[] : undefined,
+  };
+}
+
+function normalizeAssessment(raw: Record<string, unknown>): SOAPAssessment {
+  const dxRaw = Array.isArray(raw.differentialDiagnoses) ? raw.differentialDiagnoses : [];
+  return {
+    clinicalImpression: String(raw.clinicalImpression ?? ''),
+    differentialDiagnoses: (dxRaw as Record<string, unknown>[]).map((dx) => ({
+      diagnosis: String(dx.diagnosis ?? ''),
+      icd10:     String(dx.icd10 ?? ''),
+      // AI returns 'likelihood' (high/moderate/low); frontend uses 'probability' (high/medium/low)
+      probability: (() => {
+        const raw_p = String(dx.probability ?? dx.likelihood ?? 'low');
+        return (raw_p === 'moderate' ? 'medium' : raw_p) as DifferentialDiagnosis['probability'];
+      })(),
+      reasoning: String(dx.reasoning ?? ''),
+    })),
+  };
+}
+
+function normalizePlan(raw: Record<string, unknown>): SOAPPlan {
+  const testsRaw = Array.isArray(raw.recommendedTests) ? raw.recommendedTests : [];
+  const txRaw = Array.isArray(raw.treatments) ? raw.treatments : [];
+  const fuRaw = raw.followUp;
+
+  return {
+    recommendedTests: (testsRaw as Record<string, unknown>[]).map((t) => ({
+      testName:        String(t.testName ?? t.test_name ?? t),
+      rationale:       String(t.rationale ?? ''),
+      urgency:         (String(t.urgency ?? 'routine')) as RecommendedTest['urgency'],
+      clinicalReasoning: t.clinicalReasoning ? String(t.clinicalReasoning) : undefined,
+    })),
+    treatments: (txRaw as unknown[]).map((t): Treatment => {
+      if (typeof t === 'string') return { type: '其他', name: t, instruction: '' };
+      const tx = t as Record<string, unknown>;
+      return { type: String(tx.type ?? ''), name: String(tx.name ?? ''), instruction: String(tx.instruction ?? ''), note: tx.note ? String(tx.note) : undefined };
+    }),
+    followUp: (() => {
+      if (fuRaw && typeof fuRaw === 'object' && !Array.isArray(fuRaw)) {
+        const f = fuRaw as Record<string, unknown>;
+        return { interval: String(f.interval ?? ''), reason: String(f.reason ?? ''), additionalNotes: f.additionalNotes ? String(f.additionalNotes) : undefined };
+      }
+      return { interval: String(fuRaw ?? ''), reason: '' };
+    })(),
+    referrals:        toStrArr(raw.referrals),
+    patientEducation: toStrArr(raw.patientEducation ?? raw.patient_education),
+    diagnosticReasoning: raw.diagnosticReasoning ? String(raw.diagnosticReasoning) : undefined,
+  };
+}
+
 interface SOAPCardProps {
   section: 'subjective' | 'objective' | 'assessment' | 'plan';
   content: Record<string, unknown> | null | undefined;
@@ -522,10 +630,10 @@ export default function SOAPCard({ section, content }: SOAPCardProps) {
   const renderContent = () => {
     if (!content) return <p className="py-2 text-center text-body-lg text-ink-placeholder">尚無資料</p>;
     switch (section) {
-      case 'subjective':  return <SubjectiveContent data={content as unknown as SOAPSubjective} />;
-      case 'objective':   return <ObjectiveContent data={content as unknown as SOAPObjective} />;
-      case 'assessment':  return <AssessmentContent data={content as unknown as SOAPAssessment} />;
-      case 'plan':        return <PlanContent data={content as unknown as SOAPPlan} />;
+      case 'subjective':  return <SubjectiveContent data={normalizeSubjective(content)} />;
+      case 'objective':   return <ObjectiveContent data={normalizeObjective(content)} />;
+      case 'assessment':  return <AssessmentContent data={normalizeAssessment(content)} />;
+      case 'plan':        return <PlanContent data={normalizePlan(content)} />;
       default:            return null;
     }
   };
