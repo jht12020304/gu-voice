@@ -311,9 +311,43 @@ class SessionService:
     async def create_session(
         self, db: AsyncSession, data: Any, current_user: Any = None
     ) -> Session:
+        import random
+        from datetime import date
+        from app.models.enums import Gender
+        from app.models.patient import Patient
+        from app.models.user import User
+
         data_dict = data.model_dump()
-        if not data_dict.get("patient_id") and current_user and getattr(current_user, "role", None) == "patient":
-            data_dict["patient_id"] = current_user.id
+
+        # frontend 送來的 patient_id 是 users.id，需轉成 patients.id
+        # 若前端沒送，則用目前登入的使用者 id
+        user_id = data_dict.get("patient_id") or (
+            current_user.id if current_user else None
+        )
+
+        # 查找對應的 patients 記錄
+        patient_result = await db.execute(
+            select(Patient).where(Patient.user_id == user_id)
+        )
+        patient = patient_result.scalar_one_or_none()
+
+        if patient is None:
+            # 查出使用者姓名
+            user_result = await db.execute(select(User).where(User.id == user_id))
+            user_obj = user_result.scalar_one_or_none()
+            mrn = f"P-{utc_now().year}-{random.randint(100000, 999999)}"
+            patient = Patient(
+                user_id=user_id,
+                medical_record_number=mrn,
+                name=user_obj.name if user_obj else "未知",
+                gender=Gender.OTHER,
+                date_of_birth=date(1900, 1, 1),
+            )
+            db.add(patient)
+            await db.flush()
+
+        data_dict["patient_id"] = patient.id
+
         session = await SessionService.create(db, data_dict)
         await db.commit()
         # Re-fetch with conversations eagerly loaded to avoid lazy-load error during serialization
