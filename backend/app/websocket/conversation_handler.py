@@ -731,7 +731,7 @@ async def _handle_text_message(
                 }
             )
 
-        # 若有 critical 等級，中止場次
+        # 若有 critical 等級，中止場次並生成 SOAP 報告
         has_critical = any(
             a["severity"] == "critical" for a in red_flag_alerts
         )
@@ -764,6 +764,15 @@ async def _handle_text_message(
                         "reason": "偵測到 critical 紅旗症狀",
                     },
                 }
+            )
+            # 觸發 SOAP 報告生成（紅旗中止場次同樣需要報告供醫師審閱）
+            asyncio.create_task(
+                _generate_soap_report_async(
+                    session_id=session_id,
+                    conversation_history=conversation_history,
+                    session_context=session_context,
+                    settings=settings,
+                )
             )
 
 
