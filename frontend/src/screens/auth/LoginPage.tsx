@@ -48,12 +48,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md animate-fade-in">
         {/* Logo + 標題 */}
         <div className="mb-8 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-card bg-primary-600 text-xl font-bold text-white shadow-card">
-            <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
-            </svg>
-          </div>
-          <h1 className="mt-4 text-h1 text-ink-heading dark:text-white">泌尿科 AI 問診助手</h1>
+          <img src="/logo.png" alt="UroSense" className="mx-auto h-20 w-20 object-contain" />
+          <h1 className="mt-3 text-h1 text-ink-heading dark:text-white">UroSense</h1>
           <p className="mt-1 text-body text-ink-secondary">請登入您的帳號</p>
         </div>
 
@@ -143,7 +139,7 @@ export default function LoginPage() {
 
         {/* 底部資訊 */}
         <p className="mt-6 text-center text-small text-ink-muted">
-          GU Voice v1.0 — 泌尿科 AI 語音問診系統
+          UroSense v1.0 — 泌尿科 AI 語音問診系統
         </p>
       </div>
     </div>

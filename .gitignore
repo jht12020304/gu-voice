@@ -37,6 +37,8 @@ Thumbs.db
 
 # PNG design screenshots (not needed in repo)
 *.png
+# Exception: app logo in frontend public
+!frontend/public/logo.png
 
 # Misc design/integration notes
 awesome-design-md-main/
