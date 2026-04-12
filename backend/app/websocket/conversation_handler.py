@@ -107,12 +107,12 @@ async def conversation_websocket(
             {
                 "type": "connection_ack",
                 "payload": {
-                    "session_id": session_id,
+                    "sessionId": session_id,
                     "status": "connected",
                     "config": {
-                        "audio_format": "wav",
-                        "sample_rate": settings.GOOGLE_STT_SAMPLE_RATE,
-                        "max_chunk_size_bytes": 32768,  # 32KB
+                        "audioFormat": "wav",
+                        "sampleRate": settings.GOOGLE_STT_SAMPLE_RATE,
+                        "maxChunkSizeBytes": 32768,  # 32KB
                     },
                 },
             },
@@ -154,9 +154,9 @@ async def conversation_websocket(
             {
                 "type": "session_status_changed",
                 "payload": {
-                    "session_id": session_id,
+                    "sessionId": session_id,
                     "status": "in_progress",
-                    "previous_status": session_status,
+                    "previousStatus": session_status,
                     "reason": "WebSocket 連線建立",
                 },
             }
@@ -183,7 +183,7 @@ async def conversation_websocket(
                     {
                         "type": "pong",
                         "payload": {
-                            "server_time": datetime.now(timezone.utc).isoformat()
+                            "serverTime": datetime.now(timezone.utc).isoformat()
                         },
                     },
                 )
@@ -203,9 +203,9 @@ async def conversation_websocket(
                         {
                             "type": "session_status",
                             "payload": {
-                                "session_id": session_id,
+                                "sessionId": session_id,
                                 "status": "completed",
-                                "previous_status": "in_progress",
+                                "previousStatus": "in_progress",
                                 "reason": "病患或助手結束場次",
                             },
                         },
@@ -214,9 +214,9 @@ async def conversation_websocket(
                         {
                             "type": "session_status_changed",
                             "payload": {
-                                "session_id": session_id,
+                                "sessionId": session_id,
                                 "status": "completed",
-                                "previous_status": "in_progress",
+                                "previousStatus": "in_progress",
                                 "reason": "場次正常結束",
                             },
                         }
@@ -419,10 +419,10 @@ async def _handle_audio_chunk(
                     {
                         "type": "stt_final",
                         "payload": {
-                            "message_id": message_id,
+                            "messageId": message_id,
                             "text": result["text"],
                             "confidence": result["confidence"],
-                            "is_final": True,
+                            "isFinal": True,
                         },
                     },
                 )
@@ -435,7 +435,7 @@ async def _handle_audio_chunk(
                         "payload": {
                             "text": result["text"],
                             "confidence": result["confidence"],
-                            "is_final": False,
+                            "isFinal": False,
                         },
                     },
                 )
@@ -528,7 +528,7 @@ async def _handle_text_message(
         session_id,
         {
             "type": "ai_response_start",
-            "payload": {"message_id": message_id},
+            "payload": {"messageId": message_id},
         },
     )
 
@@ -551,9 +551,9 @@ async def _handle_text_message(
                 {
                     "type": "ai_response_chunk",
                     "payload": {
-                        "message_id": message_id,
+                        "messageId": message_id,
                         "text": text_chunk,
-                        "chunk_index": chunk_index,
+                        "chunkIndex": chunk_index,
                     },
                 },
             )
@@ -620,9 +620,9 @@ async def _handle_text_message(
         {
             "type": "ai_response_end",
             "payload": {
-                "message_id": message_id,
-                "full_text": full_response,
-                "tts_audio_url": tts_url,
+                "messageId": message_id,
+                "fullText": full_response,
+                "ttsAudioUrl": tts_url,
             },
         },
     )
@@ -652,11 +652,11 @@ async def _handle_text_message(
                 {
                     "type": "red_flag_alert",
                     "payload": {
-                        "alert_id": alert_id,
+                        "alertId": alert_id,
                         "severity": alert["severity"],
                         "title": alert["title"],
                         "description": alert["description"],
-                        "suggested_actions": alert.get("suggested_actions", []),
+                        "suggestedActions": alert.get("suggested_actions", []),
                     },
                 },
             )
@@ -666,9 +666,9 @@ async def _handle_text_message(
                 {
                     "type": "new_red_flag",
                     "payload": {
-                        "alert_id": alert_id,
-                        "session_id": session_id,
-                        "patient_name": session_context.get("patient_info", {}).get(
+                        "alertId": alert_id,
+                        "sessionId": session_id,
+                        "patientName": session_context.get("patient_info", {}).get(
                             "name", "未知"
                         ),
                         "severity": alert["severity"],
@@ -694,9 +694,9 @@ async def _handle_text_message(
                 {
                     "type": "session_status",
                     "payload": {
-                        "session_id": session_id,
+                        "sessionId": session_id,
                         "status": "aborted_red_flag",
-                        "previous_status": "in_progress",
+                        "previousStatus": "in_progress",
                         "reason": "偵測到危急紅旗症狀，場次已中止，請立即就醫",
                     },
                 },
@@ -705,9 +705,9 @@ async def _handle_text_message(
                 {
                     "type": "session_status_changed",
                     "payload": {
-                        "session_id": session_id,
+                        "sessionId": session_id,
                         "status": "aborted_red_flag",
-                        "previous_status": "in_progress",
+                        "previousStatus": "in_progress",
                         "reason": "偵測到 critical 紅旗症狀",
                     },
                 }
