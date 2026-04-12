@@ -216,7 +216,7 @@ export default function ConversationPage() {
     if (!inputText.trim()) return;
     
     // 透過 websocket 發送
-    send('control', { action: 'text_message', text: inputText.trim() });
+    send('text_message', { text: inputText.trim() });
     
     // 加入畫面
     addConversation({
