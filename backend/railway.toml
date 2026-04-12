@@ -28,11 +28,7 @@ restartPolicyMaxRetries = 5
 # 副本數量（依需求調整，單一副本適合初期）
 numReplicas = 1
 
-# 睡眠設定（開發環境可啟用以節省費用，正式環境建議關閉）
-# sleepApplication = false
-
-[deploy.region]
 # Railway 部署區域 — 選擇離台灣最近的區域以降低延遲
 # 可用區域：us-west1, us-east4, asia-southeast1, europe-west4 等
 # asia-southeast1（新加坡）對台灣使用者延遲最低
-default = "asia-southeast1"
+region = "asia-southeast1"
