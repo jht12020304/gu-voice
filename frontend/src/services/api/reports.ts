@@ -20,14 +20,15 @@ export async function getReport(id: string): Promise<SOAPReport> {
   return data;
 }
 
-/** 依場次取得報告 */
+/** 依場次取得報告（含完整 S/O/A/P 內容） */
 export async function getReportBySession(sessionId: string): Promise<SOAPReport> {
-  // 使用 list + filter 實作，後端無直接 by-session 端點
+  // 1. 從列表取得報告 ID
   const { data } = await apiClient.get<PaginatedResponse<SOAPReport>>(BASE, {
     params: { sessionId, limit: 1 },
   });
   if (data.data.length === 0) throw new Error('Report not found');
-  return data.data[0];
+  // 2. 用 ID 取得含完整 S/O/A/P 的詳細報告
+  return await getReport(data.data[0].id);
 }
 
 /** 產生報告（觸發 AI 生成） */
