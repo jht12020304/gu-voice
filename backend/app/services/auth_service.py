@@ -88,23 +88,24 @@ class AuthService:
         }
 
     @staticmethod
-    async def register(db: AsyncSession, data: dict[str, Any]) -> dict[str, Any]:
+    async def register(db: AsyncSession, data: Any, current_user: Any = None) -> dict[str, Any]:
         """
         使用者註冊
 
         Args:
             db: 資料庫 session
-            data: 註冊資料（email, password, name, role, ...）
+            data: 註冊資料（RegisterRequest Pydantic model）
+            current_user: 目前登入的使用者（可選，用於管理員建立帳號）
 
         Returns:
-            新建使用者資訊
+            包含 access_token、refresh_token 與使用者資訊的字典
 
         Raises:
             EmailAlreadyExistsException: Email 已被註冊
         """
         # 檢查 email 是否已存在
         result = await db.execute(
-            select(User).where(User.email == data["email"])
+            select(User).where(User.email == data.email)
         )
         if result.scalar_one_or_none() is not None:
             raise EmailAlreadyExistsException()
@@ -112,13 +113,13 @@ class AuthService:
         # 建立使用者
         now = utc_now()
         user = User(
-            email=data["email"],
-            password_hash=hash_password(data["password"]),
-            name=data["name"],
-            role=data.get("role", UserRole.PATIENT),
-            phone=data.get("phone"),
-            department=data.get("department"),
-            license_number=data.get("license_number"),
+            email=data.email,
+            password_hash=hash_password(data.password),
+            name=data.name,
+            role=data.role,
+            phone=data.phone,
+            department=data.department,
+            license_number=data.license_number,
             is_active=True,
             created_at=now,
             updated_at=now,
@@ -126,11 +127,21 @@ class AuthService:
         db.add(user)
         await db.flush()
 
+        # 建立 JWT token 對（與登入回應格式一致）
+        access_token = create_access_token(str(user.id), user.role.value)
+        refresh_token = create_refresh_token(str(user.id), user.role.value)
+
         return {
-            "id": str(user.id),
-            "email": user.email,
-            "name": user.name,
-            "role": user.role.value,
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "role": user.role.value,
+            },
         }
 
     @staticmethod
