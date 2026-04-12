@@ -1,0 +1,83 @@
+# =============================================================================
+# 泌尿科 AI 語音問診助手 — Docker Compose
+# 使用方式：docker compose up -d
+# =============================================================================
+
+services:
+  # ── PostgreSQL 資料庫 ──────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: gu_voice
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis 快取 ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── 後端 FastAPI ───────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: development
+      APP_DEBUG: "true"
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/gu_voice
+      REDIS_URL: redis://redis:6379/0
+      REDIS_KEY_PREFIX: "gu_dev:"
+      CORS_ORIGINS: "http://localhost:5173,http://localhost:3000,http://localhost:80"
+      JWT_ALGORITHM: HS256
+      JWT_SECRET_KEY: docker-dev-jwt-secret-at-least-32-characters
+      LOG_LEVEL: DEBUG
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+
+  # ── 前端 (開發模式用 Vite dev server) ──────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:8000/api/v1
+        VITE_WS_BASE_URL: ws://localhost:8000/api/v1/ws
+        VITE_ENABLE_MOCK: "false"
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

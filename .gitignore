@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Environment files (secrets)
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# Logs
+*.log
+backend/backend.log
+
+# Node
+node_modules/
+frontend/node_modules/
+
+# Vite build output
+frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PNG design screenshots (not needed in repo)
+*.png
+
+# Misc design/integration notes
+awesome-design-md-main/
+cal/
+intercom/
+notion/
+sentry/
+stripe/
+supabase/
+vercel/
+
+# Python test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp

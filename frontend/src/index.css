@@ -1,0 +1,419 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;600;700&family=Source+Code+Pro:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =============================================================================
+   泌尿科 AI 語音問診助手 — 全域樣式
+   設計融合: Stripe (基底) + Intercom (對話) + Sentry (告警)
+   ============================================================================= */
+
+@layer base {
+  /* 全域字型與色彩 — Inter OpenType cv01+ss03 (Linear 風格幾何替代) */
+  html {
+    font-family: 'Inter', 'Noto Sans TC', system-ui, -apple-system, sans-serif;
+    font-feature-settings: 'cv01', 'ss03';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color: #425466;
+    background-color: #ffffff;
+  }
+
+  /* 暗色模式全域 */
+  html.dark {
+    color: #d0d6e0;
+    background-color: #0f1117;
+  }
+
+  /* 標題 — Stripe 深海軍藍，非純黑 + Linear 負間距 */
+  h1, h2, h3, h4, h5, h6 {
+    color: #061b31;
+    font-feature-settings: 'cv01', 'ss03';
+    letter-spacing: -0.02em;
+  }
+  html.dark h1, html.dark h2, html.dark h3,
+  html.dark h4, html.dark h5, html.dark h6 {
+    color: #f7f8f8;
+  }
+
+  /* 表格數字 — Stripe tnum 確保對齊 */
+  .tabular-nums,
+  table td,
+  [data-numeric] {
+    font-feature-settings: 'tnum';
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 自訂捲軸 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #d0dae8;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #8898aa;
+  }
+  html.dark ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  html.dark ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  /* 移除 input 自動填入背景色 */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0px 1000px white inset;
+    transition: background-color 5000s ease-in-out 0s;
+  }
+  html.dark input:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0px 1000px #1e2330 inset;
+    -webkit-text-fill-color: #d0d6e0;
+  }
+
+  /* 焦點環 — 明確可見 (WCAG) */
+  :focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* ===== 卡片 — Stripe 藍調陰影 + 微 lift 懸停 ===== */
+  .card {
+    @apply bg-white rounded-card border border-edge p-5;
+    box-shadow: 0px 1px 2px rgba(50, 50, 93, 0.06), 0px 1px 2px rgba(0, 0, 0, 0.04);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  }
+  .card:hover {
+    box-shadow: 0px 4px 12px rgba(50, 50, 93, 0.08), 0px 2px 6px rgba(0, 0, 0, 0.04);
+    border-color: #d0dae8;
+  }
+  .card-interactive {
+    cursor: pointer;
+  }
+  .card-interactive:hover {
+    transform: translateY(-1px);
+    box-shadow: 0px 6px 16px rgba(50, 50, 93, 0.1), 0px 3px 8px rgba(0, 0, 0, 0.05);
+  }
+  .card-interactive:active {
+    transform: translateY(0);
+    box-shadow: 0px 1px 2px rgba(50, 50, 93, 0.06), 0px 1px 2px rgba(0, 0, 0, 0.04);
+  }
+  html.dark .card {
+    @apply bg-dark-card;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  html.dark .card:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  /* ===== 按鈕 — 保守 4px 圓角 + Sentry 質感按壓 ===== */
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-btn bg-primary-600 px-4 py-2 text-body font-medium text-white;
+    transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  }
+  .btn-primary:hover {
+    @apply bg-primary-700;
+    box-shadow: 0px 2px 8px rgba(37, 99, 235, 0.25);
+  }
+  .btn-primary:active {
+    transform: scale(0.98);
+  }
+  .btn-primary:focus-visible {
+    box-shadow: 0px 0px 0px 3px rgba(37, 99, 235, 0.15);
+  }
+  .btn-primary:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-btn border border-edge bg-white px-4 py-2 text-body font-medium text-ink-heading;
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btn-secondary:hover {
+    @apply bg-surface-tertiary border-edge-hover;
+    box-shadow: 0px 1px 4px rgba(50, 50, 93, 0.06);
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center rounded-btn bg-alert-critical px-4 py-2 text-body font-medium text-white;
+    transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  }
+  .btn-danger:hover {
+    background-color: #b91c1c;
+    box-shadow: 0px 2px 8px rgba(220, 38, 38, 0.25);
+  }
+  .btn-danger:active {
+    transform: scale(0.98);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center rounded-btn px-4 py-2 text-body font-medium text-ink-body;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .btn-ghost:hover {
+    @apply bg-surface-tertiary text-ink-heading;
+  }
+
+  /* ===== 輸入框 ===== */
+  .input-base {
+    @apply block w-full rounded-input border border-edge bg-white px-3 py-2 text-body text-ink-heading placeholder-ink-placeholder;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .input-base:focus {
+    @apply border-edge-focus outline-none;
+    box-shadow: 0px 0px 0px 3px rgba(37, 99, 235, 0.15);
+  }
+  html.dark .input-base {
+    @apply bg-dark-card border-dark-border text-white;
+  }
+
+  /* ===== 狀態徽章 — Pill 圓角 ===== */
+  .badge {
+    @apply inline-flex items-center rounded-pill px-2.5 py-0.5 text-tiny font-semibold uppercase tracking-wider;
+  }
+  .badge-waiting {
+    @apply bg-status-waiting-bg text-status-waiting border border-status-waiting-border;
+  }
+  .badge-in-progress {
+    @apply bg-status-in-progress-bg text-status-in-progress border border-status-in-progress-border;
+  }
+  .badge-completed {
+    @apply bg-status-completed-bg text-status-completed border border-status-completed-border;
+  }
+  .badge-red-flag {
+    @apply bg-status-red-flag-bg text-status-red-flag border border-status-red-flag-border;
+  }
+  .badge-cancelled {
+    @apply bg-status-cancelled-bg text-status-cancelled border border-status-cancelled-border;
+  }
+
+  /* ===== 告警徽章 — Sentry uppercase 風格 ===== */
+  .badge-critical {
+    @apply bg-alert-critical-bg text-alert-critical-text border border-alert-critical-border;
+  }
+  .badge-high {
+    @apply bg-alert-high-bg text-alert-high-text border border-alert-high-border;
+  }
+  .badge-medium {
+    @apply bg-alert-medium-bg text-alert-medium-text border border-alert-medium-border;
+  }
+
+  /* ===== 對話氣泡 — Intercom 暖色調 ===== */
+  .chat-bubble-patient {
+    @apply bg-chat-patient-bg text-ink-heading rounded-bubble rounded-br-btn px-4 py-3;
+    max-width: 80%;
+  }
+  .chat-bubble-ai {
+    @apply bg-chat-ai-bg text-ink-heading rounded-bubble rounded-bl-btn px-4 py-3;
+    max-width: 80%;
+  }
+  .chat-bubble-system {
+    @apply bg-chat-system-bg text-chat-system rounded-card px-4 py-2 text-small text-center mx-auto;
+    max-width: 70%;
+  }
+
+  /* ===== 表格 ===== */
+  .table-header {
+    @apply bg-surface-secondary text-tiny font-semibold uppercase tracking-wider text-ink-muted;
+  }
+  .table-row {
+    @apply border-b border-edge transition-colors;
+  }
+  .table-row:hover {
+    @apply bg-surface-tertiary;
+  }
+
+  /* ===== 側邊欄 — Linear 風格左側標記 ===== */
+  .sidebar-item {
+    @apply flex items-center gap-3 rounded-card px-3 py-2 text-body font-medium text-ink-secondary relative;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .sidebar-item:hover {
+    @apply bg-surface-tertiary text-ink-heading;
+  }
+  html.dark .sidebar-item:hover {
+    @apply bg-dark-hover text-white;
+  }
+  .sidebar-item-active {
+    @apply bg-primary-50 text-primary-700;
+  }
+  .sidebar-item-active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background-color: #2563eb;
+  }
+  html.dark .sidebar-item-active {
+    @apply bg-primary-950 text-primary-300;
+  }
+  html.dark .sidebar-item-active::before {
+    background-color: #60a5fa;
+  }
+
+  /* ===== 告警卡片 — 左側漸層色帶 + Sentry 監控風格 ===== */
+  .alert-card {
+    @apply card relative overflow-hidden;
+    padding-left: 1.5rem;
+  }
+  .alert-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: 0 2px 2px 0;
+  }
+  .alert-card-critical::before {
+    background: linear-gradient(180deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%);
+  }
+  .alert-card-critical {
+    border-left: none;
+  }
+  .alert-card-high::before {
+    background: linear-gradient(180deg, #f97316 0%, #ea580c 50%, #c2410c 100%);
+  }
+  .alert-card-high {
+    border-left: none;
+  }
+  .alert-card-medium::before {
+    background: linear-gradient(180deg, #fbbf24 0%, #d97706 50%, #b45309 100%);
+  }
+  .alert-card-medium {
+    border-left: none;
+  }
+
+  /* ===== 毛玻璃面板 — Sentry 風格 ===== */
+  .glass {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+  html.dark .glass {
+    background: rgba(30, 35, 48, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  /* ===== 骨架載入 — Stripe 閃光 ===== */
+  .skeleton {
+    @apply rounded-btn;
+    background: linear-gradient(90deg, #f1f3f9 25%, #e5edf5 37%, #f1f3f9 63%);
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+  html.dark .skeleton {
+    background: linear-gradient(90deg, #1e2330 25%, #272d3d 37%, #1e2330 63%);
+    background-size: 200% 100%;
+  }
+}
+
+@layer utilities {
+  /* 文字截斷 */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* 表格數字工具類 */
+  .font-tnum {
+    font-feature-settings: 'tnum';
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 告警脈動 — Sentry 風格 */
+  .pulse-critical {
+    animation: pulseAlert 2s ease-in-out infinite;
+  }
+
+  /* 告警標籤 — Sentry uppercase 監控風格 */
+  .label-alert {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+
+  /* 等寬數據 — 用於病歷號碼、診斷碼 */
+  .font-data {
+    font-family: 'Source Code Pro', 'JetBrains Mono', ui-monospace, monospace;
+    font-feature-settings: 'tnum';
+  }
+
+  /* 過渡入場輔助 */
+  .appear {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  /* AI 思考指示器 — Claude 風格跳動點 */
+  .thinking-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .thinking-dots > span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: currentColor;
+    opacity: 0.4;
+    animation: thinkingBounce 1.4s ease-in-out infinite;
+  }
+  .thinking-dots > span:nth-child(2) { animation-delay: 0.2s; }
+  .thinking-dots > span:nth-child(3) { animation-delay: 0.4s; }
+
+  /* 串流文字游標 — Cursor 風格 */
+  .streaming-cursor::after {
+    content: '▊';
+    display: inline;
+    color: #ea580c;
+    animation: cursorBlink 0.8s ease-in-out infinite;
+    margin-left: 1px;
+    font-size: 0.85em;
+  }
+}
+
+/* ===== 無障礙：減少動效模式 ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .pulse-critical,
+  .animate-pulse-alert {
+    animation: none !important;
+  }
+}
+
+/* ===== 額外 keyframes ===== */
+@keyframes thinkingBounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}

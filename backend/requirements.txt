@@ -1,0 +1,70 @@
+# =============================================================================
+# 泌尿科 AI 語音問診助手 — Python 依賴套件清單
+# 所有版本已鎖定，確保部署一致性
+# =============================================================================
+
+# --- Web 框架與 ASGI 伺服器 ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+websockets==14.1
+python-multipart==0.0.19
+
+# --- 資料驗證與序列化（Pydantic v2）---
+pydantic==2.10.4
+pydantic-settings==2.7.1
+email-validator==2.2.0
+
+# --- 資料庫（SQLAlchemy 2.0 + async）---
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.1
+greenlet==3.1.1
+
+# --- 認證與安全 ---
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.1
+cryptography==44.0.0
+
+# --- HTTP 客戶端 ---
+httpx==0.28.1
+aiohttp==3.11.11
+
+# --- OpenAI SDK ---
+openai==1.58.1
+tiktoken==0.8.0
+
+# --- Google Cloud 語音服務 ---
+google-cloud-speech==2.28.1
+google-cloud-texttospeech==2.22.0
+google-auth==2.37.0
+google-api-core==2.24.0
+
+# --- PDF 報告產生 ---
+weasyprint==63.1
+
+# --- Redis 快取 ---
+redis[hiredis]==5.2.1
+
+# --- Celery 非同步任務佇列 ---
+celery[redis]==5.4.0
+
+# --- Sentry 錯誤追蹤 ---
+sentry-sdk[fastapi]==2.19.2
+
+# --- Firebase 推播通知 ---
+firebase-admin==6.6.0
+
+# --- Supabase Client ---
+supabase==2.11.0
+
+# --- 工具套件 ---
+python-dotenv==1.0.1
+orjson==3.10.13
+tenacity==9.0.0
+python-dateutil==2.9.0.post0
+pytz==2024.2
+jinja2==3.1.5
+
+# --- 健康檢查與監控 ---
+prometheus-fastapi-instrumentator==7.0.2

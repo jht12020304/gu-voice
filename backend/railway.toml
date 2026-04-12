@@ -1,0 +1,38 @@
+# =============================================================================
+# 泌尿科 AI 語音問診助手 — Railway 部署設定
+# =============================================================================
+
+[build]
+# 使用 Dockerfile 建置
+builder = "DOCKERFILE"
+dockerfilePath = "./Dockerfile"
+
+# 建置時可傳入的參數（如有需要可取消註解）
+# [build.buildArgs]
+# PYTHON_VERSION = "3.11"
+
+[deploy]
+# 健康檢查路徑 — Railway 會定期呼叫此端點確認服務狀態
+healthcheckPath = "/api/v1/health"
+
+# 健康檢查逾時（秒）
+healthcheckTimeout = 300
+
+# 啟動後等待多久開始健康檢查（秒）— 預留時間給資料庫遷移
+startCommand = "/app/scripts/start.sh"
+
+# 重啟策略：服務異常終止時自動重啟
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+# 副本數量（依需求調整，單一副本適合初期）
+numReplicas = 1
+
+# 睡眠設定（開發環境可啟用以節省費用，正式環境建議關閉）
+# sleepApplication = false
+
+[deploy.region]
+# Railway 部署區域 — 選擇離台灣最近的區域以降低延遲
+# 可用區域：us-west1, us-east4, asia-southeast1, europe-west4 等
+# asia-southeast1（新加坡）對台灣使用者延遲最低
+default = "asia-southeast1"
