@@ -9,6 +9,7 @@ import EmptyState from '../../components/common/EmptyState';
 import type { SOAPReport } from '../../types';
 import { formatDate } from '../../utils/format';
 import { useReportStore } from '../../stores/reportStore';
+import * as sessionsApi from '../../services/api/sessions';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 
@@ -31,6 +32,7 @@ export default function ReportListPage() {
   const { reports, isLoading: storeLoading, fetchReports } = useReportStore();
   const [reviewFilter, setReviewFilter] = useState('');
   const [mockFiltered, setMockFiltered] = useState(mockReports);
+  const [patientNames, setPatientNames] = useState<Record<string, string>>({});
   const isLoading = IS_MOCK ? false : storeLoading;
 
   useEffect(() => {
@@ -45,6 +47,44 @@ export default function ReportListPage() {
   }, [reviewFilter, fetchReports]);
 
   const displayReports = IS_MOCK ? mockFiltered : reports;
+
+  useEffect(() => {
+    if (IS_MOCK || reports.length === 0) return;
+
+    let cancelled = false;
+
+    async function loadPatientNames() {
+      const missingSessionIds = reports
+        .map((report) => report.sessionId)
+        .filter((sessionId) => !patientNames[sessionId]);
+
+      if (missingSessionIds.length === 0) return;
+
+      const entries = await Promise.all(
+        missingSessionIds.map(async (sessionId) => {
+          try {
+            const session = await sessionsApi.getSession(sessionId);
+            return [sessionId, session.patient?.name ?? session.patientId] as const;
+          } catch {
+            return [sessionId, sessionId] as const;
+          }
+        }),
+      );
+
+      if (!cancelled) {
+        setPatientNames((prev) => ({
+          ...prev,
+          ...Object.fromEntries(entries),
+        }));
+      }
+    }
+
+    loadPatientNames();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reports, patientNames]);
 
   const reviewStatusLabel = (status: string) => {
     switch (status) {
@@ -91,7 +131,9 @@ export default function ReportListPage() {
       ) : (
         <div className="space-y-3">
           {displayReports.map((report) => {
-            const patientName = IS_MOCK ? (report as typeof mockReports[0]).patientName : report.sessionId;
+            const patientName = IS_MOCK
+              ? (report as typeof mockReports[0]).patientName
+              : patientNames[report.sessionId] ?? report.sessionId;
             return (
               <div
                 key={report.id}

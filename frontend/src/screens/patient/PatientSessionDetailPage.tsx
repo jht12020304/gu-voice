@@ -1,20 +1,48 @@
+import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, FileText, Calendar, Activity, CheckCircle2 } from 'lucide-react';
+import LoadingSpinner from '../../components/common/LoadingSpinner';
+import ErrorState from '../../components/common/ErrorState';
+import type { Session, SOAPReport } from '../../types';
+import * as sessionsApi from '../../services/api/sessions';
+import * as reportsApi from '../../services/api/reports';
+import { formatDate, formatDuration } from '../../utils/format';
 
 export default function PatientSessionDetailPage() {
   const { sessionId } = useParams();
+  const [session, setSession] = useState<Session | null>(null);
+  const [report, setReport] = useState<SOAPReport | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // Mock data for the session detail
-  const mockSession = {
-    id: sessionId,
-    date: '2026-04-12 14:30',
-    status: 'COMPLETED',
-    chiefComplaint: '血尿 (Bloody Urine)',
-    duration: '08:45',
-    doctor: '陳醫師',
-    notes: '患者主訴近期排尿時帶有輕微血絲，無明顯痛感。已安排進一步超音波檢查並提醒多喝水。目前不建議劇烈運動。',
-    summary: '初步排除結石可能，待驗尿與超音波結果。'
-  };
+  useEffect(() => {
+    if (!sessionId) return;
+    const currentSessionId = sessionId;
+
+    async function load() {
+      setIsLoading(true);
+      setError('');
+      try {
+        const sessionData = await sessionsApi.getSession(currentSessionId);
+        setSession(sessionData);
+        try {
+          const reportData = await reportsApi.getReportBySession(currentSessionId);
+          setReport(reportData);
+        } catch {
+          setReport(null);
+        }
+      } catch {
+        setError('無法載入問診紀錄');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    load();
+  }, [sessionId]);
+
+  if (isLoading) return <LoadingSpinner fullPage message="載入問診紀錄..." />;
+  if (error || !session) return <ErrorState message={error || '找不到問診紀錄'} />;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-20">
@@ -27,7 +55,7 @@ export default function PatientSessionDetailPage() {
         </Link>
         <div>
           <h1 className="text-2xl font-bold text-surface-900">問診紀錄詳情</h1>
-          <p className="text-sm text-surface-500">紀錄 ID: {mockSession.id?.split('-')[0]}</p>
+          <p className="text-sm text-surface-500">紀錄 ID: {session.id}</p>
         </div>
       </div>
 
@@ -41,12 +69,12 @@ export default function PatientSessionDetailPage() {
               </span>
               <span className="text-sm text-surface-500 flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
-                {mockSession.date}
+                {formatDate(session.createdAt)}
               </span>
             </div>
             <h2 className="text-xl font-bold text-primary-900 flex items-center gap-2">
               <Activity className="h-5 w-5 text-primary-600" />
-              主訴：{mockSession.chiefComplaint}
+              主訴：{session.chiefComplaintText || session.chiefComplaint?.name || '未填寫'}
             </h2>
           </div>
         </div>
@@ -56,7 +84,7 @@ export default function PatientSessionDetailPage() {
           <section>
             <h3 className="text-sm font-semibold text-surface-900 uppercase tracking-wider mb-3">醫師總結</h3>
             <div className="p-4 bg-surface-50 rounded-xl text-surface-700 leading-relaxed border border-surface-100">
-              {mockSession.summary}
+              {report?.summary || '目前尚無已產生的摘要內容。'}
             </div>
           </section>
 
@@ -67,7 +95,7 @@ export default function PatientSessionDetailPage() {
               醫囑建議
             </h3>
             <div className="p-4 bg-white border border-surface-200 shadow-sm rounded-xl text-surface-800 leading-relaxed indent-4">
-              {mockSession.notes}
+              {report?.plan?.patientEducation?.join('；') || report?.reviewNotes || '目前尚無可顯示的醫囑建議。'}
             </div>
           </section>
 
@@ -75,11 +103,11 @@ export default function PatientSessionDetailPage() {
           <section className="grid grid-cols-2 pt-6 border-t border-surface-200 gap-4">
             <div>
               <p className="text-xs text-surface-500 mb-1">主治醫師</p>
-              <p className="font-medium text-surface-900">{mockSession.doctor}</p>
+              <p className="font-medium text-surface-900">{session.doctorId || '未指派'}</p>
             </div>
             <div>
               <p className="text-xs text-surface-500 mb-1">對話時長</p>
-              <p className="font-medium text-surface-900">{mockSession.duration}</p>
+              <p className="font-medium text-surface-900">{session.durationSeconds ? formatDuration(session.durationSeconds) : '-'}</p>
             </div>
           </section>
         </div>

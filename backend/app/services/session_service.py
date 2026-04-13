@@ -63,6 +63,8 @@ class SessionService:
             status=SessionStatus.WAITING,
             red_flag=False,
             language=data.get("language", "zh-TW"),
+            intake_data=data.get("intake"),
+            intake_completed_at=now if data.get("intake") else None,
             created_at=now,
             updated_at=now,
         )
@@ -317,7 +319,7 @@ class SessionService:
         from app.models.patient import Patient
         from app.models.user import User
 
-        data_dict = data.model_dump()
+        data_dict = data.model_dump(exclude_none=True)
 
         # frontend 送來的 patient_id 是 users.id，需轉成 patients.id
         # 若前端沒送，則用目前登入的使用者 id

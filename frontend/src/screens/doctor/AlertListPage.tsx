@@ -64,7 +64,7 @@ export default function AlertListPage() {
               createdAt={alert.createdAt}
               isAcknowledged={!!alert.acknowledgedAt}
               onAcknowledge={() => acknowledgeAlert(alert.id)}
-              onClick={() => navigate(`/sessions/${alert.sessionId}`)}
+              onClick={() => navigate(`/alerts/${alert.id}`)}
             />
           ))}
         </div>

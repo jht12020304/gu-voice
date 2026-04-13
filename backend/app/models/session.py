@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -44,6 +44,10 @@ class Session(Base):
     red_flag: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
     red_flag_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     language: Mapped[str] = mapped_column(String(10), server_default=text("'zh-TW'"), nullable=False)
+    intake_data: Mapped[Optional[dict[str, object]]] = mapped_column(JSONB, nullable=True)
+    intake_completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

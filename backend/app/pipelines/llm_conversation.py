@@ -134,6 +134,8 @@ class LLMConversationEngine:
             patient_summary_parts.append(f"目前用藥：{patient_info['medications']}")
         if patient_info.get("allergies"):
             patient_summary_parts.append(f"過敏史：{patient_info['allergies']}")
+        if patient_info.get("family_history"):
+            patient_summary_parts.append(f"家族病史：{patient_info['family_history']}")
 
         patient_section = "\n".join(patient_summary_parts) if patient_summary_parts else "（尚未提供詳細資訊）"
         red_flags_section = self._get_complaint_red_flags(chief_complaint)

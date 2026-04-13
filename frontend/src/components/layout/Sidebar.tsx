@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { NavLink } from 'react-router-dom';
+import { useEffect } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { useAlertStore } from '../../stores/alertStore';
 
@@ -17,6 +18,11 @@ interface NavItem {
 export default function Sidebar() {
   const user = useAuthStore((s) => s.user);
   const unacknowledgedCount = useAlertStore((s) => s.unacknowledgedCount);
+  const fetchUnacknowledgedCount = useAlertStore((s) => s.fetchUnacknowledgedCount);
+
+  useEffect(() => {
+    fetchUnacknowledgedCount();
+  }, [fetchUnacknowledgedCount]);
 
   const navItems: NavItem[] = [
     {

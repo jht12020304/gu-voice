@@ -63,6 +63,39 @@ export interface MedicationEntry {
   indication: string;
 }
 
+export interface SessionIntakeAllergyItem {
+  allergen: string;
+  reaction?: string;
+  severity?: string;
+  hadHospitalization: boolean;
+}
+
+export interface SessionIntakeMedicationItem {
+  name: string;
+  frequency?: string;
+}
+
+export interface SessionIntakeMedicalHistoryItem {
+  condition: string;
+  yearsAgo?: string;
+  stillHas: boolean;
+}
+
+export interface SessionIntakeFamilyHistoryItem {
+  relation: string;
+  condition: string;
+}
+
+export interface SessionIntake {
+  noKnownAllergies: boolean;
+  allergies: SessionIntakeAllergyItem[];
+  noCurrentMedications: boolean;
+  currentMedications: SessionIntakeMedicationItem[];
+  noPastMedicalHistory: boolean;
+  medicalHistory: SessionIntakeMedicalHistoryItem[];
+  familyHistory: SessionIntakeFamilyHistoryItem[];
+}
+
 /** 主訴 */
 export interface ChiefComplaint {
   id: string;
@@ -89,6 +122,8 @@ export interface Session {
   redFlag: boolean;
   redFlagReason?: string;
   language: string;
+  intake?: SessionIntake;
+  intakeCompletedAt?: string;
   startedAt?: string;
   completedAt?: string;
   durationSeconds?: number;

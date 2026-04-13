@@ -206,7 +206,7 @@ export default function DashboardPage() {
                   severity={alert.severity}
                   createdAt={alert.createdAt}
                   isAcknowledged={false}
-                  onClick={() => navigate(`/sessions/${alert.sessionId}`)}
+                  onClick={() => navigate(`/alerts/${alert.id}`)}
                 />
               ))}
             </div>

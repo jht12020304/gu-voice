@@ -23,7 +23,7 @@ export function useAuth() {
       // 依角色導向
       const user = useAuthStore.getState().user;
       if (user?.role === 'patient') {
-        navigate('/patient/home');
+        navigate('/patient');
       } else if (user?.role === 'doctor') {
         navigate('/dashboard');
       } else if (user?.role === 'admin') {

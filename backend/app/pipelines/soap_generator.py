@@ -247,6 +247,8 @@ class SOAPGenerator:
             patient_parts.append(f"目前用藥：{patient_info['medications']}")
         if patient_info.get("allergies"):
             patient_parts.append(f"過敏史：{patient_info['allergies']}")
+        if patient_info.get("family_history"):
+            patient_parts.append(f"家族病史：{patient_info['family_history']}")
 
         patient_text = "\n".join(patient_parts) if patient_parts else "（未提供）"
         transcript_text = self._format_transcript(transcript)

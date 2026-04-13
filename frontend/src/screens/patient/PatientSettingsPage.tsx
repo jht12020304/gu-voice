@@ -1,20 +1,38 @@
 import { useState } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { User, Bell, Shield, KeyRound, Globe, ChevronRight } from 'lucide-react';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 export default function PatientSettingsPage() {
   const user = useAuthStore((s) => s.user);
+  const updateProfile = useAuthStore((s) => s.updateProfile);
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security'>('profile');
+  const {
+    language,
+    setLanguage,
+    notificationsEnabled,
+    setNotificationsEnabled,
+    soundEnabled,
+    setSoundEnabled,
+  } = useSettingsStore();
 
-  // Mock settings state
-  const [settings, setSettings] = useState({
-    notifications: {
-      email: true,
-      push: true,
-      sms: false,
-    },
-    language: 'zh-TW',
+  const [profile, setProfile] = useState({
+    email: user?.email || '',
+    phone: user?.phone || '',
   });
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const handleSaveProfile = async () => {
+    setIsSaving(true);
+    setMessage('');
+    await updateProfile({
+      email: profile.email,
+      phone: profile.phone,
+    });
+    setIsSaving(false);
+    setMessage('個人資料已更新');
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -90,22 +108,22 @@ export default function PatientSettingsPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-surface-700 mb-2">電子信箱</label>
-                    <input type="email" className="w-full px-4 py-2 border border-surface-200 rounded-xl focus:border-primary-500 focus:ring-1 focus:ring-primary-500" defaultValue={user?.email} />
+                    <input type="email" className="w-full px-4 py-2 border border-surface-200 rounded-xl focus:border-primary-500 focus:ring-1 focus:ring-primary-500" value={profile.email} onChange={(e) => setProfile((prev) => ({ ...prev, email: e.target.value }))} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-surface-700 mb-2">聯絡電話</label>
-                    <input type="tel" className="w-full px-4 py-2 border border-surface-200 rounded-xl focus:border-primary-500 focus:ring-1 focus:ring-primary-500" placeholder="0912-345-678" />
+                    <input type="tel" className="w-full px-4 py-2 border border-surface-200 rounded-xl focus:border-primary-500 focus:ring-1 focus:ring-primary-500" placeholder="0912-345-678" value={profile.phone} onChange={(e) => setProfile((prev) => ({ ...prev, phone: e.target.value }))} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-surface-700 mb-2">慣用語系</label>
                     <div className="relative">
                       <select 
                         className="w-full px-4 py-2 border border-surface-200 rounded-xl appearance-none bg-white focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
-                        value={settings.language}
-                        onChange={(e) => setSettings({...settings, language: e.target.value})}
+                        value={language}
+                        onChange={(e) => setLanguage(e.target.value as 'zh-TW' | 'en')}
                       >
                         <option value="zh-TW">繁體中文</option>
-                        <option value="en-US">English</option>
+                        <option value="en">English</option>
                       </select>
                       <Globe className="absolute right-3 top-2.5 h-5 w-5 text-surface-400 pointer-events-none" />
                     </div>
@@ -113,10 +131,11 @@ export default function PatientSettingsPage() {
                 </div>
 
                 <div className="pt-4 flex justify-end">
-                  <button className="px-6 py-2 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-colors">
-                    儲存變更
+                  <button className="px-6 py-2 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-colors disabled:opacity-50" onClick={handleSaveProfile} disabled={isSaving}>
+                    {isSaving ? '儲存中...' : '儲存變更'}
                   </button>
                 </div>
+                {message ? <p className="text-sm text-green-600">{message}</p> : null}
               </div>
             )}
 
@@ -134,7 +153,7 @@ export default function PatientSettingsPage() {
                       <p className="text-sm text-surface-500">當有新的報告產出或預約提醒時發送 Email</p>
                     </div>
                     <div className="relative inline-block w-12 h-6 rounded-full bg-surface-200">
-                      <input type="checkbox" className="sr-only peer" checked={settings.notifications.email} onChange={(e) => setSettings({...settings, notifications: {...settings.notifications, email: e.target.checked}})} />
+                      <input type="checkbox" className="sr-only peer" checked={notificationsEnabled} onChange={(e) => setNotificationsEnabled(e.target.checked)} />
                       <span className="w-12 h-6 bg-surface-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-surface-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500 cursor-pointer"></span>
                     </div>
                   </label>
@@ -145,7 +164,7 @@ export default function PatientSettingsPage() {
                       <p className="text-sm text-surface-500">透過瀏覽器或 App 推播即時通知</p>
                     </div>
                     <div className="relative inline-block w-12 h-6 rounded-full bg-surface-200">
-                      <input type="checkbox" className="sr-only peer" checked={settings.notifications.push} onChange={(e) => setSettings({...settings, notifications: {...settings.notifications, push: e.target.checked}})} />
+                      <input type="checkbox" className="sr-only peer" checked={soundEnabled} onChange={(e) => setSoundEnabled(e.target.checked)} />
                       <span className="w-12 h-6 bg-surface-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-surface-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500 cursor-pointer"></span>
                     </div>
                   </label>

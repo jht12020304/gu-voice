@@ -1,17 +1,49 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Download } from 'lucide-react';
+import LoadingSpinner from '../../components/common/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState';
+import ErrorState from '../../components/common/ErrorState';
+import * as adminApi from '../../services/api/admin';
+import type { AuditLog } from '../../types';
 
 export default function AuditLogsPage() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // Mock data
-  const logs = [
-    { id: 101, action: 'SESSION_START', user: '王小明 (病患)', resource: 'Session', resourceId: 'sess-1234', ip: '192.168.1.10', time: '2026-04-12 14:30:12' },
-    { id: 102, action: 'SESSION_END', user: '王小明 (病患)', resource: 'Session', resourceId: 'sess-1234', ip: '192.168.1.10', time: '2026-04-12 14:38:45' },
-    { id: 103, action: 'CREATE', user: 'System Worker', resource: 'SOAPReport', resourceId: 'rep-5566', ip: 'internal', time: '2026-04-12 14:39:02' },
-    { id: 104, action: 'REVIEW', user: '陳醫師 (醫師)', resource: 'SOAPReport', resourceId: 'rep-5566', ip: '10.0.0.5', time: '2026-04-12 15:10:20' },
-    { id: 105, action: 'LOGIN', user: 'Admin (系統管理員)', resource: 'Auth', resourceId: '-', ip: '10.0.0.1', time: '2026-04-12 15:55:00' },
-  ];
+  const loadLogs = async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      const response = await adminApi.getAuditLogs({ limit: 100 });
+      setLogs(response.data);
+    } catch {
+      setError('無法載入稽核日誌');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLogs();
+  }, []);
+
+  const filteredLogs = useMemo(() => {
+    if (!searchTerm.trim()) return logs;
+    const keyword = searchTerm.trim().toLowerCase();
+    return logs.filter((log) =>
+      [
+        String(log.id),
+        log.action,
+        log.resourceType,
+        log.resourceId,
+        log.ipAddress,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(keyword)),
+    );
+  }, [logs, searchTerm]);
 
   return (
     <div className="space-y-6">
@@ -20,9 +52,9 @@ export default function AuditLogsPage() {
           <h1 className="text-2xl font-bold text-surface-900">稽核日誌 (Audit Logs)</h1>
           <p className="text-surface-500 text-sm mt-1">檢視系統操作紀錄，符合醫療資訊規範。</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 bg-white border border-surface-200 text-surface-700 rounded-xl hover:bg-surface-50 transition-colors shadow-sm font-medium">
+        <button className="flex items-center gap-2 px-4 py-2 bg-white border border-surface-200 text-surface-700 rounded-xl hover:bg-surface-50 transition-colors shadow-sm font-medium" onClick={loadLogs}>
           <Download className="h-4 w-4" />
-          匯出 CSV
+          重新整理
         </button>
       </div>
 
@@ -38,12 +70,19 @@ export default function AuditLogsPage() {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-surface-200 text-surface-700 rounded-xl hover:bg-surface-50 transition-colors">
+          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-surface-200 text-surface-700 rounded-xl hover:bg-surface-50 transition-colors" disabled>
             <Filter className="h-4 w-4" />
-            過濾條件
+            關鍵字篩選
           </button>
         </div>
 
+        {error ? <ErrorState message={error} onRetry={loadLogs} /> : null}
+
+        {isLoading ? (
+          <LoadingSpinner fullPage />
+        ) : filteredLogs.length === 0 ? (
+          <EmptyState title="無稽核日誌" message="目前沒有符合條件的操作紀錄" />
+        ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -57,21 +96,22 @@ export default function AuditLogsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-100">
-              {logs.map((log) => (
+              {filteredLogs.map((log) => (
                 <tr key={log.id} className="hover:bg-surface-50 transition-colors text-sm">
-                  <td className="py-4 px-6 text-surface-500 font-mono text-xs">{log.time}</td>
+                  <td className="py-4 px-6 text-surface-500 font-mono text-xs">{log.createdAt}</td>
                   <td className="py-4 px-6">
                     <span className="font-semibold text-primary-700">{log.action}</span>
                   </td>
-                  <td className="py-4 px-6 font-medium text-surface-900">{log.user}</td>
-                  <td className="py-4 px-6 text-surface-600">{log.resource}</td>
-                  <td className="py-4 px-6 text-surface-500 font-mono text-xs">{log.resourceId}</td>
-                  <td className="py-4 px-6 text-surface-400 font-mono text-xs">{log.ip}</td>
+                  <td className="py-4 px-6 font-medium text-surface-900">{log.userId || '-'}</td>
+                  <td className="py-4 px-6 text-surface-600">{log.resourceType}</td>
+                  <td className="py-4 px-6 text-surface-500 font-mono text-xs">{log.resourceId || '-'}</td>
+                  <td className="py-4 px-6 text-surface-400 font-mono text-xs">{log.ipAddress || '-'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   );

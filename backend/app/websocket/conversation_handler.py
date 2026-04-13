@@ -891,7 +891,6 @@ async def _validate_session(
                 dob = patient.date_of_birth
                 age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
-            # 格式化 JSONB 欄位為可讀字串
             def format_jsonb_list(items: Any) -> str | None:
                 if not items:
                     return None
@@ -899,21 +898,66 @@ async def _validate_session(
                     parts = []
                     for item in items:
                         if isinstance(item, dict):
-                            # 嘗試取得常見欄位
-                            name = item.get("name") or item.get("medication") or item.get("condition") or str(item)
+                            name = (
+                                item.get("name")
+                                or item.get("medication")
+                                or item.get("condition")
+                                or item.get("allergen")
+                                or str(item)
+                            )
                             parts.append(name)
                         else:
                             parts.append(str(item))
                     return "、".join(parts) if parts else None
                 return str(items)
 
+            def format_family_history(items: Any) -> str | None:
+                if not items or not isinstance(items, list):
+                    return None
+                parts: list[str] = []
+                for item in items:
+                    if not isinstance(item, dict):
+                        parts.append(str(item))
+                        continue
+                    relation = item.get("relation")
+                    condition = item.get("condition")
+                    if relation and condition:
+                        parts.append(f"{relation}：{condition}")
+                    elif condition:
+                        parts.append(str(condition))
+                return "、".join(parts) if parts else None
+
+            intake = getattr(session_obj, "intake_data", None) or {}
+            intake_summary = {
+                "medical_history": (
+                    "無"
+                    if intake.get("no_past_medical_history")
+                    else format_jsonb_list(intake.get("medical_history"))
+                ),
+                "medications": (
+                    "無"
+                    if intake.get("no_current_medications")
+                    else format_jsonb_list(intake.get("current_medications"))
+                ),
+                "allergies": (
+                    "無"
+                    if intake.get("no_known_allergies")
+                    else format_jsonb_list(intake.get("allergies"))
+                ),
+                "family_history": format_family_history(intake.get("family_history")),
+            }
+
             patient_info = {
                 "name": getattr(patient, "name", None),
                 "age": age,
                 "gender": getattr(patient, "gender", None),
-                "medical_history": format_jsonb_list(getattr(patient, "medical_history", None)),
-                "medications": format_jsonb_list(getattr(patient, "current_medications", None)),
-                "allergies": format_jsonb_list(getattr(patient, "allergies", None)),
+                "medical_history": intake_summary["medical_history"]
+                or format_jsonb_list(getattr(patient, "medical_history", None)),
+                "medications": intake_summary["medications"]
+                or format_jsonb_list(getattr(patient, "current_medications", None)),
+                "allergies": intake_summary["allergies"]
+                or format_jsonb_list(getattr(patient, "allergies", None)),
+                "family_history": intake_summary["family_history"],
             }
 
         return {

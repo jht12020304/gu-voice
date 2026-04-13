@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, User, FileText, ArrowRight } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
+import * as authApi from '../../services/api/auth';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const login = useAuthStore((state) => state.login);
+  const hydrateFromStorage = useAuthStore((state) => state.hydrateFromStorage);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -30,16 +30,24 @@ export default function RegisterPage() {
     
     setIsLoading(true);
     setError('');
-    
-    // TODO: Connect to actual backend register endpoint
-    // For now we mock successful registration and auto-login
+
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      // Fake login with the new credentials
-      await login(formData.email, formData.password);
+      const response = await authApi.register({
+        email: formData.email,
+        password: formData.password,
+        name: formData.name,
+        role: 'patient',
+      });
+
+      localStorage.setItem('access_token', response.accessToken);
+      localStorage.setItem('refresh_token', response.refreshToken);
+      await hydrateFromStorage();
       navigate('/patient');
-    } catch (err: any) {
-      setError(err.message || '註冊失敗，請稍後再試');
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message || '註冊失敗，請稍後再試';
+      setError(message);
     } finally {
       setIsLoading(false);
     }

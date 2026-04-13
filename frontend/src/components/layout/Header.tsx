@@ -13,6 +13,7 @@ export default function Header() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const fetchUnreadCount = useNotificationStore((s) => s.fetchUnreadCount);
   const { theme, setTheme } = useSettingsStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -27,6 +28,10 @@ export default function Header() {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  useEffect(() => {
+    fetchUnreadCount();
+  }, [fetchUnreadCount]);
 
   const handleLogout = async () => {
     await logout();

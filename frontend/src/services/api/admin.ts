@@ -82,8 +82,12 @@ export async function getAuditLogs(params?: AuditLogListParams): Promise<Paginat
 
 export interface SystemHealthResponse {
   status: string;
-  services: Record<string, { status: string; latency?: number }>;
-  uptime: number;
+  database?: string;
+  redis?: string;
+  version?: string;
+  timestamp?: string;
+  services?: Record<string, { status: string; latency?: number }>;
+  uptime?: number;
 }
 
 export async function getSystemHealth(): Promise<SystemHealthResponse> {

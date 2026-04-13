@@ -19,6 +19,8 @@ const AlertListPage = React.lazy(() => import('../screens/doctor/AlertListPage')
 const AlertDetailPage = React.lazy(() => import('../screens/doctor/AlertDetailPage'));
 const SessionListPage = React.lazy(() => import('../screens/doctor/SessionListPage'));
 const ReportListPage = React.lazy(() => import('../screens/doctor/ReportListPage'));
+const NotificationPage = React.lazy(() => import('../screens/doctor/NotificationPage'));
+const PatientDetailPage = React.lazy(() => import('../screens/doctor/PatientDetailPage'));
 const ConversationPage = React.lazy(() => import('../screens/patient/ConversationPage'));
 const SettingsPage = React.lazy(() => import('../screens/doctor/SettingsPage'));
 const UserManagementPage = React.lazy(() => import('../screens/admin/UserManagementPage'));
@@ -130,12 +132,14 @@ export default function RootNavigator() {
               <Route element={<MainLayout />}>
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/patients" element={<PatientListPage />} />
+                <Route path="/patients/:patientId" element={<PatientDetailPage />} />
                 <Route path="/sessions" element={<SessionListPage />} />
                 <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
                 <Route path="/reports" element={<ReportListPage />} />
                 <Route path="/reports/:sessionId" element={<SOAPReportPage />} />
                 <Route path="/alerts" element={<AlertListPage />} />
                 <Route path="/alerts/:alertId" element={<AlertDetailPage />} />
+                <Route path="/notifications" element={<NotificationPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
 
                 {/* 管理員路由 */}

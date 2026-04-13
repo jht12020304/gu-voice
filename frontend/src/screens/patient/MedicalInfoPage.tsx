@@ -166,6 +166,44 @@ export default function MedicalInfoPage() {
         chiefComplaintId: complaintId,
         chiefComplaintText: complaintText || complaintName,
         language: 'zh-TW',
+        intake: {
+          noKnownAllergies: noAllergies,
+          allergies: noAllergies
+            ? []
+            : allergies
+                .filter((item) => item.allergen.trim())
+                .map((item) => ({
+                  allergen: item.allergen.trim(),
+                  reaction: item.hadHospitalization ? '曾就醫或急診' : undefined,
+                  severity: item.hadHospitalization ? 'severe' : undefined,
+                  hadHospitalization: item.hadHospitalization,
+                })),
+          noCurrentMedications: noMedications,
+          currentMedications: noMedications
+            ? []
+            : medications
+                .filter((item) => item.name.trim())
+                .map((item) => ({
+                  name: item.name.trim(),
+                  frequency: item.frequency,
+                })),
+          noPastMedicalHistory: noHistory,
+          medicalHistory: noHistory
+            ? []
+            : history
+                .filter((item) => item.condition.trim())
+                .map((item) => ({
+                  condition: item.condition.trim(),
+                  yearsAgo: item.yearsAgo,
+                  stillHas: item.stillHas,
+                })),
+          familyHistory: familyHistory
+            .filter((item) => item.condition.trim())
+            .map((item) => ({
+              relation: item.relation,
+              condition: item.condition.trim(),
+            })),
+        },
       });
       navigate(`/conversation/${session.id}`);
     } catch {

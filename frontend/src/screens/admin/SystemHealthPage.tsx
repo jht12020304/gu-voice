@@ -1,12 +1,39 @@
+import { useEffect, useState } from 'react';
 import { Activity, Server, Database, Globe, Clock, RefreshCw } from 'lucide-react';
+import LoadingSpinner from '../../components/common/LoadingSpinner';
+import ErrorState from '../../components/common/ErrorState';
+import * as adminApi from '../../services/api/admin';
 
 export default function SystemHealthPage() {
-  // Mock Data
+  const [health, setHealth] = useState<adminApi.SystemHealthResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadHealth = async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      const response = await adminApi.getSystemHealth();
+      setHealth(response);
+    } catch {
+      setError('無法載入系統狀態');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHealth();
+  }, []);
+
+  if (isLoading) return <LoadingSpinner fullPage message="載入系統健康狀態..." />;
+  if (error || !health) return <ErrorState message={error || '無法取得系統健康狀態'} onRetry={loadHealth} />;
+
   const metrics = [
-    { label: 'API 伺服器狀態', value: '正常', color: 'text-green-600', icon: Server },
-    { label: 'Supabase 資料庫', value: '連線中', color: 'text-green-600', icon: Database },
-    { label: 'Redis 訊息佇列', value: '延遲 12ms', color: 'text-primary-600', icon: Activity },
-    { label: '活躍 WebSocket 連線', value: '24', color: 'text-surface-900', icon: Globe },
+    { label: 'API 伺服器狀態', value: health.status, color: 'text-green-600', icon: Server },
+    { label: '資料庫', value: health.database || 'unknown', color: 'text-green-600', icon: Database },
+    { label: 'Redis', value: health.redis || 'unknown', color: 'text-primary-600', icon: Activity },
+    { label: '版本', value: health.version || 'unknown', color: 'text-surface-900', icon: Globe },
   ];
 
   return (
@@ -16,7 +43,7 @@ export default function SystemHealthPage() {
           <h1 className="text-2xl font-bold text-surface-900">系統健康監控</h1>
           <p className="text-surface-500 text-sm mt-1">監控後端核心服務與基礎設施狀態。</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 bg-white border border-surface-200 text-surface-700 rounded-xl hover:bg-surface-50 transition-colors shadow-sm font-medium">
+        <button className="flex items-center gap-2 px-4 py-2 bg-white border border-surface-200 text-surface-700 rounded-xl hover:bg-surface-50 transition-colors shadow-sm font-medium" onClick={loadHealth}>
           <RefreshCw className="h-4 w-4" />
           重新整理
         </button>
@@ -46,15 +73,15 @@ export default function SystemHealthPage() {
              <div className="flex gap-3">
                 <Clock className="h-5 w-5 text-surface-400 shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-surface-900">Redis Cache 清理完成</p>
-                  <p className="text-xs text-surface-500">2026-04-12 10:00:00</p>
+                  <p className="text-sm font-medium text-surface-900">後端狀態回報</p>
+                  <p className="text-xs text-surface-500">{health.status}</p>
                 </div>
              </div>
              <div className="flex gap-3">
                 <Clock className="h-5 w-5 text-primary-500 shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-primary-900">Supabase Schema 遷移完成 (c98fa7840c8c)</p>
-                  <p className="text-xs text-primary-600">2026-04-12 03:10:38</p>
+                  <p className="text-sm font-medium text-primary-900">最後健康檢查時間</p>
+                  <p className="text-xs text-primary-600">{health.timestamp || '未提供'}</p>
                 </div>
              </div>
            </div>
@@ -65,20 +92,20 @@ export default function SystemHealthPage() {
            <div className="space-y-4">
              <div>
                <div className="flex justify-between text-sm mb-1">
-                 <span className="font-medium text-surface-700">OpenAI API (Whisper)</span>
-                 <span className="text-surface-500">正常 (無耗盡風險)</span>
+                 <span className="font-medium text-surface-700">資料庫</span>
+                 <span className="text-surface-500">{health.database || 'unknown'}</span>
                </div>
                <div className="w-full bg-surface-100 rounded-full h-2">
-                 <div className="bg-green-500 h-2 rounded-full" style={{ width: '15%' }}></div>
+                 <div className="bg-green-500 h-2 rounded-full" style={{ width: health.database === 'ok' ? '100%' : '40%' }}></div>
                </div>
              </div>
              <div>
                <div className="flex justify-between text-sm mb-1">
-                 <span className="font-medium text-surface-700">Gemini LLM (SOAP 生成)</span>
-                 <span className="text-surface-500">高負載 (250/300 RPM)</span>
+                 <span className="font-medium text-surface-700">Redis</span>
+                 <span className="text-surface-500">{health.redis || 'unknown'}</span>
                </div>
                <div className="w-full bg-surface-100 rounded-full h-2">
-                 <div className="bg-amber-500 h-2 rounded-full" style={{ width: '83%' }}></div>
+                 <div className="bg-amber-500 h-2 rounded-full" style={{ width: health.redis === 'ok' ? '100%' : '40%' }}></div>
                </div>
              </div>
            </div>

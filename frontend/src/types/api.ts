@@ -2,7 +2,20 @@
 // API 請求/回應型別
 // =============================================================================
 
-import type { PaginatedResponse, User, Patient, Session, Conversation, SOAPReport, RedFlagAlert, RedFlagRule, Notification, AuditLog, ChiefComplaint } from './index';
+import type {
+  PaginatedResponse,
+  User,
+  Patient,
+  Session,
+  Conversation,
+  SOAPReport,
+  RedFlagAlert,
+  RedFlagRule,
+  Notification,
+  AuditLog,
+  ChiefComplaint,
+  SessionIntake,
+} from './index';
 
 // ---- 認證 ----
 
@@ -100,6 +113,7 @@ export interface SessionCreateRequest {
   chiefComplaintId: string;
   chiefComplaintText?: string;
   language?: string;
+  intake?: SessionIntake;
 }
 
 export interface SessionStatusUpdateRequest {
