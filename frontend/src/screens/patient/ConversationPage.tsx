@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import ChatBubble from '../../components/chat/ChatBubble';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import StatusBadge from '../../components/medical/StatusBadge';
@@ -22,7 +23,11 @@ import type {
   AIResponseEndPayload,
   RedFlagAlertPayload,
   SessionStatusPayload,
+  TtsFailedPayload,
 } from '../../types/websocket';
+
+/** Fix 20：首次進入對話頁的 onboarding 提示 localStorage 鍵 */
+const ONBOARDING_KEY = 'urosense:onboarding:voice:v1';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 
@@ -43,6 +48,7 @@ const mockConvMessages: Array<{ id: string; sessionId: string; sender: 'patient'
 ];
 
 export default function ConversationPage() {
+  const { t } = useTranslation(['conversation', 'common']);
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -73,6 +79,8 @@ export default function ConversationPage() {
     acknowledgeRedFlag,
     setError,
     resetSession,
+    markMessageTtsFailed,
+    appendTtsAudioChunk,
   } = useConversationStore();
 
   const { on, off, send } = useConversationWebSocket(sessionId ?? null);
@@ -210,6 +218,73 @@ export default function ConversationPage() {
     ttsChainRef.current = Promise.resolve();
   }, []);
 
+  /**
+   * Fix 18：重播某則 AI 訊息的快取 TTS 音訊。
+   * 會先停掉目前正在播放的 TTS（與 in-flight 佇列共用 activeSourceRef）。
+   * 若使用者 barge-in（開始說話），既有 effect 會呼叫 stopActiveTTS 也會停這個重播。
+   */
+  const replayMessageAudio = useCallback(
+    (messageId: string) => {
+      const msg = useConversationStore
+        .getState()
+        .conversations.find((m) => m.id === messageId);
+      const chunks = msg?.ttsAudioChunks;
+      if (!chunks || chunks.length === 0) return;
+
+      // 停掉目前正在播放的任何 TTS（in-flight 串流或上一次的重播）
+      stopActiveTTS();
+      clearTTSQueue();
+
+      // 把所有快取片段依序排入佇列
+      chunks.forEach((b64) => enqueueTTSAudioB64(b64));
+    },
+    [stopActiveTTS, clearTTSQueue, enqueueTTSAudioB64],
+  );
+
+  /** Fix 16：統一把某則訊息標記為 TTS 失敗的 helper（Option A / B 共用） */
+  const markMessageTtsFailedHelper = useCallback(
+    (messageId: string) => {
+      if (!messageId) return;
+      markMessageTtsFailed(messageId);
+    },
+    [markMessageTtsFailed],
+  );
+
+  // Fix 20：首次 onboarding 提示狀態
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  useEffect(() => {
+    try {
+      const seen = typeof window !== 'undefined' && window.localStorage.getItem(ONBOARDING_KEY);
+      if (!seen) {
+        setShowOnboarding(true);
+        // 3 秒後自動消失
+        const t = setTimeout(() => {
+          setShowOnboarding(false);
+          try {
+            window.localStorage.setItem(ONBOARDING_KEY, '1');
+          } catch {
+            /* ignore */
+          }
+        }, 3000);
+        return () => clearTimeout(t);
+      }
+    } catch {
+      /* localStorage 不可用就忽略 */
+    }
+  }, []);
+
+  // 偵測到第一次說話時，立即關閉 onboarding 並寫入 localStorage
+  useEffect(() => {
+    if (showOnboarding && isRecording) {
+      setShowOnboarding(false);
+      try {
+        window.localStorage.setItem(ONBOARDING_KEY, '1');
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [showOnboarding, isRecording]);
+
   // 載入場次資料與歷史對話
   useEffect(() => {
     if (!sessionId) return;
@@ -233,7 +308,7 @@ export default function ConversationPage() {
           setConversations(convs.data.map(conversationToMessage));
         }
       } catch {
-        setError('無法載入對話');
+        setError(t('conversation:error.loadFailed'));
       }
     }
     load();
@@ -293,10 +368,21 @@ export default function ConversationPage() {
             : msg,
         ),
       }));
-      // 若此句有音訊，排入 TTS 佇列依序播放
+      // Fix 16 Option B：此 chunk 直接帶 ttsFailed → 標記訊息
+      if (data.ttsFailed) {
+        markMessageTtsFailedHelper(data.messageId);
+      }
+      // Fix 18：若此句有音訊，快取到訊息上 + 排入 TTS 佇列依序播放
       if (data.audioB64) {
+        appendTtsAudioChunk(data.messageId, data.audioB64);
         enqueueTTSAudioB64(data.audioB64);
       }
+    });
+
+    // Fix 16 Option A：獨立的 tts_failed 事件
+    on('tts_failed', (payload) => {
+      const data = payload as TtsFailedPayload;
+      markMessageTtsFailedHelper(data.messageId);
     });
 
     // AI 回應結束（音訊已透過 ai_response_chunk 逐句送達，此處僅最終化文字）
@@ -345,25 +431,25 @@ export default function ConversationPage() {
       if (data.status === 'completed') {
         navigate(`/patient/session/${sessionId}/complete`);
       } else if (data.status === 'failed') {
-        setError('問診中斷，請重新開始');
+        setError(t('conversation:error.sessionInterrupted'));
       }
     });
 
     // 後端錯誤（STT_ERROR / AI_SERVICE_UNAVAILABLE / INVALID_AUDIO / ...）
     on('error', (payload) => {
       const data = payload as { code?: string; message?: string };
-      setError(data.message || 'AI 服務暫時無法回應，請稍後再試');
+      setError(data.message || t('conversation:error.aiUnavailable'));
       // 也解除 VAD mute，避免使用者卡在「等 AI 回應」的狀態
       unmuteVAD();
     });
 
     // WebSocket 連線狀態
     on('_disconnected', () => {
-      setError('連線中斷，正在重新連線...');
+      setError(t('conversation:error.disconnected'));
       muteVAD(); // 斷線期間暫停收音
     });
     on('_reconnecting', () => {
-      setError('連線中斷，正在重新連線...');
+      setError(t('conversation:error.disconnected'));
     });
     on('_connected', () => {
       setError(null);
@@ -377,6 +463,7 @@ export default function ConversationPage() {
       off('ai_response_start');
       off('ai_response_chunk');
       off('ai_response_end');
+      off('tts_failed');
       off('red_flag_alert');
       off('session_status');
       off('error');
@@ -445,7 +532,7 @@ export default function ConversationPage() {
   };
 
   if (!currentSession && !error) {
-    return <LoadingSpinner fullPage message="載入對話..." />;
+    return <LoadingSpinner fullPage message={t('conversation:loading')} />;
   }
 
   const isSessionActive = isSessionActiveForMic;
@@ -475,7 +562,7 @@ export default function ConversationPage() {
           </svg>
         </button>
         <div className="text-center">
-          <h1 className="text-caption font-semibold text-ink-heading dark:text-white">AI 問診</h1>
+          <h1 className="text-caption font-semibold text-ink-heading dark:text-white">{t('conversation:title')}</h1>
           <div className="flex items-center justify-center gap-2">
             {currentSession && <StatusBadge status={currentSession.status as SessionStatus} size="sm" />}
           </div>
@@ -484,7 +571,7 @@ export default function ConversationPage() {
           className="rounded-btn px-3 py-1.5 text-caption font-medium text-alert-critical hover:bg-alert-critical-bg transition-colors"
           onClick={handleEndSession}
         >
-          結束問診
+          {t('conversation:endSession')}
         </button>
       </header>
 
@@ -530,14 +617,14 @@ export default function ConversationPage() {
                   className="flex-shrink-0 rounded-btn bg-white/20 px-3 py-1 text-caption font-medium hover:bg-white/30 transition-colors"
                   onClick={() => acknowledgeRedFlag(alert.id)}
                 >
-                  知道了
+                  {t('common:acknowledge')}
                 </button>
               </div>
             );
           })}
           {extraFlagCount > 0 && (
-            <p className="px-1 text-small text-ink-muted">
-              +{extraFlagCount} 項其他警示
+            <p className="px-1 text-small text-ink-secondary dark:text-slate-300">
+              {t('conversation:redFlag.more', { count: extraFlagCount })}
             </p>
           )}
         </div>
@@ -566,7 +653,11 @@ export default function ConversationPage() {
               sender: msg.sender,
               timestamp: msg.timestamp,
               isStreaming: msg.isStreaming,
+              sttConfidence: msg.sttConfidence,
+              hasTtsFailure: msg.hasTtsFailure,
+              canReplay: (msg.ttsAudioChunks?.length ?? 0) > 0,
             }}
+            onReplay={replayMessageAudio}
           />
         ))}
 
@@ -583,7 +674,7 @@ export default function ConversationPage() {
         {isAIResponding && !aiStreamingText && (
           <div className="my-2 flex justify-start">
             <div className="chat-bubble-ai">
-              <div className="thinking-dots text-ink-muted">
+              <div className="thinking-dots text-ink-secondary dark:text-slate-400">
                 <span /><span /><span />
               </div>
             </div>
@@ -601,25 +692,41 @@ export default function ConversationPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
             </svg>
             <span>
-              最新訊息{pendingNewMessages > 0 ? ` (${pendingNewMessages})` : ''}
+              {pendingNewMessages > 0
+                ? t('conversation:scroll.latestWithCount', { count: pendingNewMessages })
+                : t('conversation:scroll.latest')}
             </span>
           </button>
         )}
       </div>
 
       {/* 底部控制區（自動語音偵測） */}
-      <div className="border-t border-edge bg-white px-4 py-5 dark:bg-dark-surface dark:border-dark-border">
+      <div className="relative border-t border-edge bg-white px-4 py-5 dark:bg-dark-surface dark:border-dark-border">
+        {/* Fix 20：首次 onboarding 提示（3 秒或首次說話後消失） */}
+        {showOnboarding && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-full mb-2 animate-slide-down rounded-card bg-ink-heading px-3 py-2 text-caption font-medium text-white shadow-elevated dark:bg-slate-200 dark:text-slate-900 whitespace-nowrap"
+          >
+            {t('conversation:onboarding.hint')}
+            <span
+              className="absolute left-1/2 top-full -translate-x-1/2 h-0 w-0 border-x-8 border-t-8 border-x-transparent border-t-ink-heading dark:border-t-slate-200"
+              aria-hidden="true"
+            />
+          </div>
+        )}
         {/* 麥克風狀態指示圈（顯示狀態，無需點擊） */}
         <div className="flex items-center justify-center">
           <div
             className={`flex h-14 w-14 items-center justify-center rounded-full transition-colors ${
               !isSessionActive
-                ? 'bg-surface-tertiary text-ink-placeholder'
+                ? 'bg-surface-tertiary text-ink-placeholder dark:bg-dark-card dark:text-slate-500'
                 : isAIResponding
-                  ? 'bg-primary-50 text-primary-500'
+                  ? 'bg-primary-50 text-primary-500 dark:bg-primary-950 dark:text-primary-300'
                   : isRecording
                     ? 'bg-alert-critical text-white shadow-lg shadow-alert-critical/30'
-                    : 'bg-primary-50 text-primary-600'
+                    : 'bg-primary-50 text-primary-600 dark:bg-primary-950 dark:text-primary-300'
             }`}
           >
             <svg
@@ -660,15 +767,15 @@ export default function ConversationPage() {
               ))}
         </div>
 
-        {/* 狀態文字 */}
-        <p className="mt-2 text-center text-small text-ink-muted">
+        {/* 狀態文字（Fix 21：改用 ink-secondary 達到 WCAG AA） */}
+        <p className="mt-2 text-center text-small text-ink-secondary dark:text-slate-300">
           {!isSessionActive
-            ? '問診尚未開始'
+            ? t('conversation:status.notStarted')
             : isAIResponding
-              ? 'AI 回應中...'
+              ? t('conversation:status.aiResponding')
               : isRecording
-                ? `正在聆聽你說話 ${formatDuration(recordingDuration)}`
-                : '請直接開始說話，我會自動聽取'}
+                ? t('conversation:status.listening', { duration: formatDuration(recordingDuration) })
+                : t('conversation:status.idle')}
         </p>
       </div>
     </div>

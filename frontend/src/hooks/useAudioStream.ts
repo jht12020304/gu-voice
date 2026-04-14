@@ -5,11 +5,13 @@
 // =============================================================================
 
 import { useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { audioStreamService } from '../services/audioStream';
 import { useConversationStore } from '../stores/conversationStore';
 import { conversationWS } from '../services/websocket';
 
 export function useAudioStream(enabled: boolean) {
+  const { t } = useTranslation(['conversation', 'common']);
   const {
     isRecording,
     setRecording,
@@ -69,11 +71,11 @@ export function useAudioStream(enabled: boolean) {
           onError: (error) => {
             console.error('[Voice] mic error:', error);
             if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-              setError('請在瀏覽器設定允許麥克風權限，然後重新載入頁面');
+              setError(t('conversation:error.micPermission'));
             } else if (error.name === 'NotFoundError') {
-              setError('找不到麥克風裝置，請確認已連接麥克風');
+              setError(t('conversation:error.micNotFound'));
             } else {
-              setError('麥克風發生錯誤：' + error.message);
+              setError(t('conversation:error.micGeneric', { message: error.message }));
             }
           },
         });
@@ -82,11 +84,11 @@ export function useAudioStream(enabled: boolean) {
           console.error('[Voice] 無法開啟麥克風:', error);
           const err = error as { name?: string; message?: string };
           if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-            setError('請在瀏覽器設定允許麥克風權限，然後重新載入頁面');
+            setError(t('conversation:error.micPermission'));
           } else if (err.name === 'NotFoundError') {
-            setError('找不到麥克風裝置，請確認已連接麥克風');
+            setError(t('conversation:error.micNotFound'));
           } else {
-            setError('麥克風發生錯誤：' + (err.message ?? '未知錯誤'));
+            setError(t('conversation:error.micGeneric', { message: err.message ?? t('common:unknownError') }));
           }
         }
       }
@@ -96,7 +98,7 @@ export function useAudioStream(enabled: boolean) {
       cancelled = true;
       audioStreamService.closeMic();
     };
-  }, [enabled, setRecording, setRecordingDuration, setWaveformData, updateSTTPartial, setError]);
+  }, [enabled, setRecording, setRecordingDuration, setWaveformData, updateSTTPartial, setError, t]);
 
   /** 完全停止 VAD 偵測（如斷線時） */
   const muteVAD = useCallback(() => {

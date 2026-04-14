@@ -1,0 +1,11 @@
+{
+  "acknowledge": "Got it",
+  "back": "Back",
+  "loading": "Loading...",
+  "unknownError": "Unknown error",
+  "roles": {
+    "patient": "Patient",
+    "assistant": "AI Assistant",
+    "system": "System"
+  }
+}

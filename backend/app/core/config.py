@@ -113,6 +113,15 @@ class Settings(BaseSettings):
     OPENAI_STT_MODEL: str = "whisper-1"
     OPENAI_STT_LANGUAGE: str = "zh"      # ISO-639-1，zh = 中文（繁/簡皆可）
 
+    # ── WebSocket / Session Stability (P2) ─────────────
+    OPENAI_MODEL_SUMMARIZER: str = "gpt-4o-mini"           # 便宜的摘要模型
+    CONVERSATION_HISTORY_MAX_TURNS: int = 50                # 最大保留的對話輪次數
+    SUPERVISOR_TIMEOUT_SECONDS: int = 30                    # Supervisor 背景任務逾時
+    SESSION_IDLE_TIMEOUT_SECONDS: int = 600                 # 10 分鐘閒置逾時
+    SESSION_IDLE_CHECK_INTERVAL_SECONDS: int = 30           # 閒置檢查間隔
+    AUDIO_MAX_DURATION_SECONDS: int = 600                   # 10 分鐘單段音訊上限
+    AUDIO_SAMPLE_RATE_HZ: int = 16000                       # 16kHz mono（與前端一致）
+
     # ── TTS (OpenAI TTS) ─────────────────────────────────
     OPENAI_TTS_MODEL: str = "tts-1"      # tts-1（快速）或 tts-1-hd（高品質）
     OPENAI_TTS_VOICE: str = "nova"       # alloy / echo / fable / onyx / nova / shimmer

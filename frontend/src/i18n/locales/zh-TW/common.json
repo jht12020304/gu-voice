@@ -1,0 +1,11 @@
+{
+  "acknowledge": "知道了",
+  "back": "返回",
+  "loading": "載入中...",
+  "unknownError": "未知錯誤",
+  "roles": {
+    "patient": "病患",
+    "assistant": "AI 助手",
+    "system": "系統"
+  }
+}

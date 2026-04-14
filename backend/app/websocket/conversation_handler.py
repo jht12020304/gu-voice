@@ -8,13 +8,17 @@ Client audio_chunk → STT → LLM → TTS → Client
 
 import asyncio
 import base64
+import hashlib
+import json
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from jose import JWTError
+from openai import AsyncOpenAI
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +42,159 @@ _SESSION_SUPERVISOR_KEY = "gu:session:{session_id}:supervisor_guidance"
 
 # 句子邊界（中文句號、驚嘆號、問號、換行）— 用於串流時的增量切句
 _SENTENCE_BOUNDARY_CHARS = "。！？\n"
+
+
+# ── Audio magic-byte signatures（DoS hardening） ─────────
+# WebM/Matroska: 0x1A 0x45 0xDF 0xA3
+# WAV: "RIFF" + 4 bytes size + "WAVE"
+# Ogg: "OggS"
+# MP3: "ID3" or 0xFF 0xFB / 0xFF 0xF3 / 0xFF 0xF2
+_AUDIO_MAGIC_WEBM = b"\x1a\x45\xdf\xa3"
+_AUDIO_MAGIC_OGG = b"OggS"
+_AUDIO_MAGIC_WAV = b"RIFF"
+_AUDIO_MAGIC_ID3 = b"ID3"
+
+
+def _has_valid_audio_magic(buf: bytes) -> bool:
+    """檢查音訊容器的 magic bytes（前 16 bytes 即可）。"""
+    if not buf or len(buf) < 4:
+        return False
+    head = buf[:16]
+    if head.startswith(_AUDIO_MAGIC_WEBM):
+        return True
+    if head.startswith(_AUDIO_MAGIC_OGG):
+        return True
+    if head.startswith(_AUDIO_MAGIC_WAV):
+        return True
+    if head.startswith(_AUDIO_MAGIC_ID3):
+        return True
+    # MP3 frame sync: 0xFF followed by 0xFB/0xF3/0xF2/0xFA/0xF1 etc.
+    if head[0] == 0xFF and (head[1] & 0xE0) == 0xE0:
+        return True
+    return False
+
+
+def _history_checksum(history: list[dict[str, Any]]) -> str:
+    """計算 conversation_history 的 sha256 checksum（穩定序列化）。"""
+    try:
+        # 僅雜湊 role + content（忽略 timestamp）以利跨來源比對
+        payload = [
+            {"role": e.get("role", ""), "content": e.get("content", "")}
+            for e in history
+        ]
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        raw = str(history)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+async def _summarize_history_segment(
+    settings: Settings,
+    segment: list[dict[str, Any]],
+) -> str | None:
+    """
+    使用便宜模型（gpt-4o-mini）摘要一段對話，回傳摘要文字。
+    失敗回傳 None，呼叫端可選擇硬丟棄。
+    """
+    if not segment:
+        return None
+    try:
+        lines: list[str] = []
+        for entry in segment:
+            role = entry.get("role", "")
+            role_label = {"patient": "病患", "user": "病患", "assistant": "AI", "ai": "AI"}.get(role, role)
+            content = entry.get("content", "")
+            if content:
+                lines.append(f"{role_label}：{content}")
+        transcript = "\n".join(lines)
+        if not transcript.strip():
+            return None
+
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        model = getattr(settings, "OPENAI_MODEL_SUMMARIZER", "gpt-4o-mini")
+        resp = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是一位泌尿科問診摘要助手。請將下列病患與 AI 的對話"
+                            "以繁體中文、不超過 200 字，摘要為重點的 HPI 進度（已問過什麼、"
+                            "已收集哪些症狀細節、尚未釐清的部分）。僅輸出摘要文字本身。"
+                        ),
+                    },
+                    {"role": "user", "content": transcript},
+                ],
+                temperature=0.2,
+                max_tokens=400,
+            ),
+            timeout=15.0,
+        )
+        content = (resp.choices[0].message.content or "").strip()
+        return content or None
+    except Exception as exc:
+        logger.warning("對話歷史摘要失敗，將改為直接丟棄舊輪次 | error=%s", str(exc))
+        return None
+
+
+async def _cap_conversation_history(
+    history: list[dict[str, Any]],
+    settings: Settings,
+) -> None:
+    """
+    若 conversation_history 超過上限（預設 50 輪 = 100 entries），
+    將最舊的一半超額部分摘要為單一 system 訊息，其餘保留。
+    就地修改 history。摘要失敗則硬丟棄。
+    """
+    max_turns = getattr(settings, "CONVERSATION_HISTORY_MAX_TURNS", 50)
+    # 一輪 = patient + assistant → 2 筆，list 長度上限 = max_turns * 2
+    max_entries = max_turns * 2
+    if len(history) <= max_entries:
+        return
+
+    # 僅保留最新 max_entries 筆；其餘送摘要
+    over = len(history) - max_entries
+    # 取最舊的一半超額 → 但規格要求「最舊半」；此處改為：全部超額都替換為一則摘要，
+    # 保留最新 max_entries 筆；同時若已有先前的摘要 system 訊息，合併之。
+    old_segment: list[dict[str, Any]] = history[:over]
+    recent: list[dict[str, Any]] = history[over:]
+
+    summary_text: str | None = await _summarize_history_segment(settings, old_segment)
+
+    # 合併既有摘要（若最前面已經是 [前段對話摘要] system 訊息）
+    existing_summary = ""
+    if recent and recent[0].get("role") == "system":
+        first_content = recent[0].get("content", "")
+        if isinstance(first_content, str) and first_content.startswith("[前段對話摘要]"):
+            existing_summary = first_content
+            recent = recent[1:]
+
+    history.clear()
+    if summary_text:
+        merged = summary_text
+        if existing_summary:
+            merged = existing_summary + "\n" + summary_text
+        else:
+            merged = f"[前段對話摘要] {summary_text}"
+        history.append(
+            {
+                "role": "system",
+                "content": merged,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    elif existing_summary:
+        # 摘要失敗但保留舊摘要
+        history.append(
+            {
+                "role": "system",
+                "content": existing_summary,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    # 若摘要失敗且沒有既有摘要：硬丟棄舊輪次（不阻塞對話）
+    history.extend(recent)
 
 
 def _split_completed_sentences(buffer: str) -> tuple[list[str], str]:
@@ -86,6 +243,9 @@ async def conversation_websocket(
     user_id: str | None = None
     stt_pipeline: STTPipeline | None = None
     conversation_history: list[dict[str, Any]] = []
+    idle_watchdog_task: asyncio.Task[None] | None = None
+    # 使用 list 包裝以利內層 closure 就地更新（asyncio 不需要 Lock）
+    last_activity_ref: list[float] = [time.monotonic()]
 
     try:
         # ── 步驟 1：認證 ────────────────────────────────
@@ -190,8 +350,57 @@ async def conversation_websocket(
             user_id,
         )
 
-        # ── 步驟 3.5：若為全新場次，發送 AI 開場問診語 ────
-        if not conversation_history:
+        # ── 步驟 3.5：處理 resume / 初始開場白 ────
+        # Fix 23: 若前端帶 resumeFrom=<checksum>，且與伺服器端 history 吻合，
+        # 則跳過開場白（沿用既有對話）；不符則拒絕 resume，走全新開場流程。
+        resume_from = websocket.query_params.get("resumeFrom")
+        if resume_from:
+            server_checksum = _history_checksum(conversation_history)
+            if conversation_history and server_checksum == resume_from:
+                logger.info(
+                    "場次 resume 成功 | session=%s, history_len=%d",
+                    session_id,
+                    len(conversation_history),
+                )
+                await manager.send_to_session(
+                    session_id,
+                    {
+                        "type": "session_status",
+                        "payload": {
+                            "sessionId": session_id,
+                            "status": "resumed",
+                            "reason": "沿用既有對話紀錄",
+                        },
+                    },
+                )
+            else:
+                logger.warning(
+                    "場次 resume 失敗（checksum 不符或無歷史）| session=%s",
+                    session_id,
+                )
+                await manager.send_to_session(
+                    session_id,
+                    {
+                        "type": "resume_failed",
+                        "payload": {
+                            "sessionId": session_id,
+                            "reason": "checksum_mismatch_or_empty",
+                        },
+                    },
+                )
+                # Fallback: 視為全新場次
+                if not conversation_history:
+                    await _send_initial_greeting(
+                        session_id=session_id,
+                        llm_engine=llm_engine,
+                        tts_pipeline=tts_pipeline,
+                        system_prompt=system_prompt,
+                        conversation_history=conversation_history,
+                        session_context=session_context,
+                        redis=redis,
+                        db=db,
+                    )
+        elif not conversation_history:
             await _send_initial_greeting(
                 session_id=session_id,
                 llm_engine=llm_engine,
@@ -207,11 +416,69 @@ async def conversation_websocket(
         is_paused = False
         # 音訊緩衝區：累積片段直到 isFinal=true 才呼叫 Whisper
         audio_buffer: list[bytes] = []
+        # 累積的總 byte 數（用於 10 分鐘上限判斷）
+        audio_buffer_total_bytes: list[int] = [0]
+
+        # ── 啟動閒置逾時看門狗 ─────────────────────────
+        last_activity_ref[0] = time.monotonic()
+        idle_timeout_seconds = getattr(settings, "SESSION_IDLE_TIMEOUT_SECONDS", 600)
+        idle_check_interval = getattr(
+            settings, "SESSION_IDLE_CHECK_INTERVAL_SECONDS", 30
+        )
+
+        async def _idle_watchdog() -> None:
+            try:
+                while True:
+                    await asyncio.sleep(idle_check_interval)
+                    idle_for = time.monotonic() - last_activity_ref[0]
+                    if idle_for >= idle_timeout_seconds:
+                        logger.warning(
+                            "場次閒置逾時，準備關閉連線 | session=%s, idle_for=%.1fs",
+                            session_id,
+                            idle_for,
+                        )
+                        try:
+                            await manager.send_to_session(
+                                session_id,
+                                {
+                                    "type": "session_status",
+                                    "payload": {
+                                        "sessionId": session_id,
+                                        "status": "idle_timeout",
+                                        "previousStatus": "in_progress",
+                                        "reason": "閒置逾時（10 分鐘無活動），場次自動結束",
+                                    },
+                                },
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            await _update_session_status(
+                                db, redis, session_id, "completed", "in_progress"
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            await websocket.close(code=4000, reason="idle_timeout")
+                        except Exception:
+                            pass
+                        return
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                logger.warning(
+                    "閒置看門狗錯誤 | session=%s, error=%s", session_id, str(exc)
+                )
+
+        idle_watchdog_task = asyncio.create_task(_idle_watchdog())
 
         while True:
             raw_message = await websocket.receive_json()
             msg_type = raw_message.get("type", "")
             msg_payload = raw_message.get("payload", {})
+
+            # 任何有意義的訊息都算活動（ping 也算，避免中間逾時）
+            last_activity_ref[0] = time.monotonic()
 
             # ── ping / pong ────────────────────────────
             if msg_type == "ping":
@@ -298,6 +565,7 @@ async def conversation_websocket(
                     session_id=session_id,
                     payload=msg_payload,
                     audio_buffer=audio_buffer,
+                    audio_buffer_total_bytes=audio_buffer_total_bytes,
                     stt_pipeline=stt_pipeline,
                     llm_engine=llm_engine,
                     tts_pipeline=tts_pipeline,
@@ -308,6 +576,7 @@ async def conversation_websocket(
                     session_context=session_context,
                     redis=redis,
                     db=db,
+                    settings=settings,
                 )
                 continue
 
@@ -354,6 +623,14 @@ async def conversation_websocket(
 
     finally:
         # ── 清理與狀態儲存 ──────────────────────────────
+        # 停止閒置看門狗
+        if idle_watchdog_task is not None and not idle_watchdog_task.done():
+            idle_watchdog_task.cancel()
+            try:
+                await idle_watchdog_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
         await manager.disconnect_session(session_id)
 
         # 儲存對話歷史至 Redis
@@ -406,12 +683,15 @@ async def _send_initial_greeting(
         sentences_init = [full_greeting]
 
     for idx, sentence in enumerate(sentences_init):
-        audio_b64 = ""
+        audio_b64: str | None = ""
+        tts_failed = False
         try:
             audio_bytes = await tts_pipeline.synthesize(text=sentence)
             if audio_bytes:
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         except Exception as exc:
+            tts_failed = True
+            audio_b64 = None
             logger.warning(
                 "初始問診語 TTS 合成失敗 | session=%s, idx=%d, error=%s",
                 session_id,
@@ -427,6 +707,7 @@ async def _send_initial_greeting(
                     "text": sentence,
                     "chunkIndex": idx,
                     "audioB64": audio_b64,
+                    "ttsFailed": tts_failed,
                 },
             },
         )
@@ -471,6 +752,7 @@ async def _handle_audio_chunk(
     session_id: str,
     payload: dict[str, Any],
     audio_buffer: list[bytes],
+    audio_buffer_total_bytes: list[int],
     stt_pipeline: STTPipeline,
     llm_engine: LLMConversationEngine,
     tts_pipeline: TTSPipeline,
@@ -481,6 +763,7 @@ async def _handle_audio_chunk(
     session_context: dict[str, Any],
     redis: Redis,
     db: AsyncSession,
+    settings: Settings,
 ) -> None:
     """
     處理音訊片段：累積 base64 chunks → 收到 isFinal=true 時呼叫 Whisper → LLM → TTS
@@ -492,11 +775,19 @@ async def _handle_audio_chunk(
     audio_b64: str = payload.get("audioData", "")
     is_final: bool = payload.get("isFinal", False)
 
+    # 估計時長的 byte 上限：16kHz mono 16-bit PCM 約 32000 B/s，
+    # 但實際為壓縮容器（WebM/Opus）約 4-6 KB/s。保守採用 PCM 上限以免誤殺。
+    sample_rate = getattr(settings, "AUDIO_SAMPLE_RATE_HZ", 16000)
+    max_seconds = getattr(settings, "AUDIO_MAX_DURATION_SECONDS", 600)
+    # PCM16 mono: sample_rate * 2 bytes/sec
+    max_total_bytes = sample_rate * 2 * max_seconds
+
     # 非空片段：解碼並加入緩衝區
     if audio_b64:
         try:
             chunk_bytes = base64.b64decode(audio_b64)
             audio_buffer.append(chunk_bytes)
+            audio_buffer_total_bytes[0] += len(chunk_bytes)
         except Exception as exc:
             logger.warning(
                 "音訊 base64 解碼失敗 | session=%s, error=%s",
@@ -515,6 +806,27 @@ async def _handle_audio_chunk(
             )
             return
 
+        # 時長 / 大小上限檢查（DoS hardening）
+        if audio_buffer_total_bytes[0] > max_total_bytes:
+            logger.warning(
+                "音訊累積超過上限，強制結束該段 | session=%s, total=%d bytes",
+                session_id,
+                audio_buffer_total_bytes[0],
+            )
+            audio_buffer.clear()
+            audio_buffer_total_bytes[0] = 0
+            await manager.send_to_session(
+                session_id,
+                {
+                    "type": "error",
+                    "payload": {
+                        "code": "AUDIO_TOO_LONG",
+                        "message": "錄音時間過長，已自動結束",
+                    },
+                },
+            )
+            return
+
     # 尚未收到結束標記，繼續等待
     if not is_final:
         return
@@ -522,11 +834,32 @@ async def _handle_audio_chunk(
     # 收到 isFinal=true：準備轉錄
     if not audio_buffer:
         logger.debug("音訊緩衝區為空，略過 STT | session=%s", session_id)
+        audio_buffer_total_bytes[0] = 0
         return
 
     # 合併所有片段
     complete_audio = b"".join(audio_buffer)
     audio_buffer.clear()
+    audio_buffer_total_bytes[0] = 0
+
+    # Magic byte 驗證（拒絕非法/偽造容器）
+    if not _has_valid_audio_magic(complete_audio):
+        logger.warning(
+            "音訊 magic bytes 驗證失敗 | session=%s, head=%s",
+            session_id,
+            complete_audio[:16].hex() if complete_audio else "",
+        )
+        await manager.send_to_session(
+            session_id,
+            {
+                "type": "error",
+                "payload": {
+                    "code": "INVALID_AUDIO_FORMAT",
+                    "message": "無法辨識的音訊格式，已捨棄該段",
+                },
+            },
+        )
+        return
 
     logger.info(
         "開始 STT 轉錄 | session=%s, total_bytes=%d",
@@ -587,6 +920,7 @@ async def _handle_audio_chunk(
             session_context=session_context,
             redis=redis,
             db=db,
+            settings=settings,
         )
 
 
@@ -604,6 +938,7 @@ async def _handle_text_message(
     session_context: dict[str, Any],
     redis: Redis,
     db: AsyncSession,
+    settings: Settings,
 ) -> None:
     """
     處理文字訊息：加入歷史 → LLM 回應 → TTS → 紅旗偵測
@@ -743,16 +1078,55 @@ async def _handle_text_message(
         except Exception:
             pass
 
-    # 觸發 Supervisor 背景分析
-    asyncio.create_task(
-        supervisor_engine.analyze_next_step(
-            session_id=session_id,
-            conversation_history=conversation_history,
-            chief_complaint=session_context.get("chief_complaint", ""),
-            patient_info=session_context.get("patient_info", {}),
-            redis=redis,
-        )
-    )
+    # 觸發 Supervisor 背景分析（含 30 秒逾時與 fallback 指導）
+    supervisor_timeout = getattr(settings, "SUPERVISOR_TIMEOUT_SECONDS", 30)
+
+    async def _run_supervisor_with_timeout() -> None:
+        try:
+            await asyncio.wait_for(
+                supervisor_engine.analyze_next_step(
+                    session_id=session_id,
+                    conversation_history=conversation_history,
+                    chief_complaint=session_context.get("chief_complaint", ""),
+                    patient_info=session_context.get("patient_info", {}),
+                    redis=redis,
+                ),
+                timeout=supervisor_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Supervisor 分析逾時（%ds），寫入 fallback 指導 | session=%s",
+                supervisor_timeout,
+                session_id,
+            )
+            # 寫入 fallback 指導至 Redis，避免下一輪讀到過期資料
+            try:
+                fallback = {
+                    "next_focus": "supervisor unavailable, continuing with default guidance",
+                    "missing_hpi": [],
+                    "hpi_completion_percentage": 0,
+                    "fallback": True,
+                }
+                redis_key = (
+                    f"{settings.REDIS_KEY_PREFIX}session:{session_id}:supervisor_guidance"
+                )
+                await redis.setex(
+                    redis_key, 300, json.dumps(fallback, ensure_ascii=False)
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Supervisor fallback 寫入失敗 | session=%s, error=%s",
+                    session_id,
+                    str(exc),
+                )
+        except Exception as exc:
+            logger.error(
+                "Supervisor 背景任務失敗 | session=%s, error=%s",
+                session_id,
+                str(exc),
+            )
+
+    asyncio.create_task(_run_supervisor_with_timeout())
 
     # === 醫療安全：在 TTS/ai_response_end 之前，優先等待紅旗偵測結果 ===
     # 若為 CRITICAL/HIGH 嚴重度，必須在患者聽到 AI 回應前先送出警示
@@ -854,13 +1228,17 @@ async def _handle_text_message(
 
     # Step D：依序等待每一句的 TTS 合成結果，並以 ai_response_chunk 同時夾帶 text + audio
     # （前端會把每個 chunk 的音訊排入序列播放，視覺上字幕與語音逐句推進）
+    # 若 TTS 失敗，仍送出文字 chunk（audioB64=null, ttsFailed=true）讓前端提示。
     for idx, (sentence, tts_task) in enumerate(zip(pending_sentences, pending_tts_tasks)):
-        audio_b64 = ""
+        audio_b64: str | None = ""
+        tts_failed = False
         try:
             audio_bytes = await tts_task
             if audio_bytes:
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         except Exception as exc:
+            tts_failed = True
+            audio_b64 = None
             logger.warning(
                 "句級 TTS 合成失敗，仍送出文字 | session=%s, idx=%d, error=%s",
                 session_id,
@@ -877,6 +1255,7 @@ async def _handle_text_message(
                     "text": sentence,
                     "chunkIndex": idx,
                     "audioB64": audio_b64,
+                    "ttsFailed": tts_failed,
                 },
             },
         )
@@ -893,6 +1272,16 @@ async def _handle_text_message(
             },
         },
     )
+
+    # Fix 13: 達到上限時 FIFO 摘要壓縮
+    try:
+        await _cap_conversation_history(conversation_history, settings)
+    except Exception as exc:
+        logger.warning(
+            "對話歷史摘要壓縮失敗（非致命） | session=%s, error=%s",
+            session_id,
+            str(exc),
+        )
 
     # 儲存對話歷史至 Redis
     await _save_conversation_history(redis, session_id, conversation_history)

@@ -208,17 +208,20 @@
     @apply bg-alert-medium-bg text-alert-medium-text border border-alert-medium-border;
   }
 
-  /* ===== 對話氣泡 — Intercom 暖色調 ===== */
+  /* ===== 對話氣泡 — Intercom 暖色調（支援 dark mode） ===== */
   .chat-bubble-patient {
     @apply bg-chat-patient-bg text-ink-heading rounded-bubble rounded-br-btn px-4 py-3;
+    @apply dark:bg-slate-800 dark:text-slate-100;
     max-width: 80%;
   }
   .chat-bubble-ai {
     @apply bg-chat-ai-bg text-ink-heading rounded-bubble rounded-bl-btn px-4 py-3;
+    @apply dark:bg-orange-950 dark:text-orange-50;
     max-width: 80%;
   }
   .chat-bubble-system {
     @apply bg-chat-system-bg text-chat-system rounded-card px-4 py-2 text-small text-center mx-auto;
+    @apply dark:bg-dark-card dark:text-slate-300;
     max-width: 70%;
   }
 

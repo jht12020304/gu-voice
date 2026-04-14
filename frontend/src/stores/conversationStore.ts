@@ -16,6 +16,10 @@ export interface ChatMessage {
   audioDuration?: number;
   sttConfidence?: number;
   isStreaming?: boolean;
+  /** Fix 16：該訊息至少有一句 TTS 合成失敗 */
+  hasTtsFailure?: boolean;
+  /** Fix 18：快取的句級 TTS base64（不含 data URL 前綴），供使用者點擊重播 */
+  ttsAudioChunks?: string[];
 }
 
 /** 紅旗事件 */
@@ -59,6 +63,10 @@ interface ConversationActions {
   acknowledgeRedFlag: (flagId: string) => void;
   setError: (error: string | null) => void;
   resetSession: () => void;
+  /** Fix 16：標記某則訊息有 TTS 合成失敗 */
+  markMessageTtsFailed: (messageId: string) => void;
+  /** Fix 18：把一段 TTS base64 附加到指定訊息的 ttsAudioChunks 快取中 */
+  appendTtsAudioChunk: (messageId: string, audioB64: string) => void;
 }
 
 /** 將後端 Conversation 轉為前端 ChatMessage */
@@ -135,6 +143,22 @@ export const useConversationStore = create<ConversationState & ConversationActio
     })),
 
   setError: (error) => set({ error }),
+
+  markMessageTtsFailed: (messageId) =>
+    set((state) => ({
+      conversations: state.conversations.map((msg) =>
+        msg.id === messageId ? { ...msg, hasTtsFailure: true } : msg,
+      ),
+    })),
+
+  appendTtsAudioChunk: (messageId, audioB64) =>
+    set((state) => ({
+      conversations: state.conversations.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, ttsAudioChunks: [...(msg.ttsAudioChunks ?? []), audioB64] }
+          : msg,
+      ),
+    })),
 
   resetSession: () =>
     set({

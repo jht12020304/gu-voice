@@ -1,0 +1,41 @@
+{
+  "title": "AI 問診",
+  "endSession": "結束問診",
+  "loading": "載入對話...",
+  "onboarding": {
+    "hint": "直接說話就行，不用按按鈕"
+  },
+  "status": {
+    "notStarted": "問診尚未開始",
+    "aiResponding": "AI 回應中...",
+    "listening": "正在聆聽你說話 {{duration}}",
+    "idle": "請直接開始說話，我會自動聽取",
+    "thinking": "AI 正在思考...",
+    "speaking": "說話中"
+  },
+  "scroll": {
+    "latest": "最新訊息",
+    "latestWithCount": "最新訊息 ({{count}})"
+  },
+  "tts": {
+    "failed": "語音合成失敗",
+    "replayAria": "重新播放 AI 語音",
+    "replayTitle": "點擊重新播放語音"
+  },
+  "redFlag": {
+    "more": "+{{count}} 項其他警示"
+  },
+  "error": {
+    "loadFailed": "無法載入對話",
+    "sessionInterrupted": "問診中斷，請重新開始",
+    "aiUnavailable": "AI 服務暫時無法回應，請稍後再試",
+    "disconnected": "連線中斷，正在重新連線...",
+    "audioTooLong": "錄音時間過長，已自動結束",
+    "micPermission": "請在瀏覽器設定允許麥克風權限，然後重新載入頁面",
+    "micNotFound": "找不到麥克風裝置，請確認已連接麥克風",
+    "micGeneric": "麥克風發生錯誤：{{message}}"
+  },
+  "mockMessages": {
+    "systemStart": "問診開始 — 主訴: {{complaint}}"
+  }
+}

@@ -73,6 +73,14 @@ export interface AIResponseChunkPayload {
   chunkIndex: number;
   /** 句級 base64 音訊（mp3）。若為空字串代表此句無對應音訊。 */
   audioB64?: string;
+  /** Fix 16（Option B）：後端在同一個 chunk payload 中標記 TTS 合成失敗 */
+  ttsFailed?: boolean;
+}
+
+/** Fix 16（Option A）：獨立 tts_failed 事件 */
+export interface TtsFailedPayload {
+  messageId: string;
+  reason?: string;
 }
 
 export interface AIResponseEndPayload {
@@ -112,6 +120,7 @@ export type ServerMessageType =
   | 'ai_response_start'
   | 'ai_response_chunk'
   | 'ai_response_end'
+  | 'tts_failed'
   | 'red_flag_alert'
   | 'session_status'
   | 'error'

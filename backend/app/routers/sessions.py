@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_user, get_db, require_role
+from app.core.dependencies import get_current_user, get_db, get_redis, require_role
 from app.core.exceptions import AppException
 from app.schemas.session import (
     ConversationListResponse,
@@ -154,6 +154,63 @@ async def get_session_conversations(
         cursor=cursor,
         limit=limit,
     )
+
+
+@router.post(
+    "/{session_id}/reconnect",
+    status_code=status.HTTP_200_OK,
+    summary="場次重連恢復",
+)
+async def reconnect_session(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    current_user=Depends(get_current_user),
+) -> dict:
+    """
+    客戶端在重新整理／斷線重連後呼叫此端點，回傳目前 Redis 內的
+    conversation_history、last message index、以及 sha256 checksum，
+    供前端帶著 resumeFrom checksum 重新建立 WebSocket 連線時比對。
+
+    若 checksum 相符，WebSocket handler 將跳過開場白並沿用歷史；
+    不符則回退為全新場次（由前端處理）。
+    """
+    import hashlib
+    import json as _json
+
+    # 驗證場次存在且使用者有權限（沿用 get_session 的授權）
+    session_detail = await session_service.get_session(
+        db,
+        session_id=session_id,
+        current_user=current_user,
+    )
+
+    # 從 Redis 讀取 conversation_history
+    context_key = f"gu:session:{session_id}:context"
+    history: list[dict] = []
+    try:
+        raw = await redis.hget(context_key, "conversation_history")
+        if raw:
+            history = _json.loads(raw)
+    except Exception:
+        history = []
+
+    # 穩定序列化（僅 role + content）→ sha256
+    payload = [
+        {"role": e.get("role", ""), "content": e.get("content", "")}
+        for e in history
+    ]
+    serialized = _json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    checksum = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    return {
+        "sessionId": str(session_id),
+        "status": getattr(session_detail, "status", None) or "unknown",
+        "conversationHistory": history,
+        "lastMessageIndex": len(history) - 1 if history else -1,
+        "checksum": checksum,
+        "resumeToken": checksum,  # resumeToken 即 checksum，前端帶回以驗證連續性
+    }
 
 
 @router.post(
