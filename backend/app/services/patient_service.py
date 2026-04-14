@@ -283,3 +283,21 @@ class PatientService:
 
     async def list_patient_sessions(self, db, patient_id, cursor=None, limit=20):
         return await self.get_sessions(db, patient_id=patient_id, cursor=cursor, limit=limit)
+
+    async def get_patient_sessions(
+        self,
+        db,
+        patient_id,
+        current_user=None,
+        cursor=None,
+        limit=20,
+        status=None,
+        date_from=None,
+        date_to=None,
+    ):
+        """Router-facing alias. Extra filters (status/date_from/date_to) are
+        accepted for API compatibility but not yet applied — the frontend
+        detail page doesn't pass them today."""
+        return await self.get_sessions(
+            db, patient_id=patient_id, cursor=cursor, limit=limit
+        )
