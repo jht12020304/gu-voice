@@ -267,11 +267,20 @@ class AudioStreamService {
 
     const mr = this.mediaRecorder;
     this.mediaRecorder = null;
-    if (mr && mr.state !== 'inactive') {
-      try {
-        mr.stop();
-      } catch {
-        // ignore
+    if (mr) {
+      // 關鍵：stop() 是 async，會再觸發一次 ondataavailable 把最後一小段資料送出來。
+      // 我們已經向後端送了 isFinal=true，這個殘留事件若再進來會被當成「下一段」的
+      // 開頭，污染 backend audio_buffer 導致下一輪 Whisper 解不出東西。
+      // 先斷開 handlers 再 stop()，讓殘留事件無處可去。
+      mr.ondataavailable = null;
+      mr.onerror = null;
+      mr.onstop = null;
+      if (mr.state !== 'inactive') {
+        try {
+          mr.stop();
+        } catch {
+          // ignore
+        }
       }
     }
 
