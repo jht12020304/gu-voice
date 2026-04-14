@@ -9,7 +9,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_user, get_db
+import redis.asyncio as aioredis
+
+from app.core.dependencies import get_current_user, get_db, get_redis
 from app.core.exceptions import AppException
 from app.schemas.notification import (
     FCMTokenCreate,
@@ -71,19 +73,21 @@ async def mark_all_read(
 
 @router.get(
     "/unread-count",
-    response_model=UnreadCountResponse,
     status_code=status.HTTP_200_OK,
     summary="取得未讀通知數量",
 )
 async def get_unread_count(
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
     current_user=Depends(get_current_user),
-) -> UnreadCountResponse:
+) -> dict:
     """取得目前使用者的未讀通知數量。"""
-    return await notification_service.get_unread_count(
+    count = await notification_service.get_unread_count(
         db,
+        redis,
         user_id=current_user.id,
     )
+    return {"count": count}
 
 
 @router.post(

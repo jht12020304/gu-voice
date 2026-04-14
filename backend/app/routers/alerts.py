@@ -7,7 +7,10 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.red_flag_alert import RedFlagAlert as RedFlagAlertModel
 
 from app.core.dependencies import get_current_user, get_db, require_role
 from app.core.exceptions import AppException
@@ -123,12 +126,12 @@ async def get_unacknowledged_count(
     current_user=Depends(get_current_user),
 ) -> dict:
     """取得未確認紅旗警示的數量。"""
-    result = await alert_service.list_alerts(
-        db,
-        is_acknowledged=False,
-        limit=0,
+    result = await db.execute(
+        select(func.count())
+        .select_from(RedFlagAlertModel)
+        .where(RedFlagAlertModel.acknowledged_by.is_(None))
     )
-    return {"count": result.pagination.total_count if hasattr(result.pagination, 'total_count') else len(result.data)}
+    return {"count": result.scalar() or 0}
 
 
 @router.get(
