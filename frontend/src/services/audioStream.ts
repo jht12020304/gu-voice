@@ -36,6 +36,16 @@ class AudioStreamService {
   private chunks: Blob[] = [];
   private chunkIndex = 0;
   private segmentStartTime = 0;
+  /**
+   * 目前活動中的段落 id（0 表示沒有段落在錄音）。
+   * 每次 beginSegment 遞增，endSegment 歸零。
+   * sendChunk 是 async（await blob.arrayBuffer），可能在段落結束後才 resolve；
+   * 那些「遲到」的 chunk 若送到後端，會被當成下一段的開頭，導致 complete_audio
+   * 開頭缺少 WebM EBML magic bytes，進而被後端拒收（INVALID_AUDIO_FORMAT）。
+   * 用這個 id 比對，丟棄已結束段落的殘留 chunk。
+   */
+  private activeSegmentId = 0;
+  private nextSegmentId = 1;
 
   private animationFrame: number | null = null;
   private durationInterval: ReturnType<typeof setInterval> | null = null;
@@ -233,6 +243,8 @@ class AudioStreamService {
     this.chunks = [];
     this.chunkIndex = 0;
     this.segmentStartTime = Date.now();
+    this.activeSegmentId = this.nextSegmentId++;
+    const thisSegmentId = this.activeSegmentId;
 
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
@@ -254,7 +266,7 @@ class AudioStreamService {
     this.mediaRecorder.ondataavailable = (event: BlobEvent) => {
       if (event.data.size > 0) {
         this.chunks.push(event.data);
-        this.sendChunk(event.data);
+        this.sendChunk(event.data, thisSegmentId);
       }
     };
     this.mediaRecorder.onerror = () => {
@@ -276,6 +288,8 @@ class AudioStreamService {
 
     this.isSpeaking = false;
     this.speechStartCandidateAt = 0;
+    // 使 activeSegmentId 失效：在這之後 resolve 的 sendChunk 會看到 id 不符而被丟棄
+    this.activeSegmentId = 0;
 
     if (this.durationInterval) {
       clearInterval(this.durationInterval);
@@ -307,9 +321,12 @@ class AudioStreamService {
     }
   }
 
-  private async sendChunk(blob: Blob): Promise<void> {
+  private async sendChunk(blob: Blob, segmentId: number): Promise<void> {
     try {
       const buffer = await blob.arrayBuffer();
+      // 段落已結束（或換成下一段）→ 丟棄殘留的 chunk，避免污染下一段的
+      // audio_buffer 開頭（缺少 WebM EBML magic 會讓後端直接拒收整段）
+      if (this.activeSegmentId !== segmentId) return;
       const base64 = btoa(
         new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), ''),
       );
@@ -353,6 +370,7 @@ class AudioStreamService {
     this.chunkIndex = 0;
     this.isSpeaking = false;
     this.speechStartCandidateAt = 0;
+    this.activeSegmentId = 0;
   }
 }
 
