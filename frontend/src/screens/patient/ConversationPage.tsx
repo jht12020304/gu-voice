@@ -156,6 +156,10 @@ export default function ConversationPage() {
     on('ai_response_end', (payload) => {
       const data = payload as AIResponseEndPayload;
       finalizeAIResponse(data.messageId, data.fullText);
+      if (data.ttsAudioUrl) {
+        const audio = new Audio(data.ttsAudioUrl);
+        audio.play().catch(() => {}); // 忽略自動播放限制
+      }
     });
 
     // 紅旗警示

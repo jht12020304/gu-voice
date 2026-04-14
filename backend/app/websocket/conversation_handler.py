@@ -391,54 +391,26 @@ async def _send_initial_greeting(
         {"type": "ai_response_start", "payload": {"messageId": message_id}},
     )
 
-    # 以一則 user "開始問診" 訊號觸發 LLM，但不寫入對話歷史作為病患訊息
+    # 立即使用固定模板問診語，避免等待 LLM
     chief_complaint = session_context.get("chief_complaint", "")
-    greeting_messages = [
-        {
-            "role": "system",
-            "content": system_prompt,
-        },
-        {
-            "role": "user",
-            "content": f"（系統提示：病患已進入問診室，主訴為「{chief_complaint}」。請用繁體中文，以一句親切的問候語開場，然後提出第一個與主訴相關的問診問題。只問一個問題。）",
-        },
-    ]
+    full_greeting = f"您好！我是泌尿科 AI 問診助手，今天將協助您進行初步問診。請問您的「{chief_complaint}」症狀是什麼時候開始的？"
 
-    full_greeting = ""
+    # 逐字元串流發送，讓前端有打字效果
     chunk_index = 0
-    try:
-        async for text_chunk in llm_engine._client.chat.completions.create(
-            model=llm_engine._model,
-            messages=greeting_messages,
-            temperature=llm_engine._temperature,
-            max_tokens=200,
-            stream=True,
-        ):
-            delta = text_chunk.choices[0].delta.content or ""
-            if delta:
-                full_greeting += delta
-                await manager.send_to_session(
-                    session_id,
-                    {
-                        "type": "ai_response_chunk",
-                        "payload": {
-                            "messageId": message_id,
-                            "text": delta,
-                            "chunkIndex": chunk_index,
-                        },
-                    },
-                )
-                chunk_index += 1
-    except Exception as exc:
-        logger.error("初始問診語生成失敗 | session=%s, error=%s", session_id, str(exc))
-        full_greeting = f"您好！我是泌尿科 AI 問診助手。請問您目前的{chief_complaint}症狀是什麼時候開始的？"
+    for char in full_greeting:
         await manager.send_to_session(
             session_id,
             {
                 "type": "ai_response_chunk",
-                "payload": {"messageId": message_id, "text": full_greeting, "chunkIndex": 0},
+                "payload": {
+                    "messageId": message_id,
+                    "text": char,
+                    "chunkIndex": chunk_index,
+                },
             },
         )
+        chunk_index += 1
+        await asyncio.sleep(0.03)  # 30ms 間隔模擬打字速度
 
     # 加入 AI 回應到歷史
     if full_greeting:
