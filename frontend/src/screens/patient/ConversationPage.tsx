@@ -47,8 +47,7 @@ export default function ConversationPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const pendingAudioRef = useRef<string>('');
-  const [audioBlocked, setAudioBlocked] = useState(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   const {
     currentSession,
@@ -75,6 +74,29 @@ export default function ConversationPage() {
 
   const { on, off, send } = useConversationWebSocket(sessionId ?? null);
   const { startRecording, stopRecording } = useAudioStream();
+
+  // TTS 播放（使用 AudioContext，在 SPA 導覽後的用戶手勢上下文中可自動播放）
+  const playTTSAudio = useCallback(async (dataUrl: string) => {
+    if (!dataUrl) return;
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+      const res = await fetch(dataUrl);
+      const arrayBuf = await res.arrayBuffer();
+      const audioBuf = await ctx.decodeAudioData(arrayBuf);
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuf;
+      source.connect(ctx.destination);
+      source.start(0);
+    } catch {
+      // 播放失敗時靜默忽略（例如頁面首次載入前無用戶手勢）
+    }
+  }, []);
 
   // 載入場次資料與歷史對話
   useEffect(() => {
@@ -163,14 +185,7 @@ export default function ConversationPage() {
       const data = payload as AIResponseEndPayload;
       finalizeAIResponse(data.messageId, data.fullText);
       if (data.ttsAudioUrl) {
-        const audio = new Audio(data.ttsAudioUrl);
-        audio.play().catch((err: Error) => {
-          // 瀏覽器自動播放政策封鎖 → 顯示手動播放按鈕
-          if (err.name === 'NotAllowedError') {
-            pendingAudioRef.current = data.ttsAudioUrl;
-            setAudioBlocked(true);
-          }
-        });
+        playTTSAudio(data.ttsAudioUrl);
       }
     });
 
@@ -353,28 +368,6 @@ export default function ConversationPage() {
           </div>
         )}
       </div>
-
-      {/* 語音被封鎖時的手動播放提示 */}
-      {audioBlocked && (
-        <div className="border-t border-primary-200 bg-primary-50 px-4 py-2 flex items-center justify-between">
-          <span className="text-small text-primary-700">AI 有語音回應</span>
-          <button
-            className="flex items-center gap-1.5 rounded-btn bg-primary-600 px-3 py-1.5 text-caption font-medium text-white"
-            onClick={() => {
-              if (pendingAudioRef.current) {
-                new Audio(pendingAudioRef.current).play().catch(() => {});
-                pendingAudioRef.current = '';
-              }
-              setAudioBlocked(false);
-            }}
-          >
-            <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-            </svg>
-            點擊播放語音
-          </button>
-        </div>
-      )}
 
       {/* 底部控制區 */}
       <div className="border-t border-edge bg-white px-4 py-4 dark:bg-dark-surface dark:border-dark-border">
