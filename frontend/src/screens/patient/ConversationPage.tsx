@@ -5,7 +5,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ChatBubble from '../../components/chat/ChatBubble';
-import MicButton from '../../components/audio/MicButton';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import StatusBadge from '../../components/medical/StatusBadge';
 import { useConversationStore, conversationToMessage } from '../../stores/conversationStore';
@@ -73,39 +72,57 @@ export default function ConversationPage() {
   } = useConversationStore();
 
   const { on, off, send } = useConversationWebSocket(sessionId ?? null);
-  const { startRecording, stopRecording } = useAudioStream();
+
+  // 根據 session 狀態自動啟動 VAD（in_progress / waiting 時才開麥克風）
+  const isSessionActiveForMic =
+    currentSession?.status === 'in_progress' || currentSession?.status === 'waiting';
+  const { muteVAD, unmuteVAD } = useAudioStream(isSessionActiveForMic);
 
   // TTS 播放（用 AudioContext + atob 直接解碼 base64，避開 CSP connect-src 對 data: URL 的限制）
-  const playTTSAudio = useCallback(async (dataUrl: string) => {
-    if (!dataUrl) return;
-    try {
-      // 從 data URL 取出純 base64 字串
-      const commaIdx = dataUrl.indexOf(',');
-      const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
-
-      // base64 → Uint8Array → ArrayBuffer（不透過 fetch，不觸發 CSP）
-      const binaryStr = atob(base64);
-      const len = binaryStr.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) bytes[i] = binaryStr.charCodeAt(i);
-
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  // 播放期間 VAD 保持靜音，播完後恢復 VAD 讓使用者直接說下一句
+  const playTTSAudio = useCallback(
+    async (dataUrl: string): Promise<void> => {
+      if (!dataUrl) {
+        unmuteVAD();
+        return;
       }
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-      }
+      try {
+        // 從 data URL 取出純 base64 字串
+        const commaIdx = dataUrl.indexOf(',');
+        const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
 
-      const audioBuf = await ctx.decodeAudioData(bytes.buffer);
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuf;
-      source.connect(ctx.destination);
-      source.start(0);
-    } catch (err) {
-      console.error('[TTS] 播放失敗:', err);
-    }
-  }, []);
+        // base64 → Uint8Array → ArrayBuffer（不透過 fetch，不觸發 CSP）
+        const binaryStr = atob(base64);
+        const len = binaryStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = new (window.AudioContext ??
+            (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+        }
+        const ctx = audioCtxRef.current;
+        if (ctx.state === 'suspended') {
+          await ctx.resume();
+        }
+
+        const audioBuf = await ctx.decodeAudioData(bytes.buffer);
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuf;
+        source.connect(ctx.destination);
+        source.onended = () => {
+          // TTS 播完 → 恢復 VAD，使用者可以直接說下一句
+          unmuteVAD();
+        };
+        source.start(0);
+      } catch (err) {
+        console.error('[TTS] 播放失敗:', err);
+        // 出錯也要恢復 VAD，避免卡死
+        unmuteVAD();
+      }
+    },
+    [unmuteVAD],
+  );
 
   // 載入場次資料與歷史對話
   useEffect(() => {
@@ -166,6 +183,8 @@ export default function ConversationPage() {
     on('ai_response_start', (payload) => {
       const data = payload as AIResponseStartPayload;
       setAIResponding(true);
+      // AI 準備說話，關掉 VAD 以免把 TTS 聲音當成使用者輸入
+      muteVAD();
       addConversation({
         id: data.messageId,
         sessionId: sessionId!,
@@ -194,7 +213,11 @@ export default function ConversationPage() {
       const data = payload as AIResponseEndPayload;
       finalizeAIResponse(data.messageId, data.fullText);
       if (data.ttsAudioUrl) {
+        // 播放後會在 onended 恢復 VAD
         playTTSAudio(data.ttsAudioUrl);
+      } else {
+        // 沒有 TTS 音訊，直接恢復 VAD 讓使用者能回答
+        unmuteVAD();
       }
     });
 
@@ -246,15 +269,6 @@ export default function ConversationPage() {
     }
   }, [conversations, aiStreamingText, sttPartialText]);
 
-  // 麥克風按鈕處理
-  const handleMicToggle = useCallback(async () => {
-    if (isRecording) {
-      await stopRecording();
-    } else {
-      await startRecording();
-    }
-  }, [isRecording, startRecording, stopRecording]);
-
   // 結束問診
   const handleEndSession = () => {
     send('control', { action: 'end_session' });
@@ -265,8 +279,7 @@ export default function ConversationPage() {
     return <LoadingSpinner fullPage message="載入對話..." />;
   }
 
-  const isSessionActive =
-    currentSession?.status === 'in_progress' || currentSession?.status === 'waiting';
+  const isSessionActive = isSessionActiveForMic;
 
   // 未確認的紅旗
   const unacknowledgedFlags = activeRedFlags.filter((f) => !f.isAcknowledged);
@@ -355,43 +368,62 @@ export default function ConversationPage() {
         )}
       </div>
 
-      {/* 底部控制區 */}
-      <div className="border-t border-edge bg-white px-4 py-4 dark:bg-dark-surface dark:border-dark-border">
-        {/* 波形視覺化 */}
-        {isRecording && (
-          <div className="mb-3 flex items-center justify-center gap-1">
-            {waveformData.slice(0, 24).map((value, i) => (
+      {/* 底部控制區（自動語音偵測） */}
+      <div className="border-t border-edge bg-white px-4 py-5 dark:bg-dark-surface dark:border-dark-border">
+        {/* 麥克風狀態指示圈（顯示狀態，無需點擊） */}
+        <div className="flex items-center justify-center">
+          <div
+            className={`flex h-14 w-14 items-center justify-center rounded-full transition-colors ${
+              !isSessionActive
+                ? 'bg-surface-tertiary text-ink-placeholder'
+                : isAIResponding
+                  ? 'bg-primary-50 text-primary-500'
+                  : isRecording
+                    ? 'bg-alert-critical text-white shadow-lg shadow-alert-critical/30'
+                    : 'bg-primary-50 text-primary-600'
+            }`}
+          >
+            <svg
+              className={`h-7 w-7 ${isRecording ? 'animate-pulse' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M19 11a7 7 0 01-14 0m7 7v4m-4 0h8M12 2a3 3 0 00-3 3v6a3 3 0 006 0V5a3 3 0 00-3-3z"
+              />
+            </svg>
+          </div>
+        </div>
+
+        {/* 波形視覺化（持續顯示；錄音時紅色強調） */}
+        <div className="mt-3 flex items-end justify-center gap-1 h-10">
+          {waveformData.slice(0, 32).map((value, i) => {
+            const height = Math.max(3, value * 38);
+            return (
               <div
                 key={i}
-                className="w-1 rounded-full bg-alert-critical transition-all"
-                style={{ height: `${Math.max(4, value * 32)}px` }}
+                className={`w-1 rounded-full transition-all duration-75 ${
+                  isRecording ? 'bg-alert-critical' : 'bg-primary-300 dark:bg-primary-700'
+                }`}
+                style={{ height: `${height}px` }}
               />
-            ))}
-            <span className="ml-3 text-caption font-data text-alert-critical">
-              {formatDuration(recordingDuration)}
-            </span>
-          </div>
-        )}
-
-        {/* 麥克風按鈕 */}
-        <div className="flex items-center justify-center">
-          <MicButton
-            state={
-              !isSessionActive
-                ? 'disabled'
-                : isRecording
-                  ? 'recording'
-                  : isAIResponding
-                    ? 'processing'
-                    : 'idle'
-            }
-            onPress={handleMicToggle}
-            mode="toggle"
-            size="lg"
-          />
+            );
+          })}
         </div>
+
+        {/* 狀態文字 */}
         <p className="mt-2 text-center text-small text-ink-muted">
-          {isRecording ? '點擊停止錄音' : isAIResponding ? 'AI 回應中...' : '點擊開始說話'}
+          {!isSessionActive
+            ? '問診尚未開始'
+            : isAIResponding
+              ? 'AI 回應中...'
+              : isRecording
+                ? `正在聆聽你說話 ${formatDuration(recordingDuration)}`
+                : '請直接開始說話，我會自動聽取'}
         </p>
       </div>
     </div>
