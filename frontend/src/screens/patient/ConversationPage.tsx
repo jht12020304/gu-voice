@@ -2,7 +2,7 @@
 // 語音問診對話頁（病患端核心頁面）
 // =============================================================================
 
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ChatBubble from '../../components/chat/ChatBubble';
 import MicButton from '../../components/audio/MicButton';
@@ -246,10 +246,6 @@ export default function ConversationPage() {
     }
   }, [conversations, aiStreamingText, sttPartialText]);
 
-  // 文字輸入狀態
-  const [inputText, setInputText] = useState('');
-  const [inputMode, setInputMode] = useState<'voice' | 'text'>('text'); // 預設改為文字比較好測試
-
   // 麥克風按鈕處理
   const handleMicToggle = useCallback(async () => {
     if (isRecording) {
@@ -258,25 +254,6 @@ export default function ConversationPage() {
       await startRecording();
     }
   }, [isRecording, startRecording, stopRecording]);
-
-  // 發送文字訊息
-  const handleSendText = () => {
-    if (!inputText.trim()) return;
-    
-    // 透過 websocket 發送
-    send('text_message', { text: inputText.trim() });
-    
-    // 加入畫面
-    addConversation({
-      id: `msg-${Date.now()}`,
-      sessionId: sessionId!,
-      sender: 'patient',
-      content: inputText.trim(),
-      timestamp: new Date().toISOString(),
-    });
-    
-    setInputText('');
-  };
 
   // 結束問診
   const handleEndSession = () => {
@@ -380,88 +357,42 @@ export default function ConversationPage() {
 
       {/* 底部控制區 */}
       <div className="border-t border-edge bg-white px-4 py-4 dark:bg-dark-surface dark:border-dark-border">
-        {/* 模式切換鈕 */}
-        <div className="flex justify-center mb-2 gap-4 text-sm">
-          <button 
-            className={`px-3 py-1 rounded-full ${inputMode === 'text' ? 'bg-primary-50 text-primary-600 font-medium' : 'text-ink-muted'}`}
-            onClick={() => setInputMode('text')}
-          >
-            文字輸入
-          </button>
-          <button 
-            className={`px-3 py-1 rounded-full ${inputMode === 'voice' ? 'bg-primary-50 text-primary-600 font-medium' : 'text-ink-muted'}`}
-            onClick={() => setInputMode('voice')}
-          >
-            語音輸入
-          </button>
-        </div>
-
-        {inputMode === 'voice' ? (
-          <>
-            {/* 波形視覺化 */}
-            {isRecording && (
-              <div className="mb-3 flex items-center justify-center gap-1">
-                {waveformData.slice(0, 24).map((value, i) => (
-                  <div
-                    key={i}
-                    className="w-1 rounded-full bg-alert-critical transition-all"
-                    style={{ height: `${Math.max(4, value * 32)}px` }}
-                  />
-                ))}
-                <span className="ml-3 text-caption font-data text-alert-critical">
-                  {formatDuration(recordingDuration)}
-                </span>
-              </div>
-            )}
-
-            {/* 麥克風按鈕 */}
-            <div className="flex items-center justify-center">
-              <MicButton
-                state={
-                  !isSessionActive
-                    ? 'disabled'
-                    : isRecording
-                      ? 'recording'
-                      : isAIResponding
-                        ? 'processing'
-                        : 'idle'
-                }
-                onPress={handleMicToggle}
-                mode="toggle"
-                size="lg"
+        {/* 波形視覺化 */}
+        {isRecording && (
+          <div className="mb-3 flex items-center justify-center gap-1">
+            {waveformData.slice(0, 24).map((value, i) => (
+              <div
+                key={i}
+                className="w-1 rounded-full bg-alert-critical transition-all"
+                style={{ height: `${Math.max(4, value * 32)}px` }}
               />
-            </div>
-            <p className="mt-2 text-center text-small text-ink-muted">
-              {isRecording ? '點擊停止錄音' : isAIResponding ? 'AI 回應中...' : '點擊開始說話'}
-            </p>
-          </>
-        ) : (
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendText();
-                }
-              }}
-              placeholder="輸入訊息..."
-              className="flex-1 rounded-full border border-edge bg-surface-primary px-4 py-2.5 text-body text-ink-primary focus:border-primary-500 focus:outline-none dark:bg-dark-elem dark:text-white dark:border-dark-border"
-              disabled={!isSessionActive || isAIResponding}
-            />
-            <button
-              onClick={handleSendText}
-              disabled={!inputText.trim() || !isSessionActive || isAIResponding}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-600 text-white disabled:opacity-50"
-            >
-              <svg className="h-5 w-5 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-            </button>
+            ))}
+            <span className="ml-3 text-caption font-data text-alert-critical">
+              {formatDuration(recordingDuration)}
+            </span>
           </div>
         )}
+
+        {/* 麥克風按鈕 */}
+        <div className="flex items-center justify-center">
+          <MicButton
+            state={
+              !isSessionActive
+                ? 'disabled'
+                : isRecording
+                  ? 'recording'
+                  : isAIResponding
+                    ? 'processing'
+                    : 'idle'
+            }
+            onPress={handleMicToggle}
+            mode="toggle"
+            size="lg"
+          />
+        </div>
+        <p className="mt-2 text-center text-small text-ink-muted">
+          {isRecording ? '點擊停止錄音' : isAIResponding ? 'AI 回應中...' : '點擊開始說話'}
+        </p>
       </div>
     </div>
   );

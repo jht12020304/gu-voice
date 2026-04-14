@@ -289,25 +289,6 @@ async def conversation_websocket(
                 )
                 continue
 
-            # ── 文字訊息處理（跳過 STT）─────────────────
-            if msg_type == "text_message":
-                text = msg_payload.get("text", "").strip()
-                if text:
-                    await _handle_text_message(
-                        session_id=session_id,
-                        text=text,
-                        llm_engine=llm_engine,
-                        tts_pipeline=tts_pipeline,
-                        red_flag_detector=red_flag_detector,
-                        supervisor_engine=supervisor_engine,
-                        system_prompt=system_prompt,
-                        conversation_history=conversation_history,
-                        session_context=session_context,
-                        redis=redis,
-                        db=db,
-                    )
-                continue
-
             # ── 未知訊息類型 ───────────────────────────
             logger.warning(
                 "收到未知訊息類型 | session=%s, type=%s",
