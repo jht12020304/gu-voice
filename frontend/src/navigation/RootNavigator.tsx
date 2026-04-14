@@ -33,6 +33,7 @@ const PatientHomePage = React.lazy(() => import('../screens/patient/PatientHomeP
 const SelectComplaintPage = React.lazy(() => import('../screens/patient/SelectComplaintPage'));
 const MedicalInfoPage = React.lazy(() => import('../screens/patient/MedicalInfoPage'));
 const SessionCompletePage = React.lazy(() => import('../screens/patient/SessionCompletePage'));
+const SessionThankYouPage = React.lazy(() => import('../screens/patient/SessionThankYouPage'));
 const PatientHistoryPage = React.lazy(() => import('../screens/patient/PatientHistoryPage'));
 const PatientSessionDetailPage = React.lazy(() => import('../screens/patient/PatientSessionDetailPage'));
 const PatientSettingsPage = React.lazy(() => import('../screens/patient/PatientSettingsPage'));
@@ -121,6 +122,7 @@ export default function RootNavigator() {
                 <Route path="/patient/history/:sessionId" element={<PatientSessionDetailPage />} />
                 <Route path="/patient/settings" element={<PatientSettingsPage />} />
                 <Route path="/patient/session/:sessionId/complete" element={<SessionCompletePage />} />
+                <Route path="/patient/session/:sessionId/thank-you" element={<SessionThankYouPage />} />
               </Route>
             </Route>
 

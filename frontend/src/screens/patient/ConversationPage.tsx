@@ -429,7 +429,7 @@ export default function ConversationPage() {
         setCurrentSession({ ...currentSession, status: data.status as SessionStatus });
       }
       if (data.status === 'completed') {
-        navigate(`/patient/session/${sessionId}/complete`);
+        navigate(`/patient/session/${sessionId}/thank-you`, { replace: true });
       } else if (data.status === 'failed') {
         setError(t('conversation:error.sessionInterrupted'));
       }
@@ -528,7 +528,7 @@ export default function ConversationPage() {
   // 結束問診
   const handleEndSession = () => {
     send('control', { action: 'end_session' });
-    navigate(`/patient/session/${sessionId}/complete`);
+    navigate(`/patient/session/${sessionId}/thank-you`, { replace: true });
   };
 
   if (!currentSession && !error) {
