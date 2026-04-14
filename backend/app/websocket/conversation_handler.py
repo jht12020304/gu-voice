@@ -110,8 +110,8 @@ async def conversation_websocket(
                     "sessionId": session_id,
                     "status": "connected",
                     "config": {
-                        "audioFormat": "wav",
-                        "sampleRate": settings.GOOGLE_STT_SAMPLE_RATE,
+                        "audioFormat": "webm",
+                        "sampleRate": 16000,
                         "maxChunkSizeBytes": 32768,  # 32KB
                     },
                 },
@@ -170,6 +170,8 @@ async def conversation_websocket(
 
         # ── 步驟 4：主訊息迴圈 ─────────────────────────
         is_paused = False
+        # 音訊緩衝區：累積片段直到 isFinal=true 才呼叫 Whisper
+        audio_buffer: list[bytes] = []
 
         while True:
             raw_message = await websocket.receive_json()
@@ -260,6 +262,7 @@ async def conversation_websocket(
                 await _handle_audio_chunk(
                     session_id=session_id,
                     payload=msg_payload,
+                    audio_buffer=audio_buffer,
                     stt_pipeline=stt_pipeline,
                     llm_engine=llm_engine,
                     tts_pipeline=tts_pipeline,
@@ -357,6 +360,7 @@ async def _handle_audio_chunk(
     *,
     session_id: str,
     payload: dict[str, Any],
+    audio_buffer: list[bytes],
     stt_pipeline: STTPipeline,
     llm_engine: LLMConversationEngine,
     tts_pipeline: TTSPipeline,
@@ -369,79 +373,80 @@ async def _handle_audio_chunk(
     db: AsyncSession,
 ) -> None:
     """
-    處理音訊片段：解碼 base64 → STT 辨識 → LLM 回應 → TTS 合成
+    處理音訊片段：累積 base64 chunks → 收到 isFinal=true 時呼叫 Whisper → LLM → TTS
 
-    Args:
-        session_id: 場次 ID
-        payload: 音訊片段 payload
-        其他參數: 各管線與上下文
+    前端每 250ms 發送一個 audio_chunk（isFinal=false），
+    停止錄音時發送一個空的 audio_chunk（isFinal=true）作為結束標記。
+    所有片段累積完成後統一送 Whisper 轉錄，避免切碎音訊。
     """
-    audio_b64 = payload.get("audio_data", "")
-    if not audio_b64:
+    audio_b64: str = payload.get("audioData", "")
+    is_final: bool = payload.get("isFinal", False)
+
+    # 非空片段：解碼並加入緩衝區
+    if audio_b64:
+        try:
+            chunk_bytes = base64.b64decode(audio_b64)
+            audio_buffer.append(chunk_bytes)
+        except Exception as exc:
+            logger.warning(
+                "音訊 base64 解碼失敗 | session=%s, error=%s",
+                session_id,
+                str(exc),
+            )
+            await manager.send_to_session(
+                session_id,
+                {
+                    "type": "error",
+                    "payload": {
+                        "code": "INVALID_AUDIO",
+                        "message": "音訊資料格式無效",
+                    },
+                },
+            )
+            return
+
+    # 尚未收到結束標記，繼續等待
+    if not is_final:
         return
 
+    # 收到 isFinal=true：準備轉錄
+    if not audio_buffer:
+        logger.debug("音訊緩衝區為空，略過 STT | session=%s", session_id)
+        return
+
+    # 合併所有片段
+    complete_audio = b"".join(audio_buffer)
+    audio_buffer.clear()
+
+    logger.info(
+        "開始 STT 轉錄 | session=%s, total_bytes=%d",
+        session_id,
+        len(complete_audio),
+    )
+
+    # 呼叫 OpenAI Whisper 轉錄
+    final_text = ""
     try:
-        audio_bytes = base64.b64decode(audio_b64)
-    except Exception as exc:
-        logger.warning(
-            "音訊 base64 解碼失敗 | session=%s, error=%s",
-            session_id,
-            str(exc),
-        )
+        result = await stt_pipeline.transcribe(complete_audio)
+        final_text = result["text"]
+        message_id = str(uuid.uuid4())
+
         await manager.send_to_session(
             session_id,
             {
-                "type": "error",
+                "type": "stt_final",
                 "payload": {
-                    "code": "INVALID_AUDIO",
-                    "message": "音訊資料格式無效",
+                    "messageId": message_id,
+                    "text": final_text,
+                    "confidence": result["confidence"],
+                    "isFinal": True,
                 },
             },
         )
-        return
-
-    # 建立單一音訊片段的非同步產生器
-    async def single_chunk_generator():
-        yield audio_bytes
-
-    # 執行 STT 串流辨識
-    final_text = ""
-    try:
-        async for result in stt_pipeline.stream_recognize(single_chunk_generator()):
-            if result["is_final"]:
-                message_id = str(uuid.uuid4())
-                final_text = result["text"]
-
-                # 發送 STT 最終結果
-                await manager.send_to_session(
-                    session_id,
-                    {
-                        "type": "stt_final",
-                        "payload": {
-                            "messageId": message_id,
-                            "text": result["text"],
-                            "confidence": result["confidence"],
-                            "isFinal": True,
-                        },
-                    },
-                )
-            else:
-                # 發送 STT 中間結果
-                await manager.send_to_session(
-                    session_id,
-                    {
-                        "type": "stt_partial",
-                        "payload": {
-                            "text": result["text"],
-                            "confidence": result["confidence"],
-                            "isFinal": False,
-                        },
-                    },
-                )
 
     except Exception as exc:
         logger.error(
-            "STT 辨識失敗 | session=%s, error=%s",
+            "STT 轉錄失敗 | session=%s, error=%s",
             session_id,
             str(exc),
             exc_info=True,

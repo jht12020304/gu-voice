@@ -109,19 +109,14 @@ class Settings(BaseSettings):
     OPENAI_MAX_TOKENS_CONVERSATION: int = 512
     OPENAI_MAX_TOKENS_SOAP: int = 4096
 
-    # ── GOOGLE CLOUD ────────────────────────────────────
-    GOOGLE_CLOUD_PROJECT_ID: str = ""
-    GOOGLE_APPLICATION_CREDENTIALS: str = ""
+    # ── STT (OpenAI Whisper) ─────────────────────────────
+    OPENAI_STT_MODEL: str = "whisper-1"
+    OPENAI_STT_LANGUAGE: str = "zh"      # ISO-639-1，zh = 中文（繁/簡皆可）
 
-    # ── STT (Speech-to-Text) ────────────────────────────
-    GOOGLE_STT_LANGUAGE_CODE: str = "zh-TW"
-    GOOGLE_STT_MODEL: str = "chirp_2"
-    GOOGLE_STT_SAMPLE_RATE: int = 16000
-
-    # ── TTS (Text-to-Speech) ────────────────────────────
-    GOOGLE_TTS_VOICE_NAME: str = "cmn-TW-Wavenet-A"
-    GOOGLE_TTS_SPEAKING_RATE: float = 0.9
-    GOOGLE_TTS_SAMPLE_RATE: int = 24000
+    # ── TTS (OpenAI TTS) ─────────────────────────────────
+    OPENAI_TTS_MODEL: str = "tts-1"      # tts-1（快速）或 tts-1-hd（高品質）
+    OPENAI_TTS_VOICE: str = "nova"       # alloy / echo / fable / onyx / nova / shimmer
+    OPENAI_TTS_SPEED: float = 0.9        # 0.25 ~ 4.0，< 1.0 稍慢較自然
 
     # ── SUPABASE ────────────────────────────────────────
     SUPABASE_URL: str = ""

@@ -34,12 +34,6 @@ aiohttp==3.11.11
 openai==1.58.1
 tiktoken==0.8.0
 
-# --- Google Cloud 語音服務 ---
-google-cloud-speech==2.28.1
-google-cloud-texttospeech==2.22.0
-google-auth==2.37.0
-google-api-core==2.24.0
-
 # --- PDF 報告產生 ---
 weasyprint==63.1
 
