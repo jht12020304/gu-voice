@@ -695,6 +695,104 @@ async def _handle_text_message(
         )
     )
 
+    # === 醫療安全：在 TTS/ai_response_end 之前，優先等待紅旗偵測結果 ===
+    # 若為 CRITICAL/HIGH 嚴重度，必須在患者聽到 AI 回應前先送出警示
+    # 較低嚴重度可以延後處理（ai_response_end 之後）以避免阻塞語音
+    RED_FLAG_WAIT_TIMEOUT = 3.5
+    red_flag_alerts: list[dict[str, Any]] = []
+    red_flag_timed_out = False
+    try:
+        red_flag_alerts = await asyncio.wait_for(
+            asyncio.shield(red_flag_task), timeout=RED_FLAG_WAIT_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        red_flag_timed_out = True
+        logger.warning(
+            "紅旗偵測逾時（%.1fs），延後處理偵測結果 | session=%s",
+            RED_FLAG_WAIT_TIMEOUT,
+            session_id,
+        )
+    except Exception as exc:
+        logger.error(
+            "紅旗偵測任務失敗 | session=%s, error=%s",
+            session_id,
+            str(exc),
+        )
+        red_flag_alerts = []
+
+    # 依嚴重度切分：critical/high 必須在 ai_response_end 前送出
+    critical_alerts = [
+        a for a in red_flag_alerts
+        if str(a.get("severity", "")).lower() in ("critical", "high")
+    ]
+    deferred_alerts = [
+        a for a in red_flag_alerts
+        if str(a.get("severity", "")).lower() not in ("critical", "high")
+    ]
+
+    async def _persist_and_emit_alert(alert: dict[str, Any]) -> str:
+        """儲存單一紅旗警示至資料庫，並發送 WS 通知前端與儀表板。"""
+        alert_id = str(uuid.uuid4())
+        try:
+            from app.services.alert_service import AlertService
+            from app.models.enums import AlertSeverity, AlertType
+            from uuid import UUID as _UUID
+            _db_alert = await AlertService.create(db, {
+                "session_id": _UUID(session_id),
+                "conversation_id": patient_conv_id or uuid.uuid4(),
+                "alert_type": AlertType(alert.get("alert_type", "semantic")),
+                "severity": AlertSeverity(alert["severity"]),
+                "title": alert["title"],
+                "description": alert.get("description", ""),
+                "trigger_reason": alert.get("trigger_reason", ""),
+                "trigger_keywords": alert.get("trigger_keywords"),
+                "suggested_actions": alert.get("suggested_actions", []),
+                "matched_rule_id": _UUID(alert["matched_rule_id"]) if alert.get("matched_rule_id") else None,
+            })
+            await db.commit()
+            alert_id = str(_db_alert.id)
+        except Exception as _e:
+            logger.warning("紅旗警示儲存失敗 | session=%s, error=%s", session_id, str(_e))
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+        await manager.send_to_session(
+            session_id,
+            {
+                "type": "red_flag_alert",
+                "payload": {
+                    "alertId": alert_id,
+                    "severity": alert["severity"],
+                    "title": alert["title"],
+                    "description": alert["description"],
+                    "suggestedActions": alert.get("suggested_actions", []),
+                },
+            },
+        )
+
+        await manager.broadcast_dashboard(
+            {
+                "type": "new_red_flag",
+                "payload": {
+                    "alertId": alert_id,
+                    "sessionId": session_id,
+                    "patientName": session_context.get("patient_info", {}).get(
+                        "name", "未知"
+                    ),
+                    "severity": alert["severity"],
+                    "title": alert["title"],
+                    "description": alert["description"],
+                },
+            }
+        )
+        return alert_id
+
+    # Step C：在 TTS/ai_response_end 之前送出 critical/high 警示
+    for alert in critical_alerts:
+        await _persist_and_emit_alert(alert)
+
     # TTS 合成（直接使用 base64 data URL，不依賴 Supabase）
     tts_url = ""
     try:
@@ -738,83 +836,60 @@ async def _handle_text_message(
     # 儲存對話歷史至 Redis
     await _save_conversation_history(redis, session_id, conversation_history)
 
-    # 等待紅旗偵測結果
-    try:
-        red_flag_alerts = await red_flag_task
-    except Exception as exc:
-        logger.error(
-            "紅旗偵測任務失敗 | session=%s, error=%s",
-            session_id,
-            str(exc),
-        )
-        red_flag_alerts = []
-
-    # 處理紅旗警示
-    if red_flag_alerts:
-        for alert in red_flag_alerts:
-            alert_id = str(uuid.uuid4())
-
-            # 儲存紅旗警示至資料庫
+    # 若先前逾時，TTS 期間偵測可能已完成；嘗試回收結果作為延後處理
+    if red_flag_timed_out:
+        if red_flag_task.done():
             try:
-                from app.services.alert_service import AlertService
-                from app.models.enums import AlertSeverity, AlertType
-                from uuid import UUID as _UUID
-                _db_alert = await AlertService.create(db, {
-                    "session_id": _UUID(session_id),
-                    "conversation_id": patient_conv_id or uuid.uuid4(),
-                    "alert_type": AlertType(alert.get("alert_type", "semantic")),
-                    "severity": AlertSeverity(alert["severity"]),
-                    "title": alert["title"],
-                    "description": alert.get("description", ""),
-                    "trigger_reason": alert.get("trigger_reason", ""),
-                    "trigger_keywords": alert.get("trigger_keywords"),
-                    "suggested_actions": alert.get("suggested_actions", []),
-                    "matched_rule_id": _UUID(alert["matched_rule_id"]) if alert.get("matched_rule_id") else None,
-                })
-                await db.commit()
-                alert_id = str(_db_alert.id)
-            except Exception as _e:
-                logger.warning("紅旗警示儲存失敗 | session=%s, error=%s", session_id, str(_e))
+                late_alerts = red_flag_task.result()
+                # 逾時後才抵達的 critical/high 也仍須送出（僅次序略晚於語音）
+                for alert in late_alerts or []:
+                    sev = str(alert.get("severity", "")).lower()
+                    if sev in ("critical", "high"):
+                        critical_alerts.append(alert)
+                        await _persist_and_emit_alert(alert)
+                    else:
+                        deferred_alerts.append(alert)
+            except Exception as exc:
+                logger.error(
+                    "逾時後紅旗偵測結果取得失敗 | session=%s, error=%s",
+                    session_id,
+                    str(exc),
+                )
+        else:
+            # 仍未完成：於背景等待並於完成後處理（避免阻塞當前 turn）
+            async def _drain_late_red_flags() -> None:
                 try:
-                    await db.rollback()
-                except Exception:
-                    pass
+                    late_alerts = await red_flag_task
+                except Exception as exc:
+                    logger.error(
+                        "背景紅旗偵測任務失敗 | session=%s, error=%s",
+                        session_id,
+                        str(exc),
+                    )
+                    return
+                for alert in late_alerts or []:
+                    try:
+                        await _persist_and_emit_alert(alert)
+                    except Exception as exc:
+                        logger.warning(
+                            "背景紅旗警示發送失敗 | session=%s, error=%s",
+                            session_id,
+                            str(exc),
+                        )
 
-            # 發送紅旗警示給前端
-            await manager.send_to_session(
-                session_id,
-                {
-                    "type": "red_flag_alert",
-                    "payload": {
-                        "alertId": alert_id,
-                        "severity": alert["severity"],
-                        "title": alert["title"],
-                        "description": alert["description"],
-                        "suggestedActions": alert.get("suggested_actions", []),
-                    },
-                },
-            )
+            asyncio.create_task(_drain_late_red_flags())
 
-            # 通知儀表板
-            await manager.broadcast_dashboard(
-                {
-                    "type": "new_red_flag",
-                    "payload": {
-                        "alertId": alert_id,
-                        "sessionId": session_id,
-                        "patientName": session_context.get("patient_info", {}).get(
-                            "name", "未知"
-                        ),
-                        "severity": alert["severity"],
-                        "title": alert["title"],
-                        "description": alert["description"],
-                    },
-                }
-            )
+    # Step E：處理非關鍵嚴重度紅旗（ai_response_end 之後送出即可）
+    for alert in deferred_alerts:
+        await _persist_and_emit_alert(alert)
 
+    # 後續 critical session-abort 判斷沿用合併後的 red_flag_alerts
+    red_flag_alerts = critical_alerts + deferred_alerts
+
+    if red_flag_alerts:
         # 若有 critical 等級，中止場次並生成 SOAP 報告
         has_critical = any(
-            a["severity"] == "critical" for a in red_flag_alerts
+            str(a.get("severity", "")).lower() == "critical" for a in red_flag_alerts
         )
         if has_critical:
             logger.warning(

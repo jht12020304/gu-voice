@@ -10,8 +10,14 @@ import { useConversationStore } from '../stores/conversationStore';
 import { conversationWS } from '../services/websocket';
 
 export function useAudioStream(enabled: boolean) {
-  const { isRecording, setRecording, setRecordingDuration, setWaveformData, updateSTTPartial } =
-    useConversationStore();
+  const {
+    isRecording,
+    setRecording,
+    setRecordingDuration,
+    setWaveformData,
+    updateSTTPartial,
+    setError,
+  } = useConversationStore();
 
   // 開啟 / 關閉麥克風（根據 enabled）
   useEffect(() => {
@@ -62,11 +68,26 @@ export function useAudioStream(enabled: boolean) {
           },
           onError: (error) => {
             console.error('[Voice] mic error:', error);
+            if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+              setError('請在瀏覽器設定允許麥克風權限，然後重新載入頁面');
+            } else if (error.name === 'NotFoundError') {
+              setError('找不到麥克風裝置，請確認已連接麥克風');
+            } else {
+              setError('麥克風發生錯誤：' + error.message);
+            }
           },
         });
       } catch (error) {
         if (!cancelled) {
           console.error('[Voice] 無法開啟麥克風:', error);
+          const err = error as { name?: string; message?: string };
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            setError('請在瀏覽器設定允許麥克風權限，然後重新載入頁面');
+          } else if (err.name === 'NotFoundError') {
+            setError('找不到麥克風裝置，請確認已連接麥克風');
+          } else {
+            setError('麥克風發生錯誤：' + (err.message ?? '未知錯誤'));
+          }
         }
       }
     })();
@@ -75,7 +96,7 @@ export function useAudioStream(enabled: boolean) {
       cancelled = true;
       audioStreamService.closeMic();
     };
-  }, [enabled, setRecording, setRecordingDuration, setWaveformData, updateSTTPartial]);
+  }, [enabled, setRecording, setRecordingDuration, setWaveformData, updateSTTPartial, setError]);
 
   const muteVAD = useCallback(() => {
     audioStreamService.setMuted(true);

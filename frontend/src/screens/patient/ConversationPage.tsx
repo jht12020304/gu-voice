@@ -47,6 +47,7 @@ export default function ConversationPage() {
   const navigate = useNavigate();
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   const {
     currentSession,
@@ -107,13 +108,20 @@ export default function ConversationPage() {
         }
 
         const audioBuf = await ctx.decodeAudioData(bytes.buffer);
+        // 若前一段 TTS 尚未播完，先停掉避免重疊
+        if (activeSourceRef.current) {
+          try { activeSourceRef.current.stop(); } catch { /* ignore */ }
+          activeSourceRef.current = null;
+        }
         const source = ctx.createBufferSource();
         source.buffer = audioBuf;
         source.connect(ctx.destination);
         source.onended = () => {
+          activeSourceRef.current = null;
           // TTS 播完 → 恢復 VAD，使用者可以直接說下一句
           unmuteVAD();
         };
+        activeSourceRef.current = source;
         source.start(0);
       } catch (err) {
         console.error('[TTS] 播放失敗:', err);
@@ -248,6 +256,32 @@ export default function ConversationPage() {
       if (currentSession) {
         setCurrentSession({ ...currentSession, status: data.status as SessionStatus });
       }
+      if (data.status === 'completed') {
+        navigate(`/patient/session/${sessionId}/complete`);
+      } else if (data.status === 'failed') {
+        setError('問診中斷，請重新開始');
+      }
+    });
+
+    // 後端錯誤（STT_ERROR / AI_SERVICE_UNAVAILABLE / INVALID_AUDIO / ...）
+    on('error', (payload) => {
+      const data = payload as { code?: string; message?: string };
+      setError(data.message || 'AI 服務暫時無法回應，請稍後再試');
+      // 也解除 VAD mute，避免使用者卡在「等 AI 回應」的狀態
+      unmuteVAD();
+    });
+
+    // WebSocket 連線狀態
+    on('_disconnected', () => {
+      setError('連線中斷，正在重新連線...');
+      muteVAD(); // 斷線期間暫停收音
+    });
+    on('_reconnecting', () => {
+      setError('連線中斷，正在重新連線...');
+    });
+    on('_connected', () => {
+      setError(null);
+      unmuteVAD();
     });
 
     return () => {
@@ -259,6 +293,10 @@ export default function ConversationPage() {
       off('ai_response_end');
       off('red_flag_alert');
       off('session_status');
+      off('error');
+      off('_disconnected');
+      off('_reconnecting');
+      off('_connected');
     };
   }, [sessionId, currentSession]); // eslint-disable-line react-hooks/exhaustive-deps
 
