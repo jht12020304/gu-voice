@@ -168,6 +168,19 @@ async def conversation_websocket(
             user_id,
         )
 
+        # ── 步驟 3.5：若為全新場次，發送 AI 開場問診語 ────
+        if not conversation_history:
+            await _send_initial_greeting(
+                session_id=session_id,
+                llm_engine=llm_engine,
+                tts_pipeline=tts_pipeline,
+                system_prompt=system_prompt,
+                conversation_history=conversation_history,
+                session_context=session_context,
+                redis=redis,
+                db=db,
+            )
+
         # ── 步驟 4：主訊息迴圈 ─────────────────────────
         is_paused = False
         # 音訊緩衝區：累積片段直到 isFinal=true 才呼叫 Whisper
@@ -353,6 +366,120 @@ async def conversation_websocket(
             session_id,
             len(conversation_history),
         )
+
+
+# ── 初始開場問診語 ───────────────────────────────────────
+async def _send_initial_greeting(
+    *,
+    session_id: str,
+    llm_engine: LLMConversationEngine,
+    tts_pipeline: TTSPipeline,
+    system_prompt: str,
+    conversation_history: list[dict[str, Any]],
+    session_context: dict[str, Any],
+    redis: Redis,
+    db: AsyncSession,
+) -> None:
+    """
+    全新場次時，主動讓 AI 發出第一句問診語，引導病患開口。
+    """
+    message_id = str(uuid.uuid4())
+
+    # 告知前端 AI 開始回應
+    await manager.send_to_session(
+        session_id,
+        {"type": "ai_response_start", "payload": {"messageId": message_id}},
+    )
+
+    # 以一則 user "開始問診" 訊號觸發 LLM，但不寫入對話歷史作為病患訊息
+    chief_complaint = session_context.get("chief_complaint", "")
+    greeting_messages = [
+        {
+            "role": "system",
+            "content": system_prompt,
+        },
+        {
+            "role": "user",
+            "content": f"（系統提示：病患已進入問診室，主訴為「{chief_complaint}」。請用繁體中文，以一句親切的問候語開場，然後提出第一個與主訴相關的問診問題。只問一個問題。）",
+        },
+    ]
+
+    full_greeting = ""
+    chunk_index = 0
+    try:
+        async for text_chunk in llm_engine._client.chat.completions.create(
+            model=llm_engine._model,
+            messages=greeting_messages,
+            temperature=llm_engine._temperature,
+            max_tokens=200,
+            stream=True,
+        ):
+            delta = text_chunk.choices[0].delta.content or ""
+            if delta:
+                full_greeting += delta
+                await manager.send_to_session(
+                    session_id,
+                    {
+                        "type": "ai_response_chunk",
+                        "payload": {
+                            "messageId": message_id,
+                            "text": delta,
+                            "chunkIndex": chunk_index,
+                        },
+                    },
+                )
+                chunk_index += 1
+    except Exception as exc:
+        logger.error("初始問診語生成失敗 | session=%s, error=%s", session_id, str(exc))
+        full_greeting = f"您好！我是泌尿科 AI 問診助手。請問您目前的{chief_complaint}症狀是什麼時候開始的？"
+        await manager.send_to_session(
+            session_id,
+            {
+                "type": "ai_response_chunk",
+                "payload": {"messageId": message_id, "text": full_greeting, "chunkIndex": 0},
+            },
+        )
+
+    # 加入 AI 回應到歷史
+    if full_greeting:
+        conversation_history.append(
+            {
+                "role": "assistant",
+                "content": full_greeting,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        # 儲存至 DB
+        try:
+            from app.services.conversation_service import ConversationService
+            from uuid import UUID as _UUID
+            await ConversationService.create(db, _UUID(session_id), "assistant", full_greeting)
+            await db.commit()
+        except Exception as _e:
+            logger.warning("初始問診語儲存失敗 | session=%s, error=%s", session_id, str(_e))
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+    tts_url = ""
+    try:
+        tts_url = await tts_pipeline.synthesize_to_url(
+            text=full_greeting, session_id=session_id, message_id=message_id
+        )
+    except Exception:
+        pass
+
+    await manager.send_to_session(
+        session_id,
+        {
+            "type": "ai_response_end",
+            "payload": {"messageId": message_id, "fullText": full_greeting, "ttsAudioUrl": tts_url},
+        },
+    )
+
+    await _save_conversation_history(redis, session_id, conversation_history)
+    logger.info("初始問診語發送完成 | session=%s", session_id)
 
 
 # ── 音訊片段處理 ─────────────────────────────────────────

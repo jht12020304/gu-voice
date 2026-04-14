@@ -172,6 +172,13 @@ export default function ConversationPage() {
       });
     });
 
+    // WebSocket 連線確認 → 更新場次狀態為進行中
+    on('connection_ack', () => {
+      if (currentSession && currentSession.status === 'waiting') {
+        setCurrentSession({ ...currentSession, status: 'in_progress' as SessionStatus });
+      }
+    });
+
     // 場次狀態變更
     on('session_status', (payload) => {
       const data = payload as SessionStatusPayload;
@@ -181,6 +188,7 @@ export default function ConversationPage() {
     });
 
     return () => {
+      off('connection_ack');
       off('stt_partial');
       off('stt_final');
       off('ai_response_start');
