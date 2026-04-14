@@ -436,11 +436,11 @@ async def _send_initial_greeting(
 
     tts_url = ""
     try:
-        tts_url = await tts_pipeline.synthesize_to_url(
-            text=full_greeting, session_id=session_id, message_id=message_id
-        )
-    except Exception:
-        pass
+        audio_bytes = await tts_pipeline.synthesize(text=full_greeting)
+        if audio_bytes:
+            tts_url = "data:audio/mpeg;base64," + base64.b64encode(audio_bytes).decode("utf-8")
+    except Exception as exc:
+        logger.warning("初始問診語 TTS 合成失敗 | session=%s, error=%s", session_id, str(exc))
 
     await manager.send_to_session(
         session_id,
@@ -730,14 +730,12 @@ async def _handle_text_message(
         )
     )
 
-    # TTS 合成（背景執行，不阻塞回應結束通知）
+    # TTS 合成（直接使用 base64 data URL，不依賴 Supabase）
     tts_url = ""
     try:
-        tts_url = await tts_pipeline.synthesize_to_url(
-            text=full_response,
-            session_id=session_id,
-            message_id=message_id,
-        )
+        audio_bytes = await tts_pipeline.synthesize(text=full_response)
+        if audio_bytes:
+            tts_url = "data:audio/mpeg;base64," + base64.b64encode(audio_bytes).decode("utf-8")
     except Exception as exc:
         logger.warning(
             "TTS 合成失敗，仍發送文字回應 | session=%s, error=%s",
