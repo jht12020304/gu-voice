@@ -66,20 +66,40 @@ export default function DashboardPage() {
           setStats(statsRes.value);
         }
         if (queueRes.status === 'fulfilled') {
-          const items = (queueRes.value as unknown as typeof mockQueue) ?? [];
-          setQueue(items);
+          const q = queueRes.value;
+          setQueue((q.queue ?? []).map((item) => ({
+            sessionId: item.sessionId,
+            patientName: item.patientName,
+            chiefComplaint: item.chiefComplaint,
+            status: item.status,
+            waitingSeconds: item.waitingSeconds ?? 0,
+            hasRedFlag: (item as unknown as Record<string, unknown>).hasRedFlag as boolean ?? false,
+          })));
         }
         if (alertsRes.status === 'fulfilled') {
-          setAlerts(alertsRes.value as unknown as typeof mockAlerts);
+          // backend returns { data: RecentAlertItem[] }
+          const raw = alertsRes.value as unknown as { data: Array<{ alertId: string; sessionId: string; title: string; severity: string; createdAt: string }> };
+          setAlerts((raw.data ?? []).map((a) => ({
+            id: a.alertId,
+            sessionId: a.sessionId,
+            conversationId: a.sessionId,
+            alertType: 'semantic' as const,
+            severity: a.severity as 'critical' | 'high' | 'medium',
+            title: a.title,
+            description: '',
+            triggerReason: '',
+            createdAt: a.createdAt,
+          })));
         }
         if (sessionsRes.status === 'fulfilled') {
-          const sessions = sessionsRes.value;
-          setRecentSessions(sessions.map((s) => ({
-            id: s.id,
-            patientName: s.patient?.name ?? '未知',
-            complaint: s.chiefComplaintText ?? '-',
+          // backend returns { data: RecentSessionItem[] }
+          const raw = sessionsRes.value as unknown as { data: Array<{ sessionId: string; patientName: string; chiefComplaint: string; status: string; completedAt?: string; createdAt: string }> };
+          setRecentSessions((raw.data ?? []).map((s) => ({
+            id: s.sessionId,
+            patientName: s.patientName,
+            complaint: s.chiefComplaint,
             status: s.status as 'completed' | 'aborted_red_flag',
-            time: new Date(s.completedAt ?? s.updatedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
+            time: new Date(s.completedAt ?? s.createdAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
           })));
         }
       } catch {

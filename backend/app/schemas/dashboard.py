@@ -28,7 +28,7 @@ class QueueItemResponse(BaseModel):
     patient_name: str
     chief_complaint: str
     status: SessionStatus
-    red_flag: bool
+    has_red_flag: bool
     created_at: datetime
     started_at: Optional[datetime] = None
     waiting_seconds: Optional[int] = None

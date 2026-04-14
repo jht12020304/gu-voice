@@ -183,7 +183,7 @@ class DashboardService:
                 patient_name=patient_name or "未知",
                 chief_complaint=session.chief_complaint_text or "",
                 status=session.status,
-                red_flag=session.red_flag,
+                has_red_flag=session.red_flag,
                 created_at=session.created_at,
                 started_at=session.started_at,
                 waiting_seconds=waiting_seconds,
