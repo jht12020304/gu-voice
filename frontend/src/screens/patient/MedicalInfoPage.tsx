@@ -5,7 +5,6 @@
 
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuthStore } from '../../stores/authStore';
 import * as sessionsApi from '../../services/api/sessions';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
@@ -102,10 +101,11 @@ function RemoveButton({ onClick }: { onClick: () => void }) {
 
 // ── 主元件 ──
 
+type Gender = 'male' | 'female' | 'other';
+
 export default function MedicalInfoPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const user = useAuthStore((s) => s.user);
 
   const complaintId = searchParams.get('complaintId') || '';
   const complaintName = searchParams.get('complaintName') || '';
@@ -115,6 +115,13 @@ export default function MedicalInfoPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [familyOpen, setFamilyOpen] = useState(false);
+  const [showFieldErrors, setShowFieldErrors] = useState(false);
+
+  // ── 基本資料 ──
+  const [patientName, setPatientName] = useState('');
+  const [gender, setGender] = useState<Gender | ''>('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [phone, setPhone] = useState('');
 
   // ── 資料狀態 ──
   const [allergies, setAllergies] = useState<AllergyItem[]>([]);
@@ -150,8 +157,30 @@ export default function MedicalInfoPage() {
   const updateFamily = (i: number, field: keyof FamilyHistoryItem, value: string) =>
     setFamilyHistory(familyHistory.map((f, idx) => (idx === i ? { ...f, [field]: value } : f)));
 
+  // ── 驗證 ──
+  const trimmedName = patientName.trim();
+  const trimmedPhone = phone.trim();
+  const nameError = !trimmedName ? '請輸入姓名' : null;
+  const genderError = !gender ? '請選擇性別' : null;
+  const dobError = !dateOfBirth ? '請選擇出生日期' : null;
+  const identityValid = !nameError && !genderError && !dobError;
+
+  const handleNext = () => {
+    if (!identityValid) {
+      setShowFieldErrors(true);
+      return;
+    }
+    setShowFieldErrors(false);
+    setCurrentStep('history');
+  };
+
   // ── 送出 ──
   const handleSubmit = async () => {
+    if (!identityValid) {
+      setShowFieldErrors(true);
+      setCurrentStep('critical');
+      return;
+    }
     setIsCreating(true);
     setError(null);
 
@@ -162,10 +191,15 @@ export default function MedicalInfoPage() {
 
     try {
       const session = await sessionsApi.createSession({
-        patientId: user?.id || '',
         chiefComplaintId: complaintId,
         chiefComplaintText: complaintText || complaintName,
         language: 'zh-TW',
+        patientInfo: {
+          name: trimmedName,
+          gender: gender as Gender,
+          dateOfBirth,
+          phone: trimmedPhone ? trimmedPhone : null,
+        },
         intake: {
           noKnownAllergies: noAllergies,
           allergies: noAllergies
@@ -254,6 +288,100 @@ export default function MedicalInfoPage() {
          ════════════════════════════════════════════════════════════ */}
       {currentStep === 'critical' && (
         <div className="space-y-4 animate-fade-in">
+
+          {/* 基本資料 */}
+          <div className="rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
+            <div className="px-5 py-4 border-b border-edge/60 dark:border-dark-border">
+              <h2 className="text-body font-semibold text-ink-heading dark:text-white">病患資料</h2>
+              <p className="mt-0.5 text-tiny text-ink-muted dark:text-white/40">本次問診的基本資料</p>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              {/* 姓名 */}
+              <div>
+                <label className="mb-1.5 block text-small font-medium text-ink-secondary dark:text-white/70">
+                  姓名 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  className="input-base w-full"
+                  type="text"
+                  maxLength={100}
+                  placeholder="請輸入姓名"
+                  value={patientName}
+                  onChange={(e) => setPatientName(e.target.value)}
+                />
+                {showFieldErrors && nameError && (
+                  <p className="mt-1 text-tiny text-red-500">{nameError}</p>
+                )}
+              </div>
+
+              {/* 性別 */}
+              <div>
+                <label className="mb-1.5 block text-small font-medium text-ink-secondary dark:text-white/70">
+                  性別 <span className="text-red-500">*</span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    { value: 'male', label: '男' },
+                    { value: 'female', label: '女' },
+                    { value: 'other', label: '其他' },
+                  ] as { value: Gender; label: string }[]).map((opt) => (
+                    <label
+                      key={opt.value}
+                      className={`flex cursor-pointer items-center gap-2 rounded-pill border px-4 py-2 text-small transition-colors ${
+                        gender === opt.value
+                          ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300'
+                          : 'border-edge bg-surface-secondary/40 text-ink-secondary hover:bg-surface-tertiary dark:border-dark-border dark:bg-dark-surface/40 dark:text-white/60'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="gender"
+                        value={opt.value}
+                        checked={gender === opt.value}
+                        onChange={() => setGender(opt.value)}
+                        className="sr-only"
+                      />
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
+                {showFieldErrors && genderError && (
+                  <p className="mt-1 text-tiny text-red-500">{genderError}</p>
+                )}
+              </div>
+
+              {/* 出生日期 */}
+              <div>
+                <label className="mb-1.5 block text-small font-medium text-ink-secondary dark:text-white/70">
+                  出生日期 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  className="input-base w-full"
+                  type="date"
+                  value={dateOfBirth}
+                  onChange={(e) => setDateOfBirth(e.target.value)}
+                />
+                {showFieldErrors && dobError && (
+                  <p className="mt-1 text-tiny text-red-500">{dobError}</p>
+                )}
+              </div>
+
+              {/* 電話 */}
+              <div>
+                <label className="mb-1.5 block text-small font-medium text-ink-secondary dark:text-white/70">
+                  電話 <span className="text-ink-placeholder">（選填）</span>
+                </label>
+                <input
+                  className="input-base w-full"
+                  type="tel"
+                  maxLength={20}
+                  placeholder="例：0912-345-678"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
 
           {/* 過敏史 */}
           <div className="rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
@@ -571,7 +699,11 @@ export default function MedicalInfoPage() {
             ) : '開始 AI 問診'}
           </button>
         ) : (
-          <button className="btn-primary flex-1 py-3" onClick={() => setCurrentStep('history')}>
+          <button
+            className="btn-primary flex-1 py-3"
+            onClick={handleNext}
+            disabled={!identityValid}
+          >
             下一步
           </button>
         )}

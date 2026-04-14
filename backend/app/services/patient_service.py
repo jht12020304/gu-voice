@@ -10,6 +10,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import NotFoundException
 from app.models.patient import Patient
@@ -220,6 +221,7 @@ class PatientService:
 
         query = (
             select(Session)
+            .options(selectinload(Session.patient))
             .where(Session.patient_id == patient_id)
             .order_by(Session.created_at.desc(), Session.id.desc())
         )

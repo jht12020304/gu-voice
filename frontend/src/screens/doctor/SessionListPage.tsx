@@ -109,14 +109,14 @@ export default function SessionListPage() {
                   ? 'bg-alert-critical-bg text-alert-critical'
                   : 'bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300'
               }`}>
-                {session.patient?.name.charAt(0) || '?'}
+                {(session.patientName ?? session.patient?.name ?? '?').charAt(0)}
               </div>
 
               {/* 資訊 */}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <p className="truncate text-body font-medium text-ink-heading dark:text-white">
-                    {session.patient?.name || '未知病患'}
+                    {session.patientName ?? session.patient?.name ?? '未知病患'}
                   </p>
                   {session.redFlag && (
                     <span className="badge badge-red-flag text-tiny px-1.5 py-0.5">紅旗</span>

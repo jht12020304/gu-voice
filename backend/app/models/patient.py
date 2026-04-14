@@ -46,7 +46,7 @@ class Patient(Base):
     )
 
     # ── 關聯 ──────────────────────────────────────────
-    user: Mapped["User"] = relationship("User", back_populates="patient")
+    user: Mapped["User"] = relationship("User", back_populates="patients")
     sessions: Mapped[list["Session"]] = relationship("Session", back_populates="patient")
 
     def __repr__(self) -> str:

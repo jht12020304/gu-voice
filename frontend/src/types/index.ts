@@ -129,6 +129,8 @@ export interface Session {
   durationSeconds?: number;
   createdAt: string;
   updatedAt: string;
+  // 後端在列表/明細 API 可能直接返回病患姓名
+  patientName?: string;
   // 前端擴充：API 可能包含關聯資料
   patient?: Patient;
   chiefComplaint?: ChiefComplaint;

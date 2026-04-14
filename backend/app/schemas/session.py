@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Optional
+from datetime import date, datetime
+from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.enums import SessionStatus
+from app.models.enums import Gender, SessionStatus
 from app.schemas.common import CursorPagination
 from app.schemas.conversation import ConversationResponse
 
@@ -56,14 +56,30 @@ class SessionIntake(BaseModel):
     family_history: list[SessionIntakeFamilyHistoryItem] = Field(default_factory=list)
 
 
+class PatientInfoPayload(BaseModel):
+    """場次建立時隨附的病患資料（供後端 get_or_create）"""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    gender: Gender
+    date_of_birth: date = Field(..., alias="dateOfBirth")
+    phone: Optional[str] = Field(None, max_length=20)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class SessionCreate(BaseModel):
     """建立場次"""
 
-    patient_id: UUID
-    chief_complaint_id: UUID
-    chief_complaint_text: Optional[str] = Field(None, max_length=200)
+    patient_id: Optional[UUID] = Field(None, alias="patientId")
+    chief_complaint_id: UUID = Field(..., alias="chiefComplaintId")
+    chief_complaint_text: Optional[str] = Field(
+        None, max_length=200, alias="chiefComplaintText"
+    )
     language: str = Field("zh-TW", max_length=10)
     intake: Optional[SessionIntake] = None
+    patient_info: Optional[PatientInfoPayload] = Field(None, alias="patientInfo")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SessionUpdateStatus(BaseModel):
@@ -76,6 +92,7 @@ class SessionResponse(BaseModel):
     """場次回應"""
     id: UUID
     patient_id: UUID
+    patient_name: Optional[str] = None
     doctor_id: Optional[UUID] = None
     chief_complaint_id: UUID
     chief_complaint_text: Optional[str] = None
@@ -92,6 +109,31 @@ class SessionResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _populate_patient_name(cls, data: Any) -> Any:
+        # 當從 ORM 物件載入時，若 patient 關聯已被 eager-load，
+        # 則把 patient.name 複製到 patient_name 屬性上，
+        # 讓 from_attributes=True 的 pydantic 能讀到。
+        if data is None or isinstance(data, dict):
+            return data
+        existing = getattr(data, "patient_name", None)
+        if existing:
+            return data
+        try:
+            patient = data.__dict__.get("patient") if hasattr(data, "__dict__") else None
+        except Exception:
+            patient = None
+        if patient is None:
+            return data
+        name = getattr(patient, "name", None)
+        if name:
+            try:
+                data.patient_name = name
+            except Exception:
+                pass
+        return data
 
 
 class SessionDetailResponse(SessionResponse):

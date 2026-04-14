@@ -97,7 +97,11 @@ class SessionService:
         """
         limit = min(limit, 100)
 
-        query = select(Session).order_by(Session.created_at.desc(), Session.id.desc())
+        query = (
+            select(Session)
+            .options(selectinload(Session.patient))
+            .order_by(Session.created_at.desc(), Session.id.desc())
+        )
 
         # 條件篩選
         if status:
@@ -164,7 +168,10 @@ class SessionService:
         """
         result = await db.execute(
             select(Session)
-            .options(selectinload(Session.conversations))
+            .options(
+                selectinload(Session.conversations),
+                selectinload(Session.patient),
+            )
             .where(Session.id == session_id)
         )
         session = result.scalar_one_or_none()
@@ -320,33 +327,99 @@ class SessionService:
         from app.models.user import User
 
         data_dict = data.model_dump(exclude_none=True)
+        patient_info = data_dict.pop("patient_info", None)
+        requested_patient_id = data_dict.get("patient_id")
 
-        # frontend 送來的 patient_id 是 users.id，需轉成 patients.id
-        # 若前端沒送，則用目前登入的使用者 id
-        user_id = data_dict.get("patient_id") or (
-            current_user.id if current_user else None
-        )
+        current_user_id = current_user.id if current_user else None
 
-        # 查找對應的 patients 記錄
-        patient_result = await db.execute(
-            select(Patient).where(Patient.user_id == user_id)
-        )
-        patient = patient_result.scalar_one_or_none()
+        def _generate_mrn() -> str:
+            return f"P-{utc_now().year}-{random.randint(100000, 999999)}"
+
+        patient: Optional[Any] = None
+
+        # 1) 明確指定 patient_id → 必須屬於目前使用者才採用
+        if requested_patient_id and current_user_id:
+            result = await db.execute(
+                select(Patient).where(
+                    and_(
+                        Patient.id == requested_patient_id,
+                        Patient.user_id == current_user_id,
+                    )
+                )
+            )
+            patient = result.scalar_one_or_none()
+
+        # 2) 帶 patient_info → 依 (user_id, name, dob, phone) get_or_create
+        if patient is None and patient_info is not None and current_user_id is not None:
+            info_name = patient_info.get("name")
+            info_gender_raw = patient_info.get("gender")
+            info_gender: Optional[Gender]
+            if isinstance(info_gender_raw, Gender) or info_gender_raw is None:
+                info_gender = info_gender_raw
+            else:
+                try:
+                    info_gender = Gender(info_gender_raw)
+                except ValueError:
+                    info_gender = Gender.OTHER
+            info_dob = patient_info.get("date_of_birth")
+            info_phone = patient_info.get("phone")
+
+            conditions = [
+                Patient.user_id == current_user_id,
+                Patient.name == info_name,
+                Patient.date_of_birth == info_dob,
+            ]
+            # phone 可能為 None，NULL 對 NULL 也算命中
+            if info_phone is None:
+                conditions.append(Patient.phone.is_(None))
+            else:
+                conditions.append(Patient.phone == info_phone)
+
+            existing_result = await db.execute(
+                select(Patient).where(and_(*conditions))
+            )
+            patient = existing_result.scalar_one_or_none()
+
+            if patient is None:
+                mrn = _generate_mrn()
+                patient = Patient(
+                    user_id=current_user_id,
+                    medical_record_number=mrn,
+                    name=info_name,
+                    gender=info_gender or Gender.OTHER,
+                    date_of_birth=info_dob or date(1900, 1, 1),
+                    phone=info_phone,
+                )
+                db.add(patient)
+                await db.flush()
+
+        # 3) Fallback — 回退舊行為：使用者名下第一位病患，否則自動建立 placeholder
+        if patient is None and current_user_id is not None:
+            fallback_result = await db.execute(
+                select(Patient)
+                .where(Patient.user_id == current_user_id)
+                .order_by(Patient.created_at.asc())
+            )
+            patient = fallback_result.scalars().first()
+
+            if patient is None:
+                user_result = await db.execute(
+                    select(User).where(User.id == current_user_id)
+                )
+                user_obj = user_result.scalar_one_or_none()
+                mrn = _generate_mrn()
+                patient = Patient(
+                    user_id=current_user_id,
+                    medical_record_number=mrn,
+                    name=user_obj.name if user_obj else "未知",
+                    gender=Gender.OTHER,
+                    date_of_birth=date(1900, 1, 1),
+                )
+                db.add(patient)
+                await db.flush()
 
         if patient is None:
-            # 查出使用者姓名
-            user_result = await db.execute(select(User).where(User.id == user_id))
-            user_obj = user_result.scalar_one_or_none()
-            mrn = f"P-{utc_now().year}-{random.randint(100000, 999999)}"
-            patient = Patient(
-                user_id=user_id,
-                medical_record_number=mrn,
-                name=user_obj.name if user_obj else "未知",
-                gender=Gender.OTHER,
-                date_of_birth=date(1900, 1, 1),
-            )
-            db.add(patient)
-            await db.flush()
+            raise NotFoundException("無法決定場次對應的病患")
 
         data_dict["patient_id"] = patient.id
 
@@ -355,7 +428,10 @@ class SessionService:
         # Re-fetch with conversations eagerly loaded to avoid lazy-load error during serialization
         result = await db.execute(
             select(Session)
-            .options(selectinload(Session.conversations))
+            .options(
+                selectinload(Session.conversations),
+                selectinload(Session.patient),
+            )
             .where(Session.id == session.id)
         )
         return result.scalar_one()

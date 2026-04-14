@@ -108,12 +108,20 @@ export interface PatientListParams {
 
 // ---- 場次 ----
 
+export interface SessionPatientInfo {
+  name: string;
+  gender: 'male' | 'female' | 'other';
+  dateOfBirth: string;
+  phone?: string | null;
+}
+
 export interface SessionCreateRequest {
-  patientId: string;
+  patientId?: string;
   chiefComplaintId: string;
   chiefComplaintText?: string;
   language?: string;
   intake?: SessionIntake;
+  patientInfo?: SessionPatientInfo;
 }
 
 export interface SessionStatusUpdateRequest {

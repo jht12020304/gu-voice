@@ -43,8 +43,8 @@ class User(Base):
     )
 
     # ── 關聯 ──────────────────────────────────────────
-    patient: Mapped[Optional["Patient"]] = relationship(
-        "Patient", back_populates="user", uselist=False
+    patients: Mapped[list["Patient"]] = relationship(
+        "Patient", back_populates="user"
     )
     notifications: Mapped[list["Notification"]] = relationship(
         "Notification", back_populates="user"
