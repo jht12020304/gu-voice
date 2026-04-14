@@ -75,10 +75,20 @@ export default function ConversationPage() {
   const { on, off, send } = useConversationWebSocket(sessionId ?? null);
   const { startRecording, stopRecording } = useAudioStream();
 
-  // TTS 播放（使用 AudioContext，在 SPA 導覽後的用戶手勢上下文中可自動播放）
+  // TTS 播放（用 AudioContext + atob 直接解碼 base64，避開 CSP connect-src 對 data: URL 的限制）
   const playTTSAudio = useCallback(async (dataUrl: string) => {
     if (!dataUrl) return;
     try {
+      // 從 data URL 取出純 base64 字串
+      const commaIdx = dataUrl.indexOf(',');
+      const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+
+      // base64 → Uint8Array → ArrayBuffer（不透過 fetch，不觸發 CSP）
+      const binaryStr = atob(base64);
+      const len = binaryStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) bytes[i] = binaryStr.charCodeAt(i);
+
       if (!audioCtxRef.current) {
         audioCtxRef.current = new (window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       }
@@ -86,15 +96,14 @@ export default function ConversationPage() {
       if (ctx.state === 'suspended') {
         await ctx.resume();
       }
-      const res = await fetch(dataUrl);
-      const arrayBuf = await res.arrayBuffer();
-      const audioBuf = await ctx.decodeAudioData(arrayBuf);
+
+      const audioBuf = await ctx.decodeAudioData(bytes.buffer);
       const source = ctx.createBufferSource();
       source.buffer = audioBuf;
       source.connect(ctx.destination);
       source.start(0);
-    } catch {
-      // 播放失敗時靜默忽略（例如頁面首次載入前無用戶手勢）
+    } catch (err) {
+      console.error('[TTS] 播放失敗:', err);
     }
   }, []);
 

@@ -99,10 +99,10 @@ class Settings(BaseSettings):
 
     # ── OPENAI ──────────────────────────────────────────
     OPENAI_API_KEY: str = ""
-    OPENAI_MODEL_CONVERSATION: str = "gpt-5.4-mini"
-    OPENAI_MODEL_SUPERVISOR: str = "gpt-5.4"
-    OPENAI_MODEL_SOAP: str = "gpt-5.4"
-    OPENAI_MODEL_RED_FLAG: str = "gpt-5.4-nano"
+    OPENAI_MODEL_CONVERSATION: str = "gpt-4o"
+    OPENAI_MODEL_SUPERVISOR: str = "gpt-4o"
+    OPENAI_MODEL_SOAP: str = "gpt-4o"
+    OPENAI_MODEL_RED_FLAG: str = "gpt-4o-mini"
     OPENAI_TEMPERATURE_CONVERSATION: float = 0.7
     OPENAI_TEMPERATURE_SOAP: float = 0.3
     OPENAI_TEMPERATURE_RED_FLAG: float = 0.2
