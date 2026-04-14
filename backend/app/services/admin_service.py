@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 from uuid import UUID
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.user import User
 from app.schemas.admin import (
     CreateUserRequest,
     SystemHealthResponse,
@@ -13,6 +15,7 @@ from app.schemas.admin import (
     UserDetail,
     UserListResponse,
 )
+from app.schemas.common import CursorPagination
 from app.core.exceptions import AppException
 
 class AdminService:
@@ -25,9 +28,66 @@ class AdminService:
         is_active: bool | None = None,
         search: str | None = None,
     ) -> UserListResponse:
-        # Mock implementation
-        from app.schemas.common import CursorPagination
-        return UserListResponse(data=[], pagination=CursorPagination(total_count=0, limit=limit, has_more=False, next_cursor=None))
+        query = select(User).order_by(User.created_at.desc(), User.id.desc())
+        count_query = select(func.count()).select_from(User)
+
+        if role:
+            from app.models.enums import UserRole
+            try:
+                role_enum = UserRole(role)
+                query = query.where(User.role == role_enum)
+                count_query = count_query.where(User.role == role_enum)
+            except ValueError:
+                pass
+
+        if is_active is not None:
+            query = query.where(User.is_active == is_active)
+            count_query = count_query.where(User.is_active == is_active)
+
+        if search:
+            pattern = f"%{search}%"
+            condition = or_(User.name.ilike(pattern), User.email.ilike(pattern))
+            query = query.where(condition)
+            count_query = count_query.where(condition)
+
+        if cursor:
+            try:
+                cursor_result = await db.execute(
+                    select(User).where(User.id == UUID(cursor))
+                )
+                cursor_record = cursor_result.scalar_one_or_none()
+                if cursor_record:
+                    query = query.where(
+                        (User.created_at < cursor_record.created_at)
+                        | (
+                            (User.created_at == cursor_record.created_at)
+                            & (User.id < cursor_record.id)
+                        )
+                    )
+            except ValueError:
+                pass
+
+        total_result = await db.execute(count_query)
+        total_count = total_result.scalar() or 0
+
+        result = await db.execute(query.limit(limit + 1))
+        users = list(result.scalars().all())
+
+        has_more = len(users) > limit
+        if has_more:
+            users = users[:limit]
+
+        next_cursor = str(users[-1].id) if has_more and users else None
+
+        return UserListResponse(
+            data=[UserDetail.model_validate(u) for u in users],
+            pagination=CursorPagination(
+                total_count=total_count,
+                limit=limit,
+                has_more=has_more,
+                next_cursor=next_cursor,
+            ),
+        )
 
     async def create_user(
         self,
