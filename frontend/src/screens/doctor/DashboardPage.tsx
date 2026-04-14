@@ -79,17 +79,18 @@ export default function DashboardPage() {
         if (alertsRes.status === 'fulfilled') {
           // backend returns { data: RecentAlertItem[] }
           const raw = alertsRes.value as unknown as { data: Array<{ alertId: string; sessionId: string; title: string; severity: string; createdAt: string }> };
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           setAlerts((raw.data ?? []).map((a) => ({
             id: a.alertId,
             sessionId: a.sessionId,
             conversationId: a.sessionId,
             alertType: 'semantic' as const,
-            severity: a.severity as 'critical' | 'high' | 'medium',
+            severity: a.severity as 'medium',
             title: a.title,
             description: '',
             triggerReason: '',
             createdAt: a.createdAt,
-          })));
+          })) as unknown as typeof mockAlerts);
         }
         if (sessionsRes.status === 'fulfilled') {
           // backend returns { data: RecentSessionItem[] }
