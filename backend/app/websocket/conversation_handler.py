@@ -366,32 +366,37 @@ async def _send_initial_greeting(
     """
     message_id = str(uuid.uuid4())
 
-    # 告知前端 AI 開始回應
+    # 立即使用固定模板問診語，避免等待 LLM
+    chief_complaint = session_context.get("chief_complaint", "")
+    full_greeting = f"您好！我是泌尿科 AI 問診助手，今天將協助您進行初步問診。請問您的「{chief_complaint}」症狀是什麼時候開始的？"
+
+    # 告知前端 AI 開始回應 → 顯示 thinking dots，遮住 TTS 合成的等待時間
     await manager.send_to_session(
         session_id,
         {"type": "ai_response_start", "payload": {"messageId": message_id}},
     )
 
-    # 立即使用固定模板問診語，避免等待 LLM
-    chief_complaint = session_context.get("chief_complaint", "")
-    full_greeting = f"您好！我是泌尿科 AI 問診助手，今天將協助您進行初步問診。請問您的「{chief_complaint}」症狀是什麼時候開始的？"
+    # 先合成 TTS，完成後再把文字與音訊一次送出，確保字幕與語音同步開始
+    tts_url = ""
+    try:
+        audio_bytes = await tts_pipeline.synthesize(text=full_greeting)
+        if audio_bytes:
+            tts_url = "data:audio/mpeg;base64," + base64.b64encode(audio_bytes).decode("utf-8")
+    except Exception as exc:
+        logger.warning("初始問診語 TTS 合成失敗 | session=%s, error=%s", session_id, str(exc))
 
-    # 逐字元串流發送，讓前端有打字效果
-    chunk_index = 0
-    for char in full_greeting:
-        await manager.send_to_session(
-            session_id,
-            {
-                "type": "ai_response_chunk",
-                "payload": {
-                    "messageId": message_id,
-                    "text": char,
-                    "chunkIndex": chunk_index,
-                },
+    # 單一 chunk 送出完整文字（與下面的 end 緊鄰，前端會在同一個 frame 更新並播放音訊）
+    await manager.send_to_session(
+        session_id,
+        {
+            "type": "ai_response_chunk",
+            "payload": {
+                "messageId": message_id,
+                "text": full_greeting,
+                "chunkIndex": 0,
             },
-        )
-        chunk_index += 1
-        await asyncio.sleep(0.03)  # 30ms 間隔模擬打字速度
+        },
+    )
 
     # 加入 AI 回應到歷史
     if full_greeting:
@@ -414,14 +419,6 @@ async def _send_initial_greeting(
                 await db.rollback()
             except Exception:
                 pass
-
-    tts_url = ""
-    try:
-        audio_bytes = await tts_pipeline.synthesize(text=full_greeting)
-        if audio_bytes:
-            tts_url = "data:audio/mpeg;base64," + base64.b64encode(audio_bytes).decode("utf-8")
-    except Exception as exc:
-        logger.warning("初始問診語 TTS 合成失敗 | session=%s, error=%s", session_id, str(exc))
 
     await manager.send_to_session(
         session_id,
@@ -631,9 +628,8 @@ async def _handle_text_message(
         },
     )
 
-    # 串流生成 AI 回應，同時並行偵測紅旗
+    # 緩衝 LLM 回應（不立即串流至前端），待 TTS 合成完後一次送出，確保字幕與語音同步
     full_response = ""
-    chunk_index = 0
 
     # 啟動紅旗偵測（背景執行）
     red_flag_task = asyncio.create_task(
@@ -645,18 +641,6 @@ async def _handle_text_message(
             messages, session_context
         ):
             full_response += text_chunk
-            await manager.send_to_session(
-                session_id,
-                {
-                    "type": "ai_response_chunk",
-                    "payload": {
-                        "messageId": message_id,
-                        "text": text_chunk,
-                        "chunkIndex": chunk_index,
-                    },
-                },
-            )
-            chunk_index += 1
 
     except Exception as exc:
         logger.error(
@@ -722,6 +706,20 @@ async def _handle_text_message(
             "TTS 合成失敗，仍發送文字回應 | session=%s, error=%s",
             session_id,
             str(exc),
+        )
+
+    # 一次送出完整文字（與下面的 end 緊鄰，前端會在同一個 frame 更新並播放音訊）
+    if full_response:
+        await manager.send_to_session(
+            session_id,
+            {
+                "type": "ai_response_chunk",
+                "payload": {
+                    "messageId": message_id,
+                    "text": full_response,
+                    "chunkIndex": 0,
+                },
+            },
         )
 
     # 發送 AI 回應結束
