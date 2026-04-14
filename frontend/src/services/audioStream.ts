@@ -44,16 +44,20 @@ class AudioStreamService {
 
   // VAD 狀態
   private vadEnabled = false;
-  private vadMuted = false;
+  /** 'hard' = 完全靜音（不偵測），'soft' = barge-in 模式（以較高門檻偵測，允許打斷 AI） */
+  private vadMuteMode: 'none' | 'hard' | 'soft' = 'none';
   private isSpeaking = false;
   private lastAboveThresholdAt = 0;
   private speechStartCandidateAt = 0;
 
   private readonly vadConfig: VADConfig = {
     threshold: 0.035,
-    minSpeechMs: 180,
+    minSpeechMs: 110,
     silenceEndMs: 1200,
   };
+
+  /** Barge-in 模式下使用的門檻（約為一般門檻的 1.7×），避免把 TTS 聲音當成使用者輸入 */
+  private readonly bargeInThreshold = 0.06;
 
   get isRecording(): boolean {
     return this.isSpeaking;
@@ -95,7 +99,7 @@ class AudioStreamService {
       source.connect(this.analyser);
 
       this.vadEnabled = true;
-      this.vadMuted = false;
+      this.vadMuteMode = 'none';
       this.isSpeaking = false;
       this.speechStartCandidateAt = 0;
       this.lastAboveThresholdAt = 0;
@@ -119,17 +123,27 @@ class AudioStreamService {
   }
 
   /**
-   * 暫停／恢復 VAD 偵測（AI 說話時暫停以避免把 TTS 當成使用者語音）。
-   * muted=true 時會立即結束當前段落（若正在錄音）。
+   * 暫停／恢復 VAD 偵測。
+   *   - 'hard'：完全停止偵測（斷線或不可用時）。
+   *   - 'soft'：barge-in 模式，仍在偵測但用較高門檻，使用者大聲說話即可打斷 AI。
+   *   - false（或不傳）：正常偵測。
+   *
+   * mode 僅在 muted=true 時有意義；預設 'hard' 以向後相容。
    */
-  setMuted(muted: boolean): void {
-    if (this.vadMuted === muted) return;
-    this.vadMuted = muted;
-    if (muted && this.isSpeaking) {
+  setMuted(muted: boolean, mode: 'hard' | 'soft' = 'hard'): void {
+    const nextMode: 'none' | 'hard' | 'soft' = muted ? mode : 'none';
+    if (this.vadMuteMode === nextMode) return;
+    const prevMode = this.vadMuteMode;
+    this.vadMuteMode = nextMode;
+
+    // 進入 hard-mute 時立即結束任何進行中的段落。
+    // soft-mute（barge-in）下則不應主動結束——那裡的「說話」是使用者刻意打斷，應讓流程自然進行。
+    if (nextMode === 'hard' && this.isSpeaking) {
       this.endSegment(/* notify */ true);
     }
-    if (!muted) {
-      // 恢復後重置狀態，避免殘留的計時導致誤觸發
+
+    // 離開 mute 或從 hard 切到 soft 時重置候選計時，避免誤觸發
+    if (nextMode === 'none' || (prevMode === 'hard' && nextMode === 'soft')) {
       this.isSpeaking = false;
       this.speechStartCandidateAt = 0;
       this.lastAboveThresholdAt = performance.now();
@@ -183,10 +197,14 @@ class AudioStreamService {
   }
 
   private processVAD(rms: number): void {
-    if (!this.vadEnabled || this.vadMuted) return;
+    if (!this.vadEnabled) return;
+    // hard-mute 時完全跳過偵測；soft-mute（barge-in）時仍偵測但用較高門檻。
+    if (this.vadMuteMode === 'hard') return;
 
     const now = performance.now();
-    const above = rms > this.vadConfig.threshold;
+    const effectiveThreshold =
+      this.vadMuteMode === 'soft' ? this.bargeInThreshold : this.vadConfig.threshold;
+    const above = rms > effectiveThreshold;
 
     if (above) {
       this.lastAboveThresholdAt = now;

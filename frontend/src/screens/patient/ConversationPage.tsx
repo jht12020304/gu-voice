@@ -2,7 +2,7 @@
 // 語音問診對話頁（病患端核心頁面）
 // =============================================================================
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ChatBubble from '../../components/chat/ChatBubble';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -48,6 +48,8 @@ export default function ConversationPage() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  // 句級 TTS 佇列：每個 ai_response_chunk 帶來的音訊依序排入此鏈，前一句播完才播下一句
+  const ttsChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const {
     currentSession,
@@ -68,6 +70,7 @@ export default function ConversationPage() {
     appendAIStreamingText,
     finalizeAIResponse,
     addRedFlag,
+    acknowledgeRedFlag,
     setError,
     resetSession,
   } = useConversationStore();
@@ -77,7 +80,21 @@ export default function ConversationPage() {
   // 根據 session 狀態自動啟動 VAD（in_progress / waiting 時才開麥克風）
   const isSessionActiveForMic =
     currentSession?.status === 'in_progress' || currentSession?.status === 'waiting';
-  const { muteVAD, unmuteVAD } = useAudioStream(isSessionActiveForMic);
+  const { muteVAD, unmuteVAD, enableBargeIn } = useAudioStream(isSessionActiveForMic);
+
+  /** 立即停止目前正在播放的 TTS（用於使用者打斷 AI） */
+  const stopActiveTTS = useCallback(() => {
+    const src = activeSourceRef.current;
+    if (src) {
+      try {
+        src.onended = null;
+        src.stop();
+      } catch {
+        /* ignore */
+      }
+      activeSourceRef.current = null;
+    }
+  }, []);
 
   // TTS 播放（用 AudioContext + atob 直接解碼 base64，避開 CSP connect-src 對 data: URL 的限制）
   // 播放期間 VAD 保持靜音，播完後恢復 VAD 讓使用者直接說下一句
@@ -131,6 +148,67 @@ export default function ConversationPage() {
     },
     [unmuteVAD],
   );
+
+  /**
+   * 句級 TTS：將一個 base64 音訊排入播放佇列，並確保前一句播完才播下一句。
+   * 與 playTTSAudio 不同的是，這個不會停掉正在播放的前一句 — 因為那會撞掉剛剛才
+   * 開始播的句子。整條鏈由 ttsChainRef 串起，失敗會自動跳過這句繼續下一句。
+   */
+  const enqueueTTSAudioB64 = useCallback(
+    (audioB64: string): void => {
+      if (!audioB64) return;
+      const step = async (): Promise<void> => {
+        try {
+          const binaryStr = atob(audioB64);
+          const len = binaryStr.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+          if (!audioCtxRef.current) {
+            audioCtxRef.current = new (window.AudioContext ??
+              (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+          }
+          const ctx = audioCtxRef.current;
+          if (ctx.state === 'suspended') {
+            await ctx.resume();
+          }
+
+          const audioBuf = await ctx.decodeAudioData(bytes.buffer);
+          // 等待前一句的 source 徹底播完（ttsChainRef 已經保證了順序，但保險起見
+          // 若仍有殘留 activeSource，串到其 onended 之後）
+          await new Promise<void>((resolve) => {
+            const source = ctx.createBufferSource();
+            source.buffer = audioBuf;
+            source.connect(ctx.destination);
+            source.onended = () => {
+              if (activeSourceRef.current === source) {
+                activeSourceRef.current = null;
+              }
+              resolve();
+            };
+            activeSourceRef.current = source;
+            try {
+              source.start(0);
+            } catch (err) {
+              console.error('[TTS] source.start 失敗:', err);
+              resolve();
+            }
+          });
+        } catch (err) {
+          console.error('[TTS] 句級播放失敗:', err);
+        }
+      };
+      ttsChainRef.current = ttsChainRef.current.then(step).catch((err) => {
+        console.error('[TTS] 佇列步驟錯誤:', err);
+      });
+    },
+    [],
+  );
+
+  /** 清空句級 TTS 播放佇列（用於使用者打斷 AI） */
+  const clearTTSQueue = useCallback(() => {
+    ttsChainRef.current = Promise.resolve();
+  }, []);
 
   // 載入場次資料與歷史對話
   useEffect(() => {
@@ -191,8 +269,9 @@ export default function ConversationPage() {
     on('ai_response_start', (payload) => {
       const data = payload as AIResponseStartPayload;
       setAIResponding(true);
-      // AI 準備說話，關掉 VAD 以免把 TTS 聲音當成使用者輸入
-      muteVAD();
+      // AI 準備說話 → 進入 barge-in 模式：VAD 仍開著，但用較高門檻，
+      // 使用者大聲講話即可打斷 AI（見下方 isRecording + isAIResponding 的 effect）。
+      enableBargeIn();
       addConversation({
         id: data.messageId,
         sessionId: sessionId!,
@@ -203,7 +282,7 @@ export default function ConversationPage() {
       });
     });
 
-    // AI 回應串流片段
+    // AI 回應串流片段（句級：每句同時帶 text + base64 audio）
     on('ai_response_chunk', (payload) => {
       const data = payload as AIResponseChunkPayload;
       appendAIStreamingText(data.text);
@@ -214,19 +293,26 @@ export default function ConversationPage() {
             : msg,
         ),
       }));
+      // 若此句有音訊，排入 TTS 佇列依序播放
+      if (data.audioB64) {
+        enqueueTTSAudioB64(data.audioB64);
+      }
     });
 
-    // AI 回應結束
+    // AI 回應結束（音訊已透過 ai_response_chunk 逐句送達，此處僅最終化文字）
     on('ai_response_end', (payload) => {
       const data = payload as AIResponseEndPayload;
       finalizeAIResponse(data.messageId, data.fullText);
+      // 向後相容：若後端仍送來整段 ttsAudioUrl（舊流程），才用舊的 playTTSAudio
       if (data.ttsAudioUrl) {
-        // 播放後會在 onended 恢復 VAD
         playTTSAudio(data.ttsAudioUrl);
-      } else {
-        // 沒有 TTS 音訊，直接恢復 VAD 讓使用者能回答
-        unmuteVAD();
+        return;
       }
+      // 句級流程：在佇列尾端附加一個「播完所有句子 → 恢復正常 VAD 門檻」步驟。
+      // 若沒有任何句子有音訊（如全部 TTS 失敗），這個步驟會立即執行。
+      ttsChainRef.current = ttsChainRef.current.then(() => {
+        unmuteVAD();
+      });
     });
 
     // 紅旗警示
@@ -300,12 +386,57 @@ export default function ConversationPage() {
     };
   }, [sessionId, currentSession]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 自動捲動到底部
+  // 使用者 barge-in：AI 正在講話時 VAD 觸發錄音 → 立即停掉 TTS 並清空句級佇列，
+  // 讓使用者接手。否則佇列中剩餘句子會在 stopActiveTTS 後繼續播放。
   useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    if (isRecording && isAIResponding) {
+      stopActiveTTS();
+      clearTTSQueue();
     }
-  }, [conversations, aiStreamingText, sttPartialText]);
+  }, [isRecording, isAIResponding, stopActiveTTS, clearTTSQueue]);
+
+  // 聊天自動捲動（使用者上捲時暫停）
+  const [userScrolledUp, setUserScrolledUp] = useState(false);
+  const [pendingNewMessages, setPendingNewMessages] = useState(0);
+  const SCROLL_BOTTOM_THRESHOLD_PX = 100;
+
+  const handleChatScroll = useCallback(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom > SCROLL_BOTTOM_THRESHOLD_PX) {
+      setUserScrolledUp(true);
+    } else {
+      setUserScrolledUp(false);
+      setPendingNewMessages(0);
+    }
+  }, []);
+
+  const scrollChatToBottom = useCallback((smooth = true) => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    setUserScrolledUp(false);
+    setPendingNewMessages(0);
+  }, []);
+
+  // 自動捲動到底部（未上捲時才自動捲動；上捲時累積未讀計數）
+  useEffect(() => {
+    if (!chatContainerRef.current) return;
+    if (!userScrolledUp) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    } else {
+      setPendingNewMessages((n) => n + 1);
+    }
+    // userScrolledUp 本身改變時不應被視為有新訊息，因此不列入 deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations.length]);
+
+  // AI 串流文字 / STT 部分結果更新時，若未上捲則跟著捲動到底部
+  useEffect(() => {
+    if (!chatContainerRef.current || userScrolledUp) return;
+    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+  }, [aiStreamingText, sttPartialText, userScrolledUp]);
 
   // 結束問診
   const handleEndSession = () => {
@@ -319,8 +450,17 @@ export default function ConversationPage() {
 
   const isSessionActive = isSessionActiveForMic;
 
-  // 未確認的紅旗
-  const unacknowledgedFlags = activeRedFlags.filter((f) => !f.isAcknowledged);
+  // 未確認的紅旗（依嚴重度排序：critical > high > medium > low）
+  const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+  const unacknowledgedFlags = activeRedFlags
+    .filter((f) => !f.isAcknowledged)
+    .slice()
+    .sort(
+      (a, b) =>
+        (severityRank[a.severity] ?? 99) - (severityRank[b.severity] ?? 99),
+    );
+  const visibleFlags = unacknowledgedFlags.slice(0, 3);
+  const extraFlagCount = Math.max(0, unacknowledgedFlags.length - visibleFlags.length);
 
   return (
     <div className="flex h-screen flex-col bg-chat-bg dark:bg-dark-bg">
@@ -348,17 +488,57 @@ export default function ConversationPage() {
         </button>
       </header>
 
-      {/* 紅旗警示橫幅 */}
-      {unacknowledgedFlags.length > 0 && (
-        <div className="border-b border-red-700 bg-alert-critical px-4 py-3 text-white animate-slide-down">
-          <div className="flex items-center gap-2">
-            <svg className="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <span className="text-body font-medium">{unacknowledgedFlags[0].title}</span>
-          </div>
-          {unacknowledgedFlags[0].description && (
-            <p className="mt-1 text-small opacity-90">{unacknowledgedFlags[0].description}</p>
+      {/* 紅旗警示橫幅（最多 3 張疊起，依嚴重度排序） */}
+      {visibleFlags.length > 0 && (
+        <div className="flex flex-col gap-1 border-b border-red-700 bg-alert-critical/5 px-4 py-2 animate-slide-down">
+          {visibleFlags.map((alert) => {
+            const bg =
+              alert.severity === 'critical'
+                ? 'bg-alert-critical'
+                : alert.severity === 'high'
+                  ? 'bg-orange-600'
+                  : 'bg-yellow-600';
+            return (
+              <div
+                key={alert.id}
+                className={`flex items-start justify-between gap-3 rounded-card px-3 py-2 text-white shadow-sm ${bg}`}
+              >
+                <div className="flex items-start gap-2 flex-1 min-w-0">
+                  <svg
+                    className="h-5 w-5 flex-shrink-0 mt-0.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                    />
+                  </svg>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-body font-medium truncate">{alert.title}</p>
+                    {alert.description && (
+                      <p className="mt-0.5 text-small opacity-90 line-clamp-2">
+                        {alert.description}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  className="flex-shrink-0 rounded-btn bg-white/20 px-3 py-1 text-caption font-medium hover:bg-white/30 transition-colors"
+                  onClick={() => acknowledgeRedFlag(alert.id)}
+                >
+                  知道了
+                </button>
+              </div>
+            );
+          })}
+          {extraFlagCount > 0 && (
+            <p className="px-1 text-small text-ink-muted">
+              +{extraFlagCount} 項其他警示
+            </p>
           )}
         </div>
       )}
@@ -371,7 +551,12 @@ export default function ConversationPage() {
       )}
 
       {/* 對話區域 */}
-      <div ref={chatContainerRef} className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="relative flex-1 min-h-0">
+      <div
+        ref={chatContainerRef}
+        onScroll={handleChatScroll}
+        className="absolute inset-0 overflow-y-auto px-4 py-4"
+      >
         {conversations.map((msg) => (
           <ChatBubble
             key={msg.id}
@@ -406,6 +591,22 @@ export default function ConversationPage() {
         )}
       </div>
 
+        {/* 「回到最新訊息」浮動按鈕（使用者上捲且有新訊息時顯示） */}
+        {userScrolledUp && (
+          <button
+            onClick={() => scrollChatToBottom(true)}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-primary-600 px-4 py-2 text-caption font-medium text-white shadow-lg hover:bg-primary-700 transition-colors flex items-center gap-1.5"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+            <span>
+              最新訊息{pendingNewMessages > 0 ? ` (${pendingNewMessages})` : ''}
+            </span>
+          </button>
+        )}
+      </div>
+
       {/* 底部控制區（自動語音偵測） */}
       <div className="border-t border-edge bg-white px-4 py-5 dark:bg-dark-surface dark:border-dark-border">
         {/* 麥克風狀態指示圈（顯示狀態，無需點擊） */}
@@ -437,20 +638,26 @@ export default function ConversationPage() {
           </div>
         </div>
 
-        {/* 波形視覺化（持續顯示；錄音時紅色強調） */}
+        {/* 波形視覺化：錄音時顯示即時頻譜彩條，閒置時顯示低透明度呼吸動畫佔位 */}
         <div className="mt-3 flex items-end justify-center gap-1 h-10">
-          {waveformData.slice(0, 32).map((value, i) => {
-            const height = Math.max(3, value * 38);
-            return (
-              <div
-                key={i}
-                className={`w-1 rounded-full transition-all duration-75 ${
-                  isRecording ? 'bg-alert-critical' : 'bg-primary-300 dark:bg-primary-700'
-                }`}
-                style={{ height: `${height}px` }}
-              />
-            );
-          })}
+          {isRecording
+            ? waveformData.slice(0, 32).map((value, i) => {
+                const height = Math.max(3, value * 38);
+                return (
+                  <div
+                    key={i}
+                    className="w-1 rounded-full bg-alert-critical transition-all duration-75"
+                    style={{ height: `${height}px` }}
+                  />
+                );
+              })
+            : Array.from({ length: 32 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="w-1 h-1.5 rounded-full bg-primary-300/50 dark:bg-primary-700/50 animate-pulse"
+                  style={{ animationDelay: `${(i % 8) * 80}ms` }}
+                />
+              ))}
         </div>
 
         {/* 狀態文字 */}

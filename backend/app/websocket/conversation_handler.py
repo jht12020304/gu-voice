@@ -36,6 +36,28 @@ _SESSION_CONTEXT_TTL = 3600  # 1 小時
 _SESSION_STATE_TTL = 1800  # 30 分鐘
 _SESSION_SUPERVISOR_KEY = "gu:session:{session_id}:supervisor_guidance"
 
+# 句子邊界（中文句號、驚嘆號、問號、換行）— 用於串流時的增量切句
+_SENTENCE_BOUNDARY_CHARS = "。！？\n"
+
+
+def _split_completed_sentences(buffer: str) -> tuple[list[str], str]:
+    """
+    將緩衝字串依句子邊界切分為 (已完成句子列表, 殘餘未完句)。
+
+    規則：遇到 [。！？\n] 任一字元即視為一個句子結束；結束字元保留在句子尾端
+    （換行會被 strip 掉以避免純空白句）。殘餘字串為尚未遇到邊界的尾段。
+    """
+    completed: list[str] = []
+    start = 0
+    for i, ch in enumerate(buffer):
+        if ch in _SENTENCE_BOUNDARY_CHARS:
+            sentence = buffer[start : i + 1].strip()
+            if sentence:
+                completed.append(sentence)
+            start = i + 1
+    remainder = buffer[start:]
+    return completed, remainder
+
 
 async def conversation_websocket(
     websocket: WebSocket,
@@ -376,27 +398,38 @@ async def _send_initial_greeting(
         {"type": "ai_response_start", "payload": {"messageId": message_id}},
     )
 
-    # 先合成 TTS，完成後再把文字與音訊一次送出，確保字幕與語音同步開始
-    tts_url = ""
-    try:
-        audio_bytes = await tts_pipeline.synthesize(text=full_greeting)
-        if audio_bytes:
-            tts_url = "data:audio/mpeg;base64," + base64.b64encode(audio_bytes).decode("utf-8")
-    except Exception as exc:
-        logger.warning("初始問診語 TTS 合成失敗 | session=%s, error=%s", session_id, str(exc))
+    # 初始問診語為短模板，直接逐句切分後以 ai_response_chunk 同時送出 text + audio
+    sentences_init, _remain_init = _split_completed_sentences(full_greeting)
+    if _remain_init.strip():
+        sentences_init.append(_remain_init.strip())
+    if not sentences_init:
+        sentences_init = [full_greeting]
 
-    # 單一 chunk 送出完整文字（與下面的 end 緊鄰，前端會在同一個 frame 更新並播放音訊）
-    await manager.send_to_session(
-        session_id,
-        {
-            "type": "ai_response_chunk",
-            "payload": {
-                "messageId": message_id,
-                "text": full_greeting,
-                "chunkIndex": 0,
+    for idx, sentence in enumerate(sentences_init):
+        audio_b64 = ""
+        try:
+            audio_bytes = await tts_pipeline.synthesize(text=sentence)
+            if audio_bytes:
+                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        except Exception as exc:
+            logger.warning(
+                "初始問診語 TTS 合成失敗 | session=%s, idx=%d, error=%s",
+                session_id,
+                idx,
+                str(exc),
+            )
+        await manager.send_to_session(
+            session_id,
+            {
+                "type": "ai_response_chunk",
+                "payload": {
+                    "messageId": message_id,
+                    "text": sentence,
+                    "chunkIndex": idx,
+                    "audioB64": audio_b64,
+                },
             },
-        },
-    )
+        )
 
     # 加入 AI 回應到歷史
     if full_greeting:
@@ -424,7 +457,7 @@ async def _send_initial_greeting(
         session_id,
         {
             "type": "ai_response_end",
-            "payload": {"messageId": message_id, "fullText": full_greeting, "ttsAudioUrl": tts_url},
+            "payload": {"messageId": message_id, "fullText": full_greeting, "ttsAudioUrl": ""},
         },
     )
 
@@ -628,8 +661,21 @@ async def _handle_text_message(
         },
     )
 
-    # 緩衝 LLM 回應（不立即串流至前端），待 TTS 合成完後一次送出，確保字幕與語音同步
+    # 句級串流：LLM 一邊產生，一邊切出完整句子並預先啟動 TTS 合成。
+    # TTS 結果仍需等紅旗偵測 gate 通過後才依序發送，以保留 critical 警示優先順序。
     full_response = ""
+    sentence_buffer = ""
+    # 已切出的句子列表（保留順序）
+    pending_sentences: list[str] = []
+    # 對應的 TTS 任務列表（與 pending_sentences 同序），每個 item 為 asyncio.Task[bytes]
+    pending_tts_tasks: list[asyncio.Task[bytes]] = []
+
+    def _spawn_tts_task(sentence: str) -> None:
+        """將一個句子排入 TTS 合成任務佇列（順序保持）。"""
+        pending_sentences.append(sentence)
+        pending_tts_tasks.append(
+            asyncio.create_task(tts_pipeline.synthesize(text=sentence))
+        )
 
     # 啟動紅旗偵測（背景執行）
     red_flag_task = asyncio.create_task(
@@ -641,6 +687,16 @@ async def _handle_text_message(
             messages, session_context
         ):
             full_response += text_chunk
+            sentence_buffer += text_chunk
+            completed, sentence_buffer = _split_completed_sentences(sentence_buffer)
+            for s in completed:
+                _spawn_tts_task(s)
+
+        # LLM 結束：殘餘緩衝視為最後一句（處理無終止標點的情況）
+        tail = sentence_buffer.strip()
+        if tail:
+            _spawn_tts_task(tail)
+        sentence_buffer = ""
 
     except Exception as exc:
         logger.error(
@@ -658,8 +714,11 @@ async def _handle_text_message(
                 },
             },
         )
-        # 取消紅旗偵測任務
+        # 取消紅旗偵測任務與所有尚未完成的 TTS 任務
         red_flag_task.cancel()
+        for _tts_task in pending_tts_tasks:
+            if not _tts_task.done():
+                _tts_task.cancel()
         return
 
     # 加入 AI 回應到對話歷史
@@ -789,38 +848,40 @@ async def _handle_text_message(
         )
         return alert_id
 
-    # Step C：在 TTS/ai_response_end 之前送出 critical/high 警示
+    # Step C：在任何 ai_response_chunk（含音訊）送出之前，先送 critical/high 警示
     for alert in critical_alerts:
         await _persist_and_emit_alert(alert)
 
-    # TTS 合成（直接使用 base64 data URL，不依賴 Supabase）
-    tts_url = ""
-    try:
-        audio_bytes = await tts_pipeline.synthesize(text=full_response)
-        if audio_bytes:
-            tts_url = "data:audio/mpeg;base64," + base64.b64encode(audio_bytes).decode("utf-8")
-    except Exception as exc:
-        logger.warning(
-            "TTS 合成失敗，仍發送文字回應 | session=%s, error=%s",
-            session_id,
-            str(exc),
-        )
+    # Step D：依序等待每一句的 TTS 合成結果，並以 ai_response_chunk 同時夾帶 text + audio
+    # （前端會把每個 chunk 的音訊排入序列播放，視覺上字幕與語音逐句推進）
+    for idx, (sentence, tts_task) in enumerate(zip(pending_sentences, pending_tts_tasks)):
+        audio_b64 = ""
+        try:
+            audio_bytes = await tts_task
+            if audio_bytes:
+                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        except Exception as exc:
+            logger.warning(
+                "句級 TTS 合成失敗，仍送出文字 | session=%s, idx=%d, error=%s",
+                session_id,
+                idx,
+                str(exc),
+            )
 
-    # 一次送出完整文字（與下面的 end 緊鄰，前端會在同一個 frame 更新並播放音訊）
-    if full_response:
         await manager.send_to_session(
             session_id,
             {
                 "type": "ai_response_chunk",
                 "payload": {
                     "messageId": message_id,
-                    "text": full_response,
-                    "chunkIndex": 0,
+                    "text": sentence,
+                    "chunkIndex": idx,
+                    "audioB64": audio_b64,
                 },
             },
         )
 
-    # 發送 AI 回應結束
+    # 發送 AI 回應結束（音訊改由逐句 chunk 送出，end 不再承載 ttsAudioUrl）
     await manager.send_to_session(
         session_id,
         {
@@ -828,7 +889,7 @@ async def _handle_text_message(
             "payload": {
                 "messageId": message_id,
                 "fullText": full_response,
-                "ttsAudioUrl": tts_url,
+                "ttsAudioUrl": "",
             },
         },
     )

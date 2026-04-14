@@ -71,6 +71,8 @@ export interface AIResponseChunkPayload {
   messageId: string;
   text: string;
   chunkIndex: number;
+  /** 句級 base64 音訊（mp3）。若為空字串代表此句無對應音訊。 */
+  audioB64?: string;
 }
 
 export interface AIResponseEndPayload {

@@ -98,17 +98,28 @@ export function useAudioStream(enabled: boolean) {
     };
   }, [enabled, setRecording, setRecordingDuration, setWaveformData, updateSTTPartial, setError]);
 
+  /** 完全停止 VAD 偵測（如斷線時） */
   const muteVAD = useCallback(() => {
-    audioStreamService.setMuted(true);
+    audioStreamService.setMuted(true, 'hard');
   }, []);
 
+  /** 恢復正常 VAD 偵測 */
   const unmuteVAD = useCallback(() => {
     audioStreamService.setMuted(false);
+  }, []);
+
+  /**
+   * 進入 barge-in 模式：AI 播放 TTS 期間仍保持 VAD，但用較高門檻，
+   * 使用者可大聲說話打斷 AI。
+   */
+  const enableBargeIn = useCallback(() => {
+    audioStreamService.setMuted(true, 'soft');
   }, []);
 
   return {
     isRecording,
     muteVAD,
     unmuteVAD,
+    enableBargeIn,
   };
 }
