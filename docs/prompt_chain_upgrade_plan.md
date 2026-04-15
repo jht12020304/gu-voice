@@ -13,9 +13,9 @@
 | Phase | 內容 | 狀態 | Commit | 備註 |
 |---|---|---|---|---|
 | 0 | 共用常數 `shared.py` + 單元測試 | ✅ 完成 | `41c4882` | 16/16 tests passing |
-| 1 | Supervisor 升級 gpt-5.4 + 單問題約束 | ✅ 完成 | _pending_ | 22/22 tests passing;修 P0-A、P1-C、P2-F |
-| 3 | Red Flag detector 改吃共用常數 | 🚧 進行中 | — | 修 P2-E |
-| 2 | Conversation 擴充 HPI 10 欄 + 補問 FH/SH/RoS | ⬜ 待做 | — | 修 P0-B、P1-D |
+| 1 | Supervisor 升級 gpt-5.4 + 單問題約束 | ✅ 完成 | `08ccbb3` | 22/22 tests passing;修 P0-A、P1-C、P2-F |
+| 3 | Red Flag detector 改吃共用常數 | ✅ 完成 | _pending_ | 29/29 tests passing;修 P2-E |
+| 2 | Conversation 擴充 HPI 10 欄 + 補問 FH/SH/RoS | 🚧 進行中 | — | 修 P0-B、P1-D |
 | 4 | SOAP confidence_score 不扣 FH/SH/RoS 分 | ⬜ 待做 | — | P0-B 收尾 |
 
 執行順序調整為 **0 → 1 → 3 → 2 → 4**:Phase 3(red flag)很單純且獨立,先做完後 Phase 2 再 consume 新的 `render_red_flags_for_conversation`。

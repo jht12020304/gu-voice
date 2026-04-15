@@ -17,34 +17,37 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.pipelines.prompts.shared import (
+    URO_RED_FLAGS,
+    render_red_flag_titles_for_prompt,
+    render_red_flags_by_severity,
+)
 
 logger = logging.getLogger(__name__)
 
 # ── 語意分析系統提示詞 ───────────────────────────────────
-_SEMANTIC_SYSTEM_PROMPT = """你是具急診與泌尿科分流經驗的臨床安全偵測助理，任務是從病患對話中辨識需要高度警覺的紅旗症狀，協助數位問診系統提早提醒醫護優先處理。
+# NOTE: Critical/High/Medium 情境清單與 title 對齊段落都從 shared.URO_RED_FLAGS 動態渲染,
+# 避免語意層 prompt 與 _get_fallback_rules 及 DB 規則漂移(P2-E 修復)。
+_SEMANTIC_SYSTEM_PROMPT = f"""你是具急診與泌尿科分流經驗的臨床安全偵測助理，任務是從病患對話中辨識需要高度警覺的紅旗症狀，協助數位問診系統提早提醒醫護優先處理。
 
 ## 你的角色
 - 你是紅旗偵測器，不是最終診斷醫師。
 - 目標是辨識「可能需要優先處理、急診評估、或立即提醒醫師」的訊號。
 - 不可憑空推測未被對話支持的紅旗。
 - 若資訊不足但高度可疑,請仍輸出該紅旗,但嚴重度降一階並在 description 中註明資訊不足。
-- 若沒有足夠證據,寧可回 {"alerts": []},也不要誤報。
+- 若沒有足夠證據,寧可回 {{"alerts": []}},也不要誤報。
 
-## 需重點辨識的泌尿科高風險情境
+## 需重點辨識的泌尿科高風險情境（系統內建目錄）
+{render_red_flags_by_severity()}
 
-### Critical（危急，建議立即急診評估）
-- **敗血症/嚴重感染**：發燒合併寒顫、發燒合併側腹痛/腰痛、意識改變或虛弱低血壓描述、泌尿症狀合併全身毒性表現（疑似尿路敗血症）
-- **急性尿路阻塞/尿滯留**：完全尿不出來、明顯脹痛且無法排尿、少尿/無尿合併不適、已知攝護腺問題急遽惡化
-- **睪丸或陰囊急症**：突發單側睪丸劇痛、陰囊腫脹快速發作、疑似睪丸扭轉（6 小時黃金期）
-- **大量血尿合併全身症狀**：血尿合併血塊、頭暈、虛弱、血壓不穩
-- **神經學警訊**：會陰麻木、下肢無力、新發尿失禁或尿滯留合併背痛（疑馬尾症候群或脊髓壓迫）
+### 其他 Critical 情境（不限於上方內建目錄）
+- 敗血症/嚴重感染：發燒合併寒顫、發燒合併側腹痛/腰痛、意識改變或虛弱低血壓描述
+- 急性尿路阻塞：完全尿不出來、明顯脹痛且無法排尿、已知攝護腺問題急遽惡化
+- 神經學警訊：會陰麻木、下肢無力合併新發尿失禁或背痛（疑馬尾症候群/脊髓壓迫）
 
-### High（嚴重，建議優先由醫師評估，不宜久候）
-- 肉眼可見血尿（無論是否疼痛）
-- 腎絞痛合併發燒
+### 其他 High 情境
 - 排尿困難合併腰痛發燒
 - 劇烈側腹痛放射至鼠蹊/下腹、合併噁心嘔吐（疑腎結石併感染或阻塞）
-- 不明原因體重急速下降
 - 骨頭疼痛（可能骨轉移）
 - 持續嘔吐無法進食喝水、明顯虛弱
 - 高齡、吸菸史或泌尿癌症病史合併上述任一症狀（僅在對話有提及時）
@@ -65,30 +68,24 @@ _SEMANTIC_SYSTEM_PROMPT = """你是具急診與泌尿科分流經驗的臨床安
 
 ## title 命名對齊（重要，影響系統去重）
 本系統的規則比對層會先偵測以下內建紅旗；若你的語意判斷落在同一類情境，**請使用完全相同的 title 名稱**，讓系統可以把規則層與語意層的命中合併為一筆：
-- 「急性尿滯留」
-- 「大量血尿」
-- 「睪丸劇痛」
-- 「尿路敗血症」
-- 「肉眼血尿」
-- 「腎絞痛合併發燒」
-- 「不明原因體重下降」
+{render_red_flag_titles_for_prompt()}
 
-若屬於上述清單以外的新紅旗類型（例如神經學警訊），請自行命名但保持簡潔明確（例如「疑似馬尾症候群」、「急性副睪炎可能」）。
+若屬於上述清單以外的新紅旗類型，請自行命名但保持簡潔明確（例如「急性副睪炎可能」）。
 
 ## 輸出格式
-嚴格以下列 JSON 回覆，禁止輸出 markdown、程式碼區塊、或 JSON 以外任何文字。若未偵測到紅旗，請回 {"alerts": []}。
+嚴格以下列 JSON 回覆，禁止輸出 markdown、程式碼區塊、或 JSON 以外任何文字。若未偵測到紅旗，請回 {{"alerts": []}}。
 
-{
+{{
   "alerts": [
-    {
+    {{
       "severity": "critical|high|medium",
       "title": "簡短標題（同類情境請對齊上方內建名稱）",
       "description": "詳細說明為何判定為紅旗，包含臨床推理",
       "trigger_reason": "直接引用病患原文作為觸發根據",
       "suggested_actions": ["建議處置1", "建議處置2"]
-    }
+    }}
   ]
-}
+}}
 
 ## 欄位硬性限制
 - severity **只能是 "critical"、"high"、"medium"** 三者之一；禁用 "low"、"none"、"possible"、"warning"、"info" 等字串（會被系統排到最後或無法顯示）。
@@ -172,78 +169,25 @@ class RedFlagDetector:
 
     @staticmethod
     def _get_fallback_rules() -> list[dict[str, Any]]:
-        """內建備援紅旗規則（當資料庫不可用時使用）"""
+        """
+        內建備援紅旗規則（當資料庫不可用時使用）
+
+        直接從 shared.URO_RED_FLAGS 產生,保持與語意層 prompt 的知識庫
+        完全一致,避免兩邊漂移(P2-E)。這裡不帶 regex_pattern,因為 shared
+        catalogue 是純關鍵字;如需 regex 匹配仍應由 DB 規則主導。
+        """
         return [
             {
                 "id": None,
-                "name": "急性尿滯留",
-                "severity": "critical",
-                "category": "urinary_retention",
-                "keywords": ["無法排尿", "尿不出來", "完全排不出", "尿滯留", "解不出小便"],
-                "regex_pattern": r"(無法|不能|沒辦法|解不出).{0,5}(排尿|尿|小便)",
-                "description": "病患可能出現急性尿滯留，需要緊急處理",
-                "suggested_actions": ["立即通知醫師", "準備導尿管", "安排緊急就診"],
-            },
-            {
-                "id": None,
-                "name": "大量血尿",
-                "severity": "critical",
-                "category": "hematuria",
-                "keywords": ["大量血尿", "血塊", "整個都是血", "血尿很多", "一大堆血"],
-                "regex_pattern": r"(大量|嚴重|很多|整個).{0,5}(血尿|出血|血)",
-                "description": "病患可能出現嚴重血尿，需評估出血原因",
-                "suggested_actions": ["立即通知醫師", "監測生命徵象", "準備血液檢查"],
-            },
-            {
-                "id": None,
-                "name": "睪丸劇痛",
-                "severity": "critical",
-                "category": "testicular_torsion",
-                "keywords": ["睪丸劇痛", "睪丸突然痛", "蛋蛋很痛", "突然睪丸"],
-                "regex_pattern": r"(睪丸|蛋蛋|陰囊).{0,5}(劇痛|突然痛|非常痛|劇烈)",
-                "description": "可能為睪丸扭轉，需要在 6 小時內處理以避免壞死",
-                "suggested_actions": ["立即通知泌尿科醫師", "安排緊急超音波", "準備手術可能"],
-            },
-            {
-                "id": None,
-                "name": "尿路敗血症",
-                "severity": "critical",
-                "category": "urosepsis",
-                "keywords": ["高燒", "寒顫", "意識不清", "發燒加排尿痛"],
-                "regex_pattern": r"(發燒|高燒|寒顫).{0,10}(尿|排尿|泌尿|膀胱)",
-                "description": "尿路感染合併全身性感染徵象，可能為尿路敗血症",
-                "suggested_actions": ["立即通知醫師", "安排血液培養", "準備抗生素"],
-            },
-            {
-                "id": None,
-                "name": "肉眼血尿",
-                "severity": "high",
-                "category": "gross_hematuria",
-                "keywords": ["肉眼血尿", "尿是紅色", "紅色的尿", "血尿", "尿裡有血"],
-                "regex_pattern": r"(尿|小便).{0,5}(紅色|血|粉紅|褐色)",
-                "description": "肉眼可見血尿，需進一步檢查排除惡性腫瘤",
-                "suggested_actions": ["安排尿液檢查", "考慮膀胱鏡檢查", "通知主治醫師"],
-            },
-            {
-                "id": None,
-                "name": "腎絞痛合併發燒",
-                "severity": "high",
-                "category": "infected_stone",
-                "keywords": ["腰痛", "腎臟痛", "側腹痛", "絞痛加發燒"],
-                "regex_pattern": r"(腰|側腹|腎).{0,5}(痛|絞痛).{0,10}(燒|發燒|發熱)",
-                "description": "腎結石合併感染，可能需要緊急引流",
-                "suggested_actions": ["安排影像檢查", "抽血檢查發炎指數", "通知泌尿科醫師"],
-            },
-            {
-                "id": None,
-                "name": "不明原因體重下降",
-                "severity": "high",
-                "category": "weight_loss",
-                "keywords": ["體重下降", "變瘦", "吃不下", "體重減輕"],
-                "regex_pattern": r"(體重|瘦).{0,5}(下降|減輕|掉|變)",
-                "description": "不明原因體重急速下降，需排除惡性腫瘤",
-                "suggested_actions": ["安排全面檢查", "考慮腫瘤篩檢", "通知主治醫師"],
-            },
+                "name": flag["title"],
+                "severity": flag["severity"],
+                "category": flag["title"],  # 暫用 title 當 category
+                "keywords": list(flag["triggers"]),
+                "regex_pattern": None,
+                "description": flag["description"],
+                "suggested_actions": list(flag["suggested_actions"]),
+            }
+            for flag in URO_RED_FLAGS
         ]
 
     def _rule_based_detect(self, text: str) -> list[dict[str, Any]]:
