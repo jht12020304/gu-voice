@@ -34,15 +34,19 @@ class LLMConversationEngine:
         """
         self._settings = settings
         self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        self._model = settings.OPENAI_MODEL_CONVERSATION  # gpt-4o
+        self._model = settings.OPENAI_MODEL_CONVERSATION  # gpt-5.4-mini
         self._temperature = settings.OPENAI_TEMPERATURE_CONVERSATION  # 0.7
-        self._max_tokens = settings.OPENAI_MAX_TOKENS_CONVERSATION  # 512
+        self._max_tokens = settings.OPENAI_MAX_TOKENS_CONVERSATION  # 2048
+        # gpt-5.4 系列特有：reasoning_effort 控制 chain-of-thought 深度。
+        # "none" 時 temperature/top_p/logprobs 才被允許；其他值會被 API 拒收。
+        self._reasoning_effort = settings.OPENAI_REASONING_EFFORT_CONVERSATION
 
         logger.info(
-            "LLMConversationEngine 初始化 | model=%s, temperature=%.1f, max_tokens=%d",
+            "LLMConversationEngine 初始化 | model=%s, temperature=%.1f, max_tokens=%d, reasoning_effort=%s",
             self._model,
             self._temperature,
             self._max_tokens,
+            self._reasoning_effort,
         )
 
     def _get_complaint_red_flags(self, chief_complaint: str) -> str:
@@ -249,19 +253,31 @@ class LLMConversationEngine:
 
         try:
             logger.info(
-                "呼叫 LLM 生成回應 | session=%s, model=%s, messages_count=%d",
+                "呼叫 LLM 生成回應 | session=%s, model=%s, reasoning_effort=%s, messages_count=%d",
                 session_id,
                 self._model,
+                self._reasoning_effort,
                 len(messages),
             )
 
-            stream = await self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                temperature=self._temperature,
-                max_completion_tokens=self._max_tokens,
-                stream=True,
-            )
+            # gpt-5.4 系列：reasoning_effort 非 "none" 時 API 會拒絕 temperature；
+            # 為了支援舊模型（gpt-4o）與新模型（gpt-5.4-mini）共用同一條 code path，
+            # 只有在 reasoning_effort == "none" 時才帶上 temperature。
+            create_kwargs: dict[str, Any] = {
+                "model": self._model,
+                "messages": messages,
+                "max_completion_tokens": self._max_tokens,
+                "stream": True,
+            }
+            if self._reasoning_effort and self._reasoning_effort != "none":
+                create_kwargs["reasoning_effort"] = self._reasoning_effort
+            else:
+                # reasoning_effort="none"（或未設）：送 temperature 保留自然語句變化
+                create_kwargs["temperature"] = self._temperature
+                if self._reasoning_effort == "none":
+                    create_kwargs["reasoning_effort"] = "none"
+
+            stream = await self._client.chat.completions.create(**create_kwargs)
 
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:

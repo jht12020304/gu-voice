@@ -99,15 +99,21 @@ class Settings(BaseSettings):
 
     # ── OPENAI ──────────────────────────────────────────
     OPENAI_API_KEY: str = ""
-    OPENAI_MODEL_CONVERSATION: str = "gpt-4o"
+    OPENAI_MODEL_CONVERSATION: str = "gpt-5.4-mini"
     OPENAI_MODEL_SUPERVISOR: str = "gpt-4o"
     OPENAI_MODEL_SOAP: str = "gpt-4o"
     OPENAI_MODEL_RED_FLAG: str = "gpt-4o-mini"
     OPENAI_TEMPERATURE_CONVERSATION: float = 0.7
     OPENAI_TEMPERATURE_SOAP: float = 0.3
     OPENAI_TEMPERATURE_RED_FLAG: float = 0.2
-    OPENAI_MAX_TOKENS_CONVERSATION: int = 512
+    OPENAI_MAX_TOKENS_CONVERSATION: int = 2048
     OPENAI_MAX_TOKENS_SOAP: int = 4096
+    # gpt-5.4-mini reasoning 控制：
+    #   none  → 不做 chain-of-thought，延遲最低，且允許 temperature/top_p
+    #   low/medium/high/xhigh → 啟用推理；此時 temperature 會被 API 拒絕
+    # 對話每輪只產 1-3 句 HPI 追問，且深度推理交由 Supervisor pipeline 處理，
+    # 預設 "none" 以保留 temperature 並降低延遲。
+    OPENAI_REASONING_EFFORT_CONVERSATION: str = "none"
 
     # ── STT (OpenAI Whisper) ─────────────────────────────
     OPENAI_STT_MODEL: str = "whisper-1"
