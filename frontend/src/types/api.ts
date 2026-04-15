@@ -201,6 +201,10 @@ export interface DashboardStatsResponse {
   completed: number;
   redFlags: number;
   pendingReviews: number;
+  inProgress?: number;
+  waiting?: number;
+  averageDurationSeconds?: number | null;
+  timestamp?: string;
 }
 
 export interface DashboardQueueResponse {
@@ -218,6 +222,64 @@ export interface QueueItem {
   waitingSeconds: number;
   hasRedFlag: boolean;
   createdAt: string;
+}
+
+export interface RecentAlertItem {
+  alertId: string;
+  sessionId: string;
+  patientName: string;
+  severity: string;
+  title: string;
+  acknowledged: boolean;
+  createdAt: string;
+}
+
+export interface RecentAlertsResponse {
+  data: RecentAlertItem[];
+}
+
+export interface RecentSessionItem {
+  sessionId: string;
+  patientName: string;
+  chiefComplaint: string;
+  status: string;
+  redFlag: boolean;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface RecentSessionsResponse {
+  data: RecentSessionItem[];
+}
+
+export interface SummaryBucketItem {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface DailyTrendItem {
+  date: string;
+  label: string;
+  sessions: number;
+  completed: number;
+  redFlags: number;
+}
+
+export interface MonthlySummaryResponse {
+  month: string;
+  monthLabel: string;
+  totalSessions: number;
+  completedSessions: number;
+  abortedRedFlagSessions: number;
+  pendingReviews: number;
+  totalRedFlagAlerts: number;
+  completionRate: number;
+  statusDistribution: SummaryBucketItem[];
+  chiefComplaintDistribution: SummaryBucketItem[];
+  alertSeverityDistribution: SummaryBucketItem[];
+  dailyTrend: DailyTrendItem[];
+  generatedAt: string;
 }
 
 // ---- 通知 ----

@@ -13,6 +13,7 @@ from app.core.dependencies import get_current_user, get_db, require_role
 from app.core.exceptions import AppException
 from app.schemas.dashboard import (
     DashboardStatsResponse,
+    MonthlySummaryResponse,
     PatientQueueResponse,
     RecentAlertsResponse,
     RecentSessionsResponse,
@@ -48,6 +49,27 @@ async def get_stats(
         db,
         current_user=current_user,
         date=date,
+        doctor_id=doctor_id,
+    )
+
+
+@router.get(
+    "/monthly-summary",
+    response_model=MonthlySummaryResponse,
+    status_code=status.HTTP_200_OK,
+    summary="取得月份摘要",
+)
+async def get_monthly_summary(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    month: str | None = Query(None, description="月份，格式 YYYY-MM"),
+    doctor_id: UUID | None = None,
+) -> MonthlySummaryResponse:
+    """取得指定月份的統計摘要、分類分佈與趨勢資料。"""
+    return await dashboard_service.get_monthly_summary(
+        db,
+        current_user=current_user,
+        month=month,
         doctor_id=doctor_id,
     )
 

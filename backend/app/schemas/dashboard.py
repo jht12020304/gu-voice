@@ -1,6 +1,6 @@
 """儀表板相關 Pydantic Schema"""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
@@ -77,6 +77,39 @@ class RecentAlertItem(BaseModel):
 class RecentAlertsResponse(BaseModel):
     """近期警示回應"""
     data: list[RecentAlertItem] = []
+
+
+class SummaryBucketItem(BaseModel):
+    """摘要分桶項目"""
+    key: str
+    label: str
+    count: int = 0
+
+
+class DailyTrendItem(BaseModel):
+    """每日趨勢項目"""
+    date: date
+    label: str
+    sessions: int = 0
+    completed: int = 0
+    red_flags: int = 0
+
+
+class MonthlySummaryResponse(BaseModel):
+    """月份摘要回應"""
+    month: str
+    month_label: str
+    total_sessions: int = 0
+    completed_sessions: int = 0
+    aborted_red_flag_sessions: int = 0
+    pending_reviews: int = 0
+    total_red_flag_alerts: int = 0
+    completion_rate: float = 0
+    status_distribution: list[SummaryBucketItem] = []
+    chief_complaint_distribution: list[SummaryBucketItem] = []
+    alert_severity_distribution: list[SummaryBucketItem] = []
+    daily_trend: list[DailyTrendItem] = []
+    generated_at: datetime
 
 
 # 別名（供 router 匯入相容）

@@ -3,8 +3,13 @@
 // =============================================================================
 
 import apiClient from './client';
-import type { DashboardStatsResponse, DashboardQueueResponse } from '../../types/api';
-import type { RedFlagAlert, Session } from '../../types';
+import type {
+  DashboardQueueResponse,
+  DashboardStatsResponse,
+  MonthlySummaryResponse,
+  RecentAlertsResponse,
+  RecentSessionsResponse,
+} from '../../types/api';
 
 const BASE = '/dashboard';
 
@@ -20,14 +25,22 @@ export async function getDashboardQueue(): Promise<DashboardQueueResponse> {
   return data;
 }
 
+/** 取得月份摘要 */
+export async function getMonthlySummary(month?: string): Promise<MonthlySummaryResponse> {
+  const { data } = await apiClient.get<MonthlySummaryResponse>(`${BASE}/monthly-summary`, {
+    params: month ? { month } : undefined,
+  });
+  return data;
+}
+
 /** 取得最近紅旗警示 */
-export async function getRecentAlerts(): Promise<RedFlagAlert[]> {
-  const { data } = await apiClient.get<RedFlagAlert[]>(`${BASE}/recent-alerts`);
+export async function getRecentAlerts(): Promise<RecentAlertsResponse> {
+  const { data } = await apiClient.get<RecentAlertsResponse>(`${BASE}/recent-alerts`);
   return data;
 }
 
 /** 取得最近場次 */
-export async function getRecentSessions(): Promise<Session[]> {
-  const { data } = await apiClient.get<Session[]>(`${BASE}/recent-sessions`);
+export async function getRecentSessions(): Promise<RecentSessionsResponse> {
+  const { data } = await apiClient.get<RecentSessionsResponse>(`${BASE}/recent-sessions`);
   return data;
 }
