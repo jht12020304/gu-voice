@@ -116,6 +116,9 @@ class Settings(BaseSettings):
     OPENAI_TEMPERATURE_RED_FLAG: float = 0.2
     OPENAI_MAX_TOKENS_CONVERSATION: int = 2048
     OPENAI_MAX_TOKENS_SOAP: int = 4096
+    # Supervisor 走 reasoning 模型時要留足夠 token 給 CoT + JSON 輸出,
+    # 太低會導致 JSON 被截斷 → parse 失敗 → next_focus 永遠空。
+    OPENAI_MAX_TOKENS_SUPERVISOR: int = 4096
     # reasoning_effort 控制(gpt-5.4 系列等 reasoning 模型支援):
     #   none                        → 不送 reasoning_effort 參數,改送 temperature
     #                                 (走傳統 chat 路徑,gpt-4o / gpt-4.1 也走這條)

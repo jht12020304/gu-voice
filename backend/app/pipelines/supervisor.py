@@ -81,14 +81,16 @@ class SupervisorEngine:
         self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         self._model = settings.OPENAI_MODEL_SUPERVISOR
         self._reasoning_effort = settings.OPENAI_REASONING_EFFORT_SUPERVISOR
+        self._max_tokens = settings.OPENAI_MAX_TOKENS_SUPERVISOR
         # reasoning_effort != "none" 時 API 會拒絕 temperature,走 reasoning
         # 路徑就不帶 temperature;fallback 到 "none"(目前 default)才用 0.2。
         self._temperature = 0.2
 
         logger.info(
-            "SupervisorEngine 初始化 | model=%s, reasoning_effort=%s",
+            "SupervisorEngine 初始化 | model=%s, reasoning_effort=%s, max_tokens=%d",
             self._model,
             self._reasoning_effort,
+            self._max_tokens,
         )
 
     async def analyze_next_step(
@@ -144,6 +146,7 @@ class SupervisorEngine:
                     {"role": "user", "content": user_message},
                 ],
                 "response_format": {"type": "json_object"},
+                "max_completion_tokens": self._max_tokens,
             }
             if self._reasoning_effort and self._reasoning_effort != "none":
                 create_kwargs["reasoning_effort"] = self._reasoning_effort
