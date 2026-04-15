@@ -1,44 +1,14 @@
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import AlertItem from '../../components/dashboard/AlertItem';
-import QueueCard from '../../components/dashboard/QueueCard';
-import StatusBadge from '../../components/medical/StatusBadge';
 import * as dashboardApi from '../../services/api/dashboard';
 import type {
   MonthlySummaryResponse,
-  QueueItem,
-  RecentAlertItem,
-  RecentSessionItem,
   SummaryBucketItem,
 } from '../../types/api';
-import type { AlertSeverity, SessionStatus } from '../../types/enums';
-import { formatDate } from '../../utils/format';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 
 const chartPalette = ['#8F3A6F', '#F2A83B', '#16181D', '#4A7AF7', '#46A168', '#D0D5DD'];
-
-const mockQueue: QueueItem[] = [
-  { sessionId: 's1', patientId: 'p1', patientName: '陳小明', chiefComplaint: '血尿持續三天', status: 'in_progress', waitingSeconds: 0, hasRedFlag: true, createdAt: '2026-04-15T09:00:00Z' },
-  { sessionId: 's2', patientId: 'p2', patientName: '林美玲', chiefComplaint: '頻尿、夜尿增加', status: 'waiting', waitingSeconds: 720, hasRedFlag: false, createdAt: '2026-04-15T08:40:00Z' },
-  { sessionId: 's3', patientId: 'p3', patientName: '張大偉', chiefComplaint: '排尿困難', status: 'waiting', waitingSeconds: 1500, hasRedFlag: false, createdAt: '2026-04-15T08:20:00Z' },
-  { sessionId: 's4', patientId: 'p4', patientName: '王志明', chiefComplaint: '左側腰痛伴噁心', status: 'in_progress', waitingSeconds: 0, hasRedFlag: true, createdAt: '2026-04-15T08:10:00Z' },
-  { sessionId: 's5', patientId: 'p5', patientName: '李淑華', chiefComplaint: '尿失禁', status: 'waiting', waitingSeconds: 3120, hasRedFlag: false, createdAt: '2026-04-15T07:30:00Z' },
-];
-
-const mockAlerts: RecentAlertItem[] = [
-  { alertId: 'a1', sessionId: 's1', patientName: '陳小明', severity: 'critical', title: '疑似睪丸扭轉', acknowledged: false, createdAt: '2026-04-15T10:12:00Z' },
-  { alertId: 'a2', sessionId: 's4', patientName: '王志明', severity: 'high', title: '疑似腎絞痛合併發燒', acknowledged: false, createdAt: '2026-04-14T13:30:00Z' },
-  { alertId: 'a3', sessionId: 's3', patientName: '張大偉', severity: 'medium', title: '肉眼血尿持續', acknowledged: false, createdAt: '2026-04-13T13:15:00Z' },
-];
-
-const mockRecentSessions: RecentSessionItem[] = [
-  { sessionId: 'rs1', patientName: '黃美芳', chiefComplaint: '攝護腺症狀', status: 'completed', redFlag: false, createdAt: '2026-04-15T11:30:00Z', completedAt: '2026-04-15T11:52:00Z' },
-  { sessionId: 'rs2', patientName: '吳建宏', chiefComplaint: '泌尿道感染', status: 'completed', redFlag: false, createdAt: '2026-04-15T10:45:00Z', completedAt: '2026-04-15T11:05:00Z' },
-  { sessionId: 'rs3', patientName: '趙淑芬', chiefComplaint: '尿失禁', status: 'completed', redFlag: false, createdAt: '2026-04-15T10:00:00Z', completedAt: '2026-04-15T10:28:00Z' },
-  { sessionId: 'rs4', patientName: '周志豪', chiefComplaint: '陰囊疼痛', status: 'aborted_red_flag', redFlag: true, createdAt: '2026-04-15T09:15:00Z', completedAt: '2026-04-15T09:20:00Z' },
-];
 
 function createMockMonthlySummary(monthDate: Date): MonthlySummaryResponse {
   const month = format(monthDate, 'yyyy-MM');
@@ -275,31 +245,16 @@ function DailyTrendCard({ items }: { items: MonthlySummaryResponse['dailyTrend']
   );
 }
 
-function EmptyListState({ message }: { message: string }) {
-  return (
-    <div className="rounded-card border border-dashed border-edge px-4 py-8 text-center text-small text-ink-muted dark:border-dark-border">
-      {message}
-    </div>
-  );
-}
-
 export default function DashboardPage() {
-  const navigate = useNavigate();
   const [selectedMonth, setSelectedMonth] = useState(() => new Date());
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummaryResponse | null>(
     IS_MOCK ? createMockMonthlySummary(new Date()) : null,
   );
-  const [queue, setQueue] = useState<QueueItem[]>(IS_MOCK ? mockQueue : []);
-  const [alerts, setAlerts] = useState<RecentAlertItem[]>(IS_MOCK ? mockAlerts : []);
-  const [recentSessions, setRecentSessions] = useState<RecentSessionItem[]>(IS_MOCK ? mockRecentSessions : []);
   const [isLoading, setIsLoading] = useState(!IS_MOCK);
 
   useEffect(() => {
     if (IS_MOCK) {
       setMonthlySummary(createMockMonthlySummary(selectedMonth));
-      setQueue(mockQueue);
-      setAlerts(mockAlerts);
-      setRecentSessions(mockRecentSessions);
       setIsLoading(false);
       return;
     }
@@ -308,25 +263,8 @@ export default function DashboardPage() {
       setIsLoading(true);
       try {
         const month = format(selectedMonth, 'yyyy-MM');
-        const [summaryRes, queueRes, alertsRes, sessionsRes] = await Promise.allSettled([
-          dashboardApi.getMonthlySummary(month),
-          dashboardApi.getDashboardQueue(),
-          dashboardApi.getRecentAlerts(),
-          dashboardApi.getRecentSessions(),
-        ]);
-
-        if (summaryRes.status === 'fulfilled') {
-          setMonthlySummary(summaryRes.value);
-        }
-        if (queueRes.status === 'fulfilled') {
-          setQueue(queueRes.value.queue ?? []);
-        }
-        if (alertsRes.status === 'fulfilled') {
-          setAlerts(alertsRes.value.data ?? []);
-        }
-        if (sessionsRes.status === 'fulfilled') {
-          setRecentSessions(sessionsRes.value.data ?? []);
-        }
+        const summary = await dashboardApi.getMonthlySummary(month);
+        setMonthlySummary(summary);
       } finally {
         setIsLoading(false);
       }
@@ -337,10 +275,6 @@ export default function DashboardPage() {
 
   const selectedMonthLabel = monthlySummary?.monthLabel ?? format(selectedMonth, 'yyyy 年 M 月');
   const monthRangeLabel = formatMonthRange(selectedMonth);
-  const queuePreview = queue.slice(0, 8);
-  const alertPreview = alerts.slice(0, 4);
-  const recentSessionPreview = recentSessions.slice(0, 6);
-
   const totalSessions = monthlySummary?.totalSessions ?? 0;
   const redFlagAlerts = monthlySummary?.totalRedFlagAlerts ?? 0;
 
@@ -423,136 +357,9 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="space-y-4">
-        <div className="flex flex-col gap-1 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h2 className="text-h2 text-ink-heading dark:text-white">即時看診概況</h2>
-            <p className="mt-1 text-body text-ink-secondary">下方仍保留即時營運資訊，方便快速切回場次與告警處理。</p>
-          </div>
-          <div className="text-small text-ink-muted">
-            {isLoading ? '正在同步最新資料...' : '即時資料已更新'}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-          <div className="card xl:col-span-7">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-h3 text-ink-heading dark:text-white">等候佇列</h3>
-                <p className="mt-1 text-small text-ink-muted">預覽前 8 筆即時場次，點擊可進入場次明細</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="badge badge-in-progress">
-                  {queue.filter((item) => item.status === 'in_progress').length} 進行中 · {queue.filter((item) => item.status === 'waiting').length} 等待中
-                </span>
-                <button
-                  type="button"
-                  className="text-caption font-medium text-primary-600 hover:text-primary-700"
-                  onClick={() => navigate('/sessions')}
-                >
-                  查看全部 →
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              {queuePreview.length > 0 ? (
-                queuePreview.map((item) => (
-                  <QueueCard
-                    key={item.sessionId}
-                    patientName={item.patientName}
-                    chiefComplaint={item.chiefComplaint}
-                    status={item.status}
-                    waitingSeconds={item.waitingSeconds ?? 0}
-                    hasRedFlag={item.hasRedFlag}
-                    onClick={() => navigate(`/sessions/${item.sessionId}`)}
-                  />
-                ))
-              ) : (
-                <EmptyListState message="目前沒有等待中或進行中的場次" />
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-6 xl:col-span-5">
-            <div className="card">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h3 className="text-h3 text-ink-heading dark:text-white">紅旗警示</h3>
-                  <p className="mt-1 text-small text-ink-muted">最近觸發的高優先處理事件</p>
-                </div>
-                <button
-                  type="button"
-                  className="text-caption font-medium text-primary-600 hover:text-primary-700"
-                  onClick={() => navigate('/alerts')}
-                >
-                  查看全部 →
-                </button>
-              </div>
-
-              <div className="space-y-2">
-                {alertPreview.length > 0 ? (
-                  alertPreview.map((alert) => (
-                    <AlertItem
-                      key={alert.alertId}
-                      id={alert.alertId}
-                      title={alert.title}
-                      severity={alert.severity as AlertSeverity}
-                      patientName={alert.patientName}
-                      createdAt={alert.createdAt}
-                      isAcknowledged={alert.acknowledged}
-                      onClick={() => navigate(`/alerts/${alert.alertId}`)}
-                    />
-                  ))
-                ) : (
-                  <EmptyListState message="近期沒有新的紅旗警示" />
-                )}
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h3 className="text-h3 text-ink-heading dark:text-white">最近場次</h3>
-                  <p className="mt-1 text-small text-ink-muted">顯示近期建立的場次與目前狀態</p>
-                </div>
-                <button
-                  type="button"
-                  className="text-caption font-medium text-primary-600 hover:text-primary-700"
-                  onClick={() => navigate('/sessions')}
-                >
-                  查看場次 →
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {recentSessionPreview.length > 0 ? (
-                  recentSessionPreview.map((session) => (
-                    <div key={session.sessionId} className="flex items-center justify-between border-b border-edge py-2 last:border-0 dark:border-dark-border">
-                      <div className="min-w-0 flex-1 pr-3">
-                        <p className="truncate text-body font-medium text-ink-heading dark:text-white">{session.patientName}</p>
-                        <p className="truncate text-small text-ink-muted">{session.chiefComplaint}</p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <StatusBadge status={session.status as SessionStatus} size="sm" />
-                        <span className="text-tiny text-ink-muted font-tnum">
-                          {formatDate(session.completedAt ?? session.createdAt, { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <EmptyListState message="近期尚無可顯示的場次" />
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {isLoading ? (
         <div className="rounded-panel border border-dashed border-edge px-4 py-3 text-center text-small text-ink-muted dark:border-dark-border">
-          正在同步月份摘要與即時資料...
+          正在同步月份摘要...
         </div>
       ) : null}
     </div>
