@@ -19,6 +19,8 @@ const mockAlerts: RedFlagAlert[] = [
 interface AlertState {
   alerts: RedFlagAlert[];
   unacknowledgedCount: number;
+  totalCount: number;
+  allTotalCount: number;
   isLoading: boolean;
   cursor: string | null;
   hasMore: boolean;
@@ -40,6 +42,8 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
   // ---- State ----
   alerts: [],
   unacknowledgedCount: 0,
+  totalCount: 0,
+  allTotalCount: 0,
   isLoading: false,
   cursor: null,
   hasMore: true,
@@ -54,7 +58,15 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
       const filtered = filter === 'all' ? mockAlerts
         : filter === 'acknowledged' ? mockAlerts.filter((a) => !!a.acknowledgedBy)
         : mockAlerts.filter((a) => !a.acknowledgedBy);
-      set({ alerts: filtered, isLoading: false, hasMore: false, cursor: null, unacknowledgedCount: mockAlerts.filter((a) => !a.acknowledgedBy).length });
+      set({
+        alerts: filtered,
+        isLoading: false,
+        hasMore: false,
+        cursor: null,
+        totalCount: filtered.length,
+        allTotalCount: mockAlerts.length,
+        unacknowledgedCount: mockAlerts.filter((a) => !a.acknowledgedBy).length,
+      });
       return;
     }
 
@@ -74,6 +86,8 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
         alerts: response.data,
         cursor: response.pagination.nextCursor,
         hasMore: response.pagination.hasMore,
+        totalCount: response.pagination.totalCount,
+        allTotalCount: filter === 'all' ? response.pagination.totalCount : get().allTotalCount,
         isLoading: false,
       });
     } catch {
@@ -97,6 +111,7 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
         alerts: [...alerts, ...response.data],
         cursor: response.pagination.nextCursor,
         hasMore: response.pagination.hasMore,
+        totalCount: response.pagination.totalCount,
         isLoading: false,
       });
     } catch {
@@ -108,8 +123,15 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
     try {
       const updated = await alertsApi.acknowledgeAlert(id, notes ? { acknowledgeNotes: notes } : undefined);
       set((state) => ({
-        alerts: state.alerts.map((a) => (a.id === id ? updated : a)),
+        alerts:
+          state.filter === 'unacknowledged'
+            ? state.alerts.filter((a) => a.id !== id)
+            : state.alerts.map((a) => (a.id === id ? updated : a)),
         unacknowledgedCount: Math.max(0, state.unacknowledgedCount - 1),
+        totalCount:
+          state.filter === 'unacknowledged'
+            ? Math.max(0, state.totalCount - 1)
+            : state.totalCount,
       }));
     } catch {
       set({ error: '確認警示失敗' });
@@ -120,6 +142,8 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
     set((state) => ({
       alerts: [alert, ...state.alerts],
       unacknowledgedCount: state.unacknowledgedCount + 1,
+      totalCount: state.totalCount + 1,
+      allTotalCount: state.allTotalCount + 1,
     })),
 
   setFilter: (filter) => {

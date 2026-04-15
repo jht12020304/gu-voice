@@ -12,9 +12,14 @@ interface AlertItemProps {
   description?: string;
   severity: string;
   patientName?: string;
+  chiefComplaint?: string;
+  sessionStatus?: string;
+  triggerReason?: string;
+  suggestedActionCount?: number;
   createdAt: string;
   isAcknowledged: boolean;
   onAcknowledge?: () => void;
+  onViewDetail?: () => void;
   onClick?: () => void;
 }
 
@@ -29,26 +34,34 @@ export default function AlertItem({
   description,
   severity,
   patientName,
+  chiefComplaint,
+  sessionStatus,
+  triggerReason,
+  suggestedActionCount,
   createdAt,
   isAcknowledged,
   onAcknowledge,
+  onViewDetail,
   onClick,
 }: AlertItemProps) {
   return (
     <div
       className={`alert-card ${severityBorderClass[severity] || ''} ${
         !isAcknowledged ? 'border-l-0' : 'border-l'
-      } ${severity === 'critical' && !isAcknowledged ? 'animate-pulse-alert' : ''} ${
+      } ${
         onClick ? 'cursor-pointer' : ''
       }`}
       onClick={onClick}
     >
-      <div className="flex items-start gap-3">
-        {/* 告警圖示 */}
+      <div className="flex items-start gap-4">
         <div className="shrink-0 pt-0.5">
           <svg
             className={`h-5 w-5 ${
-              !isAcknowledged ? 'text-alert-critical' : 'text-ink-muted'
+              severity === 'critical'
+                ? 'text-alert-critical'
+                : severity === 'high'
+                  ? 'text-alert-high-text'
+                  : 'text-alert-medium-text'
             }`}
             fill="none"
             viewBox="0 0 24 24"
@@ -63,44 +76,94 @@ export default function AlertItem({
           </svg>
         </div>
 
-        {/* 內容 */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="text-body font-medium text-ink-heading">{title}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-body font-semibold text-ink-heading dark:text-white">{title}</p>
             <SeverityBadge severity={severity as AlertSeverity} size="sm" />
+            <span
+              className={`rounded-pill px-2.5 py-0.5 text-tiny font-semibold ${
+                isAcknowledged
+                  ? 'bg-green-50 text-green-700 ring-1 ring-green-200 dark:bg-green-950/30 dark:text-green-300 dark:ring-green-900'
+                  : 'bg-surface-secondary text-ink-secondary ring-1 ring-edge dark:bg-dark-surface dark:text-dark-text-muted dark:ring-dark-border'
+              }`}
+            >
+              {isAcknowledged ? '已處理' : '待處理'}
+            </span>
           </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-tiny text-ink-muted">
+            {patientName ? (
+              <span className="rounded-pill bg-surface-secondary px-2.5 py-1 text-small font-medium text-ink-secondary dark:bg-dark-surface dark:text-dark-text-muted">
+                {patientName}
+              </span>
+            ) : null}
+            {chiefComplaint ? (
+              <span className="rounded-pill bg-white px-2.5 py-1 text-small text-ink-secondary ring-1 ring-edge dark:bg-dark-card dark:text-dark-text-muted dark:ring-dark-border">
+                主訴：{chiefComplaint}
+              </span>
+            ) : null}
+            {sessionStatus ? (
+              <span className="text-small text-ink-muted">場次狀態：{sessionStatus}</span>
+            ) : null}
+          </div>
+
           {description && (
-            <p className="mt-1 text-small text-ink-secondary line-clamp-2">{description}</p>
+            <p className="mt-3 text-small leading-6 text-ink-secondary line-clamp-3 dark:text-white/75">
+              {description}
+            </p>
           )}
-          <div className="mt-1.5 flex items-center gap-2 text-tiny text-ink-muted">
-            {patientName && (
-              <>
-                <span className="font-medium text-ink-secondary">{patientName}</span>
-                <span>·</span>
-              </>
-            )}
+
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-tiny text-ink-muted">
+            {triggerReason ? (
+              <span className="rounded-pill bg-surface-secondary px-2.5 py-1 text-small text-ink-muted dark:bg-dark-surface dark:text-dark-text-muted">
+                觸發：{triggerReason}
+              </span>
+            ) : null}
+            {suggestedActionCount ? (
+              <span className="text-small text-ink-muted">建議 {suggestedActionCount} 項處置</span>
+            ) : null}
             <span>{relativeTime(createdAt)}</span>
           </div>
         </div>
 
-        {/* 確認按鈕 */}
-        {!isAcknowledged && onAcknowledge && (
-          <button
-            className="btn-danger shrink-0 text-tiny px-3 py-1.5"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAcknowledge();
-            }}
-          >
-            確認處理
-          </button>
-        )}
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="text-right">
+            <p className="text-small font-medium text-ink-heading dark:text-white">{new Date(createdAt).toLocaleDateString('zh-TW')}</p>
+            <p className="mt-1 text-tiny text-ink-muted">
+              {new Date(createdAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
 
-        {isAcknowledged && (
-          <span className="shrink-0 text-tiny text-alert-success font-medium">
-            ✓ 已確認
-          </span>
-        )}
+          <div className="flex flex-wrap justify-end gap-2">
+            {onViewDetail ? (
+              <button
+                className="btn-secondary px-3 py-1.5 text-tiny"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewDetail();
+                }}
+              >
+                查看詳情
+              </button>
+            ) : null}
+
+            {!isAcknowledged && onAcknowledge ? (
+              <button
+                className="btn-danger shrink-0 px-3 py-1.5 text-tiny"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAcknowledge();
+                }}
+              >
+                確認處理
+              </button>
+            ) : (
+              <span className="shrink-0 rounded-pill bg-green-50 px-3 py-1.5 text-tiny font-semibold text-green-700 dark:bg-green-950/30 dark:text-green-300">
+                ✓ 已確認
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
