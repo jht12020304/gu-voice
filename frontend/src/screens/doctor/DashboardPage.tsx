@@ -89,10 +89,6 @@ function createMockMonthlySummary(monthDate: Date): MonthlySummaryResponse {
   };
 }
 
-function getBucketCount(items: SummaryBucketItem[], key: string): number {
-  return items.find((item) => item.key === key)?.count ?? 0;
-}
-
 function formatMonthRange(monthDate: Date): string {
   return `${format(startOfMonth(monthDate), 'yyyy/MM/dd')} - ${format(endOfMonth(monthDate), 'yyyy/MM/dd')}`;
 }
@@ -211,116 +207,6 @@ function DonutDistributionCard({
             </p>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function CompletionOverviewCard({ summary }: { summary: MonthlySummaryResponse | null }) {
-  const statusItems = summary?.statusDistribution ?? [];
-  const completionRate = summary?.completionRate ?? 0;
-  const radius = 56;
-  const circumference = 2 * Math.PI * radius;
-  const progress = Math.min(Math.max(completionRate, 0), 100);
-  const dashOffset = circumference - (progress / 100) * circumference;
-
-  const quickStats = [
-    { key: 'completed', label: '已完成', value: getBucketCount(statusItems, 'completed'), tone: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300' },
-    { key: 'aborted_red_flag', label: '紅旗中止', value: getBucketCount(statusItems, 'aborted_red_flag'), tone: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300' },
-    { key: 'in_progress', label: '對話中', value: getBucketCount(statusItems, 'in_progress'), tone: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-300' },
-    { key: 'waiting', label: '等待中', value: getBucketCount(statusItems, 'waiting'), tone: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300' },
-  ];
-
-  return (
-    <div className="card">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-h3 text-ink-heading dark:text-white">場次完成統計</h2>
-          <p className="mt-1 text-small text-ink-muted">以完成率快速檢視本月處理進度</p>
-        </div>
-        <span className="rounded-pill bg-emerald-50 px-3 py-1 text-tiny font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-          更新於 {summary ? formatDate(summary.generatedAt, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
-        </span>
-      </div>
-
-      <div className="mt-6 flex flex-col items-center gap-6">
-        <div className="relative h-40 w-40">
-          <svg viewBox="0 0 160 160" className="h-40 w-40">
-            <circle cx="80" cy="80" r={radius} fill="none" stroke="#E8ECF3" strokeWidth="14" />
-            <circle
-              cx="80"
-              cy="80"
-              r={radius}
-              fill="none"
-              stroke="#46A168"
-              strokeWidth="14"
-              strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={dashOffset}
-              transform="rotate(-90 80 80)"
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <p className="text-display font-bold text-emerald-600 dark:text-emerald-300 font-tnum">
-              {progress.toFixed(progress % 1 === 0 ? 0 : 1)}%
-            </p>
-            <p className="text-small text-ink-muted">完成率</p>
-          </div>
-        </div>
-
-        <div className="grid w-full grid-cols-2 gap-3">
-          {quickStats.map((item) => (
-            <div key={item.key} className={`rounded-card border px-4 py-3 ${item.tone}`}>
-              <p className="text-small font-medium">{item.label}</p>
-              <p className="mt-2 text-h2 font-bold font-tnum">{item.value.toLocaleString('zh-TW')}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SeverityDistributionCard({ items }: { items: SummaryBucketItem[] }) {
-  const maxCount = Math.max(...items.map((item) => item.count), 1);
-  const tones: Record<string, string> = {
-    critical: 'bg-rose-700',
-    high: 'bg-amber-500',
-    medium: 'bg-sky-500',
-  };
-
-  return (
-    <div className="card">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-h3 text-ink-heading dark:text-white">紅旗等級分佈</h2>
-          <p className="mt-1 text-small text-ink-muted">查看本月警示主要落在哪個嚴重度區間</p>
-        </div>
-        <span className="rounded-pill bg-alert-critical-bg px-3 py-1 text-tiny font-semibold text-alert-critical">
-          {items.reduce((sum, item) => sum + item.count, 0)} 筆
-        </span>
-      </div>
-
-      <div className="mt-6 space-y-5">
-        {items.map((item) => (
-          <div key={item.key}>
-            <div className="mb-2 flex items-center justify-between text-small">
-              <span className="font-medium text-ink-heading dark:text-white">{item.label}</span>
-              <span className="text-ink-muted font-tnum">
-                {item.count}/{Math.max(...items.map((entry) => entry.count), 1)}
-              </span>
-            </div>
-            <div className="h-3 rounded-full bg-surface-tertiary dark:bg-dark-surface">
-              <div
-                className={`h-3 rounded-full ${tones[item.key] || 'bg-slate-400'}`}
-                style={{ width: `${(item.count / maxCount) * 100}%` }}
-              />
-            </div>
-            <div className="mt-1 text-right text-tiny font-semibold text-ink-secondary">
-              {maxCount > 0 ? `${Math.round((item.count / maxCount) * 100)}%` : '0%'}
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );
@@ -453,15 +339,10 @@ export default function DashboardPage() {
   const monthRangeLabel = formatMonthRange(selectedMonth);
   const queuePreview = queue.slice(0, 8);
   const alertPreview = alerts.slice(0, 4);
-  const recentCompletedSessions = recentSessions
-    .filter((session) => session.status === 'completed' || session.status === 'aborted_red_flag')
-    .slice(0, 6);
+  const recentSessionPreview = recentSessions.slice(0, 6);
 
   const totalSessions = monthlySummary?.totalSessions ?? 0;
-  const completedSessions = monthlySummary?.completedSessions ?? 0;
   const redFlagAlerts = monthlySummary?.totalRedFlagAlerts ?? 0;
-  const abortedSessions = monthlySummary?.abortedRedFlagSessions ?? 0;
-  const pendingReviews = monthlySummary?.pendingReviews ?? 0;
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -471,7 +352,7 @@ export default function DashboardPage() {
             <p className="text-small font-semibold uppercase tracking-[0.18em] text-ink-muted">Dashboard</p>
             <h1 className="mt-2 text-h1 text-ink-heading dark:text-white">問診月統計</h1>
             <p className="mt-2 text-body text-ink-secondary">
-              以月份為單位整理場次、紅旗與報告審閱概況，視覺風格參考你提供的統計儀表板。
+              以月份為單位整理場次、主訴與紅旗概況，視覺風格參考你提供的統計儀表板。
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="rounded-pill bg-surface-tertiary px-3 py-1.5 text-tiny font-semibold text-ink-secondary dark:bg-dark-surface dark:text-dark-text-muted">
@@ -513,7 +394,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-2">
           <SummaryMetricCard
             title={`${selectedMonthLabel} 總場次`}
             value={totalSessions}
@@ -521,28 +402,10 @@ export default function DashboardPage() {
             accentClass="border-t-4 border-t-[#8F3A6F]"
           />
           <SummaryMetricCard
-            title="已完成"
-            value={completedSessions}
-            helper={`${monthlySummary?.completionRate ?? 0}% 完成率`}
-            accentClass="border-t-4 border-t-emerald-500"
-          />
-          <SummaryMetricCard
             title="紅旗警示"
             value={redFlagAlerts}
             helper="本月觸發的紅旗告警總數"
             accentClass="border-t-4 border-t-amber-500"
-          />
-          <SummaryMetricCard
-            title="紅旗中止"
-            value={abortedSessions}
-            helper="因危急情況提前中止的場次"
-            accentClass="border-t-4 border-t-[#16181D]"
-          />
-          <SummaryMetricCard
-            title="待審閱"
-            value={pendingReviews}
-            helper="本月產生後尚待醫師審閱的報告"
-            accentClass="border-t-4 border-t-[#4A7AF7]"
           />
         </div>
       </section>
@@ -555,13 +418,7 @@ export default function DashboardPage() {
             items={monthlySummary?.chiefComplaintDistribution ?? []}
           />
         </div>
-        <div className="xl:col-span-4">
-          <CompletionOverviewCard summary={monthlySummary} />
-        </div>
-        <div className="xl:col-span-4">
-          <SeverityDistributionCard items={monthlySummary?.alertSeverityDistribution ?? []} />
-        </div>
-        <div className="xl:col-span-12">
+        <div className="xl:col-span-8">
           <DailyTrendCard items={monthlySummary?.dailyTrend ?? []} />
         </div>
       </section>
@@ -656,21 +513,21 @@ export default function DashboardPage() {
             <div className="card">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h3 className="text-h3 text-ink-heading dark:text-white">最近完成 / 中止</h3>
-                  <p className="mt-1 text-small text-ink-muted">只顯示已完成與紅旗中止的近期場次</p>
+                  <h3 className="text-h3 text-ink-heading dark:text-white">最近場次</h3>
+                  <p className="mt-1 text-small text-ink-muted">顯示近期建立的場次與目前狀態</p>
                 </div>
                 <button
                   type="button"
                   className="text-caption font-medium text-primary-600 hover:text-primary-700"
-                  onClick={() => navigate('/reports')}
+                  onClick={() => navigate('/sessions')}
                 >
-                  前往報告 →
+                  查看場次 →
                 </button>
               </div>
 
               <div className="space-y-3">
-                {recentCompletedSessions.length > 0 ? (
-                  recentCompletedSessions.map((session) => (
+                {recentSessionPreview.length > 0 ? (
+                  recentSessionPreview.map((session) => (
                     <div key={session.sessionId} className="flex items-center justify-between border-b border-edge py-2 last:border-0 dark:border-dark-border">
                       <div className="min-w-0 flex-1 pr-3">
                         <p className="truncate text-body font-medium text-ink-heading dark:text-white">{session.patientName}</p>
@@ -685,7 +542,7 @@ export default function DashboardPage() {
                     </div>
                   ))
                 ) : (
-                  <EmptyListState message="近期尚無已完成或中止的場次" />
+                  <EmptyListState message="近期尚無可顯示的場次" />
                 )}
               </div>
             </div>
