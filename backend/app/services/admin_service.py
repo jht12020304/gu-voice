@@ -118,14 +118,8 @@ class AdminService:
         return ToggleActiveResponse(user_id=user_id, is_active=False)
 
     async def system_health_check(self, db: AsyncSession) -> SystemHealthResponse:
-        # Mock implementation
-        from app.schemas.admin import HealthStatus
-        status = HealthStatus(status="healthy", message="All systems operational (Stub)")
-        return SystemHealthResponse(
-            database=status,
-            redis=status,
-            ai_service=status,
-            stt_service=status,
-            tts_service=status,
-            timestamp="2026-04-12T14:20:00Z"
-        )
+        # Stub 實作 — 回傳 schema 定義的預設 "ok" 字串與目前時間戳,
+        # 讓 /api/v1/admin/system/health 不會 500。
+        # TODO: 未來接真實的 db `SELECT 1` / redis `PING` / OpenAI client 驗證。
+        from datetime import datetime, timezone
+        return SystemHealthResponse(timestamp=datetime.now(timezone.utc))
