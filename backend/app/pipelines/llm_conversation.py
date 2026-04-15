@@ -13,6 +13,11 @@ from openai import AsyncOpenAI
 
 from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
+from app.pipelines.prompts.shared import (
+    SINGLE_QUESTION_RULE,
+    render_hpi_checklist,
+    render_red_flags_for_conversation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,65 +54,6 @@ class LLMConversationEngine:
             self._reasoning_effort,
         )
 
-    def _get_complaint_red_flags(self, chief_complaint: str) -> str:
-        """根據主訴取得對應的紅旗症狀列表"""
-        RED_FLAGS_BY_COMPLAINT = {
-            "血尿": [
-                "大量血尿或有血塊",
-                "排尿時伴隨劇烈疼痛或完全無法排尿",
-                "合併發燒、畏寒（可能尿路感染合併菌血症）",
-                "不明原因體重下降超過 3 公斤",
-            ],
-            "腰痛": [
-                "劇烈單側腰痛合併噁心嘔吐（可能腎結石）",
-                "腰痛合併發燒超過 38.5°C",
-                "腰痛合併肉眼可見血尿",
-                "有腎移植病史",
-            ],
-            "腰痛（腎臟區域）": [
-                "劇烈單側腰痛合併噁心嘔吐（可能腎結石）",
-                "腰痛合併發燒超過 38.5°C",
-                "腰痛合併肉眼可見血尿",
-                "有腎移植病史",
-            ],
-            "頻尿": [
-                "完全無法排尿（急性尿滯留）",
-                "合併高燒寒顫",
-                "持續血尿",
-                "老年男性合併下腹脹痛",
-            ],
-            "排尿困難": [
-                "完全無法排尿（急性尿滯留）",
-                "合併高燒寒顫",
-                "持續血尿",
-                "老年男性合併下腹脹痛",
-            ],
-            "睪丸疼痛": [
-                "突然雙側劇烈疼痛（睪丸扭轉，6 小時黃金期）",
-                "睪丸明顯腫脹變形",
-                "合併噁心嘔吐",
-            ],
-        }
-
-        # 基礎通用紅旗
-        general_flags = [
-            "大量血尿或血塊",
-            "無法排尿（急性尿滯留）",
-            "劇烈腰部或腹部疼痛合併發燒",
-            "睪丸突然劇烈疼痛（可能為睪丸扭轉）",
-            "尿路感染症狀合併高燒、寒顫",
-            "不明原因體重急速下降"
-        ]
-
-        # 找出是否有吻合的特化紅旗
-        matched_flags = general_flags
-        for key, flags in RED_FLAGS_BY_COMPLAINT.items():
-            if key in chief_complaint:
-                matched_flags = flags
-                break
-
-        return "\n".join(f"- {flag}" for flag in matched_flags)
-
     def build_system_prompt(
         self, chief_complaint: str, patient_info: dict[str, Any]
     ) -> str:
@@ -142,7 +88,10 @@ class LLMConversationEngine:
             patient_summary_parts.append(f"家族病史：{patient_info['family_history']}")
 
         patient_section = "\n".join(patient_summary_parts) if patient_summary_parts else "（尚未提供詳細資訊）"
-        red_flags_section = self._get_complaint_red_flags(chief_complaint)
+        # HPI 10 欄框架與主訴相關紅旗都從 shared.py 單一來源渲染,
+        # 與 SOAP hpi schema、red_flag detector 知識庫對齊(P1-D、P2-E)。
+        hpi_section = render_hpi_checklist()
+        red_flags_section = render_red_flags_for_conversation(chief_complaint)
 
         system_prompt = f"""你是一位專業的泌尿科 AI 問診助手，負責協助進行初步問診。
 
@@ -157,27 +106,31 @@ class LLMConversationEngine:
 ## 主訴
 {chief_complaint}
 
-## 問診任務
-根據病患的主訴「{chief_complaint}」，遵循 HPI（現病史）框架進行結構化問診：
+## 主要問診任務（HPI 十欄框架）
+根據病患的主訴「{chief_complaint}」，依序收集下列十個 HPI 面向：
+{hpi_section}
 
-1. **Onset（發生時間）**：症狀何時開始？突然還是漸進式？
-2. **Location（位置）**：確切的不適部位在哪裡？
-3. **Duration（持續時間）**：症狀持續多久？是持續性還是間歇性？
-4. **Characteristics（特徵）**：症狀的性質是什麼？（例如疼痛的類型）
-5. **Severity（嚴重度）**：以 1-10 分評估嚴重程度
-6. **Aggravating / Relieving factors（加重／緩解因素）**：什麼會使症狀加重或減輕？
-7. **Associated symptoms（伴隨症狀）**：是否有其他伴隨的症狀？
-8. **Timing（時間模式）**：症狀在什麼時候特別明顯？（如夜間、排尿時）
-9. **Context（背景）**：症狀發生的背景脈絡？（如受傷、手術後）
+## 次要補問（HPI 完整度較高後才進入）
+當上述 HPI 十欄已大致問完（約 7 成以上），請視對話狀況補問下列臨床文件需要的資訊，
+每次仍只問一題，且只在與主訴相關時才問：
+- 過往泌尿科相關疾病或手術史
+- 目前服用中的藥物（特別是抗凝血劑、利尿劑、攝護腺藥物）
+- 已知藥物過敏
+- 家族是否有泌尿道癌症、腎結石或攝護腺疾病史
+- 相關生活習慣（例如飲水量、咖啡因、吸菸，限與主訴有關聯時）
+- 其他系統的不適（review of systems，僅在臨床相關時補問）
+
+若病患於 intake 表單已提供上述資訊，則不需重複詢問，直接進入 HPI。
 
 ## 問診準則
-- **一次只問一個問題**，避免同時提出多個問題造成病患混淆
 - 使用病患能理解的日常用語，避免過度使用醫學專業術語
 - 若病患的回答不夠明確，可進行追問以釐清
 - 適時表達關心與同理心（例如「我了解這對您來說很不舒服」）
 - 不做診斷或治療建議，僅進行症狀收集
 - 每次回覆最多 2 句話，請保持簡潔明瞭
 - 若偵測紅旗，在句尾加上：「這個症狀需要盡速就醫，請不要等待。」
+
+{SINGLE_QUESTION_RULE}
 
 ## 紅旗症狀注意
 請特別留意以下可能需要緊急處理的紅旗症狀：
