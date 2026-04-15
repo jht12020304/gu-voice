@@ -14,14 +14,83 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import (
+    ForbiddenException,
     InvalidStatusTransitionException,
     NotFoundException,
     SessionNotFoundException,
 )
 from app.models.conversation import Conversation
-from app.models.enums import SessionStatus
+from app.models.enums import SessionStatus, UserRole
+from app.models.patient import Patient
 from app.models.session import Session
 from app.utils.datetime_utils import utc_now
+
+
+def _get_user_role(current_user: Any) -> Optional[UserRole]:
+    """從 current_user 取出 role，容忍 string 或 enum 兩種來源。"""
+    if current_user is None:
+        return None
+    raw = getattr(current_user, "role", None)
+    if raw is None:
+        return None
+    if isinstance(raw, UserRole):
+        return raw
+    try:
+        return UserRole(raw)
+    except ValueError:
+        return None
+
+
+async def _authorize_session_access(
+    db: AsyncSession,
+    session: Session,
+    current_user: Any,
+) -> None:
+    """
+    校驗 current_user 是否能存取此 session。無權限則 raise ForbiddenException,
+    不存在 current_user 則 raise UnauthorizedException 語意(此處視為 Forbidden)。
+
+    角色規則:
+      - admin         → 無限制
+      - doctor        → 擁有 doctor_id == self OR doctor_id 為空(未指派) 的場次
+      - patient       → 只能看自己名下 patient 的場次(Session.patient.user_id == self.id)
+      - 其餘/未知角色 → 拒絕
+    """
+    if current_user is None:
+        raise ForbiddenException("缺少認證主體，無法判定場次存取權限")
+
+    role = _get_user_role(current_user)
+    user_id = getattr(current_user, "id", None)
+
+    if role == UserRole.ADMIN:
+        return
+
+    if role == UserRole.DOCTOR:
+        if session.doctor_id is None or session.doctor_id == user_id:
+            return
+        raise ForbiddenException(
+            "此場次已由其他醫師負責",
+            details={"session_id": str(session.id)},
+        )
+
+    if role == UserRole.PATIENT:
+        # 取出 patient.user_id。避免 lazy-load 錯誤,用明確 query 核對。
+        result = await db.execute(
+            select(Patient.user_id).where(Patient.id == session.patient_id)
+        )
+        owner_user_id = result.scalar_one_or_none()
+        if owner_user_id is not None and owner_user_id == user_id:
+            return
+        raise ForbiddenException(
+            "您沒有權限存取此場次",
+            details={"session_id": str(session.id)},
+        )
+
+    # 未知角色 — 保守拒絕
+    raise ForbiddenException(
+        "未知角色，拒絕存取",
+        details={"session_id": str(session.id), "role": str(role)},
+    )
 
 # ── 合法狀態轉移表 ───────────────────────────────────────
 VALID_TRANSITIONS: dict[SessionStatus, list[SessionStatus]] = {
@@ -450,17 +519,179 @@ class SessionService:
         sort_by: str = "created_at",
         sort_order: str = "desc",
     ) -> dict[str, Any]:
+        """
+        依角色限縮可見場次。
+          - admin   → 全部
+          - doctor  → 自己負責 + 未指派(doctor_id IS NULL)
+          - patient → 自己名下 Patient 底下的所有 session
+          - 無角色  → 403
+        傳入的 doctor_id / patient_id 過濾條件會與角色限制做 AND;
+        禁止一般使用者靠手動傳參數跳脫自身範圍(下方會強制覆寫)。
+        """
         from datetime import datetime
+
+        if current_user is None:
+            raise ForbiddenException("缺少認證主體，無法列出場次")
+
+        role = _get_user_role(current_user)
+        user_id = getattr(current_user, "id", None)
+
         _date_from = datetime.fromisoformat(date_from) if date_from else None
         _date_to = datetime.fromisoformat(date_to) if date_to else None
-        return await SessionService.get_list(
-            db, cursor, limit, status, doctor_id, patient_id, _date_from, _date_to
-        )
+
+        _status: Optional[SessionStatus] = None
+        if status is not None:
+            try:
+                _status = SessionStatus(status) if not isinstance(status, SessionStatus) else status
+            except ValueError:
+                _status = None  # 無效字串直接忽略,避免 500
+
+        _patient_id = patient_id
+        _doctor_id = doctor_id
+
+        if role == UserRole.PATIENT:
+            # 以 subquery 將 patient_id 限縮為 current_user 名下所有 Patient.id
+            owned_patient_ids_subq = (
+                select(Patient.id).where(Patient.user_id == user_id)
+            )
+            # 如果呼叫端有指定 patient_id,還是要落在自己名下 → 用 get_list 不支援多 id,
+            # 改在這裡手動查完整 query,以 patient_id IN subquery 強制限縮。
+            query = (
+                select(Session)
+                .options(selectinload(Session.patient))
+                .where(Session.patient_id.in_(owned_patient_ids_subq))
+                .order_by(Session.created_at.desc(), Session.id.desc())
+            )
+            if _patient_id is not None:
+                query = query.where(Session.patient_id == _patient_id)
+            if _status:
+                query = query.where(Session.status == _status)
+            if _date_from:
+                query = query.where(Session.created_at >= _date_from)
+            if _date_to:
+                query = query.where(Session.created_at <= _date_to)
+
+            # Cursor 分頁 — 沿用 get_list 的邏輯
+            if cursor:
+                cursor_row = await db.execute(
+                    select(Session).where(Session.id == cursor)
+                )
+                cursor_record = cursor_row.scalar_one_or_none()
+                if cursor_record:
+                    query = query.where(
+                        (Session.created_at < cursor_record.created_at)
+                        | (
+                            (Session.created_at == cursor_record.created_at)
+                            & (Session.id < cursor_record.id)
+                        )
+                    )
+
+            effective_limit = min(limit, 100)
+            result = await db.execute(query.limit(effective_limit + 1))
+            sessions = result.scalars().all()
+            has_more = len(sessions) > effective_limit
+            if has_more:
+                sessions = sessions[:effective_limit]
+
+            count_query = (
+                select(func.count())
+                .select_from(Session)
+                .where(Session.patient_id.in_(owned_patient_ids_subq))
+            )
+            if _status:
+                count_query = count_query.where(Session.status == _status)
+            if _patient_id is not None:
+                count_query = count_query.where(Session.patient_id == _patient_id)
+            total_count = (await db.execute(count_query)).scalar() or 0
+
+            return {
+                "data": sessions,
+                "pagination": {
+                    "next_cursor": str(sessions[-1].id) if has_more and sessions else None,
+                    "has_more": has_more,
+                    "limit": effective_limit,
+                    "total_count": total_count,
+                },
+            }
+
+        if role == UserRole.DOCTOR:
+            # 醫師: 自己負責 + 未指派。呼叫端傳的 doctor_id 會被強制覆寫為 self.id,
+            # 避免透過 query 參數窺探其他醫師負責的場次。
+            effective_limit = min(limit, 100)
+            query = (
+                select(Session)
+                .options(selectinload(Session.patient))
+                .where(
+                    (Session.doctor_id == user_id) | (Session.doctor_id.is_(None))
+                )
+                .order_by(Session.created_at.desc(), Session.id.desc())
+            )
+            if _status:
+                query = query.where(Session.status == _status)
+            if _patient_id is not None:
+                query = query.where(Session.patient_id == _patient_id)
+            if _date_from:
+                query = query.where(Session.created_at >= _date_from)
+            if _date_to:
+                query = query.where(Session.created_at <= _date_to)
+
+            if cursor:
+                cursor_row = await db.execute(
+                    select(Session).where(Session.id == cursor)
+                )
+                cursor_record = cursor_row.scalar_one_or_none()
+                if cursor_record:
+                    query = query.where(
+                        (Session.created_at < cursor_record.created_at)
+                        | (
+                            (Session.created_at == cursor_record.created_at)
+                            & (Session.id < cursor_record.id)
+                        )
+                    )
+
+            result = await db.execute(query.limit(effective_limit + 1))
+            sessions = result.scalars().all()
+            has_more = len(sessions) > effective_limit
+            if has_more:
+                sessions = sessions[:effective_limit]
+
+            count_query = (
+                select(func.count())
+                .select_from(Session)
+                .where(
+                    (Session.doctor_id == user_id) | (Session.doctor_id.is_(None))
+                )
+            )
+            if _status:
+                count_query = count_query.where(Session.status == _status)
+            if _patient_id is not None:
+                count_query = count_query.where(Session.patient_id == _patient_id)
+            total_count = (await db.execute(count_query)).scalar() or 0
+
+            return {
+                "data": sessions,
+                "pagination": {
+                    "next_cursor": str(sessions[-1].id) if has_more and sessions else None,
+                    "has_more": has_more,
+                    "limit": effective_limit,
+                    "total_count": total_count,
+                },
+            }
+
+        if role == UserRole.ADMIN:
+            return await SessionService.get_list(
+                db, cursor, limit, _status, _doctor_id, _patient_id, _date_from, _date_to
+            )
+
+        # 未知角色
+        raise ForbiddenException("未知角色，無法列出場次")
 
     async def get_session(
         self, db: AsyncSession, session_id: UUID, current_user: Any = None
     ) -> Session:
-        return await SessionService.get_by_id(db, session_id)
+        session = await SessionService.get_by_id(db, session_id)
+        await _authorize_session_access(db, session, current_user)
+        return session
 
     async def update_status(
         self,
@@ -470,6 +701,8 @@ class SessionService:
         reason: Optional[str] = None,
         current_user: Any = None,
     ) -> Session:
+        session = await SessionService.get_by_id(db, session_id)
+        await _authorize_session_access(db, session, current_user)
         return await SessionService.update_status_static(db, session_id, new_status, reason)
 
     async def get_conversations(
@@ -480,9 +713,27 @@ class SessionService:
         cursor: Optional[str] = None,
         limit: int = 50,
     ) -> dict[str, Any]:
+        session = await SessionService.get_by_id(db, session_id)
+        await _authorize_session_access(db, session, current_user)
         return await SessionService.get_conversations_static(db, session_id, cursor, limit)
 
     async def assign_doctor(
         self, db: AsyncSession, session_id: UUID, doctor_id: UUID, current_user: Any = None
     ) -> Session:
+        # Router 已透過 require_role("doctor","admin") 限制角色,
+        # 這裡仍做 ownership 檢查(防止 doctor A 把其他醫師已負責的 session 搶走)。
+        session = await SessionService.get_by_id(db, session_id)
+        role = _get_user_role(current_user)
+        if role == UserRole.ADMIN:
+            # admin 可任意指派
+            pass
+        elif role == UserRole.DOCTOR:
+            # doctor 只能把未指派的場次搶起來,或把自己名下的場次轉出給自己(no-op)
+            if session.doctor_id is not None and session.doctor_id != getattr(current_user, "id", None):
+                raise ForbiddenException(
+                    "此場次已由其他醫師負責，無法重新指派",
+                    details={"session_id": str(session.id)},
+                )
+        else:
+            raise ForbiddenException("僅 doctor / admin 可指派醫師")
         return await SessionService.assign_doctor_static(db, session_id, doctor_id)

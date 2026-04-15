@@ -3,6 +3,7 @@ GU Voice API — FastAPI 入口
 泌尿科 AI 語音問診助手後端服務
 """
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator
@@ -18,12 +19,57 @@ from app.core.exceptions import register_exception_handlers
 from app.core.middleware import AuditLoggingMiddleware, RequestIdMiddleware
 from app.schemas.common import HealthResponse
 
+logger = logging.getLogger(__name__)
+
+# 已知的開發預設值 — production 啟動時若環境變數等於這些值則拒絕啟動。
+# 這些字串來自 backend/.env / config.py 預設值，在 git 裡是公開的。
+_DEV_DEFAULT_SECRETS: dict[str, set[str]] = {
+    "APP_SECRET_KEY": {
+        "change-me-in-production",
+        "dev-secret-key-at-least-32-characters-long",
+    },
+    "JWT_SECRET_KEY": {
+        "",
+        "dev-jwt-secret-at-least-32-characters-long-for-hs256",
+    },
+}
+
+
+def _enforce_production_secrets() -> None:
+    """
+    Production 啟動時檢查關鍵 secret 不是 git 公開的 dev 預設值。
+
+    以 `APP_ENV` 區分環境，非 production 時只記 warning 不中斷，方便本機開發。
+    """
+    env = (settings.APP_ENV or "").lower()
+    is_production = env == "production"
+
+    offending: list[str] = []
+    for key, bad_values in _DEV_DEFAULT_SECRETS.items():
+        current = getattr(settings, key, None)
+        if current is None:
+            continue
+        if current in bad_values:
+            offending.append(key)
+
+    if not offending:
+        return
+
+    msg = (
+        f"檢測到關鍵 secret 仍為 git 公開的 dev 預設值: {', '.join(offending)}。"
+        " 這些值在倉庫裡是公開的，任何人可以偽造 JWT token → 禁止以此狀態啟動 production。"
+    )
+    if is_production:
+        raise RuntimeError(msg)
+    logger.warning("[dev] %s (APP_ENV=%s → 允許啟動，但切 production 前必須輪替)", msg, env)
+
 
 # ── Lifespan（啟動 / 關閉） ─────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """應用程式生命週期管理：連線資料庫與 Redis"""
     # 啟動
+    _enforce_production_secrets()
     await init_redis()
     yield
     # 關閉
