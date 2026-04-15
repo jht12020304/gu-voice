@@ -39,11 +39,11 @@ class LLMConversationEngine:
         """
         self._settings = settings
         self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        self._model = settings.OPENAI_MODEL_CONVERSATION  # gpt-5.4-mini
+        self._model = settings.OPENAI_MODEL_CONVERSATION  # default gpt-4o
         self._temperature = settings.OPENAI_TEMPERATURE_CONVERSATION  # 0.7
         self._max_tokens = settings.OPENAI_MAX_TOKENS_CONVERSATION  # 2048
-        # gpt-5.4 系列特有：reasoning_effort 控制 chain-of-thought 深度。
-        # "none" 時 temperature/top_p/logprobs 才被允許；其他值會被 API 拒收。
+        # reasoning 模型(o1 / o3 / gpt-5 等)專用參數。"none" 代表傳統 chat
+        # 模型路徑(gpt-4o),程式會完全不送 reasoning_effort 並改送 temperature。
         self._reasoning_effort = settings.OPENAI_REASONING_EFFORT_CONVERSATION
 
         logger.info(
@@ -214,10 +214,10 @@ class LLMConversationEngine:
             )
 
             # 模型能力分兩類:
-            #   (a) reasoning 模型 (gpt-5.4-mini 等):可吃 reasoning_effort=low/medium/high,
-            #       且此時 API 會拒絕 temperature。
-            #   (b) 傳統 chat 模型 (gpt-4o 等):不認識 reasoning_effort 參數,任何值(包括
-            #       字面字串 "none")都會被 API 拒絕,但接受 temperature。
+            #   (a) reasoning 模型 (o1 / o3-mini / gpt-5 系列):可吃 reasoning_effort=
+            #       low/medium/high,且此時 API 會拒絕 temperature。
+            #   (b) 傳統 chat 模型 (gpt-4o / gpt-4.1 系列):不認識 reasoning_effort 參數,
+            #       任何值(包括字面字串 "none")都會被 API 拒絕,但接受 temperature。
             # 約定:OPENAI_REASONING_EFFORT_CONVERSATION="none" 代表「走傳統路徑」,
             # 這時完全不送 reasoning_effort,只送 temperature。
             create_kwargs: dict[str, Any] = {

@@ -99,8 +99,11 @@ class Settings(BaseSettings):
 
     # ── OPENAI ──────────────────────────────────────────
     OPENAI_API_KEY: str = ""
-    OPENAI_MODEL_CONVERSATION: str = "gpt-5.4-mini"
-    OPENAI_MODEL_SUPERVISOR: str = "gpt-5.4"
+    # 所有 default 都用「目前 OpenAI 實際提供的模型」,避免 dev 機器沒設 .env 時
+    # 直接打到不存在的 model。未來若取得 reasoning 模型(如 o3-mini / gpt-5-mini)
+    # 的 access,改 .env 對應的 OPENAI_MODEL_* 即可,不用動 config default。
+    OPENAI_MODEL_CONVERSATION: str = "gpt-4o"
+    OPENAI_MODEL_SUPERVISOR: str = "gpt-4o"
     OPENAI_MODEL_SOAP: str = "gpt-4o"
     OPENAI_MODEL_RED_FLAG: str = "gpt-4o-mini"
     OPENAI_TEMPERATURE_CONVERSATION: float = 0.7
@@ -108,16 +111,14 @@ class Settings(BaseSettings):
     OPENAI_TEMPERATURE_RED_FLAG: float = 0.2
     OPENAI_MAX_TOKENS_CONVERSATION: int = 2048
     OPENAI_MAX_TOKENS_SOAP: int = 4096
-    # gpt-5.4-mini reasoning 控制：
-    #   none  → 不做 chain-of-thought，延遲最低，且允許 temperature/top_p
-    #   low/medium/high/xhigh → 啟用推理；此時 temperature 會被 API 拒絕
-    # 對話每輪只產 1-3 句 HPI 追問，且深度推理交由 Supervisor pipeline 處理，
-    # 預設 "none" 以保留 temperature 並降低延遲。
+    # reasoning_effort 控制(僅 reasoning 模型如 o1/o3/gpt-5 系列支援):
+    #   none                        → 不送 reasoning_effort 參數,改送 temperature
+    #                                 (走傳統 chat 路徑,適用 gpt-4o / gpt-4.1 等)
+    #   low / medium / high / xhigh → 啟用 chain-of-thought;此時 API 會拒絕
+    #                                 temperature,所以程式端會自動不送 temperature
+    # default 預設 "none" 對應 gpt-4o default,若之後切 reasoning 模型再改 .env。
     OPENAI_REASONING_EFFORT_CONVERSATION: str = "none"
-    # Supervisor 是背景任務,不影響對話延遲,值得花 medium reasoning 做真正的
-    # 臨床推理(HPI 缺漏分析 + 下一步追問策略)。Supervisor 的 temperature 在
-    # reasoning_effort != "none" 時會被 API 拒絕,所以走 reasoning 路徑不帶 temp。
-    OPENAI_REASONING_EFFORT_SUPERVISOR: str = "medium"
+    OPENAI_REASONING_EFFORT_SUPERVISOR: str = "none"
 
     # ── STT (OpenAI Whisper) ─────────────────────────────
     OPENAI_STT_MODEL: str = "whisper-1"

@@ -1,13 +1,15 @@
 """
-高階督導模型 (Supervisor Engine) — OpenAI GPT-5.4 + reasoning
+高階督導模型 (Supervisor Engine)
 
 負責在語音對話流程的背景非同步執行，分析病患的完整對話歷史，
 產出「下一步發問建議 (next_focus)」與「缺失問診維度 (missing_hpi)」，
-並寫入 Redis 快取供前線 gpt-5.4-mini (Conversation Worker) 動態讀取。
+並寫入 Redis 快取供前線 Conversation Worker 動態讀取。
 
 設計筆記:
-- Supervisor 能力須 >= Conversation(被督導者),因此模型升級到 gpt-5.4 +
-  reasoning_effort=medium。
+- Supervisor 能力應 >= Conversation(被督導者)。目前 default 與 Conversation
+  同走 gpt-4o(OPENAI_MODEL_SUPERVISOR 可在 .env 獨立升級);未來若取得
+  reasoning 模型 access,在 .env 把 OPENAI_MODEL_SUPERVISOR 切過去並設
+  OPENAI_REASONING_EFFORT_SUPERVISOR=medium 即可,不用動程式。
 - next_focus 必須只有一個問題,否則會與 Conversation 的「一次只問一個問題」
   硬性規則衝突,導致 AI 在下一輪自我矛盾(塞多問題或違反字數限制)。
 - missing_hpi 的合法值由 HPI_FIELD_IDS(shared.py)單一來源定義。
@@ -79,8 +81,8 @@ class SupervisorEngine:
         self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         self._model = settings.OPENAI_MODEL_SUPERVISOR
         self._reasoning_effort = settings.OPENAI_REASONING_EFFORT_SUPERVISOR
-        # gpt-5.4 + reasoning_effort != "none" 時 API 會拒絕 temperature,
-        # 所以走 reasoning 路徑就不帶 temperature;fallback 到 "none" 時才用 0.2。
+        # reasoning_effort != "none" 時 API 會拒絕 temperature,走 reasoning
+        # 路徑就不帶 temperature;fallback 到 "none"(目前 default)才用 0.2。
         self._temperature = 0.2
 
         logger.info(
