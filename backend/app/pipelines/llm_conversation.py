@@ -213,9 +213,13 @@ class LLMConversationEngine:
                 len(messages),
             )
 
-            # gpt-5.4 系列：reasoning_effort 非 "none" 時 API 會拒絕 temperature；
-            # 為了支援舊模型（gpt-4o）與新模型（gpt-5.4-mini）共用同一條 code path，
-            # 只有在 reasoning_effort == "none" 時才帶上 temperature。
+            # 模型能力分兩類:
+            #   (a) reasoning 模型 (gpt-5.4-mini 等):可吃 reasoning_effort=low/medium/high,
+            #       且此時 API 會拒絕 temperature。
+            #   (b) 傳統 chat 模型 (gpt-4o 等):不認識 reasoning_effort 參數,任何值(包括
+            #       字面字串 "none")都會被 API 拒絕,但接受 temperature。
+            # 約定:OPENAI_REASONING_EFFORT_CONVERSATION="none" 代表「走傳統路徑」,
+            # 這時完全不送 reasoning_effort,只送 temperature。
             create_kwargs: dict[str, Any] = {
                 "model": self._model,
                 "messages": messages,
@@ -223,12 +227,11 @@ class LLMConversationEngine:
                 "stream": True,
             }
             if self._reasoning_effort and self._reasoning_effort != "none":
+                # reasoning 路徑:送 reasoning_effort,不送 temperature
                 create_kwargs["reasoning_effort"] = self._reasoning_effort
             else:
-                # reasoning_effort="none"（或未設）：送 temperature 保留自然語句變化
+                # 傳統路徑:送 temperature,完全不送 reasoning_effort
                 create_kwargs["temperature"] = self._temperature
-                if self._reasoning_effort == "none":
-                    create_kwargs["reasoning_effort"] = "none"
 
             stream = await self._client.chat.completions.create(**create_kwargs)
 
