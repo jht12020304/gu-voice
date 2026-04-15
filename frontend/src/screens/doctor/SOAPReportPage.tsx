@@ -171,6 +171,11 @@ export default function SOAPReportPage() {
   const [reviewError, setReviewError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'report' | 'transcript'>('report');
+  const report = selectedReport;
+  const positiveFindings = useMemo(() => (report ? extractPositiveFindings(report) : []), [report]);
+  const negativeFindings = useMemo(() => (report ? extractNegativeFindings(report) : []), [report]);
+  const riskFactors = useMemo(() => (report ? extractRiskFactors(report, session) : []), [report, session]);
+  const impressionItems = useMemo(() => (report ? extractImpression(report) : []), [report]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -226,12 +231,6 @@ export default function SOAPReportPage() {
       />
     );
   }
-  const report = selectedReport;
-  const positiveFindings = useMemo(() => (report ? extractPositiveFindings(report) : []), [report]);
-  const negativeFindings = useMemo(() => (report ? extractNegativeFindings(report) : []), [report]);
-  const riskFactors = useMemo(() => (report ? extractRiskFactors(report, session) : []), [report, session]);
-  const impressionItems = useMemo(() => (report ? extractImpression(report) : []), [report]);
-
   if (!report) return <ErrorState message="報告尚未產生" />;
 
   const isReviewed = report.reviewStatus !== 'pending';
