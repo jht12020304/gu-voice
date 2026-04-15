@@ -100,7 +100,7 @@ class Settings(BaseSettings):
     # ── OPENAI ──────────────────────────────────────────
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL_CONVERSATION: str = "gpt-5.4-mini"
-    OPENAI_MODEL_SUPERVISOR: str = "gpt-4o"
+    OPENAI_MODEL_SUPERVISOR: str = "gpt-5.4"
     OPENAI_MODEL_SOAP: str = "gpt-4o"
     OPENAI_MODEL_RED_FLAG: str = "gpt-4o-mini"
     OPENAI_TEMPERATURE_CONVERSATION: float = 0.7
@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     # 對話每輪只產 1-3 句 HPI 追問，且深度推理交由 Supervisor pipeline 處理，
     # 預設 "none" 以保留 temperature 並降低延遲。
     OPENAI_REASONING_EFFORT_CONVERSATION: str = "none"
+    # Supervisor 是背景任務,不影響對話延遲,值得花 medium reasoning 做真正的
+    # 臨床推理(HPI 缺漏分析 + 下一步追問策略)。Supervisor 的 temperature 在
+    # reasoning_effort != "none" 時會被 API 拒絕,所以走 reasoning 路徑不帶 temp。
+    OPENAI_REASONING_EFFORT_SUPERVISOR: str = "medium"
 
     # ── STT (OpenAI Whisper) ─────────────────────────────
     OPENAI_STT_MODEL: str = "whisper-1"

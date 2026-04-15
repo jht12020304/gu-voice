@@ -1,9 +1,16 @@
 """
-高階督導模型 (Supervisor Engine) — OpenAI GPT-5.4
+高階督導模型 (Supervisor Engine) — OpenAI GPT-5.4 + reasoning
 
 負責在語音對話流程的背景非同步執行，分析病患的完整對話歷史，
 產出「下一步發問建議 (next_focus)」與「缺失問診維度 (missing_hpi)」，
-並寫入 Redis 快取供前線 gpt-5.4-mini (Worker) 動態讀取。
+並寫入 Redis 快取供前線 gpt-5.4-mini (Conversation Worker) 動態讀取。
+
+設計筆記:
+- Supervisor 能力須 >= Conversation(被督導者),因此模型升級到 gpt-5.4 +
+  reasoning_effort=medium。
+- next_focus 必須只有一個問題,否則會與 Conversation 的「一次只問一個問題」
+  硬性規則衝突,導致 AI 在下一輪自我矛盾(塞多問題或違反字數限制)。
+- missing_hpi 的合法值由 HPI_FIELD_IDS(shared.py)單一來源定義。
 """
 
 import json
@@ -15,51 +22,71 @@ from redis.asyncio import Redis
 
 from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
+from app.pipelines.prompts.shared import (
+    HPI_FIELD_IDS,
+    SINGLE_QUESTION_RULE,
+    render_hpi_checklist,
+)
 
 logger = logging.getLogger(__name__)
 
-SUPERVISOR_SYSTEM_PROMPT = """你是一位泌尿科資深主治醫師（Supervisor）。你的任務是「在背景監督」你的 AI 實習醫師與病患的問診過程。
+# SUPERVISOR_SYSTEM_PROMPT 使用 f-string 在模組載入時渲染 HPI 清單與單問題規則,
+# 之後 .replace() 注入 patient_info_str 與 chief_complaint 兩個動態欄位。
+SUPERVISOR_SYSTEM_PROMPT = f"""你是一位泌尿科資深主治醫師(Supervisor)。你的任務是在背景監督你的 AI 實習醫師與病患的問診過程。
 
 ## 背景資訊
-- 病患基本資訊：{patient_info_str}
-- 主訴：{chief_complaint}
+- 病患基本資訊:{{patient_info_str}}
+- 主訴:{{chief_complaint}}
 
-## 實習醫師的問診任務 (HPI)
-1. Onset（發生時間）
-2. Location（位置）
-3. Duration（持續時間）
-4. Characteristics（特徵）
-5. Severity（嚴重度）
-6. Aggravating / Relieving factors（加重 / 緩解因素）
-7. Associated symptoms（伴隨症狀）
-8. Timing（時間模式）
-9. Context（背景）
+## 實習醫師的問診任務(HPI 十欄框架)
+{render_hpi_checklist()}
 
 ## 你的任務
-閱讀下方的【當前對話紀錄】，評估實習醫師目前已經收集到哪些 HPI 資訊，還有哪些「關鍵且尚未收集」的資訊。
-請給出明確指令告訴實習醫師「下一步具體該問什麼」，讓他在下一句話中執行。
+閱讀下方的【當前對話紀錄】,評估實習醫師目前已經收集到哪些 HPI 資訊,還有哪些「關鍵且尚未收集」的資訊。
+請給出明確指令告訴實習醫師「下一步具體該問什麼」,讓他在下一句話中執行。
 
-請嚴格遵循 JSON 格式回覆，不可包含其餘文字：
-```json
-{
-  "next_focus": "string (給實習醫師看的簡短指示，例如：'病患尚未說明血尿是否伴隨疼痛，請詢問這點')",
-  "missing_hpi": ["string (上面 9 點中還缺少的項目，例如 'Severity', 'Associated symptoms')"],
-  "hpi_completion_percentage": 0 (0到100的整數，評估 HPI 完整度)
-}
-```
+## next_focus 書寫的硬性規則(極重要)
+- **只能是一個問題**,不可把多個問題塞在同一條 next_focus 裡讓病患一次回答。
+  - ❌ 錯誤示範:「請詢問病患血尿是否合併疼痛、是否有血塊、以及何時開始」
+  - ✅ 正確示範:「請詢問病患血尿時是否伴隨疼痛」
+- 必須是具體、可立即執行的指示,而非抽象建議。
+  - ❌ 「請更深入詢問疼痛」→ ✅ 「請詢問疼痛是否會放射到鼠蹊部」
+- 若目前 HPI 某一項尚未完成,繼續追問該項;完成後才移動到下一項。
+- 若實習醫師問錯方向或重複問已得到答案的項目,next_focus 要明確拉回正確方向。
+- next_focus 最大長度 60 個中文字以內,保持精簡。
+
+{SINGLE_QUESTION_RULE}
+
+## missing_hpi 的合法值(snake_case)
+missing_hpi 陣列中的每一項必須是下列 id 字串之一,不可使用中文或其他拼法:
+{", ".join(HPI_FIELD_IDS)}
+
+## 回覆格式
+請嚴格以下列 JSON 回覆,不可包含其餘文字:
+
+{{{{
+  "next_focus": "string(單一具體指令,最多 60 字)",
+  "missing_hpi": ["string(上方合法 id,例如 'severity'、'associated_symptoms')"],
+  "hpi_completion_percentage": 0
+}}}}
+
+hpi_completion_percentage 為 0-100 的整數,評估 HPI 十欄的整體完整度。
 """
 
 class SupervisorEngine:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        self._model = getattr(settings, "OPENAI_MODEL_SUPERVISOR", "gpt-5.4")
+        self._model = settings.OPENAI_MODEL_SUPERVISOR
+        self._reasoning_effort = settings.OPENAI_REASONING_EFFORT_SUPERVISOR
+        # gpt-5.4 + reasoning_effort != "none" 時 API 會拒絕 temperature,
+        # 所以走 reasoning 路徑就不帶 temperature;fallback 到 "none" 時才用 0.2。
         self._temperature = 0.2
 
         logger.info(
-            "SupervisorEngine 初始化 | model=%s, temperature=%.1f",
+            "SupervisorEngine 初始化 | model=%s, reasoning_effort=%s",
             self._model,
-            self._temperature,
+            self._reasoning_effort,
         )
 
     async def analyze_next_step(
@@ -108,15 +135,19 @@ class SupervisorEngine:
 
         try:
             logger.info("Supervisor [%s] 啟動背景分析...", session_id)
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                messages=[
+            create_kwargs: dict[str, Any] = {
+                "model": self._model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
                 ],
-                temperature=self._temperature,
-                response_format={"type": "json_object"},
-            )
+                "response_format": {"type": "json_object"},
+            }
+            if self._reasoning_effort and self._reasoning_effort != "none":
+                create_kwargs["reasoning_effort"] = self._reasoning_effort
+            else:
+                create_kwargs["temperature"] = self._temperature
+            response = await self._client.chat.completions.create(**create_kwargs)
 
             raw_content = response.choices[0].message.content or "{}"
             result = json.loads(raw_content)
