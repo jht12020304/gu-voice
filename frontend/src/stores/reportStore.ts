@@ -210,16 +210,14 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
   },
 
   reviewReport: async (id, payload) => {
-    set({ isLoading: true, error: null });
     try {
       const updated = await reportsApi.reviewReport(id, payload);
       set((state) => ({
         selectedReport: updated,
         reports: state.reports.map((r) => (r.id === id ? updated : r)),
-        isLoading: false,
       }));
     } catch {
-      set({ isLoading: false, error: '審閱失敗' });
+      throw new Error('審閱失敗');
     }
   },
 
