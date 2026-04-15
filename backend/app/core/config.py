@@ -99,11 +99,16 @@ class Settings(BaseSettings):
 
     # ── OPENAI ──────────────────────────────────────────
     OPENAI_API_KEY: str = ""
-    # 所有 default 都用「目前 OpenAI 實際提供的模型」,避免 dev 機器沒設 .env 時
-    # 直接打到不存在的 model。未來若取得 reasoning 模型(如 o3-mini / gpt-5-mini)
-    # 的 access,改 .env 對應的 OPENAI_MODEL_* 即可,不用動 config default。
-    OPENAI_MODEL_CONVERSATION: str = "gpt-4o"
-    OPENAI_MODEL_SUPERVISOR: str = "gpt-4o"
+    # Default 對齊 production(Railway env vars,2026-04-15 升級):
+    #   Conversation + Supervisor 走 gpt-5.4-mini(reasoning 模型家族,2026-03-17
+    #     snapshot,400K context,knowledge cutoff 2025-08-31)
+    #   Conversation 設 reasoning_effort=none → 走傳統 chat 路徑,送 temperature=0.7
+    #     保留語音問診的口吻親和與低延遲
+    #   Supervisor 設 reasoning_effort=medium → 啟用 CoT,拿到更精準的 next_focus
+    #     督導指令;Supervisor 是背景任務,延遲影響低
+    #   SOAP / Red flag 暫維持 gpt-4o / gpt-4o-mini(未來可再評估)
+    OPENAI_MODEL_CONVERSATION: str = "gpt-5.4-mini"
+    OPENAI_MODEL_SUPERVISOR: str = "gpt-5.4-mini"
     OPENAI_MODEL_SOAP: str = "gpt-4o"
     OPENAI_MODEL_RED_FLAG: str = "gpt-4o-mini"
     OPENAI_TEMPERATURE_CONVERSATION: float = 0.7
@@ -111,14 +116,14 @@ class Settings(BaseSettings):
     OPENAI_TEMPERATURE_RED_FLAG: float = 0.2
     OPENAI_MAX_TOKENS_CONVERSATION: int = 2048
     OPENAI_MAX_TOKENS_SOAP: int = 4096
-    # reasoning_effort 控制(僅 reasoning 模型如 o1/o3/gpt-5 系列支援):
+    # reasoning_effort 控制(gpt-5.4 系列等 reasoning 模型支援):
     #   none                        → 不送 reasoning_effort 參數,改送 temperature
-    #                                 (走傳統 chat 路徑,適用 gpt-4o / gpt-4.1 等)
-    #   low / medium / high / xhigh → 啟用 chain-of-thought;此時 API 會拒絕
-    #                                 temperature,所以程式端會自動不送 temperature
-    # default 預設 "none" 對應 gpt-4o default,若之後切 reasoning 模型再改 .env。
+    #                                 (走傳統 chat 路徑,gpt-4o / gpt-4.1 也走這條)
+    #   low / medium / high / xhigh → 啟用 chain-of-thought;API 會拒絕 temperature,
+    #                                 程式端(llm_conversation.py / supervisor.py)
+    #                                 會自動切換 create_kwargs 不送 temperature
     OPENAI_REASONING_EFFORT_CONVERSATION: str = "none"
-    OPENAI_REASONING_EFFORT_SUPERVISOR: str = "none"
+    OPENAI_REASONING_EFFORT_SUPERVISOR: str = "medium"
 
     # ── STT (OpenAI Whisper) ─────────────────────────────
     OPENAI_STT_MODEL: str = "whisper-1"
