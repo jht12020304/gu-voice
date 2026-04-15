@@ -6,41 +6,42 @@
 import React, { type ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import { lazyWithRetry } from '../utils/lazyWithRetry';
 
 // ---- 頁面 lazy load ----
-const LoginPage = React.lazy(() => import('../screens/auth/LoginPage'));
-const RegisterPage = React.lazy(() => import('../screens/auth/RegisterPage'));
-const ForgotPasswordPage = React.lazy(() => import('../screens/auth/ForgotPasswordPage'));
-const DashboardPage = React.lazy(() => import('../screens/doctor/DashboardPage'));
-const PatientListPage = React.lazy(() => import('../screens/doctor/PatientListPage'));
-const SessionDetailPage = React.lazy(() => import('../screens/doctor/SessionDetailPage'));
-const SOAPReportPage = React.lazy(() => import('../screens/doctor/SOAPReportPage'));
-const AlertListPage = React.lazy(() => import('../screens/doctor/AlertListPage'));
-const AlertDetailPage = React.lazy(() => import('../screens/doctor/AlertDetailPage'));
-const SessionListPage = React.lazy(() => import('../screens/doctor/SessionListPage'));
-const ReportListPage = React.lazy(() => import('../screens/doctor/ReportListPage'));
-const NotificationPage = React.lazy(() => import('../screens/doctor/NotificationPage'));
-const PatientDetailPage = React.lazy(() => import('../screens/doctor/PatientDetailPage'));
-const ConversationPage = React.lazy(() => import('../screens/patient/ConversationPage'));
-const SettingsPage = React.lazy(() => import('../screens/doctor/SettingsPage'));
-const UserManagementPage = React.lazy(() => import('../screens/admin/UserManagementPage'));
-const ComplaintManagementPage = React.lazy(() => import('../screens/admin/ComplaintManagementPage'));
-const SystemHealthPage = React.lazy(() => import('../screens/admin/SystemHealthPage'));
-const AuditLogsPage = React.lazy(() => import('../screens/admin/AuditLogsPage'));
+const LoginPage = lazyWithRetry(() => import('../screens/auth/LoginPage'), 'LoginPage');
+const RegisterPage = lazyWithRetry(() => import('../screens/auth/RegisterPage'), 'RegisterPage');
+const ForgotPasswordPage = lazyWithRetry(() => import('../screens/auth/ForgotPasswordPage'), 'ForgotPasswordPage');
+const DashboardPage = lazyWithRetry(() => import('../screens/doctor/DashboardPage'), 'DashboardPage');
+const PatientListPage = lazyWithRetry(() => import('../screens/doctor/PatientListPage'), 'PatientListPage');
+const SessionDetailPage = lazyWithRetry(() => import('../screens/doctor/SessionDetailPage'), 'SessionDetailPage');
+const SOAPReportPage = lazyWithRetry(() => import('../screens/doctor/SOAPReportPage'), 'SOAPReportPage');
+const AlertListPage = lazyWithRetry(() => import('../screens/doctor/AlertListPage'), 'AlertListPage');
+const AlertDetailPage = lazyWithRetry(() => import('../screens/doctor/AlertDetailPage'), 'AlertDetailPage');
+const SessionListPage = lazyWithRetry(() => import('../screens/doctor/SessionListPage'), 'SessionListPage');
+const ReportListPage = lazyWithRetry(() => import('../screens/doctor/ReportListPage'), 'ReportListPage');
+const NotificationPage = lazyWithRetry(() => import('../screens/doctor/NotificationPage'), 'NotificationPage');
+const PatientDetailPage = lazyWithRetry(() => import('../screens/doctor/PatientDetailPage'), 'PatientDetailPage');
+const ConversationPage = lazyWithRetry(() => import('../screens/patient/ConversationPage'), 'ConversationPage');
+const SettingsPage = lazyWithRetry(() => import('../screens/doctor/SettingsPage'), 'SettingsPage');
+const UserManagementPage = lazyWithRetry(() => import('../screens/admin/UserManagementPage'), 'UserManagementPage');
+const ComplaintManagementPage = lazyWithRetry(() => import('../screens/admin/ComplaintManagementPage'), 'ComplaintManagementPage');
+const SystemHealthPage = lazyWithRetry(() => import('../screens/admin/SystemHealthPage'), 'SystemHealthPage');
+const AuditLogsPage = lazyWithRetry(() => import('../screens/admin/AuditLogsPage'), 'AuditLogsPage');
 
 // ---- 病患端頁面 ----
-const PatientHomePage = React.lazy(() => import('../screens/patient/PatientHomePage'));
-const SelectComplaintPage = React.lazy(() => import('../screens/patient/SelectComplaintPage'));
-const MedicalInfoPage = React.lazy(() => import('../screens/patient/MedicalInfoPage'));
-const SessionCompletePage = React.lazy(() => import('../screens/patient/SessionCompletePage'));
-const SessionThankYouPage = React.lazy(() => import('../screens/patient/SessionThankYouPage'));
-const PatientHistoryPage = React.lazy(() => import('../screens/patient/PatientHistoryPage'));
-const PatientSessionDetailPage = React.lazy(() => import('../screens/patient/PatientSessionDetailPage'));
-const PatientSettingsPage = React.lazy(() => import('../screens/patient/PatientSettingsPage'));
+const PatientHomePage = lazyWithRetry(() => import('../screens/patient/PatientHomePage'), 'PatientHomePage');
+const SelectComplaintPage = lazyWithRetry(() => import('../screens/patient/SelectComplaintPage'), 'SelectComplaintPage');
+const MedicalInfoPage = lazyWithRetry(() => import('../screens/patient/MedicalInfoPage'), 'MedicalInfoPage');
+const SessionCompletePage = lazyWithRetry(() => import('../screens/patient/SessionCompletePage'), 'SessionCompletePage');
+const SessionThankYouPage = lazyWithRetry(() => import('../screens/patient/SessionThankYouPage'), 'SessionThankYouPage');
+const PatientHistoryPage = lazyWithRetry(() => import('../screens/patient/PatientHistoryPage'), 'PatientHistoryPage');
+const PatientSessionDetailPage = lazyWithRetry(() => import('../screens/patient/PatientSessionDetailPage'), 'PatientSessionDetailPage');
+const PatientSettingsPage = lazyWithRetry(() => import('../screens/patient/PatientSettingsPage'), 'PatientSettingsPage');
 
 // ---- Layout ----
-const MainLayout = React.lazy(() => import('../components/layout/MainLayout'));
-const PatientLayout = React.lazy(() => import('../components/layout/PatientLayout'));
+const MainLayout = lazyWithRetry(() => import('../components/layout/MainLayout'), 'MainLayout');
+const PatientLayout = lazyWithRetry(() => import('../components/layout/PatientLayout'), 'PatientLayout');
 
 // ---- 受保護路由 ----
 function ProtectedRoute({ children }: { children?: ReactNode }) {

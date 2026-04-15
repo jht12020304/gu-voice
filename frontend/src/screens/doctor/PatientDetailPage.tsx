@@ -32,7 +32,7 @@ export default function PatientDetailPage() {
           patientsApi.getPatientSessions(currentPatientId, { limit: 20 }),
         ]);
         setPatient(patientData);
-        setSessions(sessionData.data);
+        setSessions(Array.isArray(sessionData.data) ? sessionData.data : []);
       } catch {
         setError('無法載入病患資料');
       } finally {
@@ -46,6 +46,12 @@ export default function PatientDetailPage() {
   if (isLoading) return <LoadingSpinner fullPage message="載入病患資料..." />;
   if (error) return <ErrorState message={error} onRetry={() => window.location.reload()} />;
   if (!patient) return <ErrorState message="找不到病患資料" />;
+
+  const patientName = patient.name || '未命名病患';
+  const patientInitial = patientName.trim().charAt(0) || '?';
+  const allergies = Array.isArray(patient.allergies) ? patient.allergies : [];
+  const currentMedications = Array.isArray(patient.currentMedications) ? patient.currentMedications : [];
+  const medicalHistory = Array.isArray(patient.medicalHistory) ? patient.medicalHistory : [];
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -68,10 +74,10 @@ export default function PatientDetailPage() {
         <div className="card lg:col-span-1">
           <div className="mb-4 flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-50 text-h3 font-semibold text-primary-700 dark:bg-primary-950 dark:text-primary-300">
-              {patient.name.charAt(0)}
+              {patientInitial}
             </div>
             <div>
-              <h2 className="text-h3 text-ink-heading dark:text-white">{patient.name}</h2>
+              <h2 className="text-h3 text-ink-heading dark:text-white">{patientName}</h2>
               <p className="text-small text-ink-muted">{patient.phone || '未設定聯絡電話'}</p>
             </div>
           </div>
@@ -88,17 +94,17 @@ export default function PatientDetailPage() {
             <h2 className="mb-3 text-h3 text-ink-heading dark:text-white">病史摘要</h2>
             <InfoList
               title="過敏史"
-              items={patient.allergies?.map((item) => item.allergen) ?? []}
+              items={allergies.map((item) => item.allergen)}
               emptyText="未記錄"
             />
             <InfoList
               title="目前用藥"
-              items={patient.currentMedications?.map((item) => item.name) ?? []}
+              items={currentMedications.map((item) => item.name)}
               emptyText="未記錄"
             />
             <InfoList
               title="過去病史"
-              items={patient.medicalHistory?.map((item) => item.condition) ?? []}
+              items={medicalHistory.map((item) => item.condition)}
               emptyText="未記錄"
             />
           </div>

@@ -226,9 +226,14 @@ export default function SOAPReportPage() {
       />
     );
   }
-  if (!selectedReport) return <ErrorState message="報告尚未產生" />;
-
   const report = selectedReport;
+  const positiveFindings = useMemo(() => (report ? extractPositiveFindings(report) : []), [report]);
+  const negativeFindings = useMemo(() => (report ? extractNegativeFindings(report) : []), [report]);
+  const riskFactors = useMemo(() => (report ? extractRiskFactors(report, session) : []), [report, session]);
+  const impressionItems = useMemo(() => (report ? extractImpression(report) : []), [report]);
+
+  if (!report) return <ErrorState message="報告尚未產生" />;
+
   const isReviewed = report.reviewStatus !== 'pending';
   const patientName = session?.patientName ?? session?.patient?.name ?? '未知病患';
   const complaint =
@@ -236,10 +241,6 @@ export default function SOAPReportPage() {
     session?.chiefComplaint?.name ||
     report.subjective?.chiefComplaint ||
     '未填寫主訴';
-  const positiveFindings = useMemo(() => extractPositiveFindings(report), [report]);
-  const negativeFindings = useMemo(() => extractNegativeFindings(report), [report]);
-  const riskFactors = useMemo(() => extractRiskFactors(report, session), [report, session]);
-  const impressionItems = useMemo(() => extractImpression(report), [report]);
   const sessionStatus = session?.status ? (
     <StatusBadge status={session.status as SessionStatus} size="sm" />
   ) : (
