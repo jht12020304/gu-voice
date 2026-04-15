@@ -104,6 +104,8 @@ export interface PatientListParams {
   cursor?: string;
   limit?: number;
   search?: string;
+  createdFrom?: string;
+  createdTo?: string;
 }
 
 // ---- 場次 ----

@@ -7,6 +7,7 @@ import type { Patient } from '../types';
 import * as patientsApi from '../services/api/patients';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
+const DEFAULT_MONTH = new Date().toISOString().slice(0, 7);
 
 const mockPatients: Patient[] = [
   { id: 'p1', userId: 'u1', medicalRecordNumber: 'MRN-2026-0001', name: '陳小明', gender: 'male', dateOfBirth: '1985-03-15', phone: '0912-345-678', createdAt: '2026-01-15T08:00:00Z', updatedAt: '2026-04-10T10:00:00Z' },
@@ -25,7 +26,9 @@ interface PatientListState {
   isLoading: boolean;
   cursor: string | null;
   hasMore: boolean;
+  totalCount: number;
   searchQuery: string;
+  selectedMonth: string;
   error: string | null;
 }
 
@@ -33,8 +36,16 @@ interface PatientListActions {
   fetchPatients: (reset?: boolean) => Promise<void>;
   fetchMore: () => Promise<void>;
   setSearch: (query: string) => void;
+  setSelectedMonth: (month: string) => void;
   selectPatient: (patient: Patient | null) => void;
   clearError: () => void;
+}
+
+function getMonthDateRange(month: string): { createdFrom: string; createdTo: string } {
+  const [year, monthIndex] = month.split('-').map(Number);
+  const createdFrom = new Date(year, monthIndex - 1, 1, 0, 0, 0, 0).toISOString();
+  const createdTo = new Date(year, monthIndex, 0, 23, 59, 59, 999).toISOString();
+  return { createdFrom, createdTo };
 }
 
 export const usePatientListStore = create<PatientListState & PatientListActions>((set, get) => ({
@@ -44,36 +55,52 @@ export const usePatientListStore = create<PatientListState & PatientListActions>
   isLoading: false,
   cursor: null,
   hasMore: true,
+  totalCount: 0,
   searchQuery: '',
+  selectedMonth: DEFAULT_MONTH,
   error: null,
 
   // ---- Actions ----
 
   fetchPatients: async (reset = true) => {
     if (IS_MOCK) {
-      const { searchQuery } = get();
-      const filtered = searchQuery
-        ? mockPatients.filter((p) => p.name.includes(searchQuery) || p.medicalRecordNumber.includes(searchQuery))
-        : mockPatients;
-      set({ patients: filtered, isLoading: false, hasMore: false, cursor: null });
+      const { searchQuery, selectedMonth } = get();
+      const filtered = mockPatients.filter((patient) => {
+        const inSelectedMonth = patient.createdAt.slice(0, 7) === selectedMonth;
+        const matchesSearch = searchQuery
+          ? patient.name.includes(searchQuery) || patient.medicalRecordNumber.includes(searchQuery)
+          : true;
+        return inSelectedMonth && matchesSearch;
+      });
+      set({
+        patients: filtered,
+        totalCount: filtered.length,
+        isLoading: false,
+        hasMore: false,
+        cursor: null,
+      });
       return;
     }
 
-    const { searchQuery } = get();
+    const { searchQuery, selectedMonth } = get();
+    const { createdFrom, createdTo } = getMonthDateRange(selectedMonth);
     set({ isLoading: true, error: null });
     if (reset) {
-      set({ cursor: null, patients: [] });
+      set({ cursor: null, patients: [], totalCount: 0 });
     }
 
     try {
       const response = await patientsApi.getPatients({
         search: searchQuery || undefined,
         limit: 20,
+        createdFrom,
+        createdTo,
       });
       set({
         patients: response.data,
         cursor: response.pagination.nextCursor,
         hasMore: response.pagination.hasMore,
+        totalCount: response.pagination.totalCount,
         isLoading: false,
       });
     } catch {
@@ -82,20 +109,24 @@ export const usePatientListStore = create<PatientListState & PatientListActions>
   },
 
   fetchMore: async () => {
-    const { cursor, hasMore, isLoading, patients, searchQuery } = get();
+    const { cursor, hasMore, isLoading, patients, searchQuery, selectedMonth, totalCount } = get();
     if (!hasMore || isLoading || !cursor) return;
 
+    const { createdFrom, createdTo } = getMonthDateRange(selectedMonth);
     set({ isLoading: true });
     try {
       const response = await patientsApi.getPatients({
         cursor,
         search: searchQuery || undefined,
         limit: 20,
+        createdFrom,
+        createdTo,
       });
       set({
         patients: [...patients, ...response.data],
         cursor: response.pagination.nextCursor,
         hasMore: response.pagination.hasMore,
+        totalCount: response.pagination.totalCount ?? totalCount,
         isLoading: false,
       });
     } catch {
@@ -104,6 +135,8 @@ export const usePatientListStore = create<PatientListState & PatientListActions>
   },
 
   setSearch: (query) => set({ searchQuery: query }),
+
+  setSelectedMonth: (month) => set({ selectedMonth: month }),
 
   selectPatient: (patient) => set({ selectedPatient: patient }),
 

@@ -5,6 +5,7 @@
 - 病患場次查詢
 """
 
+from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from app.core.exceptions import NotFoundException
 from app.models.patient import Patient
 from app.models.session import Session
+from app.utils.datetime_utils import parse_iso
 from app.utils.datetime_utils import utc_now
 
 
@@ -64,6 +66,8 @@ class PatientService:
         limit: int = 20,
         search: Optional[str] = None,
         doctor_id: Optional[UUID] = None,
+        created_from: Optional[datetime] = None,
+        created_to: Optional[datetime] = None,
     ) -> dict[str, Any]:
         """
         取得病患列表（Cursor-based 分頁）
@@ -92,6 +96,12 @@ class PatientService:
         # 醫師篩選
         if doctor_id:
             query = query.where(Patient.user_id == doctor_id)
+
+        # 建立日期篩選
+        if created_from:
+            query = query.where(Patient.created_at >= created_from)
+        if created_to:
+            query = query.where(Patient.created_at <= created_to)
 
         # Cursor 分頁：取得游標之後的資料
         if cursor:
@@ -126,6 +136,10 @@ class PatientService:
             )
         if doctor_id:
             count_query = count_query.where(Patient.user_id == doctor_id)
+        if created_from:
+            count_query = count_query.where(Patient.created_at >= created_from)
+        if created_to:
+            count_query = count_query.where(Patient.created_at <= created_to)
         total_result = await db.execute(count_query)
         total_count = total_result.scalar() or 0
 
@@ -270,9 +284,17 @@ class PatientService:
         return await self.create(db, data=data.model_dump() if hasattr(data, 'model_dump') else data, created_by_id=created_by)
 
     async def list_patients(self, db, cursor=None, limit=20, search=None,
+                            created_from=None, created_to=None,
                             gender=None, age_from=None, age_to=None,
                             has_active_session=None, sort_by='created_at', sort_order='desc'):
-        return await self.get_list(db, cursor=cursor, limit=limit, search=search)
+        return await self.get_list(
+            db,
+            cursor=cursor,
+            limit=limit,
+            search=search,
+            created_from=parse_iso(created_from),
+            created_to=parse_iso(created_to),
+        )
 
     async def get_patient(self, db, patient_id, current_user=None):
         return await self.get_by_id(db, patient_id)
