@@ -19,6 +19,10 @@ from app.core.config import settings
 _connect_args: dict = {}
 if settings.DB_HOST and "supabase.co" in settings.DB_HOST:
     _connect_args["ssl"] = "require"
+    # Supabase 使用 PgBouncer (transaction pool mode)，
+    # 必須停用 asyncpg 的 prepared statement cache，否則會報錯：
+    # "prepared statement __asyncpg_stmt_XX__ does not exist"
+    _connect_args["statement_cache_size"] = 0
 
 engine = create_async_engine(
     settings.ASYNC_DATABASE_URL,

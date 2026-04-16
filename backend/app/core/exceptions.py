@@ -158,6 +158,20 @@ class InternalErrorException(AppException):
 
 
 # ── 例外處理器註冊 ──────────────────────────────────────
+def _cors_headers(request: Request) -> dict[str, str]:
+    """從請求 Origin 產生 CORS headers，確保錯誤回應也帶有 CORS 資訊。"""
+    from app.core.config import settings as _settings
+
+    origin = request.headers.get("origin", "")
+    if origin in _settings.CORS_ORIGINS:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
+    return {}
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """將自定義例外處理器註冊至 FastAPI app"""
 
@@ -166,6 +180,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         request_id = getattr(request.state, "request_id", "unknown")
         return JSONResponse(
             status_code=exc.status_code,
+            headers=_cors_headers(request),
             content={
                 "error": {
                     "code": exc.error_code.value,
@@ -184,6 +199,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         request_id = getattr(request.state, "request_id", "unknown")
         return JSONResponse(
             status_code=500,
+            headers=_cors_headers(request),
             content={
                 "error": {
                     "code": ErrorCode.INTERNAL_ERROR.value,
