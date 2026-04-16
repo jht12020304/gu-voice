@@ -20,9 +20,10 @@ _connect_args: dict = {}
 if settings.DB_HOST and "supabase.co" in settings.DB_HOST:
     _connect_args["ssl"] = "require"
     # Supabase 使用 PgBouncer (transaction pool mode)，
-    # 必須停用 asyncpg 的 prepared statement cache，否則會報錯：
+    # 必須停用所有 prepared statement cache，否則會報錯：
     # "prepared statement __asyncpg_stmt_XX__ does not exist"
-    _connect_args["statement_cache_size"] = 0
+    _connect_args["statement_cache_size"] = 0              # asyncpg 原生 cache
+    _connect_args["prepared_statement_cache_size"] = 0     # SQLAlchemy asyncpg dialect cache
 
 engine = create_async_engine(
     settings.ASYNC_DATABASE_URL,
