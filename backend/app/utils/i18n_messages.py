@@ -248,6 +248,24 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en-US": "month must be in YYYY-MM format",
     },
 
+    # ── Auth 成功訊息（MessageResponse body） ─────────
+    "messages.logout_success": {
+        "zh-TW": "登出成功",
+        "en-US": "Logged out successfully",
+    },
+    "messages.password_changed": {
+        "zh-TW": "密碼變更成功",
+        "en-US": "Password changed successfully",
+    },
+    "messages.password_reset_link_sent": {
+        "zh-TW": "若此電子郵件已註冊，密碼重設連結已寄出",
+        "en-US": "If this email is registered, a password reset link has been sent",
+    },
+    "messages.password_reset_success": {
+        "zh-TW": "密碼重設成功，請使用新密碼登入",
+        "en-US": "Password reset successful; please sign in with your new password",
+    },
+
     # ── Alert / Red Flag 固定模板 ────────────────────
     "alert.rule_match_reason": {
         "zh-TW": "關鍵字比對：「{keyword}」",

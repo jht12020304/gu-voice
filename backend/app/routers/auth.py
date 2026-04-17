@@ -29,6 +29,8 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.services.auth_service import AuthService
+from app.utils.i18n_messages import get_message
+from app.utils.language import resolve_language
 
 router = APIRouter(prefix="/api/v1/auth", tags=["認證"])
 
@@ -137,6 +139,7 @@ async def refresh_token(
 )
 async def logout(
     payload: LogoutRequest,
+    request: Request,
     authorization: str = Header(..., alias="Authorization"),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -150,7 +153,11 @@ async def logout(
         access_token=access_token,
         refresh_token=payload.refresh_token,
     )
-    return MessageResponse(message="登出成功")
+    lang = resolve_language(
+        user=current_user,
+        accept_language_header=request.headers.get("accept-language"),
+    )
+    return MessageResponse(message=get_message("messages.logout_success", lang))
 
 
 @router.post(
@@ -161,6 +168,7 @@ async def logout(
 )
 async def change_password(
     payload: ChangePasswordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> MessageResponse:
@@ -171,7 +179,11 @@ async def change_password(
         current_password=payload.current_password,
         new_password=payload.new_password,
     )
-    return MessageResponse(message="密碼變更成功")
+    lang = resolve_language(
+        user=current_user,
+        accept_language_header=request.headers.get("accept-language"),
+    )
+    return MessageResponse(message=get_message("messages.password_changed", lang))
 
 
 @router.post(
@@ -182,11 +194,15 @@ async def change_password(
 )
 async def forgot_password(
     payload: ForgotPasswordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     """發送密碼重設連結至使用者的電子郵件。無論信箱是否存在，皆回傳相同訊息。"""
     await auth_service.forgot_password(db, email=payload.email)
-    return MessageResponse(message="若此電子郵件已註冊，密碼重設連結已寄出")
+    lang = resolve_language(
+        accept_language_header=request.headers.get("accept-language"),
+    )
+    return MessageResponse(message=get_message("messages.password_reset_link_sent", lang))
 
 
 @router.post(
@@ -197,6 +213,7 @@ async def forgot_password(
 )
 async def reset_password(
     payload: ResetPasswordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     """使用重設 Token 設定新密碼。"""
@@ -205,7 +222,10 @@ async def reset_password(
         token=payload.token,
         new_password=payload.new_password,
     )
-    return MessageResponse(message="密碼重設成功，請使用新密碼登入")
+    lang = resolve_language(
+        accept_language_header=request.headers.get("accept-language"),
+    )
+    return MessageResponse(message=get_message("messages.password_reset_success", lang))
 
 
 @router.get(
