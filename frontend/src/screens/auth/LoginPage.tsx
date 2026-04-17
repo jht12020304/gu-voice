@@ -4,9 +4,12 @@
 
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
+import LanguageSwitcher from '../../components/common/LanguageSwitcher';
 
 export default function LoginPage() {
+  const { t } = useTranslation('common');
   const { isAuthenticated, isLoading, error, login, clearError, user } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,11 +29,11 @@ export default function LoginPage() {
     clearError();
 
     if (!email.trim()) {
-      setLocalError('請輸入電子郵件');
+      setLocalError(t('login.emailRequired'));
       return;
     }
     if (!password) {
-      setLocalError('請輸入密碼');
+      setLocalError(t('login.passwordRequired'));
       return;
     }
 
@@ -44,13 +47,17 @@ export default function LoginPage() {
   const displayError = localError || error;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface-secondary px-4 dark:bg-dark-bg">
+    <div className="relative flex min-h-screen items-center justify-center bg-surface-secondary px-4 dark:bg-dark-bg">
+      {/* 登入前語言切換 — 右上角 */}
+      <div className="absolute right-4 top-4">
+        <LanguageSwitcher />
+      </div>
       <div className="w-full max-w-md animate-fade-in">
         {/* Logo + 標題 */}
         <div className="mb-8 text-center">
           <img src="/logo.png" alt="UroSense" className="mx-auto h-20 w-20 object-contain" />
           <h1 className="mt-3 text-h1 text-ink-heading dark:text-white">UroSense</h1>
-          <p className="mt-1 text-body text-ink-secondary">請登入您的帳號</p>
+          <p className="mt-1 text-body text-ink-secondary">{t('login.prompt')}</p>
         </div>
 
         {/* 登入表單 */}
@@ -66,7 +73,7 @@ export default function LoginPage() {
             {/* Email */}
             <div>
               <label htmlFor="email" className="block text-caption font-medium text-ink-body dark:text-dark-border">
-                電子郵件
+                {t('login.emailLabel')}
               </label>
               <input
                 id="email"
@@ -83,7 +90,7 @@ export default function LoginPage() {
             {/* 密碼 */}
             <div>
               <label htmlFor="password" className="block text-caption font-medium text-ink-body dark:text-dark-border">
-                密碼
+                {t('login.passwordLabel')}
               </label>
               <div className="relative mt-1">
                 <input
@@ -91,7 +98,7 @@ export default function LoginPage() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="輸入密碼"
+                  placeholder={t('login.passwordPlaceholder')}
                   className="input-base py-2.5 pr-10"
                   autoComplete="current-password"
                 />
@@ -118,7 +125,7 @@ export default function LoginPage() {
             {/* 忘記密碼 */}
             <div className="text-right">
               <Link to="/forgot-password" className="text-caption text-primary-600 hover:text-primary-700 font-medium transition-colors">
-                忘記密碼？
+                {t('login.forgotPassword')}
               </Link>
             </div>
 
@@ -131,7 +138,7 @@ export default function LoginPage() {
               {isLoading ? (
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
               ) : (
-                '登入'
+                t('login.submit')
               )}
             </button>
           </form>
@@ -139,7 +146,7 @@ export default function LoginPage() {
 
         {/* 底部資訊 */}
         <p className="mt-6 text-center text-small text-ink-muted">
-          UroSense v1.0 — 泌尿科 AI 語音問診系統
+          UroSense v1.0 — {t('appTagline')}
         </p>
       </div>
     </div>

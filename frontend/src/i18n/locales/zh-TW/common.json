@@ -3,9 +3,40 @@
   "back": "返回",
   "loading": "載入中...",
   "unknownError": "未知錯誤",
+  "appTitle": "泌尿科 AI 問診助手",
+  "appTagline": "泌尿科 AI 語音問診系統",
+  "user": "使用者",
+  "header": {
+    "themeToLight": "切換淺色模式",
+    "themeToDark": "切換深色模式",
+    "notifications": "通知",
+    "settings": "設定",
+    "logout": "登出"
+  },
+  "login": {
+    "prompt": "請登入您的帳號",
+    "emailLabel": "電子郵件",
+    "passwordLabel": "密碼",
+    "passwordPlaceholder": "輸入密碼",
+    "forgotPassword": "忘記密碼？",
+    "submit": "登入",
+    "submitting": "登入中...",
+    "emailRequired": "請輸入電子郵件",
+    "passwordRequired": "請輸入密碼"
+  },
   "roles": {
     "patient": "病患",
     "assistant": "AI 助手",
     "system": "系統"
+  },
+  "language": {
+    "label": "語言",
+    "switchTo": "切換至 {{name}}",
+    "current": "目前語言：{{name}}",
+    "switched": "已切換至 {{name}}",
+    "names": {
+      "zh-TW": "繁體中文",
+      "en-US": "English"
+    }
   }
 }

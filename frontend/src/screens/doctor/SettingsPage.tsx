@@ -109,11 +109,11 @@ export default function SettingsPage() {
             </div>
             <select
               value={language}
-              onChange={(e) => setLanguage(e.target.value as 'zh-TW' | 'en')}
+              onChange={(e) => setLanguage(e.target.value as 'zh-TW' | 'en-US')}
               className="input-base w-40"
             >
               <option value="zh-TW">繁體中文</option>
-              <option value="en">English</option>
+              <option value="en-US">English</option>
             </select>
           </div>
         </div>

@@ -1,0 +1,42 @@
+{
+  "acknowledge": "Got it",
+  "back": "Back",
+  "loading": "Loading...",
+  "unknownError": "Unknown error",
+  "appTitle": "Urology AI Consultation Assistant",
+  "appTagline": "Urology AI Voice Consultation System",
+  "user": "User",
+  "header": {
+    "themeToLight": "Switch to light mode",
+    "themeToDark": "Switch to dark mode",
+    "notifications": "Notifications",
+    "settings": "Settings",
+    "logout": "Log out"
+  },
+  "login": {
+    "prompt": "Please sign in to your account",
+    "emailLabel": "Email",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "Enter password",
+    "forgotPassword": "Forgot password?",
+    "submit": "Sign in",
+    "submitting": "Signing in...",
+    "emailRequired": "Email is required",
+    "passwordRequired": "Password is required"
+  },
+  "roles": {
+    "patient": "Patient",
+    "assistant": "AI Assistant",
+    "system": "System"
+  },
+  "language": {
+    "label": "Language",
+    "switchTo": "Switch to {{name}}",
+    "current": "Current language: {{name}}",
+    "switched": "Switched to {{name}}",
+    "names": {
+      "zh-TW": "繁體中文",
+      "en-US": "English"
+    }
+  }
+}

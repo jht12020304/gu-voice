@@ -120,10 +120,10 @@ export default function PatientSettingsPage() {
                       <select 
                         className="w-full px-4 py-2 border border-surface-200 rounded-xl appearance-none bg-white focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
                         value={language}
-                        onChange={(e) => setLanguage(e.target.value as 'zh-TW' | 'en')}
+                        onChange={(e) => setLanguage(e.target.value as 'zh-TW' | 'en-US')}
                       >
                         <option value="zh-TW">繁體中文</option>
-                        <option value="en">English</option>
+                        <option value="en-US">English</option>
                       </select>
                       <Globe className="absolute right-3 top-2.5 h-5 w-5 text-surface-400 pointer-events-none" />
                     </div>

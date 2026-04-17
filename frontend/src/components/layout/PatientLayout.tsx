@@ -6,6 +6,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import LanguageSwitcher from '../common/LanguageSwitcher';
 
 export default function PatientLayout() {
   const navigate = useNavigate();
@@ -43,6 +44,7 @@ export default function PatientLayout() {
         </button>
 
         <div className="flex items-center gap-2">
+          <LanguageSwitcher />
           <button
             className="btn-ghost p-2"
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
