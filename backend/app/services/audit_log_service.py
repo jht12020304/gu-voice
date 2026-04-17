@@ -151,5 +151,5 @@ class AuditLogService:
         )
         log = result.scalar_one_or_none()
         if log is None:
-            raise NotFoundException("稽核日誌不存在")
+            raise NotFoundException("errors.audit_log_not_found")
         return log

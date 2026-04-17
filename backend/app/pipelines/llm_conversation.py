@@ -258,6 +258,6 @@ class LLMConversationEngine:
                 exc_info=True,
             )
             raise AIServiceUnavailableException(
-                message="AI 對話服務暫時不可用，請稍後重試",
+                message="errors.ai_chat_unavailable",
                 details={"session_id": session_id, "error": str(exc)},
             )

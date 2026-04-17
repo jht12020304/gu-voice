@@ -113,7 +113,7 @@ class AlertService:
         )
         alert = result.scalar_one_or_none()
         if alert is None:
-            raise NotFoundException("警示不存在")
+            raise NotFoundException("errors.alert_not_found")
         return alert
 
     @staticmethod
@@ -282,7 +282,7 @@ class AlertService:
         )
         rule = result.scalar_one_or_none()
         if rule is None:
-            raise NotFoundException("紅旗規則不存在")
+            raise NotFoundException("errors.red_flag_rule_not_found")
 
         updatable_fields = {
             "name", "description", "category", "keywords",
@@ -310,7 +310,7 @@ class AlertService:
         )
         rule = result.scalar_one_or_none()
         if rule is None:
-            raise NotFoundException("紅旗規則不存在")
+            raise NotFoundException("errors.red_flag_rule_not_found")
 
         rule.is_active = False
         rule.updated_at = utc_now()

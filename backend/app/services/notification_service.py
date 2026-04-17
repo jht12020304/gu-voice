@@ -140,7 +140,7 @@ class NotificationService:
         )
         notification = result.scalar_one_or_none()
         if notification is None:
-            raise NotFoundException("通知不存在")
+            raise NotFoundException("errors.notification_not_found")
 
         if not notification.is_read:
             notification.is_read = True

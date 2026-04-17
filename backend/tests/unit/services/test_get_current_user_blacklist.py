@@ -104,7 +104,7 @@ def test_blacklisted_access_token_is_rejected(_swap_redis):
     db = _FakeDB(_make_user(user_id))
     with pytest.raises(UnauthorizedException) as exc:
         _run(get_current_user(authorization=f"Bearer {token}", db=db))
-    assert "失效" in exc.value.message
+    assert exc.value.message == "errors.token_revoked"
 
 
 def test_non_blacklisted_access_token_passes(_swap_redis):

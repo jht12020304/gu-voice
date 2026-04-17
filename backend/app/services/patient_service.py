@@ -166,7 +166,7 @@ class PatientService:
         )
         patient = result.scalar_one_or_none()
         if patient is None:
-            raise NotFoundException("病患不存在")
+            raise NotFoundException("errors.patient_not_found")
         return patient
 
     @staticmethod

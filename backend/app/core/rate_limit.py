@@ -118,8 +118,9 @@ async def enforce_login_ip_rate_limit(redis: Any, ip: str) -> None:
     if not allowed:
         logger.warning("login IP rate limit hit ip=%s retry_after=%d", ip, retry_after)
         raise RateLimitExceededException(
-            message=f"登入嘗試過於頻繁，請於 {retry_after} 秒後再試",
+            message="errors.login_ip_rate_limited",
             details={"retry_after": retry_after, "scope": "ip"},
+            message_kwargs={"retry_after": retry_after},
         )
 
 
@@ -136,8 +137,9 @@ async def enforce_account_not_locked(redis: Any, email: str) -> None:
     # redis-py 對不存在的 key 回 -2，無 TTL 的 key 回 -1
     if ttl is not None and ttl > 0:
         raise RateLimitExceededException(
-            message=f"帳號因連續登入失敗已暫時鎖定，請於 {ttl} 秒後再試",
+            message="errors.account_locked",
             details={"retry_after": int(ttl), "scope": "account"},
+            message_kwargs={"retry_after": int(ttl)},
         )
 
 
@@ -190,6 +192,7 @@ async def enforce_llm_per_user_rate_limit(redis: Any, user_id: Any) -> None:
     if not allowed:
         logger.warning("LLM rate limit hit user=%s retry_after=%d", user_id, retry_after)
         raise RateLimitExceededException(
-            message=f"AI 呼叫過於頻繁，請於 {retry_after} 秒後再試",
+            message="errors.llm_rate_limited",
             details={"retry_after": retry_after, "scope": "llm_user"},
+            message_kwargs={"retry_after": retry_after},
         )

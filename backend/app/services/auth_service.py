@@ -251,12 +251,12 @@ class AuthService:
         try:
             payload = verify_refresh_token(refresh_token)
         except JWTError:
-            raise UnauthorizedException("Refresh token 無效或已過期")
+            raise UnauthorizedException("errors.refresh_token_invalid")
 
         user_id = payload.get("sub")
         old_jti = payload.get("jti")
         if not user_id or not old_jti:
-            raise UnauthorizedException("Token payload 不完整")
+            raise UnauthorizedException("errors.token_payload_incomplete")
 
         # Rotation + reuse detection（P1-#11）：
         # atomic 消耗舊 jti；刪不到 → 重播/被盜 → 撤銷該 user 所有 refresh token
@@ -268,7 +268,7 @@ class AuthService:
                 "refresh token reuse detected user=%s old_jti=%s revoked_total=%d",
                 user_id, old_jti, revoked,
             )
-            raise UnauthorizedException("Refresh token 重複使用，請重新登入")
+            raise UnauthorizedException("errors.refresh_token_reused")
 
         # 確認使用者仍然存在且啟用
         result = await db.execute(
@@ -277,7 +277,7 @@ class AuthService:
         user = result.scalar_one_or_none()
 
         if user is None:
-            raise UnauthorizedException("使用者不存在")
+            raise UnauthorizedException("errors.user_not_found")
         if not user.is_active:
             raise AccountDisabledException()
 
@@ -365,10 +365,10 @@ class AuthService:
         )
         user = result.scalar_one_or_none()
         if user is None:
-            raise NotFoundException("使用者不存在")
+            raise NotFoundException("errors.user_not_found")
 
         if not verify_password(current_password, user.password_hash):
-            raise InvalidCredentialsException("目前密碼不正確")
+            raise InvalidCredentialsException("errors.current_password_incorrect")
 
         user.password_hash = hash_password(new_password)
         user.updated_at = utc_now()
@@ -452,14 +452,14 @@ class AuthService:
         user_id = await redis.get(key)
 
         if user_id is None:
-            raise UnauthorizedException("重設密碼連結已過期或無效")
+            raise UnauthorizedException("errors.password_reset_link_invalid")
 
         result = await db.execute(
             select(User).where(User.id == user_id)
         )
         user = result.scalar_one_or_none()
         if user is None:
-            raise NotFoundException("使用者不存在")
+            raise NotFoundException("errors.user_not_found")
 
         user.password_hash = hash_password(new_password)
         user.updated_at = utc_now()
@@ -481,7 +481,7 @@ class AuthService:
         )
         user = result.scalar_one_or_none()
         if user is None:
-            raise NotFoundException("使用者不存在")
+            raise NotFoundException("errors.user_not_found")
 
         return {
             "id": str(user.id),
@@ -516,7 +516,7 @@ class AuthService:
         )
         user = result.scalar_one_or_none()
         if user is None:
-            raise NotFoundException("使用者不存在")
+            raise NotFoundException("errors.user_not_found")
 
         # 僅更新允許的欄位
         updatable_fields = {"name", "phone", "department"}

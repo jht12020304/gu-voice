@@ -124,7 +124,7 @@ class ReportService:
         )
         report = result.scalar_one_or_none()
         if report is None:
-            raise NotFoundException("報告不存在")
+            raise NotFoundException("errors.report_not_found")
         return report
 
     @staticmethod

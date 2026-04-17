@@ -80,34 +80,34 @@ async def get_current_user(
     驗證流程：解析 token → 查詢使用者 → 確認帳號啟用。
     """
     if not authorization.startswith("Bearer "):
-        raise UnauthorizedException(message="Invalid authorization header format")
+        raise UnauthorizedException(message="errors.invalid_auth_header")
 
     token = authorization[7:]  # 去掉 "Bearer " 前綴
 
     try:
         payload = verify_access_token(token)
     except JWTError:
-        raise UnauthorizedException(message="Token 無效或已過期")
+        raise UnauthorizedException(message="errors.token_invalid_or_expired")
 
     user_id = payload.get("sub")
     if not user_id:
-        raise UnauthorizedException(message="Token payload 缺少 sub")
+        raise UnauthorizedException(message="errors.token_payload_missing_sub")
 
     # 黑名單檢查：logout 過的 access token 即使未過期也要拒絕
     jti = payload.get("jti")
     if jti:
         redis = await get_cache_redis()
         if await redis.exists(f"{BLACKLIST_KEY_PREFIX}{jti}"):
-            raise UnauthorizedException(message="Token 已失效")
+            raise UnauthorizedException(message="errors.token_revoked")
 
     result = await db.execute(select(User).where(User.id == UUID(user_id)))
     user = result.scalar_one_or_none()
 
     if user is None:
-        raise UnauthorizedException(message="使用者不存在")
+        raise UnauthorizedException(message="errors.user_not_found")
 
     if not user.is_active:
-        raise ForbiddenException(message="帳號已停用")
+        raise ForbiddenException(message="errors.account_disabled")
 
     return user
 
@@ -124,8 +124,9 @@ def require_role(*roles: str) -> Callable[..., Any]:
     ) -> User:
         if current_user.role.value not in roles:
             raise ForbiddenException(
-                message=f"需要角色: {', '.join(roles)}",
+                message="errors.role_required",
                 details={"required_roles": list(roles), "current_role": current_user.role.value},
+                message_kwargs={"roles": ", ".join(roles)},
             )
         return current_user
 

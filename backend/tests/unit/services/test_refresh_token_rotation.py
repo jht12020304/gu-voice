@@ -147,7 +147,7 @@ def test_replayed_refresh_triggers_reuse_detection(_swap_redis):
     # 第二次用同一張舊 token → reuse 偵測
     with pytest.raises(UnauthorizedException) as exc:
         _run(AuthService.refresh_token(db, refresh_token=token))
-    assert "重複" in exc.value.message
+    assert exc.value.message == "errors.refresh_token_reused"
 
     # 該 user 所有 refresh 登記都應被清掉（包含第一次 rotate 出來的新 jti 與 _other_token 的 jti）
     remaining = [k for k in _swap_redis.store if k.startswith(f"{REFRESH_TOKEN_KEY_PREFIX}{user_id}:")]

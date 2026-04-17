@@ -79,7 +79,7 @@ def _parse_day_range(date_value: Optional[str]) -> tuple[datetime, datetime]:
     try:
         target = datetime.strptime(date_value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     except ValueError as exc:
-        raise ValidationException("date 必須為 YYYY-MM-DD") from exc
+        raise ValidationException("errors.dashboard_date_format") from exc
 
     day_start = target.replace(hour=0, minute=0, second=0, microsecond=0)
     return day_start, day_start + timedelta(days=1)
@@ -92,7 +92,7 @@ def _parse_month_range(month_value: Optional[str]) -> tuple[datetime, datetime, 
         try:
             month_start = datetime.strptime(month_value, "%Y-%m").replace(tzinfo=timezone.utc)
         except ValueError as exc:
-            raise ValidationException("month 必須為 YYYY-MM") from exc
+            raise ValidationException("errors.dashboard_month_format") from exc
     else:
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 

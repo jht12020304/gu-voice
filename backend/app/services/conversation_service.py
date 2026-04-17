@@ -152,5 +152,5 @@ class ConversationService:
         )
         conversation = result.scalar_one_or_none()
         if conversation is None:
-            raise NotFoundException("對話紀錄不存在")
+            raise NotFoundException("errors.conversation_not_found")
         return conversation

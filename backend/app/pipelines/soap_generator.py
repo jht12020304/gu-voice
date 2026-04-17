@@ -327,7 +327,7 @@ class SOAPGenerator:
         except json.JSONDecodeError as exc:
             logger.error("SOAP 報告 JSON 解析失敗 | error=%s", str(exc))
             raise AIServiceUnavailableException(
-                message="SOAP 報告生成失敗：回應格式異常",
+                message="errors.soap_generation_bad_format",
                 details={"error": str(exc)},
             )
 
@@ -336,7 +336,7 @@ class SOAPGenerator:
                 "SOAP 報告生成失敗 | error=%s", str(exc), exc_info=True
             )
             raise AIServiceUnavailableException(
-                message="SOAP 報告生成服務暫時不可用，請稍後重試",
+                message="errors.soap_generation_unavailable",
                 details={"error": str(exc)},
             )
 

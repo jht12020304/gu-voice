@@ -59,7 +59,7 @@ async def _authorize_session_access(
       - 其餘/未知角色 → 拒絕
     """
     if current_user is None:
-        raise ForbiddenException("缺少認證主體，無法判定場次存取權限")
+        raise ForbiddenException("errors.session_access_no_principal")
 
     role = _get_user_role(current_user)
     user_id = getattr(current_user, "id", None)
@@ -71,7 +71,7 @@ async def _authorize_session_access(
         if session.doctor_id is None or session.doctor_id == user_id:
             return
         raise ForbiddenException(
-            "此場次已由其他醫師負責",
+            "errors.session_forbidden_other_doctor",
             details={"session_id": str(session.id)},
         )
 
@@ -84,13 +84,13 @@ async def _authorize_session_access(
         if owner_user_id is not None and owner_user_id == user_id:
             return
         raise ForbiddenException(
-            "您沒有權限存取此場次",
+            "errors.session_forbidden_patient",
             details={"session_id": str(session.id)},
         )
 
     # 未知角色 — 保守拒絕
     raise ForbiddenException(
-        "未知角色，拒絕存取",
+        "errors.session_unknown_role_access",
         details={"session_id": str(session.id), "role": str(role)},
     )
 
@@ -276,11 +276,15 @@ class SessionService:
         allowed = VALID_TRANSITIONS.get(current_status, [])
         if new_status not in allowed:
             raise InvalidStatusTransitionException(
-                f"無法從 {current_status.value} 轉移至 {new_status.value}",
+                "errors.status_transition_not_allowed",
                 details={
                     "current_status": current_status.value,
                     "requested_status": new_status.value,
                     "allowed_transitions": [s.value for s in allowed],
+                },
+                message_kwargs={
+                    "current": current_status.value,
+                    "target": new_status.value,
                 },
             )
 
@@ -501,7 +505,7 @@ class SessionService:
                 await db.flush()
 
         if patient is None:
-            raise NotFoundException("無法決定場次對應的病患")
+            raise NotFoundException("errors.session_patient_unresolved")
 
         data_dict["patient_id"] = patient.id
 
@@ -544,7 +548,7 @@ class SessionService:
         from datetime import datetime
 
         if current_user is None:
-            raise ForbiddenException("缺少認證主體，無法列出場次")
+            raise ForbiddenException("errors.session_list_no_principal")
 
         role = _get_user_role(current_user)
         user_id = getattr(current_user, "id", None)
@@ -697,7 +701,7 @@ class SessionService:
             )
 
         # 未知角色
-        raise ForbiddenException("未知角色，無法列出場次")
+        raise ForbiddenException("errors.session_unknown_role")
 
     async def get_session(
         self, db: AsyncSession, session_id: UUID, current_user: Any = None
@@ -744,9 +748,9 @@ class SessionService:
             # doctor 只能把未指派的場次搶起來,或把自己名下的場次轉出給自己(no-op)
             if session.doctor_id is not None and session.doctor_id != getattr(current_user, "id", None):
                 raise ForbiddenException(
-                    "此場次已由其他醫師負責，無法重新指派",
+                    "errors.assign_doctor_conflict",
                     details={"session_id": str(session.id)},
                 )
         else:
-            raise ForbiddenException("僅 doctor / admin 可指派醫師")
+            raise ForbiddenException("errors.assign_doctor_role_required")
         return await SessionService.assign_doctor_static(db, session_id, doctor_id)

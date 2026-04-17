@@ -104,7 +104,7 @@ class ComplaintService:
         )
         complaint = result.scalar_one_or_none()
         if complaint is None:
-            raise NotFoundException("主訴不存在")
+            raise NotFoundException("errors.complaint_not_found")
 
         updatable_fields = {
             "name", "name_en", "description", "category",
@@ -131,7 +131,7 @@ class ComplaintService:
         )
         complaint = result.scalar_one_or_none()
         if complaint is None:
-            raise NotFoundException("主訴不存在")
+            raise NotFoundException("errors.complaint_not_found")
 
         complaint.is_active = False
         complaint.updated_at = utc_now()
@@ -235,7 +235,7 @@ class ComplaintService:
         )
         complaint = result.scalar_one_or_none()
         if complaint is None:
-            raise NotFoundException("主訴不存在")
+            raise NotFoundException("errors.complaint_not_found")
         return complaint
 
     async def update_complaint(
