@@ -1,8 +1,8 @@
 """
 SOAP 報告生成 Celery 任務
-- 從對話紀錄取得完整逐字稿
-- 呼叫 SOAP 生成 pipeline
-- 將結果寫回資料庫
+- 從 Session + Patient + Conversation 取得完整上下文
+- 依 session.language 呼叫 SOAPGenerator
+- 將結果寫回 SOAPReport（含 language 欄位）
 """
 
 import logging
@@ -32,95 +32,145 @@ def generate_soap_report(self, session_id: str) -> dict:
     import asyncio
 
     try:
-        result = asyncio.get_event_loop().run_until_complete(
-            _async_generate(session_id)
-        )
-        return result
-    except Exception:
-        # 若事件迴圈不存在，建立新的
-        result = asyncio.run(_async_generate(session_id))
-        return result
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            raise RuntimeError("event loop already running")
+        return loop.run_until_complete(_async_generate(session_id))
+    except RuntimeError:
+        return asyncio.run(_async_generate(session_id))
 
 
 async def _async_generate(session_id: str) -> dict:
     """非同步報告生成核心邏輯"""
-    from sqlalchemy import select
+    from datetime import date
 
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.core.config import settings
     from app.core.database import async_session_factory
-    from app.models.conversation import Conversation
-    from app.models.soap_report import SOAPReport
     from app.models.enums import ReportStatus
+    from app.models.session import Session
+    from app.models.soap_report import SOAPReport
+    from app.pipelines.soap_generator import SOAPGenerator
+    from app.utils.datetime_utils import utc_now
 
     async with async_session_factory() as db:
         try:
-            # 1. 取得場次所有對話紀錄
-            result = await db.execute(
-                select(Conversation)
-                .where(Conversation.session_id == session_id)
-                .order_by(Conversation.sequence_number.asc())
-            )
-            conversations = result.scalars().all()
-
-            if not conversations:
-                logger.warning("場次 %s 無對話紀錄，無法生成報告", session_id)
-                # 更新報告狀態為 failed
-                await _update_report_status(db, session_id, ReportStatus.FAILED)
-                return {"session_id": session_id, "status": "failed", "reason": "no_conversations"}
-
-            # 2. 組合逐字稿
-            transcript_lines: list[str] = []
-            for conv in conversations:
-                transcript_lines.append(f"[{conv.role}] {conv.content_text}")
-            raw_transcript = "\n".join(transcript_lines)
-
-            # 3. 呼叫 SOAP 生成 pipeline
-            try:
-                from app.pipelines.soap_generator import generate_soap
-
-                soap_data = await generate_soap(
-                    transcript=raw_transcript,
-                    conversations=conversations,
+            stmt = (
+                select(Session)
+                .options(
+                    selectinload(Session.patient),
+                    selectinload(Session.conversations),
+                    selectinload(Session.chief_complaint),
                 )
-            except ImportError:
-                logger.error("SOAP pipeline 尚未實作，使用空白報告")
-                soap_data = {
-                    "subjective": {},
-                    "objective": {},
-                    "assessment": {},
-                    "plan": {},
-                    "summary": "",
-                    "icd10_codes": [],
-                    "ai_confidence_score": 0.0,
+                .where(Session.id == session_id)
+            )
+            session_obj = (await db.execute(stmt)).scalar_one_or_none()
+
+            if session_obj is None:
+                logger.warning("場次 %s 不存在，無法生成報告", session_id)
+                return {
+                    "session_id": session_id,
+                    "status": "failed",
+                    "reason": "session_not_found",
                 }
 
-            # 4. 更新報告內容
-            from app.services.report_service import ReportService
-
-            report_result = await db.execute(
-                select(SOAPReport).where(SOAPReport.session_id == session_id)
-            )
-            report = report_result.scalar_one_or_none()
-
-            if report:
-                from app.utils.datetime_utils import utc_now
-
-                report.subjective = soap_data.get("subjective")
-                report.objective = soap_data.get("objective")
-                report.assessment = soap_data.get("assessment")
-                report.plan = soap_data.get("plan")
-                report.raw_transcript = raw_transcript
-                report.summary = soap_data.get("summary", "")
-                report.icd10_codes = soap_data.get("icd10_codes", [])
-                report.ai_confidence_score = soap_data.get("ai_confidence_score")
-                report.status = ReportStatus.GENERATED
-                report.generated_at = utc_now()
-
+            conversations = list(session_obj.conversations or [])
+            if not conversations:
+                logger.warning("場次 %s 無對話紀錄，無法生成報告", session_id)
+                await _update_report_status(db, session_id, ReportStatus.FAILED)
                 await db.commit()
-                logger.info("場次 %s SOAP 報告生成完成", session_id)
-                return {"session_id": session_id, "status": "generated", "report_id": str(report.id)}
+                return {
+                    "session_id": session_id,
+                    "status": "failed",
+                    "reason": "no_conversations",
+                }
 
-            logger.error("場次 %s 找不到對應的報告記錄", session_id)
-            return {"session_id": session_id, "status": "failed", "reason": "report_not_found"}
+            transcript: list[dict[str, object]] = []
+            for conv in conversations:
+                role_value = conv.role.value if hasattr(conv.role, "value") else str(conv.role)
+                transcript.append(
+                    {
+                        "role": role_value,
+                        "content": conv.content_text or "",
+                        "timestamp": conv.created_at.isoformat() if conv.created_at else "",
+                    }
+                )
+
+            patient_info: dict[str, object] = {}
+            patient = session_obj.patient
+            if patient is not None:
+                if patient.name:
+                    patient_info["name"] = patient.name
+                if patient.gender:
+                    patient_info["gender"] = (
+                        patient.gender.value
+                        if hasattr(patient.gender, "value")
+                        else str(patient.gender)
+                    )
+                if patient.date_of_birth:
+                    today = date.today()
+                    dob = patient.date_of_birth
+                    patient_info["age"] = (
+                        today.year - dob.year
+                        - ((today.month, today.day) < (dob.month, dob.day))
+                    )
+
+            chief_complaint_text = session_obj.chief_complaint_text or ""
+            if not chief_complaint_text and session_obj.chief_complaint is not None:
+                chief_complaint_text = getattr(session_obj.chief_complaint, "name", "") or ""
+
+            language = session_obj.language
+            generator = SOAPGenerator(settings)
+            soap_data = await generator.generate(
+                transcript=transcript,
+                patient_info=patient_info,
+                chief_complaint=chief_complaint_text,
+                language=language,
+            )
+
+            raw_transcript = "\n".join(
+                f"[{entry['role']}] {entry['content']}" for entry in transcript
+            )
+
+            report = (
+                await db.execute(
+                    select(SOAPReport).where(SOAPReport.session_id == session_id)
+                )
+            ).scalar_one_or_none()
+
+            if report is None:
+                logger.error("場次 %s 找不到對應的報告記錄", session_id)
+                return {
+                    "session_id": session_id,
+                    "status": "failed",
+                    "reason": "report_not_found",
+                }
+
+            report.subjective = soap_data.get("subjective")
+            report.objective = soap_data.get("objective")
+            report.assessment = soap_data.get("assessment")
+            report.plan = soap_data.get("plan")
+            report.raw_transcript = raw_transcript
+            report.summary = soap_data.get("summary", "")
+            report.icd10_codes = soap_data.get("icd10_codes", [])
+            report.ai_confidence_score = soap_data.get("confidence_score")
+            report.language = language
+            report.status = ReportStatus.GENERATED
+            report.generated_at = utc_now()
+
+            await db.commit()
+            logger.info(
+                "場次 %s SOAP 報告生成完成 | language=%s",
+                session_id,
+                language,
+            )
+            return {
+                "session_id": session_id,
+                "status": "generated",
+                "report_id": str(report.id),
+            }
 
         except Exception as exc:
             logger.exception("場次 %s SOAP 報告生成失敗: %s", session_id, exc)
@@ -135,10 +185,10 @@ async def _update_report_status(db, session_id: str, status) -> None:
 
     from app.models.soap_report import SOAPReport
 
-    result = await db.execute(
-        select(SOAPReport).where(SOAPReport.session_id == session_id)
-    )
-    report = result.scalar_one_or_none()
-    if report:
+    report = (
+        await db.execute(
+            select(SOAPReport).where(SOAPReport.session_id == session_id)
+        )
+    ).scalar_one_or_none()
+    if report is not None:
         report.status = status
-        await db.commit()
