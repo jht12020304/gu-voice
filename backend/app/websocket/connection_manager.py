@@ -34,15 +34,23 @@ class ConnectionManager:
 
     # ── 問診場次連線管理 ─────────────────────────────────
 
-    async def connect_session(self, websocket: WebSocket, session_id: str) -> None:
+    async def connect_session(
+        self,
+        websocket: WebSocket,
+        session_id: str,
+        already_accepted: bool = False,
+    ) -> None:
         """
         接受並註冊問診場次 WebSocket 連線
 
         Args:
             websocket: WebSocket 實例
             session_id: 問診場次 ID
+            already_accepted: 呼叫端若已 `accept()`（例如認證 handshake 時）設 True，
+                避免重複 accept 引發 `RuntimeError`
         """
-        await websocket.accept()
+        if not already_accepted:
+            await websocket.accept()
         self.active_connections[session_id] = websocket
         logger.info(
             "問診場次 WebSocket 已連線 | session=%s, active_count=%d",
@@ -72,14 +80,20 @@ class ConnectionManager:
 
     # ── 儀表板連線管理 ───────────────────────────────────
 
-    async def connect_dashboard(self, websocket: WebSocket) -> None:
+    async def connect_dashboard(
+        self,
+        websocket: WebSocket,
+        already_accepted: bool = False,
+    ) -> None:
         """
         接受並註冊儀表板 WebSocket 連線
 
         Args:
             websocket: WebSocket 實例
+            already_accepted: 呼叫端若已 `accept()` 設 True
         """
-        await websocket.accept()
+        if not already_accepted:
+            await websocket.accept()
         self.dashboard_connections.append(websocket)
         logger.info(
             "儀表板 WebSocket 已連線 | dashboard_count=%d",

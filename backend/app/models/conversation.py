@@ -52,11 +52,19 @@ class Conversation(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"), nullable=False
     )
+    # updated_at 由 20260418_1400 trigger `conversations_set_updated_at_trg` 自動更新；
+    # 不靠 SQLAlchemy 的 onupdate，因為我們也會走 raw SQL / 背景任務更新。
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False
+    )
 
     # ── 關聯 ──────────────────────────────────────────
     session: Mapped["Session"] = relationship("Session", back_populates="conversations")
 
-    # NOTE: 唯一約束 (session_id, sequence_number) 由 migration 建立
+    # NOTE: 跨分區 (session_id, sequence_number) 唯一性由 BEFORE INSERT trigger
+    #       `conversations_check_seq_unique_trg` 維護（分區表無法做 native UNIQUE
+    #       除非把 created_at 也納入鍵）。ConversationService.create 另用 advisory
+    #       lock 序列化 seq 分配，避免兩個併發寫爆 trigger。
 
     def __repr__(self) -> str:
         return f"<Conversation session={self.session_id} seq={self.sequence_number} role={self.role.value}>"

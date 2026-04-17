@@ -14,12 +14,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
-from jose import JWTError
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.security import verify_access_token
+from app.websocket.auth import authenticate_websocket
 from app.websocket.connection_manager import manager
 
 logger = logging.getLogger(__name__)
@@ -56,21 +55,14 @@ async def dashboard_websocket(
 
     try:
         # ── 步驟 1：認證與授權 ──────────────────────────
-        token = websocket.query_params.get("token")
-        if not token:
-            await websocket.close(code=4001, reason="缺少認證 Token")
-            return
-
-        try:
-            payload = verify_access_token(token)
-            user_id = payload.get("sub")
-            user_role = payload.get("role")
-        except JWTError as exc:
-            logger.warning(
-                "儀表板 WebSocket Token 驗證失敗 | error=%s", str(exc)
-            )
-            await websocket.close(code=4001, reason="Token 無效或已過期")
-            return
+        payload = await authenticate_websocket(
+            websocket,
+            context="dashboard-ws",
+        )
+        if payload is None:
+            return  # authenticate_websocket 已 close
+        user_id = payload.get("sub")
+        user_role = payload.get("role")
 
         # 僅允許 doctor 與 admin 角色
         if user_role not in ("doctor", "admin"):
@@ -82,8 +74,8 @@ async def dashboard_websocket(
             await websocket.close(code=4003, reason="權限不足，僅限醫師與管理員")
             return
 
-        # ── 步驟 2：建立連線 ────────────────────────────
-        await manager.connect_dashboard(websocket)
+        # ── 步驟 2：建立連線（authenticate_websocket 已 accept） ──
+        await manager.connect_dashboard(websocket, already_accepted=True)
 
         logger.info(
             "儀表板 WebSocket 已連線 | user=%s, role=%s",

@@ -98,12 +98,19 @@ export class WebSocketManager {
   // ---- 內部方法 ----
 
   private createConnection(): void {
-    const separator = this.url.includes('?') ? '&' : '?';
-    const fullUrl = `${this.url}${separator}token=${this.token}`;
-
-    this.ws = new WebSocket(fullUrl);
+    // P2 #15：改用 handshake message 認證；URL 不再帶 ?token=
+    // 伺服器端先 `accept()`，等 client 送第一個訊息 `{type:"auth", token:...}` 才驗證。
+    this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
+      // 連線建立後第一件事：送 auth handshake。
+      // 注意：**不走 `this.send()`**（後者會包 WSMessage 信封 `{type,id,timestamp,payload}`），
+      // 這裡需要頂層 `{type:"auth", token:...}` 才對得上後端 schema。
+      try {
+        this.ws?.send(JSON.stringify({ type: 'auth', token: this.token }));
+      } catch (err) {
+        console.error('[WS] 送 auth handshake 失敗:', err);
+      }
       this.retryCount = 0;
       this.startPing();
       this.emit('_connected', {});

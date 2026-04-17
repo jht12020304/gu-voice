@@ -44,12 +44,15 @@ services:
     environment:
       APP_ENV: development
       APP_DEBUG: "true"
+      # 顯式 URL 走 config.py 的優先分支（對齊 Railway/Supabase 路徑）
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/gu_voice
       REDIS_URL: redis://redis:6379/0
       REDIS_KEY_PREFIX: "gu_dev:"
       CORS_ORIGINS: "http://localhost:5173,http://localhost:3000,http://localhost:80"
+      # Compose 本機用 HS256 避免掛 PEM 檔；production 請改 RS256 + JWT_PRIVATE_KEY
       JWT_ALGORITHM: HS256
       JWT_SECRET_KEY: docker-dev-jwt-secret-at-least-32-characters
+      # 同時供 Settings.LOG_LEVEL 與 uvicorn --log-level 讀取
       LOG_LEVEL: DEBUG
     depends_on:
       postgres:

@@ -1,13 +1,39 @@
 """
 應用程式配置 — 使用 pydantic-settings 載入環境變數
+
+設計原則：
+- 顯式 URL（DATABASE_URL / REDIS_URL）優先於元件（DB_* / REDIS_*），讓 Railway /
+  Supabase 等平台注入的連線字串可直接使用，本機開發則退回元件組合。
+- JWT 金鑰支援 PEM 內容或檔案路徑：偵測到 "BEGIN" 就當 PEM 內容，否則當路徑。
+  Railway env vars 常以字面 `\\n` 傳入 PEM，這裡會自動還原成真換行。
 """
 
 from pathlib import Path
 from urllib.parse import quote
 from typing import Optional
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _to_sync_db_url(url: str) -> str:
+    """標準化為同步 psycopg2 可讀的 URL（Alembic 用）。"""
+    if url.startswith("postgresql+asyncpg://"):
+        return "postgresql://" + url[len("postgresql+asyncpg://"):]
+    if url.startswith("postgres://"):  # Railway/Heroku 舊格式
+        return "postgresql://" + url[len("postgres://"):]
+    return url
+
+
+def _to_async_db_url(url: str) -> str:
+    """標準化為 asyncpg 可讀的 URL（FastAPI runtime 用）。"""
+    if url.startswith("postgresql+asyncpg://"):
+        return url
+    if url.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + url[len("postgresql://"):]
+    if url.startswith("postgres://"):
+        return "postgresql+asyncpg://" + url[len("postgres://"):]
+    return url
 
 
 class Settings(BaseSettings):
@@ -18,6 +44,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        populate_by_name=True,
     )
 
     # ── APP ─────────────────────────────────────────────
@@ -25,10 +52,13 @@ class Settings(BaseSettings):
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
     APP_WORKERS: int = 4
-    APP_LOG_LEVEL: str = "info"
+    # 單一日誌等級欄位，對齊 start.sh / docker-compose / .env.example 的 LOG_LEVEL
+    LOG_LEVEL: str = "info"
     APP_SECRET_KEY: str = "change-me-in-production"
 
     # ── DATABASE ────────────────────────────────────────
+    # 顯式 URL（Railway/Supabase 插件常自動注入）。若未設則從 DB_* 元件組。
+    DATABASE_URL_EXPLICIT: Optional[str] = Field(default=None, validation_alias="DATABASE_URL")
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
     DB_NAME: str = "gu_voice"
@@ -40,6 +70,8 @@ class Settings(BaseSettings):
     @property
     def DATABASE_URL(self) -> str:
         """同步資料庫 URL (用於 Alembic 等工具)"""
+        if self.DATABASE_URL_EXPLICIT:
+            return _to_sync_db_url(self.DATABASE_URL_EXPLICIT)
         pwd = quote(self.DB_PASSWORD, safe="")
         user = quote(self.DB_USER, safe=".")
         return (
@@ -50,6 +82,8 @@ class Settings(BaseSettings):
     @property
     def ASYNC_DATABASE_URL(self) -> str:
         """非同步資料庫 URL (asyncpg 驅動)"""
+        if self.DATABASE_URL_EXPLICIT:
+            return _to_async_db_url(self.DATABASE_URL_EXPLICIT)
         pwd = quote(self.DB_PASSWORD, safe="")
         user = quote(self.DB_USER, safe=".")
         return (
@@ -58,6 +92,8 @@ class Settings(BaseSettings):
         )
 
     # ── REDIS ───────────────────────────────────────────
+    # 顯式 URL（Railway Redis / Upstash 注入）。若未設則從 REDIS_* 元件組。
+    REDIS_URL_EXPLICIT: Optional[str] = Field(default=None, validation_alias="REDIS_URL")
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_PASSWORD: Optional[str] = None
@@ -66,36 +102,53 @@ class Settings(BaseSettings):
 
     @property
     def REDIS_URL(self) -> str:
+        if self.REDIS_URL_EXPLICIT:
+            return self.REDIS_URL_EXPLICIT
         auth = f":{self.REDIS_PASSWORD}@" if self.REDIS_PASSWORD else ""
         return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     # ── JWT ──────────────────────────────────────────────
     JWT_ALGORITHM: str = "RS256"
     JWT_SECRET_KEY: str = ""  # HS256 用
+    # 顯式 PEM 內容或路徑（Railway 無檔案系統，env var 直接貼 PEM 最常見）。
+    # 未設時退回 *_PATH。支援 \\n 字面 → 真換行自動還原。
+    JWT_PRIVATE_KEY_EXPLICIT: Optional[str] = Field(default=None, validation_alias="JWT_PRIVATE_KEY")
+    JWT_PUBLIC_KEY_EXPLICIT: Optional[str] = Field(default=None, validation_alias="JWT_PUBLIC_KEY")
     JWT_PRIVATE_KEY_PATH: str = "keys/private.pem"
     JWT_PUBLIC_KEY_PATH: str = "keys/public.pem"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    @property
-    def JWT_PRIVATE_KEY(self) -> str:
-        """簽名金鑰：HS256 用 secret，RS256 用 PEM 私鑰"""
+    def _resolve_key(self, explicit: Optional[str], fallback_path: str) -> str:
+        """
+        HS256：用 JWT_SECRET_KEY（不看 PEM）。
+        RS256：優先用顯式值——含 "BEGIN" 當 PEM 內容；否則當檔案路徑。
+                都取不到時 fallback 到 *_PATH 檔。
+        """
         if self.JWT_ALGORITHM == "HS256":
             return self.JWT_SECRET_KEY
-        path = Path(self.JWT_PRIVATE_KEY_PATH)
+        if explicit:
+            # Railway 等平台常把多行 PEM 以字面 \n 塞進 env var
+            candidate = explicit.replace("\\n", "\n") if "\\n" in explicit else explicit
+            if "BEGIN" in candidate:
+                return candidate
+            path = Path(candidate)
+            if path.exists():
+                return path.read_text()
+        path = Path(fallback_path)
         if path.exists():
             return path.read_text()
         return ""
 
     @property
+    def JWT_PRIVATE_KEY(self) -> str:
+        """簽名金鑰：HS256 用 secret，RS256 用 PEM 私鑰"""
+        return self._resolve_key(self.JWT_PRIVATE_KEY_EXPLICIT, self.JWT_PRIVATE_KEY_PATH)
+
+    @property
     def JWT_PUBLIC_KEY(self) -> str:
         """驗證金鑰：HS256 用 secret，RS256 用 PEM 公鑰"""
-        if self.JWT_ALGORITHM == "HS256":
-            return self.JWT_SECRET_KEY
-        path = Path(self.JWT_PUBLIC_KEY_PATH)
-        if path.exists():
-            return path.read_text()
-        return ""
+        return self._resolve_key(self.JWT_PUBLIC_KEY_EXPLICIT, self.JWT_PUBLIC_KEY_PATH)
 
     # ── OPENAI ──────────────────────────────────────────
     OPENAI_API_KEY: str = ""

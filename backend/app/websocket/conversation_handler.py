@@ -17,17 +17,18 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
-from jose import JWTError
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.security import verify_access_token
+from app.core.exceptions import RateLimitExceededException
+from app.core.rate_limit import enforce_llm_per_user_rate_limit
 from app.pipelines.llm_conversation import LLMConversationEngine
 from app.pipelines.red_flag_detector import RedFlagDetector
 from app.pipelines.stt_pipeline import STTPipeline
 from app.pipelines.tts_pipeline import TTSPipeline
 from app.pipelines.supervisor import SupervisorEngine
+from app.websocket.auth import authenticate_websocket
 from app.websocket.connection_manager import manager
 
 logger = logging.getLogger(__name__)
@@ -248,23 +249,14 @@ async def conversation_websocket(
     last_activity_ref: list[float] = [time.monotonic()]
 
     try:
-        # ── 步驟 1：認證 ────────────────────────────────
-        token = websocket.query_params.get("token")
-        if not token:
-            await websocket.close(code=4001, reason="缺少認證 Token")
-            return
-
-        try:
-            payload = verify_access_token(token)
-            user_id = payload.get("sub")
-        except JWTError as exc:
-            logger.warning(
-                "WebSocket Token 驗證失敗 | session=%s, error=%s",
-                session_id,
-                str(exc),
-            )
-            await websocket.close(code=4001, reason="Token 無效或已過期")
-            return
+        # ── 步驟 1：認證（handshake message 或 legacy ?token=） ──
+        payload = await authenticate_websocket(
+            websocket,
+            context=f"conversation-ws session={session_id}",
+        )
+        if payload is None:
+            return  # authenticate_websocket 已 close
+        user_id = payload.get("sub")
 
         # ── 步驟 2：驗證場次狀態 ────────────────────────
         session_data = await _validate_session(session_id, db)
@@ -280,8 +272,8 @@ async def conversation_websocket(
             )
             return
 
-        # ── 步驟 3：建立連線 ────────────────────────────
-        await manager.connect_session(websocket, session_id)
+        # ── 步驟 3：建立連線（authenticate_websocket 已 accept） ──
+        await manager.connect_session(websocket, session_id, already_accepted=True)
 
         # 立即發送 connection_ack（在任何 I/O 初始化之前）
         await manager.send_to_session(
@@ -856,6 +848,31 @@ async def _handle_audio_chunk(
                 "payload": {
                     "code": "INVALID_AUDIO_FORMAT",
                     "message": "無法辨識的音訊格式，已捨棄該段",
+                },
+            },
+        )
+        return
+
+    # ── LLM per-user rate limit（P2 #14）──────────────────
+    # 到這裡代表「一輪對話」即將啟動（STT → LLM → TTS）。每輪算一次配額。
+    # 超過 20/min 直接回 RATE_LIMIT WS error、不呼叫任何 OpenAI API。
+    try:
+        await enforce_llm_per_user_rate_limit(redis, session_context.get("user_id"))
+    except RateLimitExceededException as rle:
+        logger.warning(
+            "LLM rate limit 擋住一輪對話 | session=%s user=%s retry_after=%s",
+            session_id,
+            session_context.get("user_id"),
+            (rle.details or {}).get("retry_after"),
+        )
+        await manager.send_to_session(
+            session_id,
+            {
+                "type": "error",
+                "payload": {
+                    "code": "RATE_LIMIT_EXCEEDED",
+                    "message": rle.message,
+                    "retryAfter": (rle.details or {}).get("retry_after"),
                 },
             },
         )

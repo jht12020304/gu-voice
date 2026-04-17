@@ -85,32 +85,61 @@ class AuthService:
     """認證相關業務邏輯"""
 
     @staticmethod
-    async def login(db: AsyncSession, email: str, password: str) -> dict[str, Any]:
+    async def login(
+        db: AsyncSession,
+        email: str,
+        password: str,
+        client_ip: str = "",
+    ) -> dict[str, Any]:
         """
         使用者登入
+
+        Rate limit 順序（P2 #14）：
+          1. IP sliding window（10/min）→ 擋刷登入端點
+          2. 帳號鎖定檢查（連續 5 次失敗鎖 10 分鐘）
+          3. 驗證失敗：INCR 失敗計數；達門檻自動鎖；統一回 InvalidCredentials（不洩漏鎖定）
+          4. 驗證成功：清空失敗計數
 
         Args:
             db: 資料庫 session
             email: 電子信箱
             password: 明文密碼
+            client_ip: 呼叫端 IP（router 從 X-Forwarded-For / request.client 取）
 
         Returns:
             包含 access_token、refresh_token 與使用者資訊的字典
 
         Raises:
+            RateLimitExceededException: IP 頻率過高或帳號已鎖定
             InvalidCredentialsException: 帳號或密碼錯誤
             AccountDisabledException: 帳號已停用
         """
+        from app.cache.redis_client import get_redis
+        from app.core import rate_limit as rl
+
+        redis = await get_redis()
+
+        # 1. IP 層級限流
+        await rl.enforce_login_ip_rate_limit(redis, client_ip)
+
+        # 2. 帳號鎖定檢查（在比對密碼之前，避免鎖定中還在做 bcrypt）
+        await rl.enforce_account_not_locked(redis, email)
+
         result = await db.execute(
             select(User).where(User.email == email)
         )
         user = result.scalar_one_or_none()
 
         if user is None or not verify_password(password, user.password_hash):
+            # 3. 記錄失敗；可能觸發鎖定，但對呼叫端一律回 InvalidCredentials
+            await rl.record_login_failure(redis, email)
             raise InvalidCredentialsException()
 
         if not user.is_active:
             raise AccountDisabledException()
+
+        # 4. 成功 → 清失敗計數
+        await rl.clear_login_failures(redis, email)
 
         # 更新最後登入時間
         user.last_login_at = utc_now()
@@ -121,8 +150,7 @@ class AuthService:
         refresh_token = create_refresh_token(str(user.id), user.role.value)
 
         # 登記 refresh jti 供 rotation / reuse detection（P1-#11）
-        from app.cache.redis_client import get_redis
-        await _register_refresh_token(await get_redis(), str(user.id), refresh_token)
+        await _register_refresh_token(redis, str(user.id), refresh_token)
 
         return {
             "access_token": access_token,

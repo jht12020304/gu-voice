@@ -7,7 +7,7 @@
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
@@ -46,6 +46,16 @@ class ConversationService:
         Returns:
             新建的 Conversation 物件
         """
+        # 計算下一個序號前先拿 transaction-scoped advisory lock 序列化同 session 的寫入。
+        # 沒這個 lock：兩個併發 WS 訊息會各自讀到同樣 MAX(seq)，然後都寫 seq+1，
+        # 觸發 BEFORE INSERT trigger `conversations_check_seq_unique_trg` 回 IntegrityError。
+        # Lock key：hashtext(session_id)，精度雖有微量碰撞風險但對「序列化同一 session」
+        # 已足夠；pg_advisory_xact_lock 會在 commit/rollback 時自動釋放。
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:sid))"),
+            {"sid": str(session_id)},
+        )
+
         # 計算下一個序號
         max_seq_result = await db.execute(
             select(func.coalesce(func.max(Conversation.sequence_number), 0))

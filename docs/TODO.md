@@ -134,50 +134,69 @@
 
 ## P2 — 當月
 
-### [ ] 12. `.env.example` / docker-compose / config.py 三者對齊
+### [x] 12. `.env.example` / docker-compose / config.py 三者對齊（2026-04-18 完成）
 
-- **檔案**：`backend/.env.example`、`docker-compose.yml`、`backend/app/core/config.py`
-- **要做**（推薦方案）：
-  - [ ] `config.py` 加 `@field_validator` 優先讀 `DATABASE_URL`（有就用、沒有才組 `DB_*`）
-  - [ ] `JWT_PRIVATE_KEY` 同上：若值包含 `BEGIN RSA` 當 PEM，否則當路徑
-  - [ ] 把 `APP_LOG_LEVEL` / `LOG_LEVEL` 合併為單一欄位
-  - [ ] 更新 `.env.example` 註解清楚兩種用法
-- **驗收**：docker-compose up 能直接起、Railway 現有 env vars 不用改也能跑
+- **檔案**：`backend/.env.example`、`docker-compose.yml`、`backend/app/core/config.py`、`backend/tests/unit/core/test_config_env_precedence.py`
+- **已做**：
+  - [x] `config.py`：`DATABASE_URL` / `REDIS_URL` 改用 `validation_alias`，顯式值優先於 `DB_*` / `REDIS_*` 元件；`_to_sync_db_url` / `_to_async_db_url` 雙向標準化驅動後綴，連 Railway/Heroku 的 `postgres://` 舊格式都吃
+  - [x] `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY`：自動偵測 `BEGIN` 當 PEM 內容、否則當路徑；Railway 常見的字面 `\n` 會自動還原成真換行；未設時 fallback 到 `*_PATH`
+  - [x] `APP_LOG_LEVEL` → `LOG_LEVEL` 單一欄位，對齊 `scripts/start.sh` / `.env.example` / `docker-compose.yml`
+  - [x] `.env.example`：方案 A（顯式 URL）/ 方案 B（元件）並列並加註解；JWT 兩種用法都寫
+  - [x] `docker-compose.yml`：註解標明顯式 URL 走優先分支、HS256 是 dev 用替代
+  - [x] 測試：`tests/unit/core/test_config_env_precedence.py` 15 項（URL 優先序 / 驅動標準化 / PEM-vs-path / `\n` 還原 / HS256 略過 PEM / LOG_LEVEL 單一來源）
+- **驗收**：`venv/bin/python -m pytest tests/unit/ -q --ignore=tests/unit/api` → 96 passed；`from app.main import app` 乾淨載入
 
-### [ ] 13. Conversation 表加 `UNIQUE(session_id, sequence_number)` + `updated_at`
+### [x] 13. Conversation 表加唯一性保證 + `updated_at`（2026-04-18 完成）
 
-- **檔案**：新 migration、`backend/app/models/conversation.py`
+- **檔案**：
+  - `backend/alembic/versions/20260418_1400-conversations_updated_at_and_seq_guard.py`
+  - `backend/app/models/conversation.py`
+  - `backend/app/services/conversation_service.py`
+  - `backend/tests/unit/services/test_conversation_seq_lock.py`
+- **已做**：
+  - [x] 新 migration 加 `updated_at TIMESTAMPTZ NOT NULL DEFAULT now()` + BEFORE UPDATE trigger (`conversations_set_updated_at_trg`) 自動維護
+  - [x] 新 migration 加 BEFORE INSERT trigger (`conversations_check_seq_unique_trg`) 檢查 `(session_id, sequence_number)` 跨分區唯一（**分區表無法 native UNIQUE 除非納入 partition key，所以走 trigger**）
+  - [x] 偵測現存 dupes 的 `DO $$ ... RAISE NOTICE`，不強制失敗（conversations 目前僅開發資料）
+  - [x] `ConversationService.create` 加 `pg_advisory_xact_lock(hashtext(session_id))` 序列化同 session 的 `MAX(seq)+1` 計算，消除併發 race，trigger 退居兜底
+  - [x] Model 加 `updated_at: Mapped[datetime]`（不靠 SQLAlchemy onupdate，由 DB trigger 維護）
+  - [x] 單元測試 2 項（lock 在 MAX select 之前、lock key 為 session_id 字串）
+  - [x] 真 PG（本機 supabase_db）驗證：重複插入被擋、updated_at 隨 UPDATE 前進、5x 併發插入在 advisory lock 下拿到唯一序號 2..6
+- **驗收**：`alembic upgrade head` 乾淨套用；單元 98 passed；併發寫不再重號
+
+### [x] 14. Login rate limit + OpenAI per-user limit (2026-04-18)
+
+- **檔案**：`backend/app/core/rate_limit.py`（新增）、`backend/app/routers/auth.py`、`backend/app/services/auth_service.py`、`backend/app/websocket/conversation_handler.py`、`backend/tests/unit/core/test_rate_limit.py`（新增）
 - **要做**：
-  - [ ] 新 migration 加 unique constraint + `updated_at` column
-  - [ ] Model 加 `updated_at: Mapped[datetime]` with `onupdate=func.now()`
-  - [ ] 如果已有重複 seq 資料，先寫清理 script
+  - [x] `SlidingWindowLimiter`：Redis sorted-set + `ZREMRANGEBYSCORE`/`ZCARD`/`ZADD` 在 atomic pipeline 中跑；超限時從 `ZRANGE(0, 0, withscores)` 算 `retry_after`（ceil 到下一秒，不超過 window）
+  - [x] `enforce_login_ip_rate_limit(ip)`：每 IP 每分鐘 10 次，`/auth/login` 路由從 `X-Forwarded-For` 第一段取 IP（Railway/Cloudflare 代理層），超過抛 `RateLimitExceededException`（HTTP 429，`scope="ip"`）
+  - [x] `enforce_account_not_locked` + `record_login_failure` + `clear_login_failures`：連續 5 次失敗寫 `gu:rl:login_locked:{email}`（TTL 600s）並清計數；成功登入呼叫 `clear_login_failures`；email 一律 `.lower()` 避免大小寫繞過
+  - [x] `AuthService.login` 流程：IP 檢查 → 帳號鎖定檢查 → 密碼驗證（失敗時 `record_login_failure` 再 re-raise `InvalidCredentials`）→ 成功時 `clear_login_failures`
+  - [x] `enforce_llm_per_user_rate_limit(user_id)`：每 user 每分鐘 20 次；在 `_handle_audio_chunk` 於 `is_final=True` 後、STT 之前檢查（一次語音輪次算 1 次），超限走 WS `error` frame `{code: "RATE_LIMIT_EXCEEDED", retryAfter}` 並 return，不中斷連線
+  - [x] 單元測試 12 項（sliding window 允許/阻擋邊界、IP 第 11 次觸發、空 IP 跳過、失敗計數第 5 次鎖且清計數、鎖定期間 enforce_account_not_locked 抛/未鎖通過、clear 清計數+鎖、大小寫混用不逃過、LLM 超限、多 user 互不影響、`user_id=None` 跳過）
+- **驗收**：單元 110 passed；`from app.main import app` 乾淨；key 命名 `gu:rl:*` 便於維運 `SCAN` 分類
 
-### [ ] 14. Login rate limit + OpenAI per-user limit
+### [x] 15. WebSocket token 改 handshake message (2026-04-18)
 
-- **檔案**：`backend/app/routers/auth.py`、`backend/app/core/rate_limit.py`（新增）
+- **檔案**：`backend/app/websocket/auth.py`（新增）、`backend/app/websocket/conversation_handler.py`、`backend/app/websocket/dashboard_handler.py`、`backend/app/websocket/connection_manager.py`、`frontend/src/services/websocket.ts`、`backend/tests/unit/websocket/test_auth_handshake.py`（新增）
 - **要做**：
-  - [ ] 用 Redis 做 sliding window
-  - [ ] `/auth/login`：每 IP 每分鐘 10 次，超過回 429
-  - [ ] 連續失敗 5 次：鎖帳號 10 分鐘
-  - [ ] LLM 呼叫：每 user 每分鐘 20 次
+  - [x] 共用 `authenticate_websocket(ws, context)`：先 `accept()` → 試 `?token=`（legacy，有 warning log）→ 否則 `receive_text()` 等 handshake，5s 逾時；成功回 JWT payload，失敗統一 `close(4001)`
+  - [x] `ConnectionManager.connect_session` / `connect_dashboard` 加 `already_accepted=False` 參數，讓 handshake 先 accept 後再註冊不會 double-accept
+  - [x] `conversation_handler` / `dashboard_handler` 切換到共用 helper；保留舊查詢參數模式兼容一段時間
+  - [x] 前端 `WebSocketManager.createConnection`：URL 不再帶 `?token=`；`onopen` 送 `{type:"auth", token:...}`（頂層 raw，不走 `this.send()` 的 WSMessage 信封）
+  - [x] 單元測試 12 項（handshake 成功、legacy query 兼容、accept 只呼叫一次、`type=authenticate` alias、JWT 無效 / timeout / 非 JSON / 錯 type / 缺 token / 空 token / 非 dict JSON 都 close 4001）
+- **驗收**：單元 122 passed；`from app.main import app` 乾淨；完全移除 query-param 路徑只需刪 `authenticate_websocket` 內 legacy 分支並確認日誌為 0
 
-### [ ] 15. WebSocket token 改 handshake message
+### [x] 16. Supabase RLS policy (2026-04-18)
 
-- **檔案**：`frontend/src/services/websocket.ts`、`backend/app/websocket/conversation_handler.py`
+- **檔案**：`docs/supabase_rls_policies.sql`（新增，約 260 行）
 - **要做**：
-  - [ ] 前端連線不帶 `?token=`，連上後送 `{ type: "auth", token: <jwt> }`
-  - [ ] 後端收到 auth message 前不處理其他訊息；驗證失敗 close(4001)
-  - [ ] 兼容舊行為一段時間（query param 也接受），再慢慢切換
-
-### [ ] 16. Supabase RLS policy
-
-- **檔案**：Supabase SQL Editor（不在 repo）
-- **要做**：
-  - [ ] `sessions`：病患 `patient_id = auth.uid()`；醫師 `doctor_id = auth.uid() OR role='admin'`
-  - [ ] `soap_reports`：依 session ownership
-  - [ ] `red_flag_alerts`、`notifications` 同理
-  - [ ] 把 SQL 存到 `docs/supabase_rls_policies.sql` 以便版本控制
-- **驗收**：用病患 A 的 token 嘗試讀病患 B 的 session → 空結果
+  - [x] 4 個 helper function：`gu_current_user_role()`、`gu_is_admin()`、`gu_is_doctor_or_admin()`、`gu_current_patient_id()`（STABLE + SECURITY DEFINER，讀 `public.users` / `public.patients` 表判斷）
+  - [x] `sessions`：病患經 patients.user_id = auth.uid() 推回 patient_id；醫師 `doctor_id = auth.uid() OR doctor_id IS NULL`（可接候補）；admin 全開；INSERT 限自己名下、UPDATE 限自己負責或 admin
+  - [x] `soap_reports`：依 session ownership 判讀取；醫師 UPDATE 限自己負責的
+  - [x] `red_flag_alerts`：同 soap；醫師 acknowledge 限自己負責或未指派
+  - [x] `notifications`：`user_id = auth.uid()` 讀寫；admin 可讀全部
+  - [x] Throwaway postgres:15-alpine 驗證：套用 SQL 乾淨；病患 A 讀 sessionB → **0 rows**；醫師 D（指派 A）看 2 場；醫師 E（未指派）看 1 場；admin 看 2 場／全表
+- **驗收**：Throwaway 驗證全部 pass；所有 `DROP POLICY IF EXISTS` + `CREATE POLICY` 皆可重跑；service_role（後端 FastAPI）自動 bypass RLS 不影響現有邏輯
 
 ### [ ] 17. Audit log 實際落表 + 7 年保留
 

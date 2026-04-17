@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, status
+from fastapi import APIRouter, Depends, Header, Request, status
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,11 +68,33 @@ async def _get_optional_current_user(
     summary="登入",
 )
 async def login(
+    request: Request,
     payload: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ) -> LoginResponse:
-    """以電子郵件與密碼登入，取得 JWT Token 組合。"""
-    return await auth_service.login(db, email=payload.email, password=payload.password)
+    """以電子郵件與密碼登入，取得 JWT Token 組合。
+
+    Rate limit 由 `AuthService.login` 負責：
+    - 每 IP 每分鐘 10 次
+    - 帳號連續失敗 5 次鎖 10 分鐘
+    """
+    client_ip = _extract_client_ip(request)
+    return await auth_service.login(
+        db,
+        email=payload.email,
+        password=payload.password,
+        client_ip=client_ip,
+    )
+
+
+def _extract_client_ip(request: Request) -> str:
+    """取出最靠近的 client IP。
+    - 優先 X-Forwarded-For 第一段（Railway/Cloudflare 代理層），fallback 到 client.host。
+    """
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else ""
 
 
 @router.post(
