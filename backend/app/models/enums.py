@@ -4,6 +4,28 @@
 """
 
 from enum import Enum
+from typing import Type, TypeVar
+
+from sqlalchemy import Enum as SQLEnum
+
+_E = TypeVar("_E", bound=Enum)
+
+
+def pg_enum(enum_cls: Type[_E], name: str) -> SQLEnum:
+    """
+    回傳一個告訴 PostgreSQL 用「Enum 的 value（小寫）」而非
+    「member 名稱（大寫）」存值的 SQLAlchemy Enum type。
+
+    Why: SQLAlchemy 預設用 member 名稱存（PATIENT），但 enums.py 的值是小寫
+    （patient），導致寫入時 member 名稱 vs value 不對齊，造成 ORM ↔ 手寫 SQL
+    ↔ API response 三方不一致。統一用 values_callable 強制存 value。
+    """
+    return SQLEnum(
+        enum_cls,
+        name=name,
+        values_callable=lambda e: [m.value for m in e],
+        native_enum=True,
+    )
 
 
 class UserRole(str, Enum):

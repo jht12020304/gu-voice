@@ -6,6 +6,8 @@
 
 import logging
 
+import firebase_admin.messaging as messaging
+
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
@@ -82,8 +84,6 @@ async def _async_send(
 
         for device in devices:
             try:
-                import firebase_admin.messaging as messaging
-
                 message = messaging.Message(
                     notification=messaging.Notification(
                         title=title,

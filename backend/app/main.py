@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.database import engine
 from app.core.dependencies import close_redis, init_redis
 from app.core.exceptions import register_exception_handlers
+from app.core.firebase import initialize_firebase
 from app.core.middleware import AuditLoggingMiddleware, RequestIdMiddleware
 from app.schemas.common import HealthResponse
 
@@ -70,6 +71,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """應用程式生命週期管理：連線資料庫與 Redis"""
     # 啟動
     _enforce_production_secrets()
+    initialize_firebase()
     await init_redis()
     yield
     # 關閉

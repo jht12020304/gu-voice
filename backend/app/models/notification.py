@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import NotificationType
+from app.models.enums import NotificationType, pg_enum
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -26,7 +26,9 @@ class Notification(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
     )
-    type: Mapped[NotificationType] = mapped_column(nullable=False)
+    type: Mapped[NotificationType] = mapped_column(
+        pg_enum(NotificationType, "notificationtype"), nullable=False
+    )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     data: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)

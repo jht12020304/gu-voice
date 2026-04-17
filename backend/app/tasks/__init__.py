@@ -7,6 +7,7 @@ Celery 應用程式設定
 
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_init
 
 from app.core.config import settings
 
@@ -40,6 +41,14 @@ celery_app.autodiscover_tasks([
     "app.tasks.session_timeout",
     "app.tasks.partition_manager",
 ])
+
+# ── Worker 啟動：初始化 Firebase（推播任務需要） ─────────────
+@worker_process_init.connect
+def _init_worker(**_: object) -> None:
+    from app.core.firebase import initialize_firebase
+
+    initialize_firebase()
+
 
 # ── 定時任務排程 ──────────────────────────────────────────
 celery_app.conf.beat_schedule = {

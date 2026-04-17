@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import UserRole
+from app.models.enums import UserRole, pg_enum
 
 if TYPE_CHECKING:
     from app.models.audit_log import AuditLog
@@ -29,7 +29,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    role: Mapped[UserRole] = mapped_column(nullable=False)
+    role: Mapped[UserRole] = mapped_column(pg_enum(UserRole, "userrole"), nullable=False)
     phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     department: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     license_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)

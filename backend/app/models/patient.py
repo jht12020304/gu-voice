@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import Gender
+from app.models.enums import Gender, pg_enum
 
 if TYPE_CHECKING:
     from app.models.session import Session
@@ -31,7 +31,7 @@ class Patient(Base):
         String(50), unique=True, nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    gender: Mapped[Gender] = mapped_column(nullable=False)
+    gender: Mapped[Gender] = mapped_column(pg_enum(Gender, "gender"), nullable=False)
     date_of_birth: Mapped[date] = mapped_column(Date, nullable=False)
     phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     emergency_contact: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)

@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import SessionStatus
+from app.models.enums import SessionStatus, pg_enum
 
 if TYPE_CHECKING:
     from app.models.chief_complaint import ChiefComplaint
@@ -39,7 +39,9 @@ class Session(Base):
     )
     chief_complaint_text: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     status: Mapped[SessionStatus] = mapped_column(
-        nullable=False, server_default=text("'waiting'")
+        pg_enum(SessionStatus, "sessionstatus"),
+        nullable=False,
+        server_default=text("'waiting'"),
     )
     red_flag: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
     red_flag_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

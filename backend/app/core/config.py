@@ -150,6 +150,11 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_ROLE_KEY: str = ""
 
+    # ── FIREBASE (FCM) ─────────────────────────────────
+    # base64 編碼的 service account JSON（Railway 無法掛檔，只能用 env 傳）。
+    # 未設時 lifespan 啟動只會 log warning，不阻擋本機開發。
+    FCM_CREDENTIALS_JSON: Optional[str] = None
+
     # ── SENTRY ──────────────────────────────────────────
     SENTRY_DSN: Optional[str] = None
 

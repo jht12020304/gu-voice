@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import AlertSeverity, AlertType
+from app.models.enums import AlertSeverity, AlertType, pg_enum
 
 if TYPE_CHECKING:
     from app.models.red_flag_rule import RedFlagRule
@@ -32,8 +32,10 @@ class RedFlagAlert(Base):
     conversation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False
     )
-    alert_type: Mapped[AlertType] = mapped_column(nullable=False)
-    severity: Mapped[AlertSeverity] = mapped_column(nullable=False)
+    alert_type: Mapped[AlertType] = mapped_column(pg_enum(AlertType, "alerttype"), nullable=False)
+    severity: Mapped[AlertSeverity] = mapped_column(
+        pg_enum(AlertSeverity, "alertseverity"), nullable=False
+    )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     trigger_reason: Mapped[str] = mapped_column(Text, nullable=False)

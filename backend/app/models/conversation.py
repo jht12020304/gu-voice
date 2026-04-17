@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import ConversationRole
+from app.models.enums import ConversationRole, pg_enum
 
 if TYPE_CHECKING:
     from app.models.session import Session
@@ -32,7 +32,9 @@ class Conversation(Base):
         UUID(as_uuid=True), ForeignKey("sessions.id"), nullable=False, index=True
     )
     sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    role: Mapped[ConversationRole] = mapped_column(nullable=False)
+    role: Mapped[ConversationRole] = mapped_column(
+        pg_enum(ConversationRole, "conversationrole"), nullable=False
+    )
     content_text: Mapped[str] = mapped_column(Text, nullable=False)
     audio_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     audio_duration_seconds: Mapped[Optional[Decimal]] = mapped_column(

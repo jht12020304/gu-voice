@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import AlertSeverity
+from app.models.enums import AlertSeverity, pg_enum
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -28,7 +28,9 @@ class RedFlagRule(Base):
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     keywords: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
     regex_pattern: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    severity: Mapped[AlertSeverity] = mapped_column(nullable=False)
+    severity: Mapped[AlertSeverity] = mapped_column(
+        pg_enum(AlertSeverity, "alertseverity"), nullable=False
+    )
     suspected_diagnosis: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     suggested_action: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"), nullable=False)

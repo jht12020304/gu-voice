@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import AuditAction
+from app.models.enums import AuditAction, pg_enum
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -31,7 +31,7 @@ class AuditLog(Base):
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
-    action: Mapped[AuditAction] = mapped_column(nullable=False)
+    action: Mapped[AuditAction] = mapped_column(pg_enum(AuditAction, "auditaction"), nullable=False)
     resource_type: Mapped[str] = mapped_column(String(50), nullable=False)
     resource_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)

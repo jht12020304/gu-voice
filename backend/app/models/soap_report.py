@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String
 
 from app.core.database import Base
-from app.models.enums import ReportStatus, ReviewStatus
+from app.models.enums import ReportStatus, ReviewStatus, pg_enum
 
 if TYPE_CHECKING:
     from app.models.session import Session
@@ -30,10 +30,14 @@ class SOAPReport(Base):
         UUID(as_uuid=True), ForeignKey("sessions.id"), unique=True, nullable=False, index=True
     )
     status: Mapped[ReportStatus] = mapped_column(
-        nullable=False, server_default=text("'generating'")
+        pg_enum(ReportStatus, "reportstatus"),
+        nullable=False,
+        server_default=text("'generating'"),
     )
     review_status: Mapped[ReviewStatus] = mapped_column(
-        nullable=False, server_default=text("'pending'")
+        pg_enum(ReviewStatus, "reviewstatus"),
+        nullable=False,
+        server_default=text("'pending'"),
     )
     subjective: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     objective: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)

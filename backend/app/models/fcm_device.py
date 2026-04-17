@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import DevicePlatform
+from app.models.enums import DevicePlatform, pg_enum
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -27,7 +27,9 @@ class FCMDevice(Base):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
     )
     device_token: Mapped[str] = mapped_column(String(500), unique=True, nullable=False)
-    platform: Mapped[DevicePlatform] = mapped_column(nullable=False)
+    platform: Mapped[DevicePlatform] = mapped_column(
+        pg_enum(DevicePlatform, "deviceplatform"), nullable=False
+    )
     device_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

@@ -115,13 +115,17 @@ async def refresh_token(
 )
 async def logout(
     payload: LogoutRequest,
+    authorization: str = Header(..., alias="Authorization"),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> MessageResponse:
-    """登出並撤銷 Refresh Token。若未提供 refresh_token，撤銷該使用者所有 Token。"""
+    """登出並黑名單 Access / Refresh Token。"""
+    # get_current_user 已驗證格式，此處直接去掉 "Bearer " 前綴即可
+    access_token = authorization[7:] if authorization.startswith("Bearer ") else authorization
     await auth_service.logout(
         db,
         user_id=current_user.id,
+        access_token=access_token,
         refresh_token=payload.refresh_token,
     )
     return MessageResponse(message="登出成功")
@@ -211,5 +215,5 @@ async def update_me(
     return await auth_service.update_profile(
         db,
         user_id=current_user.id,
-        data=payload,
+        data=payload.model_dump(exclude_unset=True),
     )

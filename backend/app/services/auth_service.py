@@ -6,7 +6,9 @@
 - 使用者個人資料
 """
 
+import logging
 import secrets
+import time
 from typing import Any, Optional
 from uuid import UUID
 
@@ -27,12 +29,18 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     hash_password,
+    verify_access_token,
     verify_password,
     verify_refresh_token,
 )
 from app.models.enums import UserRole
 from app.models.user import User
 from app.utils.datetime_utils import utc_now
+
+logger = logging.getLogger(__name__)
+
+# JWT 黑名單 Redis key 前綴（與 dependencies.get_current_user 檢查端共用）
+BLACKLIST_KEY_PREFIX = "gu:token_blacklist:"
 
 
 class AuthService:
@@ -145,13 +153,13 @@ class AuthService:
         }
 
     @staticmethod
-    async def refresh_token(db: AsyncSession, refresh_token_str: str) -> dict[str, Any]:
+    async def refresh_token(db: AsyncSession, refresh_token: str) -> dict[str, Any]:
         """
         刷新 Token
 
         Args:
             db: 資料庫 session
-            refresh_token_str: 現有的 refresh token
+            refresh_token: 現有的 refresh token
 
         Returns:
             新的 access_token 與 refresh_token
@@ -160,7 +168,7 @@ class AuthService:
             UnauthorizedException: token 無效或已過期
         """
         try:
-            payload = verify_refresh_token(refresh_token_str)
+            payload = verify_refresh_token(refresh_token)
         except JWTError:
             raise UnauthorizedException("Refresh token 無效或已過期")
 
@@ -190,23 +198,58 @@ class AuthService:
         }
 
     @staticmethod
-    async def logout(redis, jti: str, ttl: int) -> None:
+    async def logout(
+        db: AsyncSession,
+        user_id: UUID,
+        access_token: str,
+        refresh_token: Optional[str] = None,
+    ) -> None:
         """
-        登出 — 將 token 加入黑名單
+        登出 — 將 access / refresh token 加入 Redis 黑名單
 
-        Args:
-            redis: Redis 連線實例
-            jti: JWT ID（token 唯一識別碼）
-            ttl: 黑名單保留秒數（等同 token 剩餘效期）
+        策略：
+          - access token 一律黑名單（剩餘效期 = exp - now）
+          - 有帶 refresh token 才黑名單它；沒帶就只記 warning
+            （撤銷該使用者所有 refresh token 需 refresh token 登記表，
+             見 TODO P1-#11）
+
+        已過期或解不開的 token 直接跳過（沒有意義黑名單一個本來就失效的 token）。
         """
-        key = f"gu:token_blacklist:{jti}"
-        await redis.setex(key, ttl, "1")
+        from app.cache.redis_client import get_redis
+
+        redis = await get_redis()
+        now = int(time.time())
+
+        async def _blacklist(payload: dict[str, Any]) -> None:
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if not jti or not exp:
+                return
+            ttl = max(int(exp) - now, 1)
+            await redis.setex(f"{BLACKLIST_KEY_PREFIX}{jti}", ttl, "1")
+
+        try:
+            await _blacklist(verify_access_token(access_token))
+        except JWTError:
+            logger.debug("logout: access token 已失效，跳過黑名單 user=%s", user_id)
+
+        if refresh_token:
+            try:
+                await _blacklist(verify_refresh_token(refresh_token))
+            except JWTError:
+                logger.debug("logout: refresh token 已失效，跳過黑名單 user=%s", user_id)
+        else:
+            logger.warning(
+                "logout user=%s 未提供 refresh_token；目前僅黑名單 access token，"
+                "撤銷該使用者所有 refresh token 需 TODO P1-#11 實作",
+                user_id,
+            )
 
     @staticmethod
     async def change_password(
         db: AsyncSession,
         user_id: UUID,
-        old_password: str,
+        current_password: str,
         new_password: str,
     ) -> None:
         """
@@ -214,7 +257,7 @@ class AuthService:
 
         Raises:
             NotFoundException: 使用者不存在
-            InvalidCredentialsException: 舊密碼不正確
+            InvalidCredentialsException: 目前密碼不正確
         """
         result = await db.execute(
             select(User).where(User.id == user_id)
@@ -223,8 +266,8 @@ class AuthService:
         if user is None:
             raise NotFoundException("使用者不存在")
 
-        if not verify_password(old_password, user.password_hash):
-            raise InvalidCredentialsException("舊密碼不正確")
+        if not verify_password(current_password, user.password_hash):
+            raise InvalidCredentialsException("目前密碼不正確")
 
         user.password_hash = hash_password(new_password)
         user.updated_at = utc_now()
