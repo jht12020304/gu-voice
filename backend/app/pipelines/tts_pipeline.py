@@ -8,10 +8,10 @@
 import logging
 from typing import Any
 
-from openai import AsyncOpenAI
 from supabase import create_client, Client as SupabaseClient
 
 from app.core.config import Settings
+from app.core.openai_client import call_with_retry, get_openai_client
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class TTSPipeline:
     """
 
     def __init__(self, settings: Settings) -> None:
-        self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self._client = get_openai_client()
         self._model = settings.OPENAI_TTS_MODEL   # "tts-1"
         self._voice = settings.OPENAI_TTS_VOICE   # "nova"
         self._speed = settings.OPENAI_TTS_SPEED   # 0.9
@@ -63,12 +63,14 @@ class TTSPipeline:
             return b""
 
         try:
-            response = await self._client.audio.speech.create(
-                model=self._model,
-                voice=self._voice,
-                input=text,
-                response_format="mp3",
-                speed=self._speed,
+            response = await call_with_retry(
+                lambda: self._client.audio.speech.create(
+                    model=self._model,
+                    voice=self._voice,
+                    input=text,
+                    response_format="mp3",
+                    speed=self._speed,
+                )
             )
 
             audio_bytes = response.content

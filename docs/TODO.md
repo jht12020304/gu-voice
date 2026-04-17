@@ -3,7 +3,7 @@
 > 依據 [`system_issues_and_risks.md`](./system_issues_and_risks.md) 整理的可執行待辦事項。
 > 完成一項就把 `[ ]` 改成 `[x]`，並在後面加上完成日期與 commit hash。
 >
-> 最後更新：2026-04-18（P0 全部程式碼完成，Railway Dashboard 操作與 staging migrate 驗證待做）
+> 最後更新：2026-04-18（P0 全部完成：3 個 Railway service 都 ACTIVE，partition + enum migration 已在 staging 跑過）
 
 ---
 
@@ -20,7 +20,7 @@
   - [ ] 加單元測試：登出後同一 access token 呼叫 `/api/v1/auth/me` 應回 401
 - **驗收**：`curl -X POST /api/v1/auth/logout` 回 200，不再是 500
 
-### [x] 2. Railway 開 Celery worker + beat service — 2026-04-17（待 commit；Dashboard 操作待手動執行，runbook 已寫）
+### [x] 2. Railway 開 Celery worker + beat service — 2026-04-18 (1b7a41e)（worker + beat service 已 ACTIVE）
 
 - **檔案**：Railway Dashboard（不在 repo 內），可能需新增 `backend/scripts/start_worker.sh`、`backend/scripts/start_beat.sh`
 - **要做**：
@@ -40,7 +40,7 @@
   - [ ] 測試：手動發一則推播驗證
 - **驗收**：冷啟動後第一次推播即可送達，不會 `ValueError: default Firebase app does not exist`
 
-### [x] 4. Alembic migration 補分區表定義 — 2026-04-18（待 commit；需 staging fresh migrate 驗證）
+### [x] 4. Alembic migration 補分區表定義 — 2026-04-18 (caa60ce)（已在 Railway 主 API deploy 成功跑過 `alembic upgrade head`）
 
 - **檔案**：`backend/alembic/versions/` 新增一個 migration
 - **要做**：
@@ -50,7 +50,7 @@
   - [ ] 在 staging 環境跑一次 `alembic upgrade head` 驗證
 - **驗收**：新環境 fresh migrate 後，`\d+ conversations` 顯示 `Partitioned table, partition key: RANGE (created_at)`
 
-### [x] 5. 修 Migration Enum 大小寫 vs ORM value 不一致 — 2026-04-18（待 commit；需 staging fresh migrate 驗證）
+### [x] 5. 修 Migration Enum 大小寫 vs ORM value 不一致 — 2026-04-18 (caa60ce)（已在 Railway 主 API deploy 成功跑過 `alembic upgrade head`）
 
 - **檔案**：
   - `backend/alembic/versions/20260412_0302-c98fa7840c8c_initial_schema.py`（目前用 `'PATIENT','DOCTOR'`）
@@ -68,59 +68,66 @@
 
 ## P1 — 本週內
 
-### [ ] 6. JWT 黑名單檢查納入 `get_current_user`
+### [x] 6. JWT 黑名單檢查納入 `get_current_user` — 2026-04-18（待 commit）
 
-- **檔案**：`backend/app/core/dependencies.py`
+- **檔案**：`backend/app/core/dependencies.py`、`backend/tests/unit/services/test_get_current_user_blacklist.py`
 - **要做**：
-  - [ ] `get_current_user` 在 `verify_access_token` 後，取 jti 檢查 `redis.exists("gu:token_blacklist:{jti}")`
-  - [ ] 有命中 → raise `UnauthorizedException("Token 已失效")`
+  - [x] `get_current_user` 在 `verify_access_token` 後，取 jti 檢查 `redis.exists("gu:token_blacklist:{jti}")`
+  - [x] 有命中 → raise `UnauthorizedException("Token 已失效")`
+  - [x] 單元測試：blacklist 命中 → 401；未命中 → 正常通過（`test_get_current_user_blacklist.py`，2 tests pass）
 - **驗收**：登出後同一 access token 打 `/me` 回 401
 
-### [ ] 7. OpenAI 呼叫統一 timeout + retry + token 預算
+### [x] 7. OpenAI 呼叫統一 timeout + retry + token 預算 — 2026-04-18（待 commit）
 
-- **檔案**：新增 `backend/app/core/openai_client.py`、修改 5 個 pipeline
+- **檔案**：`backend/app/core/openai_client.py`（新增）、7 個 pipeline / websocket 呼叫點、`backend/tests/unit/services/test_openai_client.py`
 - **要做**：
-  - [ ] `openai_client.py`：singleton `get_openai_client()` 回傳 `AsyncOpenAI(timeout=60)`
-  - [ ] 用 `tenacity` 包 retry：`@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), retry=retry_if_exception_type((APITimeoutError, RateLimitError)))`
-  - [ ] 用 `tiktoken` 在送 LLM 前算 token 數，超過 `model_context_limit - max_tokens` 就截斷舊對話
-  - [ ] `llm_conversation.py`、`supervisor.py`、`soap_generator.py`、`red_flag_detector.py`、`stt_pipeline.py`、`tts_pipeline.py` 全部改用 singleton
-- **驗收**：手動模擬 OpenAI 429，系統能退避後重試成功
+  - [x] `openai_client.py`：singleton `get_openai_client()`（`AsyncOpenAI(timeout=60)`）、`call_with_retry()`（tenacity AsyncRetrying，指數退避最多 3 次，白名單 `APITimeoutError / RateLimitError / APIConnectionError`）、`count_tokens` + `budget_messages`（保留 system、從頭部丟舊訊息）
+  - [x] `llm_conversation.py`：`get_openai_client()` + `budget_messages` + `call_with_retry`（streaming 僅 create 時重試）
+  - [x] `supervisor.py` / `soap_generator.py` / `red_flag_detector.py`：`call_with_retry` 包 JSON mode 呼叫
+  - [x] `stt_pipeline.py`：每次重試重建 BytesIO；`tts_pipeline.py`：audio.speech.create 包 retry
+  - [x] `websocket/conversation_handler.py` 中的動態 AsyncOpenAI 也切到 singleton
+  - [x] 單元測試 8 tests pass（singleton、三類錯誤重試、非白名單不重試、上限 raise、budget 保留 system）
+- **驗收**：測試模擬 RateLimitError 成功退避重試；模型 context_limit 被縮至極小時保留 system 並丟舊訊息
 
-### [ ] 8. Axios 401 refresh race 改用 shared promise
+### [x] 8. Axios 401 refresh race 改用 shared promise — 2026-04-18（待 commit）
 
 - **檔案**：`frontend/src/services/api/client.ts`
 - **要做**：
-  - [ ] 把 `isRefreshing: boolean` 換成 `refreshPromise: Promise<string> | null`
-  - [ ] 401 時若 `refreshPromise` 已存在就 await 同一個
-  - [ ] Refresh 失敗：清空 refreshPromise、clear storage、導回 login
-  - [ ] 單元測試：模擬同時 5 個請求 401，只應打一次 refresh endpoint
-- **驗收**：DevTools Network 裡，token 過期後只看到一次 `/auth/refresh` 呼叫
+  - [x] 把 `isRefreshing + failedQueue` 重寫成 `refreshPromise: Promise<string> | null`
+  - [x] 401 時若 `refreshPromise` 已存在就 await 同一個，一次 `/auth/refresh` 對應所有併發請求
+  - [x] Refresh 失敗：finally 清空 refreshPromise、`clearAuthAndRedirect()` 導回 login
+  - [ ] 前端無 vitest / jest 設定，先以 type-check 通過 + `_getInflightRefresh()` debug hook 保留單測入口
+- **驗收**：DevTools Network 裡，token 過期後只看到一次 `/auth/refresh` 呼叫；搭配後端 P1-#11 reuse detection 不會被自家併發踢掉
 
-### [ ] 9. Sentry 初始化 + 敏感資料過濾
+### [x] 9. Sentry 初始化 + 敏感資料過濾 — 2026-04-18（待 commit）
 
-- **檔案**：`backend/app/main.py`、`frontend/src/main.tsx` 或 `src/lib/sentry.ts`
+- **檔案**：`backend/app/core/sentry.py`（新增）、`backend/app/main.py`、`frontend/src/services/sentry.ts`（新增）、`frontend/src/main.tsx`、`backend/tests/unit/services/test_sentry_redact.py`
 - **要做**：
-  - [ ] 後端：`sentry_sdk.init(dsn, environment, traces_sample_rate=0.1, send_default_pii=False, before_send=redact_sensitive)`
-  - [ ] `redact_sensitive`：去掉 `password`、`access_token`、`refresh_token`、`Authorization` header
-  - [ ] 前端：`Sentry.init({ dsn: VITE_SENTRY_DSN, tracesSampleRate: 0.1, beforeSend })`
-  - [ ] 手動 `raise Exception("test")` 驗證 Sentry 收得到
+  - [x] 後端 `init_sentry()`：`traces_sample_rate=0.1, send_default_pii=False, before_send=redact_sensitive`，FastAPI/Starlette/Asyncio integrations；lifespan 啟動時呼叫，未設 DSN 時 log warning 不阻擋
+  - [x] `redact_sensitive`：遞迴清洗 dict/list，凡 key contains `password / access_token / refresh_token / authorization / api_key / secret / jwt / cookie` 均取代為 `[Filtered]`
+  - [x] 前端 `src/services/sentry.ts`：同樣策略，`beforeSend` + `beforeBreadcrumb` 都套 redact；未設 `VITE_SENTRY_DSN` 靜默跳過
+  - [x] 單元測試 5 tests pass（Authorization / body password+tokens / 巢狀 / 非敏感欄位不動 / Set-Cookie 大小寫）
+  - [ ] 手動 `raise Exception("test")` 實機驗證 — 留給 deploy 後以 API 客戶端觸發
 - **驗收**：Sentry dashboard 能看到事件，且 payload 無密碼 / token
 
-### [ ] 10. Prometheus instrument 接上
+### [x] 10. Prometheus instrument 接上 — 2026-04-18（待 commit）
 
 - **檔案**：`backend/app/main.py`
 - **要做**：
-  - [ ] `Instrumentator().instrument(app).expose(app)`（`/metrics` endpoint）
-  - [ ] Railway 若有 Grafana 或外部 Prometheus，配 scrape config
-- **驗收**：`curl /metrics` 能拿到 text format 指標
+  - [x] `Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)`
+  - [x] 本機 `TestClient` smoke test：`/metrics` 回 200 + text format 指標
+  - [ ] Railway Grafana 或外部 Prometheus scrape config — deploy 後配
+- **驗收**：`curl /metrics` 拿到 text format 指標 ✅
 
-### [ ] 11. Refresh token rotation + reuse detection
+### [x] 11. Refresh token rotation + reuse detection — 2026-04-18（待 commit）
 
-- **檔案**：`backend/app/services/auth_service.py:148`
+- **檔案**：`backend/app/services/auth_service.py`、`backend/tests/unit/services/test_refresh_token_rotation.py`
 - **要做**：
-  - [ ] 簽發 refresh token 時存 Redis：`gu:refresh:{user_id}:{jti} → 1`，TTL = 7 天
-  - [ ] `refresh_token()` 檢查舊 jti 是否仍在 Redis（存在才允許換）→ 換完立刻刪除
-  - [ ] 若偵測到舊 jti 已被刪但又被使用（reuse）→ 撤銷該 user 所有 refresh token，強制重新登入
+  - [x] 簽發 refresh token 時存 Redis：`gu:refresh:{user_id}:{jti} → 1`，TTL = token exp - now
+  - [x] `refresh_token()` atomic 消耗舊 jti（`DEL` 回傳 0 即視為 replay）
+  - [x] 偵測到 reuse → 掃 `gu:refresh:{user_id}:*` 全刪，並 raise `UnauthorizedException("Refresh token 重複使用，請重新登入")`
+  - [x] `logout()` 帶 refresh → 同步刪 rotation 登記；未帶 refresh → 撤銷該 user 所有 refresh 登記
+  - [x] 單元測試 5 tests pass（rotate 成功、replay 被拒、未登記 jti 拒、logout 清 rotation）
 - **驗收**：用同一 refresh token 連呼叫兩次，第二次回 401 並把該 user 登出
 
 ---

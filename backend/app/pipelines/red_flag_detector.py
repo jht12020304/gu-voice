@@ -12,11 +12,11 @@ import re
 import uuid
 from typing import Any, Optional
 
-from openai import AsyncOpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.openai_client import call_with_retry, get_openai_client
 from app.pipelines.prompts.shared import (
     URO_RED_FLAGS,
     render_red_flag_titles_for_prompt,
@@ -116,7 +116,7 @@ class RedFlagDetector:
         """
         self._settings = settings
         self._db = db_session
-        self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self._client = get_openai_client()
         self._model = settings.OPENAI_MODEL_RED_FLAG  # gpt-4o-mini
         self._temperature = settings.OPENAI_TEMPERATURE_RED_FLAG  # 0.2
         self._rules: list[dict[str, Any]] = []
@@ -277,15 +277,17 @@ class RedFlagDetector:
 請分析以上內容是否包含紅旗症狀，並以指定 JSON 格式回覆。"""
 
         try:
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": _SEMANTIC_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message},
-                ],
-                temperature=self._temperature,
-                max_completion_tokens=1024,
-                response_format={"type": "json_object"},
+            response = await call_with_retry(
+                lambda: self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[
+                        {"role": "system", "content": _SEMANTIC_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_message},
+                    ],
+                    temperature=self._temperature,
+                    max_completion_tokens=1024,
+                    response_format={"type": "json_object"},
+                )
             )
 
             raw_content = response.choices[0].message.content or "{}"

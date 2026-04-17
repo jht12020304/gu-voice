@@ -9,10 +9,9 @@ import json
 import logging
 from typing import Any
 
-from openai import AsyncOpenAI
-
 from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
+from app.core.openai_client import call_with_retry, get_openai_client
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +171,7 @@ class SOAPGenerator:
             settings: 應用程式設定實例
         """
         self._settings = settings
-        self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self._client = get_openai_client()
         self._model = settings.OPENAI_MODEL_SOAP  # gpt-4o
         self._temperature = settings.OPENAI_TEMPERATURE_SOAP  # 0.3
         self._max_tokens = settings.OPENAI_MAX_TOKENS_SOAP  # 4096
@@ -284,15 +283,17 @@ class SOAPGenerator:
                 len(transcript),
             )
 
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": _SOAP_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message},
-                ],
-                temperature=self._temperature,
-                max_completion_tokens=self._max_tokens,
-                response_format={"type": "json_object"},
+            response = await call_with_retry(
+                lambda: self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[
+                        {"role": "system", "content": _SOAP_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_message},
+                    ],
+                    temperature=self._temperature,
+                    max_completion_tokens=self._max_tokens,
+                    response_format={"type": "json_object"},
+                )
             )
 
             raw_content = response.choices[0].message.content or "{}"

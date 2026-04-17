@@ -17,11 +17,15 @@ from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cache.redis_client import get_redis as get_cache_redis
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.security import verify_access_token
 from app.models.user import User
+
+# JWT 黑名單 Redis key 前綴（與 services.auth_service.BLACKLIST_KEY_PREFIX 一致）
+BLACKLIST_KEY_PREFIX = "gu:token_blacklist:"
 
 # ── Redis 單例 ─────────────────────────────────────────
 _redis_client: Optional[aioredis.Redis] = None
@@ -88,6 +92,13 @@ async def get_current_user(
     user_id = payload.get("sub")
     if not user_id:
         raise UnauthorizedException(message="Token payload 缺少 sub")
+
+    # 黑名單檢查：logout 過的 access token 即使未過期也要拒絕
+    jti = payload.get("jti")
+    if jti:
+        redis = await get_cache_redis()
+        if await redis.exists(f"{BLACKLIST_KEY_PREFIX}{jti}"):
+            raise UnauthorizedException(message="Token 已失效")
 
     result = await db.execute(select(User).where(User.id == UUID(user_id)))
     user = result.scalar_one_or_none()
