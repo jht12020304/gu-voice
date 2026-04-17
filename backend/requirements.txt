@@ -17,6 +17,10 @@ email-validator==2.2.0
 # --- 資料庫（SQLAlchemy 2.0 + async）---
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
+# psycopg2-binary 只用於 alembic migrations（sync）。asyncpg 搭配 PgBouncer
+# transaction pool mode 會出現 __asyncpg_stmt_1__ 衝突，migrations 改走 sync
+# driver 直接繞過；app runtime 仍走 asyncpg（pool 層 PgBouncer 安全）。
+psycopg2-binary==2.9.10
 alembic==1.14.1
 greenlet==3.1.1
 

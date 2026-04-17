@@ -1,17 +1,17 @@
 """
 Alembic 環境設定
 - 使用 app.core.config.settings 讀取連線設定
-- 支援 async（asyncpg） + Supabase SSL
+- 走 sync psycopg2 driver（asyncpg 與 PgBouncer transaction pool 不相容，
+  會遇到 __asyncpg_stmt_1__ 衝突；migrations 不需要非同步）
+- Supabase 連線會強制 SSL
 """
 
-import asyncio
 import os
 import sys
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import create_engine, pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
 
@@ -33,29 +33,18 @@ if config.config_file_name is not None:
 # ── Target Metadata：指向所有 ORM Model ────────────────────────────
 target_metadata = Base.metadata
 
-# ── 決定是否需要 SSL（Supabase 強制，本地 Docker 不需要）──────────────
+# ── 建立 sync engine（psycopg2 driver）──────────────────────────
 _use_ssl = "supabase" in settings.DB_HOST or "pooler.supabase" in settings.DB_HOST
-_connect_args: dict = {
-    # PgBouncer transaction pool mode 需停用 asyncpg 原生 prepared statement cache
-    "statement_cache_size": 0,
-}
+_sync_url = settings.DATABASE_URL  # postgresql:// (defaults to psycopg2)
+_connect_args: dict = {}
 if _use_ssl:
-    _connect_args["ssl"] = "require"
-
-# ── 建立 async engine（直接使用 settings URL，避免 configparser % 解析問題）──
-# SQLAlchemy asyncpg dialect 的 prepared_statement_cache_size 只能透過 URL
-# query string 注入（既非 create_async_engine kwarg，也非 connect_args）。
-# PgBouncer transaction mode 下缺了它會出現 __asyncpg_stmt_1__ 衝突。
-_async_url = settings.ASYNC_DATABASE_URL
-if _use_ssl:
-    _sep = "&" if "?" in _async_url else "?"
-    _async_url = f"{_async_url}{_sep}prepared_statement_cache_size=0"
+    _connect_args["sslmode"] = "require"
 
 
 def run_migrations_offline() -> None:
     """Offline mode：不需要實際資料庫連線，只產生 SQL 腳本"""
     context.configure(
-        url=_async_url,
+        url=_sync_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -75,26 +64,16 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-async def run_async_migrations() -> None:
-    """Online mode：使用非同步引擎連接資料庫
-
-    在 Supabase / PgBouncer transaction pool 模式下，必須雙重停用
-    prepared statement cache，否則會出現 `__asyncpg_stmt_1__ already exists`：
-      - connect_args.statement_cache_size=0  → asyncpg 原生 cache
-      - URL query `?prepared_statement_cache_size=0` → SQLAlchemy dialect cache
-    """
-    connectable = create_async_engine(
-        _async_url,
+def run_migrations_online() -> None:
+    """Online mode：sync engine + psycopg2，PgBouncer transaction mode 下安全"""
+    connectable = create_engine(
+        _sync_url,
         poolclass=pool.NullPool,
         connect_args=_connect_args,
     )
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-    await connectable.dispose()
-
-
-def run_migrations_online() -> None:
-    asyncio.run(run_async_migrations())
+    with connectable.connect() as connection:
+        do_run_migrations(connection)
+    connectable.dispose()
 
 
 if context.is_offline_mode():
