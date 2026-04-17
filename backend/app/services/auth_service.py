@@ -170,6 +170,7 @@ class AuthService:
                 "email": user.email,
                 "name": user.name,
                 "role": user.role.value,
+                "preferred_language": user.preferred_language,
             },
         }
 
@@ -230,6 +231,7 @@ class AuthService:
                 "email": user.email,
                 "name": user.name,
                 "role": user.role.value,
+                "preferred_language": user.preferred_language,
             },
         }
 
@@ -491,6 +493,7 @@ class AuthService:
             "phone": user.phone,
             "department": user.department,
             "license_number": user.license_number,
+            "preferred_language": user.preferred_language,
             "is_active": user.is_active,
             "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
             "created_at": user.created_at.isoformat() if user.created_at else None,
@@ -519,10 +522,13 @@ class AuthService:
             raise NotFoundException("errors.user_not_found")
 
         # 僅更新允許的欄位
+        # preferred_language 允許 None（清除偏好回到系統預設）
         updatable_fields = {"name", "phone", "department"}
         for field, value in data.items():
             if field in updatable_fields and value is not None:
                 setattr(user, field, value)
+        if "preferred_language" in data:
+            user.preferred_language = data["preferred_language"]
 
         user.updated_at = utc_now()
         await db.flush()

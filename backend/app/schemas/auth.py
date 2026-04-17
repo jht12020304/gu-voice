@@ -22,6 +22,7 @@ class UserInfo(BaseModel):
     email: str
     name: str
     role: UserRole
+    preferred_language: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -144,3 +145,23 @@ UserResponse = UserInfo
 class UpdateProfileRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     phone: Optional[str] = Field(None, max_length=20)
+    preferred_language: Optional[str] = Field(None, max_length=10)
+
+    @field_validator("preferred_language")
+    @classmethod
+    def validate_preferred_language(cls, v: Optional[str]) -> Optional[str]:
+        """
+        確保只接受 settings.SUPPORTED_LANGUAGES 裡的 BCP-47 值；
+        空字串代表清除偏好（回 None），不接受任意語碼。
+        """
+        if v is None or v == "":
+            return None
+        from app.core.config import settings
+        from app.utils.language import normalize_bcp47
+
+        normalized = normalize_bcp47(v)
+        if normalized not in settings.SUPPORTED_LANGUAGES:
+            raise ValueError(
+                f"preferred_language 必須為 {settings.SUPPORTED_LANGUAGES} 其中之一"
+            )
+        return normalized

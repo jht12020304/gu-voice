@@ -12,6 +12,7 @@ export interface User {
   phone?: string;
   department?: string;
   licenseNumber?: string;
+  preferredLanguage?: string | null;
   isActive: boolean;
   lastLoginAt?: string;
   createdAt: string;

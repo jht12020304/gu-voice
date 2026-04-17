@@ -5,6 +5,19 @@
 import { create } from 'zustand';
 import type { User } from '../types';
 import * as authApi from '../services/api/auth';
+import i18n, { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../i18n';
+
+/**
+ * 若 server 回傳的 preferredLanguage 在白名單內，切換 i18n + settingsStore。
+ * 透過 i18n.changeLanguage 就好，settingsStore 已透過 i18n 的 languageChanged 事件同步。
+ */
+function applyPreferredLanguage(lang: string | null | undefined): void {
+  if (!lang) return;
+  const allowed = SUPPORTED_LANGUAGES as readonly string[];
+  if (!allowed.includes(lang)) return;
+  if (i18n.language === lang) return;
+  void i18n.changeLanguage(lang as SupportedLanguage);
+}
 
 interface AuthState {
   user: User | null;
@@ -49,6 +62,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
         isAuthenticated: true,
         isLoading: false,
       });
+      applyPreferredLanguage(response.user.preferredLanguage);
     } catch (error: unknown) {
       const message =
         (error as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
@@ -164,6 +178,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
         isAuthenticated: true,
         isLoading: false,
       });
+      applyPreferredLanguage(user.preferredLanguage);
     } catch {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');

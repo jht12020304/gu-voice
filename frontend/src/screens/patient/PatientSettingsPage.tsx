@@ -31,6 +31,7 @@ export default function PatientSettingsPage() {
     await updateProfile({
       email: profile.email,
       phone: profile.phone,
+      preferredLanguage: language,
     });
     setIsSaving(false);
     setMessage(t('patient.settings.savedMessage'));

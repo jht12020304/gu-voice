@@ -9,6 +9,8 @@ import toast from 'react-hot-toast';
 
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../../i18n';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useAuthStore } from '../../stores/authStore';
+import * as authApi from '../../services/api/auth';
 
 interface LanguageSwitcherProps {
   /** 緊湊模式（只顯示 icon + 兩字縮寫），預設 true — 適合 Header */
@@ -24,6 +26,8 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
   const { t } = useTranslation('common');
   const language = useSettingsStore((s) => s.language);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const user = useAuthStore((s) => s.user);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -49,6 +53,18 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
     if (lng === language) return;
     setLanguage(lng);
     toast.success(t('language.switched', { name: t(`language.names.${lng}`) }));
+
+    // 已登入 → PATCH /auth/me 持久化偏好，失敗不擋 UI 切換
+    if (isAuthenticated && user && user.preferredLanguage !== lng) {
+      void authApi
+        .updateMe({ preferredLanguage: lng })
+        .then((updated) => {
+          useAuthStore.setState({ user: updated });
+        })
+        .catch(() => {
+          // 後端寫入失敗不 toast error — 下次登入仍會用本地設定；避免切語言變成阻斷操作
+        });
+    }
   };
 
   const currentName = t(`language.names.${language}`);
