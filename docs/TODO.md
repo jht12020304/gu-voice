@@ -330,7 +330,7 @@
   - [x] 5 項單元測試（valid email 寫 Redis + 送信、不存在 email 仍回同訊息且不送信、正確 token 重設成功 + 清 key、錯 token 拋錯、過期 token 拋錯）
 - **驗收**：單元 168 passed；本機未設 SENDGRID / SMTP 時走 `_LoggingEmailClient` 印出模擬 email，方便前端 QA 流程
 
-### [ ] 32. `docs/專案開發進度.md` 更新
+### [ ] 32. `./專案開發進度.md` 更新
 
 - Prompt chain upgrade 已完成（Phase 4，41 tests）但未反映
 - 加「最後更新日期」與「狀態」欄位

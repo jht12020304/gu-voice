@@ -59,3 +59,9 @@ htmlcov/
 .vscode/
 .idea/
 *.swp
+
+# Local tool caches / scratch
+.claude/
+.playwright-cli/
+.playwright-mcp/
+output/

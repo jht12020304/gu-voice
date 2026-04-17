@@ -384,7 +384,7 @@
 
 ## 七、文件 / 流程
 
-- 🟡 `docs/專案開發進度.md` 與實際程式碼漂移：例如 prompt upgrade 已完成（41 tests），但進度文件未更新
+- 🟡 `./專案開發進度.md` 與實際程式碼漂移：例如 prompt upgrade 已完成（41 tests），但進度文件未更新
 - 🟡 `.env.example` 與 `config.py` 不一致（見 2.1），新人難以上手
 - 🟢 `docs/` 有多份 spec 檔（backend_spec、frontend_spec、api_spec…）但沒有「最新狀態」標注；建議頂部加「最後更新日期」與「狀態：已對齊實作 / 待更新」
 
