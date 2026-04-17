@@ -19,11 +19,11 @@ import json
 import logging
 from typing import Any
 
-from openai import AsyncOpenAI
 from redis.asyncio import Redis
 
 from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
+from app.core.openai_client import call_with_retry, get_openai_client
 from app.pipelines.prompts.shared import (
     HPI_FIELD_IDS,
     SINGLE_QUESTION_RULE,
@@ -78,7 +78,7 @@ hpi_completion_percentage 為 0-100 的整數,評估 HPI 十欄的整體完整�
 class SupervisorEngine:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self._client = get_openai_client()
         self._model = settings.OPENAI_MODEL_SUPERVISOR
         self._reasoning_effort = settings.OPENAI_REASONING_EFFORT_SUPERVISOR
         self._max_tokens = settings.OPENAI_MAX_TOKENS_SUPERVISOR
@@ -152,7 +152,9 @@ class SupervisorEngine:
                 create_kwargs["reasoning_effort"] = self._reasoning_effort
             else:
                 create_kwargs["temperature"] = self._temperature
-            response = await self._client.chat.completions.create(**create_kwargs)
+            response = await call_with_retry(
+                lambda: self._client.chat.completions.create(**create_kwargs)
+            )
 
             raw_content = response.choices[0].message.content or "{}"
             result = json.loads(raw_content)

@@ -9,9 +9,8 @@ import io
 import logging
 from typing import Any
 
-from openai import AsyncOpenAI
-
 from app.core.config import Settings
+from app.core.openai_client import call_with_retry, get_openai_client
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,7 @@ class STTPipeline:
     """
 
     def __init__(self, settings: Settings) -> None:
-        self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self._client = get_openai_client()
         self._model = settings.OPENAI_STT_MODEL        # "whisper-1"
         self._language = settings.OPENAI_STT_LANGUAGE  # "zh"
 
@@ -60,16 +59,20 @@ class STTPipeline:
 
         lang = language or self._language
 
-        # BytesIO 包裝並加上副檔名讓 OpenAI 識別格式
-        audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "audio.webm"
+        def _make_file() -> io.BytesIO:
+            """每次重試時重建 BytesIO；原 stream 可能已被消耗。"""
+            f = io.BytesIO(audio_bytes)
+            f.name = "audio.webm"
+            return f
 
         try:
-            response = await self._client.audio.transcriptions.create(
-                model=self._model,
-                file=audio_file,
-                language=lang,
-                response_format="json",
+            response = await call_with_retry(
+                lambda: self._client.audio.transcriptions.create(
+                    model=self._model,
+                    file=_make_file(),
+                    language=lang,
+                    response_format="json",
+                )
             )
 
             text = (response.text or "").strip()

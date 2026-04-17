@@ -10,6 +10,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -18,6 +19,7 @@ from app.core.dependencies import close_redis, init_redis
 from app.core.exceptions import register_exception_handlers
 from app.core.firebase import initialize_firebase
 from app.core.middleware import AuditLoggingMiddleware, RequestIdMiddleware
+from app.core.sentry import init_sentry
 from app.schemas.common import HealthResponse
 
 logger = logging.getLogger(__name__)
@@ -71,6 +73,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """應用程式生命週期管理：連線資料庫與 Redis"""
     # 啟動
     _enforce_production_secrets()
+    init_sentry()  # 早期初始化：讓 lifespan 後續錯誤也能被捕獲
     initialize_firebase()
     await init_redis()
     yield
@@ -102,6 +105,17 @@ app.add_middleware(
 
 # ── 例外處理器 ─────────────────────────────────────────
 register_exception_handlers(app)
+
+
+# ── Prometheus metrics（TODO P1-#10） ──────────────────
+# /metrics 回 text format；若設 PROMETHEUS_METRICS_ENABLED=false 可關閉
+if getattr(settings, "PROMETHEUS_METRICS_ENABLED", True):
+    Instrumentator().instrument(app).expose(
+        app,
+        endpoint="/metrics",
+        include_in_schema=False,
+        tags=["系統"],
+    )
 
 
 # ── 路由註冊 ───────────────────────────────────────────

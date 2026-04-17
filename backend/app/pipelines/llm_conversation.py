@@ -9,10 +9,13 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from openai import AsyncOpenAI
-
 from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
+from app.core.openai_client import (
+    budget_messages,
+    call_with_retry,
+    get_openai_client,
+)
 from app.pipelines.prompts.shared import (
     SINGLE_QUESTION_RULE,
     render_hpi_checklist,
@@ -38,7 +41,7 @@ class LLMConversationEngine:
             settings: 應用程式設定實例
         """
         self._settings = settings
-        self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self._client = get_openai_client()
         self._model = settings.OPENAI_MODEL_CONVERSATION  # default gpt-4o
         self._temperature = settings.OPENAI_TEMPERATURE_CONVERSATION  # 0.7
         self._max_tokens = settings.OPENAI_MAX_TOKENS_CONVERSATION  # 2048
@@ -220,9 +223,13 @@ class LLMConversationEngine:
             #       任何值(包括字面字串 "none")都會被 API 拒絕,但接受 temperature。
             # 約定:OPENAI_REASONING_EFFORT_CONVERSATION="none" 代表「走傳統路徑」,
             # 這時完全不送 reasoning_effort,只送 temperature。
+            # P1-#7：送 LLM 前先套 token budget（context_limit - max_tokens - reserve），
+            # 超量時保留 system prompt、從頭部丟舊對話。
+            budgeted = budget_messages(messages, self._model, self._max_tokens)
+
             create_kwargs: dict[str, Any] = {
                 "model": self._model,
-                "messages": messages,
+                "messages": budgeted,
                 "max_completion_tokens": self._max_tokens,
                 "stream": True,
             }
@@ -233,7 +240,10 @@ class LLMConversationEngine:
                 # 傳統路徑:送 temperature,完全不送 reasoning_effort
                 create_kwargs["temperature"] = self._temperature
 
-            stream = await self._client.chat.completions.create(**create_kwargs)
+            # 只有 stream 初建失敗（429 / timeout）才重試；一旦開始收 chunk 就不能重試。
+            stream = await call_with_retry(
+                lambda: self._client.chat.completions.create(**create_kwargs)
+            )
 
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:

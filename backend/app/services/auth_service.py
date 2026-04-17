@@ -42,6 +42,44 @@ logger = logging.getLogger(__name__)
 # JWT 黑名單 Redis key 前綴（與 dependencies.get_current_user 檢查端共用）
 BLACKLIST_KEY_PREFIX = "gu:token_blacklist:"
 
+# Refresh token rotation 登記表 key 前綴
+# 每發一張 refresh token，就寫一筆 gu:refresh:{user_id}:{jti} = "1"，TTL = token exp
+# refresh 時必須先 atomic 刪除舊 jti；刪不到就視為 replay，撤銷該 user 所有 refresh token
+REFRESH_TOKEN_KEY_PREFIX = "gu:refresh:"
+
+
+def _refresh_key(user_id: Any, jti: str) -> str:
+    return f"{REFRESH_TOKEN_KEY_PREFIX}{user_id}:{jti}"
+
+
+async def _register_refresh_token(redis: Any, user_id: Any, refresh_token: str) -> None:
+    """Decode 並在 Redis 登記 refresh jti（TTL = exp - now）。"""
+    try:
+        payload = verify_refresh_token(refresh_token)
+    except JWTError:
+        return
+    jti = payload.get("jti")
+    exp = payload.get("exp")
+    if not jti or not exp:
+        return
+    ttl = max(int(exp) - int(time.time()), 1)
+    await redis.setex(_refresh_key(user_id, jti), ttl, "1")
+
+
+async def _consume_refresh_jti(redis: Any, user_id: Any, jti: str) -> bool:
+    """原子刪除一筆 refresh jti。True 代表本來就存在、成功消耗。"""
+    deleted = await redis.delete(_refresh_key(user_id, jti))
+    return bool(deleted)
+
+
+async def _revoke_all_refresh_tokens(redis: Any, user_id: Any) -> int:
+    """掃除該 user 所有 refresh token 登記。回傳刪除筆數。"""
+    pattern = f"{REFRESH_TOKEN_KEY_PREFIX}{user_id}:*"
+    count = 0
+    async for key in redis.scan_iter(match=pattern):
+        count += int(await redis.delete(key))
+    return count
+
 
 class AuthService:
     """認證相關業務邏輯"""
@@ -81,6 +119,10 @@ class AuthService:
         # 建立 JWT token 對
         access_token = create_access_token(str(user.id), user.role.value)
         refresh_token = create_refresh_token(str(user.id), user.role.value)
+
+        # 登記 refresh jti 供 rotation / reuse detection（P1-#11）
+        from app.cache.redis_client import get_redis
+        await _register_refresh_token(await get_redis(), str(user.id), refresh_token)
 
         return {
             "access_token": access_token,
@@ -139,6 +181,9 @@ class AuthService:
         access_token = create_access_token(str(user.id), user.role.value)
         refresh_token = create_refresh_token(str(user.id), user.role.value)
 
+        from app.cache.redis_client import get_redis
+        await _register_refresh_token(await get_redis(), str(user.id), refresh_token)
+
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
@@ -173,8 +218,21 @@ class AuthService:
             raise UnauthorizedException("Refresh token 無效或已過期")
 
         user_id = payload.get("sub")
-        if not user_id:
+        old_jti = payload.get("jti")
+        if not user_id or not old_jti:
             raise UnauthorizedException("Token payload 不完整")
+
+        # Rotation + reuse detection（P1-#11）：
+        # atomic 消耗舊 jti；刪不到 → 重播/被盜 → 撤銷該 user 所有 refresh token
+        from app.cache.redis_client import get_redis
+        redis = await get_redis()
+        if not await _consume_refresh_jti(redis, user_id, old_jti):
+            revoked = await _revoke_all_refresh_tokens(redis, user_id)
+            logger.warning(
+                "refresh token reuse detected user=%s old_jti=%s revoked_total=%d",
+                user_id, old_jti, revoked,
+            )
+            raise UnauthorizedException("Refresh token 重複使用，請重新登入")
 
         # 確認使用者仍然存在且啟用
         result = await db.execute(
@@ -187,9 +245,10 @@ class AuthService:
         if not user.is_active:
             raise AccountDisabledException()
 
-        # 建立新的 token 對
+        # 建立新的 token 對，並登記新 refresh jti
         new_access = create_access_token(str(user.id), user.role.value)
         new_refresh = create_refresh_token(str(user.id), user.role.value)
+        await _register_refresh_token(redis, str(user.id), new_refresh)
 
         return {
             "access_token": new_access,
@@ -235,14 +294,20 @@ class AuthService:
 
         if refresh_token:
             try:
-                await _blacklist(verify_refresh_token(refresh_token))
+                ref_payload = verify_refresh_token(refresh_token)
+                await _blacklist(ref_payload)
+                ref_jti = ref_payload.get("jti")
+                if ref_jti:
+                    # 同時移除 rotation 登記，阻斷後續 refresh 交換
+                    await _consume_refresh_jti(redis, str(user_id), ref_jti)
             except JWTError:
                 logger.debug("logout: refresh token 已失效，跳過黑名單 user=%s", user_id)
         else:
-            logger.warning(
-                "logout user=%s 未提供 refresh_token；目前僅黑名單 access token，"
-                "撤銷該使用者所有 refresh token 需 TODO P1-#11 實作",
-                user_id,
+            # 未帶 refresh token：撤銷該 user 所有 rotation 登記，等同強制重新登入
+            revoked = await _revoke_all_refresh_tokens(redis, str(user_id))
+            logger.info(
+                "logout user=%s 未提供 refresh_token；revoke 所有 refresh jti=%d",
+                user_id, revoked,
             )
 
     @staticmethod

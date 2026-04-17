@@ -18,7 +18,6 @@ from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from jose import JWTError
-from openai import AsyncOpenAI
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -110,7 +109,8 @@ async def _summarize_history_segment(
         if not transcript.strip():
             return None
 
-        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        from app.core.openai_client import get_openai_client
+        client = get_openai_client()
         model = getattr(settings, "OPENAI_MODEL_SUMMARIZER", "gpt-4o-mini")
         resp = await asyncio.wait_for(
             client.chat.completions.create(
