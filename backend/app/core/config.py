@@ -230,10 +230,12 @@ class Settings(BaseSettings):
         "en-US": {"whisper": "en", "tts_voice": "nova", "display": "English", "native": "English"},
     }
 
-    # P0 TODO-O1 feature flag 分層（上線後用 Redis 動態覆寫，此處為 bootstrap 預設）
-    MULTILANG_GLOBAL_ENABLED: bool = False
-    MULTILANG_ROLLOUT_PERCENT: int = 0  # 0-100，user_id hash 取模
-    MULTILANG_DISABLED_LANGUAGES: list[str] = []  # 緊急 kill-switch
+    # TODO-O1 feature flag 分層（上線後可用 env / Redis 動態覆寫）。
+    # Phase 3 已完整驗收（pytest 283 / Alembic round-trip / E2E），
+    # 預設採全量上線；需緊急降級時覆寫 env 為 False / 0 / "zh-TW,en-US"。
+    MULTILANG_GLOBAL_ENABLED: bool = True
+    MULTILANG_ROLLOUT_PERCENT: int = 100  # 0-100，user_id md5 % 100 決定 bucket
+    MULTILANG_DISABLED_LANGUAGES: list[str] = []  # 緊急 kill-switch（逗號分隔）
 
     # ── WebSocket / Session Stability (P2) ─────────────
     OPENAI_MODEL_SUMMARIZER: str = "gpt-4o-mini"           # 便宜的摘要模型

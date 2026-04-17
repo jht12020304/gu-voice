@@ -1,13 +1,18 @@
 """
-守護 `app.utils.language.resolve_language` 的 fallback chain：
+守護 `app.utils.language.resolve_language` 的 fallback chain 與 feature flag gate：
 
-順序：payload > user.preferred_language > Accept-Language > settings default。
+Fallback chain 順序：payload > user.preferred_language > Accept-Language > settings default。
 任一環節產出未支援語言 → 略過、往下找；全部 miss → settings default。
+
+Feature flag gate：
+  - MULTILANG_GLOBAL_ENABLED=False → 直接回 default
+  - MULTILANG_ROLLOUT_PERCENT 決定使用者是否進入灰度 bucket
+  - MULTILANG_DISABLED_LANGUAGES 作為 per-locale kill switch
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import pytest
@@ -19,6 +24,7 @@ from app.utils.language import resolve_language
 @dataclass
 class _FakeUser:
     preferred_language: Optional[str] = None
+    id: Optional[str] = None
 
 
 def test_payload_wins_when_supported():
@@ -125,4 +131,113 @@ def test_user_preference_unsupported_falls_through():
             accept_language_header="zh-TW",
         )
         == "zh-TW"
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# Feature flag gate（TODO-O1）
+# ─────────────────────────────────────────────────────────────
+
+
+def test_gate_global_disabled_returns_default(monkeypatch):
+    """MULTILANG_GLOBAL_ENABLED=False → 一律 DEFAULT_LANGUAGE，不走 fallback chain。"""
+    monkeypatch.setattr(settings, "MULTILANG_GLOBAL_ENABLED", False)
+    assert (
+        resolve_language(
+            payload_language="en-US",
+            user=_FakeUser("en-US"),
+            accept_language_header="en-US",
+        )
+        == settings.DEFAULT_LANGUAGE
+    )
+
+
+def test_gate_rollout_zero_blocks_authenticated_users(monkeypatch):
+    """ROLLOUT_PERCENT=0 + 有 user.id → 不進灰度，回 default。"""
+    monkeypatch.setattr(settings, "MULTILANG_ROLLOUT_PERCENT", 0)
+    assert (
+        resolve_language(
+            payload_language="en-US",
+            user=_FakeUser(preferred_language="en-US", id="user-123"),
+        )
+        == settings.DEFAULT_LANGUAGE
+    )
+
+
+def test_gate_rollout_zero_allows_anonymous(monkeypatch):
+    """ROLLOUT_PERCENT=0 但匿名請求 (user=None) → 放行 fallback chain。"""
+    monkeypatch.setattr(settings, "MULTILANG_ROLLOUT_PERCENT", 0)
+    assert (
+        resolve_language(
+            payload_language="en-US",
+            user=None,
+        )
+        == "en-US"
+    )
+
+
+def test_gate_rollout_full_allows_everyone(monkeypatch):
+    """ROLLOUT_PERCENT=100 → 不論 user.id 都進灰度。"""
+    monkeypatch.setattr(settings, "MULTILANG_ROLLOUT_PERCENT", 100)
+    assert (
+        resolve_language(
+            payload_language="en-US",
+            user=_FakeUser(preferred_language="zh-TW", id="any-user"),
+        )
+        == "en-US"
+    )
+
+
+def test_gate_rollout_partial_is_stable_per_user(monkeypatch):
+    """ROLLOUT_PERCENT 中間值：同一 user.id 多次呼叫結果一致（hash 穩定）。"""
+    monkeypatch.setattr(settings, "MULTILANG_ROLLOUT_PERCENT", 50)
+    user = _FakeUser(preferred_language="en-US", id="stable-user-id")
+    results = {
+        resolve_language(payload_language="en-US", user=user)
+        for _ in range(5)
+    }
+    assert len(results) == 1  # 同一 user 必定分到同一 bucket
+
+
+def test_gate_disabled_language_kill_switch(monkeypatch):
+    """MULTILANG_DISABLED_LANGUAGES 包含候選 → 跳過該候選。"""
+    monkeypatch.setattr(settings, "MULTILANG_DISABLED_LANGUAGES", ["en-US"])
+    # payload=en-US 被 block → 改看 user → 再看 accept-language
+    assert (
+        resolve_language(
+            payload_language="en-US",
+            user=_FakeUser(preferred_language="en-US"),
+            accept_language_header="zh-TW",
+        )
+        == "zh-TW"
+    )
+
+
+def test_gate_disabled_language_falls_to_default(monkeypatch):
+    """全部候選都在 DISABLED_LANGUAGES → 最終走 settings default。"""
+    monkeypatch.setattr(settings, "MULTILANG_DISABLED_LANGUAGES", ["en-US"])
+    assert (
+        resolve_language(
+            payload_language="en-US",
+            user=_FakeUser(preferred_language="en-US"),
+            accept_language_header="en-US",
+        )
+        == settings.DEFAULT_LANGUAGE
+    )
+
+
+def test_gate_default_language_unaffected_by_disabled(monkeypatch):
+    """
+    DEFAULT_LANGUAGE 本身不受 DISABLED 影響 — kill switch 觸發時仍用 default 作為
+    last resort；避免整個系統沒語言可回。
+    """
+    # 讓所有候選都 miss，強制走到 default
+    monkeypatch.setattr(settings, "MULTILANG_DISABLED_LANGUAGES", ["en-US"])
+    assert (
+        resolve_language(
+            payload_language=None,
+            user=None,
+            accept_language_header=None,
+        )
+        == settings.DEFAULT_LANGUAGE
     )

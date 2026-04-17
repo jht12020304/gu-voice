@@ -1,7 +1,16 @@
 """
-語言解析工具（docs/i18n_plan.md TODO C.6 / E14）。
+語言解析工具（docs/i18n_plan.md TODO C.6 / E14 / TODO-O1）。
 
-`resolve_language()` 實作 fallback chain：
+`resolve_language()` 實作 fallback chain + feature flag gate：
+
+    Feature flag gate
+    ────────────────
+    - MULTILANG_GLOBAL_ENABLED=False    → 一律回 DEFAULT_LANGUAGE
+    - 認證使用者不在 ROLLOUT_PERCENT     → 回 DEFAULT_LANGUAGE
+    - 最終候選在 DISABLED_LANGUAGES      → 回 DEFAULT_LANGUAGE（kill-switch）
+
+    Fallback chain（通過 gate 後）
+    ────────────────────────────
     payload.language
     → user.preferred_language
     → Accept-Language header（僅取第一個語言，忽略 q 權重）
@@ -10,15 +19,13 @@
 任何環節回傳不在 `SUPPORTED_LANGUAGES` 的值都會被跳過（而非 raise），
 讓 fallback 能繼續往下找；所有環節都漏掉才走 settings default。
 
-上線前須完成的相關 TODO：
+上線前待辦：
 - TODO-M4：consent_records 須 block 未同意最新版的 session。
-- TODO-O1：此函式要先過 feature flag gate（`MULTILANG_GLOBAL_ENABLED`
-           / `MULTILANG_ROLLOUT_PERCENT` / `MULTILANG_DISABLED_LANGUAGES`），
-           flag 未開時一律回 DEFAULT_LANGUAGE。
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from typing import Optional, Protocol
@@ -29,9 +36,36 @@ logger = logging.getLogger(__name__)
 
 
 class _UserLike(Protocol):
-    """只需要 preferred_language 屬性 — ORM User 或 dict wrapper 都相容。"""
+    """只需要 preferred_language 屬性 — ORM User 或 dict wrapper 都相容。
+
+    rollout gate 會讀 `id` 屬性（若存在）作 hash 依據；不是 hard requirement，
+    缺失時視同匿名請求（放行 fallback chain）。"""
 
     preferred_language: Optional[str]
+
+
+def _user_in_rollout(user: Optional[_UserLike]) -> bool:
+    """以 user.id 的 md5 hash 對 100 取模，決定是否進入灰度群。
+
+    - `MULTILANG_ROLLOUT_PERCENT >= 100` → 一律放行
+    - `MULTILANG_ROLLOUT_PERCENT <= 0`   → 一律不放行
+    - 中間值：使用者按 hash bucket 分配（穩定，不隨時間漂移）
+    - 匿名請求（user=None）→ 放行；gate 主要用來管認證使用者的灰度
+    """
+    percent = max(0, min(100, int(settings.MULTILANG_ROLLOUT_PERCENT)))
+    if percent >= 100:
+        return True
+    # 匿名請求不在 bucket 體系內 — rollout gate 是管認證使用者的灰度，
+    # 無 user 或 user.id 缺失時一律放行，避免公開路由（login / forgot-password）被整批 kill
+    if user is None:
+        return True
+    uid = getattr(user, "id", None)
+    if uid is None:
+        return True
+    if percent <= 0:
+        return False
+    bucket = int(hashlib.md5(str(uid).encode("utf-8")).hexdigest(), 16) % 100
+    return bucket < percent
 
 
 _ACCEPT_LANG_TOKEN_RE = re.compile(r"([A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*)")
@@ -84,6 +118,20 @@ def _pick_from_accept_language(header: Optional[str]) -> Optional[str]:
     return None
 
 
+def _safe_default() -> str:
+    """回傳 DEFAULT_LANGUAGE；若 misconfigured（不在 SUPPORTED_LANGUAGES）則退 zh-TW。"""
+    default = settings.DEFAULT_LANGUAGE
+    if default in settings.SUPPORTED_LANGUAGES:
+        return default
+    logger.warning(
+        "resolve_language: DEFAULT_LANGUAGE=%r not in SUPPORTED_LANGUAGES=%r; "
+        "hard-coded fallback to zh-TW",
+        default,
+        settings.SUPPORTED_LANGUAGES,
+    )
+    return "zh-TW"
+
+
 def resolve_language(
     *,
     payload_language: Optional[str] = None,
@@ -93,42 +141,57 @@ def resolve_language(
     """
     解析 session 使用語言。
 
-    優先序：payload > user.preferred_language > Accept-Language > settings 預設。
+    Feature flag gate（按順序）：
+      1. MULTILANG_GLOBAL_ENABLED=False → DEFAULT_LANGUAGE
+      2. user 不在 ROLLOUT_PERCENT bucket → DEFAULT_LANGUAGE
+      3. 最終候選落在 DISABLED_LANGUAGES → DEFAULT_LANGUAGE（kill-switch）
+
+    Fallback chain（通過 gate 後）：
+      payload > user.preferred_language > Accept-Language > DEFAULT_LANGUAGE。
+
     所有候選都須落在 `settings.SUPPORTED_LANGUAGES` 才採用；否則略過。
-    永遠回字串 —— 最後一層 fallback 到 `settings.DEFAULT_LANGUAGE`。
+    永遠回字串。
     """
+    # Gate 1：全域 kill switch
+    if not settings.MULTILANG_GLOBAL_ENABLED:
+        return _safe_default()
+
+    # Gate 2：rollout bucket
+    if not _user_in_rollout(user):
+        logger.debug("resolve_language: user not in rollout bucket; using default")
+        return _safe_default()
+
     supported = set(settings.SUPPORTED_LANGUAGES)
+    disabled = set(settings.MULTILANG_DISABLED_LANGUAGES or [])
+
+    def _accept(cand: Optional[str]) -> Optional[str]:
+        """候選須在 supported 且不在 disabled。"""
+        if not cand or cand not in supported or cand in disabled:
+            return None
+        return cand
 
     # 1. payload 顯式指定
-    candidate = normalize_bcp47(payload_language)
-    if candidate and candidate in supported:
-        return candidate
-    if payload_language and candidate not in supported:
+    accepted = _accept(normalize_bcp47(payload_language))
+    if accepted:
+        return accepted
+    if payload_language:
         logger.debug(
-            "resolve_language: payload %r not in supported; fall back",
-            payload_language,
+            "resolve_language: payload %r not accepted (supported=%s, disabled=%s)",
+            payload_language, supported, disabled,
         )
 
     # 2. user.preferred_language
     if user is not None:
-        candidate = normalize_bcp47(getattr(user, "preferred_language", None))
-        if candidate and candidate in supported:
-            return candidate
+        accepted = _accept(normalize_bcp47(getattr(user, "preferred_language", None)))
+        if accepted:
+            return accepted
 
     # 3. Accept-Language header
     from_header = _pick_from_accept_language(accept_language_header)
-    if from_header:
-        return from_header
+    accepted = _accept(from_header)
+    if accepted:
+        return accepted
 
-    # 4. settings default
-    default = settings.DEFAULT_LANGUAGE
-    if default in supported:
-        return default
-    # 終極防線：default 不在清單時回 zh-TW 避免 runtime 炸鍋
-    logger.warning(
-        "resolve_language: DEFAULT_LANGUAGE=%r not in SUPPORTED_LANGUAGES=%r; "
-        "hard-coded fallback to zh-TW",
-        default,
-        settings.SUPPORTED_LANGUAGES,
-    )
-    return "zh-TW"
+    # 4. settings default（DEFAULT_LANGUAGE 本身不受 DISABLED 影響 —
+    #    kill switch 觸發時仍用 default 作為 last resort 一致選擇）
+    return _safe_default()
