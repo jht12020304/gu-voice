@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
 import * as sessionsApi from '../../services/api/sessions';
 import { formatDate } from '../../utils/format';
@@ -44,16 +45,17 @@ const mockRecentSessions: Session[] = [
   },
 ];
 
-const statusLabels: Record<string, { text: string; cls: string }> = {
-  completed: { text: '已完成', cls: 'badge-completed' },
-  in_progress: { text: '進行中', cls: 'badge-in-progress' },
-  waiting: { text: '等待中', cls: 'badge-waiting' },
-  aborted_red_flag: { text: '紅旗中止', cls: 'badge-red-flag' },
-  cancelled: { text: '已取消', cls: 'badge-red-flag' },
+const statusKeyMap: Record<string, { labelKey: string; cls: string }> = {
+  completed: { labelKey: 'patient.home.statusCompleted', cls: 'badge-completed' },
+  in_progress: { labelKey: 'patient.home.statusInProgress', cls: 'badge-in-progress' },
+  waiting: { labelKey: 'patient.home.statusWaiting', cls: 'badge-waiting' },
+  aborted_red_flag: { labelKey: 'patient.home.statusAbortedRedFlag', cls: 'badge-red-flag' },
+  cancelled: { labelKey: 'patient.home.statusCancelled', cls: 'badge-red-flag' },
 };
 
 export default function PatientHomePage() {
   const navigate = useNavigate();
+  const { t } = useTranslation('common');
   const user = useAuthStore((s) => s.user);
   const [recentSessions, setRecentSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -78,7 +80,12 @@ export default function PatientHomePage() {
   }, [user?.id]);
 
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? '早安' : hour < 18 ? '午安' : '晚安';
+  const greeting =
+    hour < 12
+      ? t('patient.home.greetingMorning')
+      : hour < 18
+      ? t('patient.home.greetingAfternoon')
+      : t('patient.home.greetingEvening');
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-10 animate-fade-in">
@@ -86,10 +93,10 @@ export default function PatientHomePage() {
       {/* 問候語 */}
       <div className="mb-8">
         <h1 className="text-h1 font-semibold tracking-tight text-ink-heading dark:text-white">
-          {greeting}，{user?.name || '您好'}
+          {greeting}，{user?.name || t('patient.home.greetingFallback')}
         </h1>
         <p className="mt-1.5 text-body text-ink-muted dark:text-white/50">
-          今天有什麼不適嗎？AI 助手將協助您整理症狀。
+          {t('patient.home.subtitle')}
         </p>
       </div>
 
@@ -99,17 +106,17 @@ export default function PatientHomePage() {
         onClick={() => navigate('/patient/start')}
       >
         <p className="text-tiny font-medium uppercase tracking-widest text-primary-200">
-          泌尿科 AI 問診
+          {t('patient.home.startEyebrow')}
         </p>
         <h2 className="mt-2 text-h2 font-semibold tracking-tight text-white">
-          開始今天的問診
+          {t('patient.home.startTitle')}
         </h2>
         <p className="mt-1 text-body text-primary-200">
-          選擇症狀，填寫基本病史，與 AI 對話整理主訴
+          {t('patient.home.startSubtitle')}
         </p>
         <div className="mt-5 flex items-center justify-end">
           <span className="flex items-center gap-1.5 text-small font-medium text-white/90 transition-colors group-hover:text-white">
-            立即開始
+            {t('patient.home.startCta')}
             <svg className="h-4 w-4 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
             </svg>
@@ -121,14 +128,14 @@ export default function PatientHomePage() {
       <div className="mt-10">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-tiny font-medium uppercase tracking-widest text-ink-muted dark:text-white/40">
-            最近問診
+            {t('patient.home.recent')}
           </h2>
           {recentSessions.length > 0 && (
             <button
               className="text-small font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 transition-colors"
               onClick={() => navigate('/patient/history')}
             >
-              查看全部
+              {t('patient.home.viewAll')}
             </button>
           )}
         </div>
@@ -139,13 +146,13 @@ export default function PatientHomePage() {
           </div>
         ) : recentSessions.length === 0 ? (
           <div className="py-10 text-center">
-            <p className="text-body text-ink-muted dark:text-white/40">尚無問診紀錄</p>
-            <p className="mt-1 text-small text-ink-placeholder dark:text-white/20">開始第一次問診吧</p>
+            <p className="text-body text-ink-muted dark:text-white/40">{t('patient.home.empty')}</p>
+            <p className="mt-1 text-small text-ink-placeholder dark:text-white/20">{t('patient.home.emptyHint')}</p>
           </div>
         ) : (
           <div className="overflow-hidden rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
             {recentSessions.map((session, i) => {
-              const sc = statusLabels[session.status] || statusLabels.completed;
+              const sc = statusKeyMap[session.status] || statusKeyMap.completed;
               return (
                 <button
                   key={session.id}
@@ -165,14 +172,16 @@ export default function PatientHomePage() {
                   )}
                   <div className="min-w-0 flex-1 pl-1">
                     <p className="text-body font-medium text-ink-heading dark:text-white">
-                      {session.chiefComplaintText || '問診'}
+                      {session.chiefComplaintText || t('patient.home.defaultComplaint')}
                     </p>
                     <p className="mt-0.5 text-small text-ink-muted dark:text-white/40">
                       {formatDate(session.createdAt)}
-                      {session.durationSeconds ? ` · ${Math.round(session.durationSeconds / 60)} 分鐘` : ''}
+                      {session.durationSeconds
+                        ? ` · ${t('patient.home.durationMinutes', { minutes: Math.round(session.durationSeconds / 60) })}`
+                        : ''}
                     </p>
                   </div>
-                  <span className={`badge shrink-0 ${sc.cls}`}>{sc.text}</span>
+                  <span className={`badge shrink-0 ${sc.cls}`}>{t(sc.labelKey)}</span>
                   <svg className="h-4 w-4 shrink-0 text-ink-placeholder dark:text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                   </svg>

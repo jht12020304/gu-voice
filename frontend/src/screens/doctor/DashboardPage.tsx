@@ -1,5 +1,6 @@
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import * as dashboardApi from '../../services/api/dashboard';
 import type {
   MonthlySummaryResponse,
@@ -10,9 +11,31 @@ const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 
 const chartPalette = ['#8F3A6F', '#F2A83B', '#16181D', '#4A7AF7', '#46A168', '#D0D5DD'];
 
-function createMockMonthlySummary(monthDate: Date): MonthlySummaryResponse {
+// 用 key 對應 i18n 翻譯；後端 label 若無對應則 fallback 用後端回傳 label
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  completed: 'doctor.dashboard.statusCompleted',
+  in_progress: 'doctor.dashboard.statusInProgress',
+  waiting: 'doctor.dashboard.statusWaiting',
+  aborted_red_flag: 'doctor.dashboard.statusAbortedRedFlag',
+  cancelled: 'doctor.dashboard.statusCancelled',
+};
+
+const COMPLAINT_LABEL_KEYS: Record<string, string> = {
+  hematuria: 'doctor.dashboard.complaintHematuria',
+  frequency: 'doctor.dashboard.complaintFrequency',
+  voiding: 'doctor.dashboard.complaintVoiding',
+  pain: 'doctor.dashboard.complaintPain',
+  other: 'doctor.dashboard.complaintOther',
+};
+
+const SEVERITY_LABEL_KEYS: Record<string, string> = {
+  critical: 'doctor.dashboard.severityCritical',
+  high: 'doctor.dashboard.severityHigh',
+  medium: 'doctor.dashboard.severityMedium',
+};
+
+function createMockMonthlySummary(monthDate: Date, monthLabel: string): MonthlySummaryResponse {
   const month = format(monthDate, 'yyyy-MM');
-  const monthLabel = format(monthDate, 'yyyy 年 M 月');
 
   return {
     month,
@@ -24,23 +47,23 @@ function createMockMonthlySummary(monthDate: Date): MonthlySummaryResponse {
     totalRedFlagAlerts: 12,
     completionRate: 60.4,
     statusDistribution: [
-      { key: 'completed', label: '已完成', count: 29 },
-      { key: 'in_progress', label: '對話中', count: 8 },
-      { key: 'waiting', label: '等待中', count: 7 },
-      { key: 'aborted_red_flag', label: '紅旗中止', count: 4 },
-      { key: 'cancelled', label: '已取消', count: 0 },
+      { key: 'completed', label: 'completed', count: 29 },
+      { key: 'in_progress', label: 'in_progress', count: 8 },
+      { key: 'waiting', label: 'waiting', count: 7 },
+      { key: 'aborted_red_flag', label: 'aborted_red_flag', count: 4 },
+      { key: 'cancelled', label: 'cancelled', count: 0 },
     ],
     chiefComplaintDistribution: [
-      { key: 'hematuria', label: '血尿', count: 18 },
-      { key: 'frequency', label: '頻尿', count: 11 },
-      { key: 'voiding', label: '排尿困難', count: 8 },
-      { key: 'pain', label: '腰痛 / 下腹痛', count: 6 },
-      { key: 'other', label: '其他', count: 5 },
+      { key: 'hematuria', label: 'hematuria', count: 18 },
+      { key: 'frequency', label: 'frequency', count: 11 },
+      { key: 'voiding', label: 'voiding', count: 8 },
+      { key: 'pain', label: 'pain', count: 6 },
+      { key: 'other', label: 'other', count: 5 },
     ],
     alertSeverityDistribution: [
-      { key: 'critical', label: '危急', count: 2 },
-      { key: 'high', label: '高度', count: 7 },
-      { key: 'medium', label: '中度', count: 3 },
+      { key: 'critical', label: 'critical', count: 2 },
+      { key: 'high', label: 'high', count: 7 },
+      { key: 'medium', label: 'medium', count: 3 },
     ],
     dailyTrend: Array.from({ length: 30 }, (_, index) => {
       const day = index + 1;
@@ -68,17 +91,19 @@ function SummaryMetricCard({
   value,
   helper,
   accentClass,
+  numberLocale,
 }: {
   title: string;
   value: number;
   helper: string;
   accentClass: string;
+  numberLocale: string;
 }) {
   return (
     <div className={`rounded-panel border border-edge bg-white p-5 shadow-card dark:border-dark-border dark:bg-dark-card ${accentClass}`}>
       <p className="text-small font-semibold text-ink-secondary">{title}</p>
       <p className="mt-4 text-display font-bold text-ink-heading dark:text-white font-tnum">
-        {value.toLocaleString('zh-TW')}
+        {value.toLocaleString(numberLocale)}
       </p>
       <p className="mt-2 text-caption text-ink-muted">{helper}</p>
     </div>
@@ -87,12 +112,20 @@ function SummaryMetricCard({
 
 function DonutDistributionCard({
   title,
+  subtitle,
   totalLabel,
   items,
+  categoryCountLabel,
+  emptyLabel,
+  numberLocale,
 }: {
   title: string;
+  subtitle: string;
   totalLabel: string;
   items: SummaryBucketItem[];
+  categoryCountLabel: string;
+  emptyLabel: string;
+  numberLocale: string;
 }) {
   const total = items.reduce((sum, item) => sum + item.count, 0);
   const radius = 56;
@@ -104,10 +137,10 @@ function DonutDistributionCard({
       <div className="flex items-start justify-between">
         <div>
           <h2 className="text-h3 text-ink-heading dark:text-white">{title}</h2>
-          <p className="mt-1 text-small text-ink-muted">以本月場次占比呈現主要主訴分類</p>
+          <p className="mt-1 text-small text-ink-muted">{subtitle}</p>
         </div>
         <span className="rounded-pill bg-surface-tertiary px-3 py-1 text-tiny font-semibold text-ink-secondary dark:bg-dark-surface dark:text-dark-text-muted">
-          {items.length} 類
+          {categoryCountLabel}
         </span>
       </div>
 
@@ -146,7 +179,7 @@ function DonutDistributionCard({
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <p className="text-display font-bold text-ink-heading dark:text-white font-tnum">
-              {total.toLocaleString('zh-TW')}
+              {total.toLocaleString(numberLocale)}
             </p>
             <p className="text-small text-ink-muted">{totalLabel}</p>
           </div>
@@ -173,7 +206,7 @@ function DonutDistributionCard({
             ))
           ) : (
             <p className="rounded-card border border-dashed border-edge px-4 py-10 text-center text-small text-ink-muted dark:border-dark-border">
-              本月尚無可視化分類資料
+              {emptyLabel}
             </p>
           )}
         </div>
@@ -182,7 +215,21 @@ function DonutDistributionCard({
   );
 }
 
-function DailyTrendCard({ items }: { items: MonthlySummaryResponse['dailyTrend'] }) {
+function DailyTrendCard({
+  items,
+  title,
+  subtitle,
+  totalLabel,
+  peakLabel,
+  numberLocale,
+}: {
+  items: MonthlySummaryResponse['dailyTrend'];
+  title: string;
+  subtitle: string;
+  totalLabel: string;
+  peakLabel: string;
+  numberLocale: string;
+}) {
   const maxSessions = Math.max(...items.map((item) => item.sessions), 1);
   const totalSessions = items.reduce((sum, item) => sum + item.sessions, 0);
   const busiestDay = items.reduce(
@@ -194,18 +241,18 @@ function DailyTrendCard({ items }: { items: MonthlySummaryResponse['dailyTrend']
     <div className="card">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-h3 text-ink-heading dark:text-white">日期趨勢</h2>
-          <p className="mt-1 text-small text-ink-muted">藍色長條代表每日建立場次數，橘色數字代表當日紅旗筆數</p>
+          <h2 className="text-h3 text-ink-heading dark:text-white">{title}</h2>
+          <p className="mt-1 text-small text-ink-muted">{subtitle}</p>
         </div>
         <div className="grid grid-cols-2 gap-3 text-right lg:min-w-[220px]">
           <div className="rounded-card border border-edge px-3 py-2 dark:border-dark-border">
-            <p className="text-tiny text-ink-muted">本月總場次</p>
+            <p className="text-tiny text-ink-muted">{totalLabel}</p>
             <p className="mt-1 text-h3 font-semibold text-ink-heading dark:text-white font-tnum">
-              {totalSessions.toLocaleString('zh-TW')}
+              {totalSessions.toLocaleString(numberLocale)}
             </p>
           </div>
           <div className="rounded-card border border-edge px-3 py-2 dark:border-dark-border">
-            <p className="text-tiny text-ink-muted">單日高峰</p>
+            <p className="text-tiny text-ink-muted">{peakLabel}</p>
             <p className="mt-1 text-h3 font-semibold text-ink-heading dark:text-white font-tnum">
               {busiestDay.sessions}
             </p>
@@ -246,15 +293,27 @@ function DailyTrendCard({ items }: { items: MonthlySummaryResponse['dailyTrend']
 }
 
 export default function DashboardPage() {
+  const { t, i18n } = useTranslation('common');
+  const numberLocale = i18n.language || 'zh-TW';
   const [selectedMonth, setSelectedMonth] = useState(() => new Date());
+
+  const formatMonthLabel = useMemo(
+    () => (d: Date) =>
+      t('doctor.dashboard.monthFormat', {
+        year: d.getFullYear(),
+        month: d.getMonth() + 1,
+      }),
+    [t],
+  );
+
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummaryResponse | null>(
-    IS_MOCK ? createMockMonthlySummary(new Date()) : null,
+    IS_MOCK ? createMockMonthlySummary(new Date(), formatMonthLabel(new Date())) : null,
   );
   const [isLoading, setIsLoading] = useState(!IS_MOCK);
 
   useEffect(() => {
     if (IS_MOCK) {
-      setMonthlySummary(createMockMonthlySummary(selectedMonth));
+      setMonthlySummary(createMockMonthlySummary(selectedMonth, formatMonthLabel(selectedMonth)));
       setIsLoading(false);
       return;
     }
@@ -271,32 +330,49 @@ export default function DashboardPage() {
     }
 
     loadDashboard();
-  }, [selectedMonth]);
+  }, [selectedMonth, formatMonthLabel]);
 
-  const selectedMonthLabel = monthlySummary?.monthLabel ?? format(selectedMonth, 'yyyy 年 M 月');
+  const selectedMonthLabel = monthlySummary?.monthLabel ?? formatMonthLabel(selectedMonth);
   const monthRangeLabel = formatMonthRange(selectedMonth);
   const totalSessions = monthlySummary?.totalSessions ?? 0;
   const redFlagAlerts = monthlySummary?.totalRedFlagAlerts ?? 0;
+
+  // 將後端 key 映射到翻譯 label（若無映射則保留原 label）
+  const translateItems = (items: SummaryBucketItem[], keyMap: Record<string, string>): SummaryBucketItem[] =>
+    items.map((item) => ({
+      ...item,
+      label: keyMap[item.key] ? t(keyMap[item.key]) : item.label,
+    }));
+
+  const complaintItems = translateItems(
+    monthlySummary?.chiefComplaintDistribution ?? [],
+    COMPLAINT_LABEL_KEYS,
+  );
+
+  // statusDistribution / alertSeverityDistribution 目前未直接呈現於畫面，
+  // 但保留翻譯映射供未來使用
+  void STATUS_LABEL_KEYS;
+  void SEVERITY_LABEL_KEYS;
 
   return (
     <div className="space-y-8 animate-fade-in">
       <section className="card">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-small font-semibold uppercase tracking-[0.18em] text-ink-muted">Dashboard</p>
-            <h1 className="mt-2 text-h1 text-ink-heading dark:text-white">問診月統計</h1>
+            <p className="text-small font-semibold uppercase tracking-[0.18em] text-ink-muted">{t('doctor.dashboard.eyebrow')}</p>
+            <h1 className="mt-2 text-h1 text-ink-heading dark:text-white">{t('doctor.dashboard.title')}</h1>
             <p className="mt-2 text-body text-ink-secondary">
-              以月份為單位整理場次、主訴與紅旗概況，視覺風格參考你提供的統計儀表板。
+              {t('doctor.dashboard.subtitle')}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="rounded-pill bg-surface-tertiary px-3 py-1.5 text-tiny font-semibold text-ink-secondary dark:bg-dark-surface dark:text-dark-text-muted">
-                資料區間 {monthRangeLabel}
+                {t('doctor.dashboard.dateRange', { range: monthRangeLabel })}
               </span>
               <span className="rounded-pill bg-primary-50 px-3 py-1.5 text-tiny font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
-                主訴分類 {monthlySummary?.chiefComplaintDistribution.length ?? 0} 類
+                {t('doctor.dashboard.complaintCategories', { count: monthlySummary?.chiefComplaintDistribution.length ?? 0 })}
               </span>
               <span className="rounded-pill bg-alert-critical-bg px-3 py-1.5 text-tiny font-semibold text-alert-critical">
-                紅旗警示 {redFlagAlerts} 筆
+                {t('doctor.dashboard.redFlagAlerts', { count: redFlagAlerts })}
               </span>
             </div>
           </div>
@@ -306,7 +382,7 @@ export default function DashboardPage() {
               type="button"
               className="rounded-card p-2 text-ink-secondary transition-colors hover:bg-surface-tertiary hover:text-ink-heading dark:hover:bg-dark-surface dark:hover:text-white"
               onClick={() => setSelectedMonth((current) => addMonths(current, -1))}
-              aria-label="上一個月"
+              aria-label={t('doctor.dashboard.prevMonth')}
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -319,7 +395,7 @@ export default function DashboardPage() {
               type="button"
               className="rounded-card p-2 text-ink-secondary transition-colors hover:bg-surface-tertiary hover:text-ink-heading dark:hover:bg-dark-surface dark:hover:text-white"
               onClick={() => setSelectedMonth((current) => addMonths(current, 1))}
-              aria-label="下一個月"
+              aria-label={t('doctor.dashboard.nextMonth')}
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5L15.75 12l-7.5 7.5" />
@@ -330,16 +406,18 @@ export default function DashboardPage() {
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-2">
           <SummaryMetricCard
-            title={`${selectedMonthLabel} 總場次`}
+            title={t('doctor.dashboard.monthlyTotal', { month: selectedMonthLabel })}
             value={totalSessions}
-            helper="本月建立的問診場次數量"
+            helper={t('doctor.dashboard.monthlyTotalHint')}
             accentClass="border-t-4 border-t-[#8F3A6F]"
+            numberLocale={numberLocale}
           />
           <SummaryMetricCard
-            title="紅旗警示"
+            title={t('doctor.dashboard.redFlagMetric')}
             value={redFlagAlerts}
-            helper="本月觸發的紅旗告警總數"
+            helper={t('doctor.dashboard.redFlagMetricHint')}
             accentClass="border-t-4 border-t-amber-500"
+            numberLocale={numberLocale}
           />
         </div>
       </section>
@@ -347,19 +425,30 @@ export default function DashboardPage() {
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-12">
         <div className="xl:col-span-4">
           <DonutDistributionCard
-            title="主訴分類分佈"
-            totalLabel="場次"
-            items={monthlySummary?.chiefComplaintDistribution ?? []}
+            title={t('doctor.dashboard.chiefComplaintDistribution')}
+            subtitle={t('doctor.dashboard.donutSubtitle')}
+            totalLabel={t('doctor.dashboard.sessions')}
+            items={complaintItems}
+            categoryCountLabel={t('doctor.dashboard.categoryCount', { count: complaintItems.length })}
+            emptyLabel={t('doctor.dashboard.noCategoryData')}
+            numberLocale={numberLocale}
           />
         </div>
         <div className="xl:col-span-8">
-          <DailyTrendCard items={monthlySummary?.dailyTrend ?? []} />
+          <DailyTrendCard
+            items={monthlySummary?.dailyTrend ?? []}
+            title={t('doctor.dashboard.dailyTrend')}
+            subtitle={t('doctor.dashboard.dailyTrendHint')}
+            totalLabel={t('doctor.dashboard.totalSessions')}
+            peakLabel={t('doctor.dashboard.peakDay')}
+            numberLocale={numberLocale}
+          />
         </div>
       </section>
 
       {isLoading ? (
         <div className="rounded-panel border border-dashed border-edge px-4 py-3 text-center text-small text-ink-muted dark:border-dark-border">
-          正在同步月份摘要...
+          {t('doctor.dashboard.syncing')}
         </div>
       ) : null}
     </div>
