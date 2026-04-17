@@ -43,7 +43,13 @@ if _use_ssl:
     _connect_args["ssl"] = "require"
 
 # ── 建立 async engine（直接使用 settings URL，避免 configparser % 解析問題）──
+# SQLAlchemy asyncpg dialect 的 prepared_statement_cache_size 只能透過 URL
+# query string 注入（既非 create_async_engine kwarg，也非 connect_args）。
+# PgBouncer transaction mode 下缺了它會出現 __asyncpg_stmt_1__ 衝突。
 _async_url = settings.ASYNC_DATABASE_URL
+if _use_ssl:
+    _sep = "&" if "?" in _async_url else "?"
+    _async_url = f"{_async_url}{_sep}prepared_statement_cache_size=0"
 
 
 def run_migrations_offline() -> None:
@@ -75,12 +81,11 @@ async def run_async_migrations() -> None:
     在 Supabase / PgBouncer transaction pool 模式下，必須雙重停用
     prepared statement cache，否則會出現 `__asyncpg_stmt_1__ already exists`：
       - connect_args.statement_cache_size=0  → asyncpg 原生 cache
-      - create_async_engine(prepared_statement_cache_size=0) → SQLAlchemy dialect cache（必須是 engine 層參數，不能放 connect_args）
+      - URL query `?prepared_statement_cache_size=0` → SQLAlchemy dialect cache
     """
     connectable = create_async_engine(
         _async_url,
         poolclass=pool.NullPool,
-        prepared_statement_cache_size=0,
         connect_args=_connect_args,
     )
     async with connectable.connect() as connection:
