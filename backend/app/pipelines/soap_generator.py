@@ -12,6 +12,7 @@ from typing import Any
 from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
 from app.core.openai_client import call_with_retry, get_openai_client
+from app.utils.i18n_messages import get_message
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +219,7 @@ class SOAPGenerator:
         transcript: list[dict[str, Any]],
         patient_info: dict[str, Any],
         chief_complaint: str,
+        language: str | None = None,
     ) -> dict[str, Any]:
         """
         根據對話記錄生成 SOAP 報告
@@ -226,6 +228,7 @@ class SOAPGenerator:
             transcript: 對話記錄列表
             patient_info: 病患基本資訊
             chief_complaint: 主訴
+            language: session BCP-47 語言碼，決定 SOAP 輸出語言（預設 zh-TW）
 
         Returns:
             結構化 SOAP 報告字典：
@@ -283,11 +286,18 @@ class SOAPGenerator:
                 len(transcript),
             )
 
+            # 依 session language 附加輸出語言硬性規定
+            # （_SOAP_SYSTEM_PROMPT 原文用繁中撰寫，臨床知識不變；
+            # 尾段再疊上當次輸出語言的指示。）
+            system_prompt_localized = _SOAP_SYSTEM_PROMPT + get_message(
+                "llm.soap_language_instruction", language
+            )
+
             response = await call_with_retry(
                 lambda: self._client.chat.completions.create(
                     model=self._model,
                     messages=[
-                        {"role": "system", "content": _SOAP_SYSTEM_PROMPT},
+                        {"role": "system", "content": system_prompt_localized},
                         {"role": "user", "content": user_message},
                     ],
                     temperature=self._temperature,

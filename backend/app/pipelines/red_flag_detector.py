@@ -22,6 +22,7 @@ from app.pipelines.prompts.shared import (
     render_red_flag_titles_for_prompt,
     render_red_flags_by_severity,
 )
+from app.utils.i18n_messages import get_message
 
 logger = logging.getLogger(__name__)
 
@@ -190,18 +191,22 @@ class RedFlagDetector:
             for flag in URO_RED_FLAGS
         ]
 
-    def _rule_based_detect(self, text: str) -> list[dict[str, Any]]:
+    def _rule_based_detect(
+        self, text: str, language: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         規則比對層 — 使用關鍵字與正則表達式偵測紅旗症狀
 
         Args:
             text: 病患描述文字
+            language: session BCP-47 語言碼（用於本地化 trigger_reason 等文字欄位）
 
         Returns:
             比對到的紅旗警示列表
         """
         alerts: list[dict[str, Any]] = []
         text_lower = text.lower()
+        unknown_title = get_message("alert.unknown_title", language)
 
         for rule in self._rules:
             matched = False
@@ -211,7 +216,9 @@ class RedFlagDetector:
             for keyword in rule.get("keywords", []):
                 if keyword in text_lower:
                     matched = True
-                    trigger_reason = f"關鍵字比對：「{keyword}」"
+                    trigger_reason = get_message(
+                        "alert.rule_match_reason", language, keyword=keyword
+                    )
                     break
 
             # 正則表達式比對（關鍵字未命中時）
@@ -220,7 +227,11 @@ class RedFlagDetector:
                     match = re.search(rule["regex_pattern"], text, re.IGNORECASE)
                     if match:
                         matched = True
-                        trigger_reason = f"模式比對：「{match.group()}」"
+                        trigger_reason = get_message(
+                            "alert.regex_match_reason",
+                            language,
+                            match=match.group(),
+                        )
                 except re.error as exc:
                     logger.warning(
                         "正則表達式無效 | rule=%s, pattern=%s, error=%s",
@@ -233,7 +244,7 @@ class RedFlagDetector:
                 alerts.append(
                     {
                         "severity": rule.get("severity", "medium"),
-                        "title": rule.get("name", "未知紅旗"),
+                        "title": rule.get("name", unknown_title),
                         "description": rule.get("description", ""),
                         "trigger_reason": trigger_reason,
                         "alert_type": "rule_based",
@@ -245,7 +256,10 @@ class RedFlagDetector:
         return alerts
 
     async def _semantic_detect(
-        self, text: str, session_context: dict[str, Any]
+        self,
+        text: str,
+        session_context: dict[str, Any],
+        language: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         語意分析層 — 使用 LLM 進行深層紅旗症狀偵測
@@ -253,6 +267,7 @@ class RedFlagDetector:
         Args:
             text: 病患描述文字
             session_context: 場次上下文（主訴、病史等）
+            language: session BCP-47 語言碼，決定 LLM 輸出語言
 
         Returns:
             LLM 偵測到的紅旗警示列表
@@ -276,12 +291,19 @@ class RedFlagDetector:
 
 請分析以上內容是否包含紅旗症狀，並以指定 JSON 格式回覆。"""
 
+        # 組 system prompt：catalogue prompt（固定中文，作為臨床知識本體）
+        # + 本地化輸出語言指示（依 session language 切換 title/description 語言）
+        system_prompt = _SEMANTIC_SYSTEM_PROMPT + get_message(
+            "llm.red_flag_language_instruction", language
+        )
+        default_semantic_title = get_message("alert.semantic_default_title", language)
+
         try:
             response = await call_with_retry(
                 lambda: self._client.chat.completions.create(
                     model=self._model,
                     messages=[
-                        {"role": "system", "content": _SEMANTIC_SYSTEM_PROMPT},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_message},
                     ],
                     temperature=self._temperature,
@@ -299,7 +321,7 @@ class RedFlagDetector:
                 alerts.append(
                     {
                         "severity": alert.get("severity", "medium"),
-                        "title": alert.get("title", "語意偵測紅旗"),
+                        "title": alert.get("title", default_semantic_title),
                         "description": alert.get("description", ""),
                         "trigger_reason": alert.get("trigger_reason", ""),
                         "alert_type": "semantic",
@@ -341,7 +363,8 @@ class RedFlagDetector:
 
         Args:
             text: 病患描述文字
-            session_context: 場次上下文資訊
+            session_context: 場次上下文資訊（若有 `language` key，會影響
+                trigger_reason 與 LLM 輸出語言；預設 zh-TW）
 
         Returns:
             去重合併後的紅旗警示列表，按嚴重度排序：
@@ -358,6 +381,7 @@ class RedFlagDetector:
             ]
         """
         session_id = session_context.get("session_id", "unknown")
+        language = session_context.get("language")
 
         if not text or not text.strip():
             return []
@@ -367,8 +391,8 @@ class RedFlagDetector:
 
         # 並行執行雙層偵測
         rule_alerts, semantic_alerts = await asyncio.gather(
-            asyncio.to_thread(self._rule_based_detect, text),
-            self._semantic_detect(text, session_context),
+            asyncio.to_thread(self._rule_based_detect, text, language),
+            self._semantic_detect(text, session_context, language),
             return_exceptions=True,
         )
 
@@ -381,7 +405,7 @@ class RedFlagDetector:
             semantic_alerts = []
 
         # 合併並去重
-        merged = self._merge_and_deduplicate(rule_alerts, semantic_alerts)
+        merged = self._merge_and_deduplicate(rule_alerts, semantic_alerts, language)
 
         # 按嚴重度排序：critical > high > medium
         severity_order = {"critical": 0, "high": 1, "medium": 2}
@@ -401,6 +425,7 @@ class RedFlagDetector:
     def _merge_and_deduplicate(
         rule_alerts: list[dict[str, Any]],
         semantic_alerts: list[dict[str, Any]],
+        language: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         合併兩層偵測結果並去除重複項
@@ -410,6 +435,7 @@ class RedFlagDetector:
         Args:
             rule_alerts: 規則比對結果
             semantic_alerts: 語意分析結果
+            language: 用於本地化 combined trigger_reason 的語言碼
 
         Returns:
             去重合併後的警示列表
@@ -438,9 +464,11 @@ class RedFlagDetector:
                     existing["severity"] = alert["severity"]
 
                 # 合併觸發原因
-                existing["trigger_reason"] = (
-                    f"[規則] {existing['trigger_reason']} | "
-                    f"[語意] {alert['trigger_reason']}"
+                existing["trigger_reason"] = get_message(
+                    "alert.combined_trigger_reason",
+                    language,
+                    rule_reason=existing["trigger_reason"],
+                    semantic_reason=alert["trigger_reason"],
                 )
 
                 # 合併建議處置（去重）

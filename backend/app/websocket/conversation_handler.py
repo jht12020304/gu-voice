@@ -310,6 +310,7 @@ async def conversation_websocket(
             "user_id": user_id,
             "chief_complaint": session_data.get("chief_complaint", ""),
             "patient_info": session_data.get("patient_info", {}),
+            "language": session_data.get("language"),
         }
 
         # 建構系統提示詞
@@ -659,7 +660,12 @@ async def _send_initial_greeting(
 
     # 立即使用固定模板問診語，避免等待 LLM
     chief_complaint = session_context.get("chief_complaint", "")
-    full_greeting = f"您好！我是泌尿科 AI 問診助手，今天將協助您進行初步問診。請問您的「{chief_complaint}」症狀是什麼時候開始的？"
+    from app.utils.i18n_messages import get_message as _i18n_get
+    full_greeting = _i18n_get(
+        "ws.initial_greeting",
+        session_context.get("language"),
+        chief_complaint=chief_complaint,
+    )
 
     # 告知前端 AI 開始回應 → 顯示 thinking dots，遮住 TTS 合成的等待時間
     await manager.send_to_session(
@@ -1428,6 +1434,7 @@ async def _generate_soap_report_async(
             transcript=conversation_history,
             patient_info=session_context.get("patient_info", {}),
             chief_complaint=session_context.get("chief_complaint", ""),
+            language=session_context.get("language"),
         )
 
         # 格式化對話逐字稿
@@ -1588,6 +1595,7 @@ async def _validate_session(
             "status": session_obj.status,
             "chief_complaint": session_obj.chief_complaint_text or getattr(session_obj, "chief_complaint", ""),
             "patient_info": patient_info,
+            "language": getattr(session_obj, "language", None),
         }
 
     except Exception as exc:

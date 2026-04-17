@@ -157,9 +157,15 @@ class AlertService:
             session = session_result.scalar_one_or_none()
 
             if session and session.doctor_id:
+                from app.utils.i18n_messages import get_message as _i18n_get
+                push_title = _i18n_get(
+                    "alert.push_notification_title",
+                    getattr(session, "language", None),
+                    title=data["title"],
+                )
                 send_push_notification_task.delay(
                     user_id=str(session.doctor_id),
-                    title=f"紅旗警示: {data['title']}",
+                    title=push_title,
                     body=data.get("description", ""),
                     data={
                         "type": "red_flag",
