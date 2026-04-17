@@ -132,3 +132,157 @@ def test_soap_prompt_keeps_original_clinical_rules(monkeypatch):
     # 原 prompt 的硬性條款應該都還在
     assert _SOAP_SYSTEM_PROMPT in system_content
     assert "confidence_score" in system_content
+
+
+# ─────────────────────────────────────────────────────────────
+# LLM 輸出語言一致性 sanity check（TODO-Item8）
+# ─────────────────────────────────────────────────────────────
+
+
+def _patch_call_with_report(
+    monkeypatch, generator: SOAPGenerator, report_json: str
+) -> None:
+    """替 generator 注入一個會回傳 `report_json` 的假 OpenAI client。"""
+
+    async def fake_call_with_retry(fn):
+        return await fn()
+
+    async def fake_create(**kwargs):
+        response = MagicMock()
+        response.choices = [MagicMock()]
+        response.choices[0].message.content = report_json
+        return response
+
+    monkeypatch.setattr(soap_module, "call_with_retry", fake_call_with_retry)
+    generator._client.chat.completions.create = AsyncMock(side_effect=fake_create)
+
+
+def test_soap_output_zh_warns_when_en_was_requested(monkeypatch, caplog):
+    """LLM 被要求英文卻回繁中 → generator 應 log warning（但仍回傳報告）。"""
+    import json
+    import logging
+
+    generator = _build_generator(monkeypatch)
+    report = {
+        "subjective": {"chief_complaint": "flank pain"},
+        "objective": {},
+        "assessment": {
+            "differential_diagnoses": [],
+            "clinical_impression": "病患表示左側腰痛，可能為腎結石",
+        },
+        "plan": {
+            "recommended_tests": [],
+            "treatments": [],
+            "medications": [],
+            "follow_up": "",
+            "patient_education": [],
+            "referrals": [],
+            "diagnostic_reasoning": "",
+        },
+        "summary": "病患表示左側腰痛持續三天，伴隨血尿",
+        "icd10_codes": [],
+        "confidence_score": 0.5,
+    }
+    _patch_call_with_report(monkeypatch, generator, json.dumps(report))
+
+    with caplog.at_level(logging.WARNING, logger="app.pipelines.soap_generator"):
+        _run(
+            generator.generate(
+                transcript=[{"role": "patient", "content": "flank pain"}],
+                patient_info={},
+                chief_complaint="flank pain",
+                language="en-US",
+            )
+        )
+
+    mismatch_logs = [
+        r for r in caplog.records if "SOAP output language mismatch" in r.getMessage()
+    ]
+    assert len(mismatch_logs) == 1
+
+
+def test_soap_output_en_matches_en_no_warning(monkeypatch, caplog):
+    """LLM 被要求英文且確實回英文 → 不應 log mismatch warning。"""
+    import json
+    import logging
+
+    generator = _build_generator(monkeypatch)
+    report = {
+        "subjective": {"chief_complaint": "flank pain"},
+        "objective": {},
+        "assessment": {
+            "differential_diagnoses": [],
+            "clinical_impression": "Patient reports left flank pain; suspect renal calculi.",
+        },
+        "plan": {
+            "recommended_tests": [],
+            "treatments": [],
+            "medications": [],
+            "follow_up": "",
+            "patient_education": [],
+            "referrals": [],
+            "diagnostic_reasoning": "",
+        },
+        "summary": "Patient with three days of left flank pain and hematuria.",
+        "icd10_codes": [],
+        "confidence_score": 0.5,
+    }
+    _patch_call_with_report(monkeypatch, generator, json.dumps(report))
+
+    with caplog.at_level(logging.WARNING, logger="app.pipelines.soap_generator"):
+        _run(
+            generator.generate(
+                transcript=[{"role": "patient", "content": "flank pain"}],
+                patient_info={},
+                chief_complaint="flank pain",
+                language="en-US",
+            )
+        )
+
+    mismatch_logs = [
+        r for r in caplog.records if "SOAP output language mismatch" in r.getMessage()
+    ]
+    assert mismatch_logs == []
+
+
+def test_soap_output_zh_matches_zh_no_warning(monkeypatch, caplog):
+    import json
+    import logging
+
+    generator = _build_generator(monkeypatch)
+    report = {
+        "subjective": {"chief_complaint": "血尿"},
+        "objective": {},
+        "assessment": {
+            "differential_diagnoses": [],
+            "clinical_impression": "病患主訴血尿三天，建議進一步評估泌尿系統",
+        },
+        "plan": {
+            "recommended_tests": [],
+            "treatments": [],
+            "medications": [],
+            "follow_up": "",
+            "patient_education": [],
+            "referrals": [],
+            "diagnostic_reasoning": "",
+        },
+        "summary": "病患表示血尿持續三天，伴隨下腹痛",
+        "icd10_codes": [],
+        "confidence_score": 0.5,
+    }
+    _patch_call_with_report(monkeypatch, generator, json.dumps(report))
+
+    with caplog.at_level(logging.WARNING, logger="app.pipelines.soap_generator"):
+        _run(
+            generator.generate(
+                transcript=[{"role": "patient", "content": "血尿"}],
+                patient_info={},
+                chief_complaint="血尿",
+                language="zh-TW",
+            )
+        )
+
+    mismatch_logs = [
+        r for r in caplog.records if "SOAP output language mismatch" in r.getMessage()
+    ]
+    assert mismatch_logs == []

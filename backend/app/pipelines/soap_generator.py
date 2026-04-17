@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
 from app.core.openai_client import call_with_retry, get_openai_client
 from app.utils.i18n_messages import get_message
+from app.utils.language_detect import matches_expected_language
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +313,10 @@ class SOAPGenerator:
             # 驗證並補齊必要欄位
             soap_report = self._validate_and_fill(soap_report, chief_complaint)
 
+            # Heuristic sanity check：LLM 偶爾會不遵守輸出語言硬性規定。
+            # 以 summary + clinical_impression 偵測語言；不匹配就 log warn（不 raise）
+            self._warn_if_output_language_mismatch(soap_report, language)
+
             logger.info(
                 "SOAP 報告生成完成 | confidence=%.2f, diagnoses_count=%d",
                 soap_report.get("confidence_score", 0),
@@ -338,6 +343,26 @@ class SOAPGenerator:
             raise AIServiceUnavailableException(
                 message="errors.soap_generation_unavailable",
                 details={"error": str(exc)},
+            )
+
+    @staticmethod
+    def _warn_if_output_language_mismatch(
+        report: dict[str, Any], expected_language: str | None
+    ) -> None:
+        """
+        以 summary + clinical_impression 做 heuristic 比對；不匹配時 log warn。
+        不 raise — 即便偵測不符也要把報告回給使用者，避免阻斷服務。
+        """
+        if not expected_language:
+            return
+        summary = str(report.get("summary", ""))
+        impression = str(report.get("assessment", {}).get("clinical_impression", ""))
+        sample = f"{summary}\n{impression}".strip()
+        if not matches_expected_language(sample, expected_language):
+            logger.warning(
+                "SOAP output language mismatch | expected=%s sample=%r",
+                expected_language,
+                sample[:120],
             )
 
     @staticmethod
