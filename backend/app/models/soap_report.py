@@ -45,6 +45,11 @@ class SOAPReport(Base):
     plan: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     raw_transcript: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # SOAP 生成時所用語言（BCP-47）。獨立於 session.language 以便重生後仍可審計。
+    # 見 docs/i18n_plan.md TODO-M15：SOAP 必須 append-only，此欄位幫助區分版本。
+    language: Mapped[str] = mapped_column(
+        String(10), server_default=text("'zh-TW'"), nullable=False
+    )
     icd10_codes: Mapped[Optional[list[str]]] = mapped_column(
         ARRAY(String), nullable=True
     )

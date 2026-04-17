@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis, require_role
@@ -35,6 +35,7 @@ session_service = SessionService()
 )
 async def create_session(
     payload: SessionCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> SessionDetail:
@@ -42,11 +43,14 @@ async def create_session(
     建立新的問診場次。
     病患開始語音問診前必須先建立場次。
     病患角色時 patient_id 自動填入，醫師與管理員需指定。
+    語言解析：payload.language > user.preferred_language > Accept-Language > 預設。
     """
+    accept_language = request.headers.get("accept-language")
     return await session_service.create_session(
         db,
         data=payload,
         current_user=current_user,
+        accept_language=accept_language,
     )
 
 

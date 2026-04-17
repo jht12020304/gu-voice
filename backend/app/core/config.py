@@ -219,6 +219,22 @@ class Settings(BaseSettings):
     OPENAI_STT_MODEL: str = "whisper-1"
     OPENAI_STT_LANGUAGE: str = "zh"      # ISO-639-1，zh = 中文（繁/簡皆可）
 
+    # ── Multi-language (i18n) ────────────────────────────
+    # 見 docs/i18n_plan.md；Phase 1 僅 zh-TW + en-US 上線，其餘 locale 待臨床 sign-off。
+    # SupportedLanguage enum (app/models/enums.py) 是 locale 清單的單一來源；
+    # LANGUAGE_MAP 則負責把 BCP-47 → Whisper / TTS voice / 顯示名稱。
+    DEFAULT_LANGUAGE: str = "zh-TW"
+    # Whisper 接 ISO-639-1 2 碼；TTS voice 先用 OpenAI 內建，後續可換 Azure / ElevenLabs。
+    LANGUAGE_MAP: dict[str, dict[str, str]] = {
+        "zh-TW": {"whisper": "zh", "tts_voice": "nova", "display": "繁體中文", "native": "繁體中文"},
+        "en-US": {"whisper": "en", "tts_voice": "nova", "display": "English", "native": "English"},
+    }
+
+    # P0 TODO-O1 feature flag 分層（上線後用 Redis 動態覆寫，此處為 bootstrap 預設）
+    MULTILANG_GLOBAL_ENABLED: bool = False
+    MULTILANG_ROLLOUT_PERCENT: int = 0  # 0-100，user_id hash 取模
+    MULTILANG_DISABLED_LANGUAGES: list[str] = []  # 緊急 kill-switch
+
     # ── WebSocket / Session Stability (P2) ─────────────
     OPENAI_MODEL_SUMMARIZER: str = "gpt-4o-mini"           # 便宜的摘要模型
     CONVERSATION_HISTORY_MAX_TURNS: int = 50                # 最大保留的對話輪次數
@@ -271,6 +287,18 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v  # type: ignore[return-value]
+
+    @field_validator("MULTILANG_DISABLED_LANGUAGES", mode="before")
+    @classmethod
+    def parse_disabled_languages(cls, v: object) -> list[str]:
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return v  # type: ignore[return-value]
+
+    @property
+    def SUPPORTED_LANGUAGES(self) -> list[str]:
+        """來源於 LANGUAGE_MAP key；避免兩個地方維護。"""
+        return list(self.LANGUAGE_MAP.keys())
 
 
 settings = Settings()

@@ -21,9 +21,11 @@ from app.core.exceptions import (
 )
 from app.models.conversation import Conversation
 from app.models.enums import SessionStatus, UserRole
+from app.core.config import settings
 from app.models.patient import Patient
 from app.models.session import Session
 from app.utils.datetime_utils import utc_now
+from app.utils.language import resolve_language
 
 
 def _get_user_role(current_user: Any) -> Optional[UserRole]:
@@ -131,7 +133,7 @@ class SessionService:
             chief_complaint_text=data.get("chief_complaint_text"),
             status=SessionStatus.WAITING,
             red_flag=False,
-            language=data.get("language", "zh-TW"),
+            language=data.get("language") or settings.DEFAULT_LANGUAGE,
             intake_data=data.get("intake"),
             intake_completed_at=now if data.get("intake") else None,
             created_at=now,
@@ -387,7 +389,11 @@ class SessionService:
 
     # --- Instance method wrappers for Router compatibility ---
     async def create_session(
-        self, db: AsyncSession, data: Any, current_user: Any = None
+        self,
+        db: AsyncSession,
+        data: Any,
+        current_user: Any = None,
+        accept_language: Optional[str] = None,
     ) -> Session:
         import random
         from datetime import date
@@ -398,6 +404,13 @@ class SessionService:
         data_dict = data.model_dump(exclude_none=True)
         patient_info = data_dict.pop("patient_info", None)
         requested_patient_id = data_dict.get("patient_id")
+
+        # 解析語言：payload > user.preferred_language > Accept-Language > default
+        data_dict["language"] = resolve_language(
+            payload_language=data_dict.get("language"),
+            user=current_user,
+            accept_language_header=accept_language,
+        )
 
         current_user_id = current_user.id if current_user else None
 

@@ -56,6 +56,11 @@ class RedFlagAlert(Base):
         DateTime(timezone=True), nullable=True
     )
     acknowledge_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 生成此 alert 時 session 所用語言（BCP-47）。title / description 可能為該語言。
+    # canonical_id（跨語言穩定 id）未來由 matched_rule_id 關聯取得；見 docs/i18n_plan.md TODO-E6。
+    language: Mapped[str] = mapped_column(
+        String(10), server_default=text("'zh-TW'"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"), nullable=False
     )

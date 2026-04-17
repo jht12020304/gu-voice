@@ -114,3 +114,16 @@ class Gender(str, Enum):
     MALE = "male"
     FEMALE = "female"
     OTHER = "other"
+
+
+class SupportedLanguage(str, Enum):
+    """
+    支援的 UI / 語音 / SOAP 語言（BCP-47）。
+
+    設計決定：
+    - 用 `String(10)` 欄位 + 應用層驗證，不用 PG 原生 enum。
+      理由：未來擴 locale（ko-KR、vi-VN…）不用 `ALTER TYPE`，避免交易鎖問題。
+    - `DEFAULT_LANGUAGE` 在 `app.core.config.settings.DEFAULT_LANGUAGE` 單一來源。
+    """
+    ZH_TW = "zh-TW"
+    EN_US = "en-US"

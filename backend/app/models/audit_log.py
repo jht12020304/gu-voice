@@ -37,6 +37,9 @@ class AuditLog(Base):
     details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     ip_address: Mapped[Optional[str]] = mapped_column(INET, nullable=True)
     user_agent: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # 事件發生時 session / 請求所用語言（BCP-47）。login / logout 等無 session
+    # 上下文的事件可為 NULL；見 docs/i18n_plan.md TODO-E12 / TODO-M7。
+    language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"), nullable=False
     )

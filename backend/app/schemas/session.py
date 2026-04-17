@@ -6,8 +6,9 @@ from datetime import date, datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.config import settings
 from app.models.enums import Gender, SessionStatus
 from app.schemas.common import CursorPagination
 from app.schemas.conversation import ConversationResponse
@@ -75,11 +76,29 @@ class SessionCreate(BaseModel):
     chief_complaint_text: Optional[str] = Field(
         None, max_length=200, alias="chiefComplaintText"
     )
-    language: str = Field("zh-TW", max_length=10)
+    # Optional：未指定時由 router 依 user.preferred_language → Accept-Language →
+    # settings default 推算（app.utils.language.resolve_language）。
+    # 若顯式指定，必須落在 settings.SUPPORTED_LANGUAGES，否則 422。
+    language: Optional[str] = Field(None, max_length=10)
     intake: Optional[SessionIntake] = None
     patient_info: Optional[PatientInfoPayload] = Field(None, alias="patientInfo")
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, v: Optional[str]) -> Optional[str]:
+        """白名單驗證 + BCP-47 大小寫正規化（zh-tw → zh-TW）。"""
+        if v is None or v == "":
+            return None
+        # 正規化（複用 utils.language._normalize 的邏輯，但避免循環 import）
+        parts = v.strip().split("-")
+        normalized = parts[0].lower() if len(parts) == 1 else f"{parts[0].lower()}-{parts[1].upper()}"
+        if normalized not in settings.SUPPORTED_LANGUAGES:
+            raise ValueError(
+                f"language must be one of: {', '.join(settings.SUPPORTED_LANGUAGES)}"
+            )
+        return normalized
 
 
 class SessionUpdateStatus(BaseModel):
