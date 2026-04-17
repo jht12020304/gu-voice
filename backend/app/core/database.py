@@ -17,13 +17,18 @@ from app.core.config import settings
 # 建立非同步引擎
 # 雲端環境（Supabase）強制需要 SSL，本地 Docker 不需要
 _connect_args: dict = {}
-if settings.DB_HOST and "supabase.co" in settings.DB_HOST:
+_is_supabase = bool(settings.DB_HOST) and "supabase.co" in settings.DB_HOST
+
+if _is_supabase:
     _connect_args["ssl"] = "require"
-    # Supabase 使用 PgBouncer (transaction pool mode)，
-    # 必須停用所有 prepared statement cache，否則會報錯：
-    # "prepared statement __asyncpg_stmt_XX__ does not exist"
-    _connect_args["statement_cache_size"] = 0              # asyncpg 原生 cache
-    _connect_args["prepared_statement_cache_size"] = 0     # SQLAlchemy asyncpg dialect cache
+    # PgBouncer 轉譯模式 → 停用 asyncpg 原生 prepared statement cache
+    _connect_args["statement_cache_size"] = 0
+
+# SQLAlchemy asyncpg dialect 自己還有一層 prepared statement cache，
+# 這個必須走 engine 層參數而非 connect_args，否則會傳錯位置到 asyncpg.connect()
+_engine_kwargs: dict = {}
+if _is_supabase:
+    _engine_kwargs["prepared_statement_cache_size"] = 0
 
 engine = create_async_engine(
     settings.ASYNC_DATABASE_URL,
@@ -32,6 +37,7 @@ engine = create_async_engine(
     echo=(settings.APP_ENV == "development"),
     pool_pre_ping=True,
     connect_args=_connect_args,
+    **_engine_kwargs,
 )
 
 # 建立 session 工廠

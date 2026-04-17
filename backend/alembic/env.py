@@ -36,10 +36,8 @@ target_metadata = Base.metadata
 # ── 決定是否需要 SSL（Supabase 強制，本地 Docker 不需要）──────────────
 _use_ssl = "supabase" in settings.DB_HOST or "pooler.supabase" in settings.DB_HOST
 _connect_args: dict = {
-    # PgBouncer transaction pool mode 需停用「兩種」prepared statement cache，
-    # 否則會報 DuplicatePreparedStatementError / __asyncpg_stmt_X__ already exists
-    "statement_cache_size": 0,              # asyncpg 原生 cache
-    "prepared_statement_cache_size": 0,     # SQLAlchemy asyncpg dialect cache
+    # PgBouncer transaction pool mode 需停用 asyncpg 原生 prepared statement cache
+    "statement_cache_size": 0,
 }
 if _use_ssl:
     _connect_args["ssl"] = "require"
@@ -72,10 +70,17 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    """Online mode：使用非同步引擎連接資料庫"""
+    """Online mode：使用非同步引擎連接資料庫
+
+    在 Supabase / PgBouncer transaction pool 模式下，必須雙重停用
+    prepared statement cache，否則會出現 `__asyncpg_stmt_1__ already exists`：
+      - connect_args.statement_cache_size=0  → asyncpg 原生 cache
+      - create_async_engine(prepared_statement_cache_size=0) → SQLAlchemy dialect cache（必須是 engine 層參數，不能放 connect_args）
+    """
     connectable = create_async_engine(
         _async_url,
         poolclass=pool.NullPool,
+        prepared_statement_cache_size=0,
         connect_args=_connect_args,
     )
     async with connectable.connect() as connection:
