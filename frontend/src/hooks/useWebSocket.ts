@@ -55,11 +55,12 @@ export function useConversationWebSocket(sessionId: string | null) {
 
   // 清理所有監聽器
   useEffect(() => {
+    const listeners = listenersRef.current;
     return () => {
-      listenersRef.current.forEach((handler, type) => {
+      listeners.forEach((handler, type) => {
         conversationWS.off(type, handler);
       });
-      listenersRef.current.clear();
+      listeners.clear();
     };
   }, []);
 
@@ -109,11 +110,12 @@ export function useDashboardWebSocket() {
 
   // 清理所有監聽器
   useEffect(() => {
+    const listeners = listenersRef.current;
     return () => {
-      listenersRef.current.forEach((handler, type) => {
+      listeners.forEach((handler, type) => {
         dashboardWS.off(type, handler);
       });
-      listenersRef.current.clear();
+      listeners.clear();
     };
   }, []);
 
