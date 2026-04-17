@@ -37,7 +37,7 @@ class _UserLike(Protocol):
 _ACCEPT_LANG_TOKEN_RE = re.compile(r"([A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*)")
 
 
-def _normalize(code: Optional[str]) -> Optional[str]:
+def normalize_bcp47(code: Optional[str]) -> Optional[str]:
     """大小寫正規化為 BCP-47 conventional form（zh-tw → zh-TW、EN → en）。"""
     if not code:
         return None
@@ -72,7 +72,7 @@ def _pick_from_accept_language(header: Optional[str]) -> Optional[str]:
         match = _ACCEPT_LANG_TOKEN_RE.match(code)
         if not match:
             continue
-        normalized = _normalize(match.group(1))
+        normalized = normalize_bcp47(match.group(1))
         if not normalized:
             continue
         if normalized in supported:
@@ -100,7 +100,7 @@ def resolve_language(
     supported = set(settings.SUPPORTED_LANGUAGES)
 
     # 1. payload 顯式指定
-    candidate = _normalize(payload_language)
+    candidate = normalize_bcp47(payload_language)
     if candidate and candidate in supported:
         return candidate
     if payload_language and candidate not in supported:
@@ -111,7 +111,7 @@ def resolve_language(
 
     # 2. user.preferred_language
     if user is not None:
-        candidate = _normalize(getattr(user, "preferred_language", None))
+        candidate = normalize_bcp47(getattr(user, "preferred_language", None))
         if candidate and candidate in supported:
             return candidate
 

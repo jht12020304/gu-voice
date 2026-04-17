@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.models.enums import Gender, SessionStatus
 from app.schemas.common import CursorPagination
 from app.schemas.conversation import ConversationResponse
+from app.utils.language import normalize_bcp47
 
 
 class SessionIntakeAllergyItem(BaseModel):
@@ -91,10 +92,8 @@ class SessionCreate(BaseModel):
         """白名單驗證 + BCP-47 大小寫正規化（zh-tw → zh-TW）。"""
         if v is None or v == "":
             return None
-        # 正規化（複用 utils.language._normalize 的邏輯，但避免循環 import）
-        parts = v.strip().split("-")
-        normalized = parts[0].lower() if len(parts) == 1 else f"{parts[0].lower()}-{parts[1].upper()}"
-        if normalized not in settings.SUPPORTED_LANGUAGES:
+        normalized = normalize_bcp47(v)
+        if normalized is None or normalized not in settings.SUPPORTED_LANGUAGES:
             raise ValueError(
                 f"language must be one of: {', '.join(settings.SUPPORTED_LANGUAGES)}"
             )
