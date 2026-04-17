@@ -1,0 +1,12 @@
+# Celery Worker service — Railway 配置
+# 與主 API 共用 Dockerfile，但以 worker 啟動腳本取代 FastAPI
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "./Dockerfile"
+
+[deploy]
+startCommand = "/app/scripts/start_worker.sh"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+numReplicas = 1

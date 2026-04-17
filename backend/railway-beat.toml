@@ -1,0 +1,12 @@
+# Celery Beat service — Railway 配置
+# 與主 API 共用 Dockerfile；beat 必須只有 1 個副本，否則 schedule 會重複觸發
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "./Dockerfile"
+
+[deploy]
+startCommand = "/app/scripts/start_beat.sh"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+numReplicas = 1
