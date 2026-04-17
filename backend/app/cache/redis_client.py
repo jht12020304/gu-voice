@@ -16,10 +16,10 @@ _redis_pool: Optional[aioredis.Redis] = None
 
 
 async def init_redis() -> aioredis.Redis:
-    """初始化 Redis 連線池（應用程式啟動時呼叫）"""
+    """初始化 Redis 連線池（cache DB，P3 #29）"""
     global _redis_pool
     _redis_pool = aioredis.from_url(
-        settings.REDIS_URL,
+        settings.REDIS_URL_CACHE,
         encoding="utf-8",
         decode_responses=True,
         max_connections=20,

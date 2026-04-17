@@ -93,6 +93,11 @@ export default defineConfig(({ mode }) => {
     // 定義全域常數
     define: {
       __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '0.0.0'),
+      // 生產環境強制關閉 mock 模式，避免 VITE_ENABLE_MOCK 意外洩漏造成醫師看到假資料。
+      // Dev 模式（vite / preview 以外）仍由 .env / .env.local 決定，不覆寫。
+      ...(mode === 'production'
+        ? { 'import.meta.env.VITE_ENABLE_MOCK': JSON.stringify('false') }
+        : {}),
     },
   };
 });

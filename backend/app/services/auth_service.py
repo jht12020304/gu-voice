@@ -47,6 +47,14 @@ BLACKLIST_KEY_PREFIX = "gu:token_blacklist:"
 # refresh 時必須先 atomic 刪除舊 jti；刪不到就視為 replay，撤銷該 user 所有 refresh token
 REFRESH_TOKEN_KEY_PREFIX = "gu:refresh:"
 
+# 密碼重設 token key 前綴與 TTL（P3 #31）
+# gu:reset:{token} = user_id；TTL 30 分鐘
+RESET_TOKEN_KEY_PREFIX = "gu:reset:"
+RESET_TOKEN_TTL_SECONDS = 1800
+
+# 忘記密碼端點統一回傳訊息（不暴露帳號是否存在）
+FORGOT_PASSWORD_GENERIC_MESSAGE = "若此電子郵件已註冊，密碼重設連結已寄出"
+
 
 def _refresh_key(user_id: Any, jti: str) -> str:
     return f"{REFRESH_TOKEN_KEY_PREFIX}{user_id}:{jti}"
@@ -367,59 +375,80 @@ class AuthService:
         await db.flush()
 
     @staticmethod
-    async def forgot_password(db: AsyncSession, email: str) -> dict[str, str]:
+    async def forgot_password(
+        db: AsyncSession,
+        email: str,
+        email_client: Optional[Any] = None,
+    ) -> dict[str, str]:
         """
-        忘記密碼 — 產生重設 token
+        忘記密碼 — 產生重設 token 並寄出重設信（P3 #31）。
 
-        Note:
-            目前為 placeholder，實際應整合 email 發送服務
+        流程：
+          1. 查帳號；不存在就直接回通用訊息（避免帳號 enumeration）
+          2. 產 `secrets.token_urlsafe(32)`；存 `gu:reset:{token}` → user_id，TTL 1800s
+          3. 組 reset URL = `{FRONTEND_BASE_URL}/reset-password?token={token}`
+          4. 呼叫 email_client 寄信（失敗不對呼叫端拋）
 
-        Returns:
-            包含 reset_token 的字典（開發用途，正式環境不回傳）
+        Args:
+            email_client: 可注入的 email 客戶端（測試用）；None 時用預設實作
         """
+        from app.cache.redis_client import get_redis
+        from app.core.email_client import send_email
+
         result = await db.execute(
             select(User).where(User.email == email)
         )
         user = result.scalar_one_or_none()
 
-        # 無論使用者是否存在，都回傳成功（避免洩漏帳號存在與否）
+        # 不存在也要回一樣的訊息；且不可動 Redis / 不可寄信
         if user is None:
-            return {"message": "若此信箱已註冊，將會收到重設密碼信件"}
+            logger.info("forgot_password: email 不存在，靜默回成功 email=%s", email)
+            return {"message": FORGOT_PASSWORD_GENERIC_MESSAGE}
 
-        # 產生重設 token（64 字元隨機字串）
-        reset_token = secrets.token_urlsafe(48)
-
-        # TODO: 將 reset_token 儲存至 Redis（TTL 30 分鐘）並發送 email
-        # 暫時將 token 存放在使用者記錄（需新增欄位）或 Redis
-        from app.cache.redis_client import get_redis
-
+        reset_token = secrets.token_urlsafe(32)
         redis = await get_redis()
-        key = f"gu:password_reset:{reset_token}"
-        await redis.setex(key, 1800, str(user.id))  # 30 分鐘有效
+        await redis.setex(
+            f"{RESET_TOKEN_KEY_PREFIX}{reset_token}",
+            RESET_TOKEN_TTL_SECONDS,
+            str(user.id),
+        )
 
-        # Placeholder: 日後整合 email 服務
-        return {
-            "message": "若此信箱已註冊，將會收到重設密碼信件",
-            # 開發模式下回傳 token 方便測試
-            "_debug_reset_token": reset_token if settings.APP_ENV == "development" else None,
-        }
+        reset_url = f"{settings.FRONTEND_BASE_URL}/reset-password?token={reset_token}"
+        subject = "[GU Voice] 密碼重設連結"
+        body_text = (
+            f"您好，\n\n我們收到一則密碼重設請求。請於 30 分鐘內點擊以下連結完成重設：\n"
+            f"{reset_url}\n\n若非您本人操作，請忽略此信。"
+        )
+        body_html = (
+            f"<p>您好，</p><p>我們收到一則密碼重設請求。"
+            f"請於 30 分鐘內點擊以下連結完成重設：</p>"
+            f'<p><a href="{reset_url}">{reset_url}</a></p>'
+            f"<p>若非您本人操作，請忽略此信。</p>"
+        )
+
+        await send_email(
+            to=user.email,
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text,
+            client=email_client,
+        )
+
+        return {"message": FORGOT_PASSWORD_GENERIC_MESSAGE}
 
     @staticmethod
     async def reset_password(db: AsyncSession, token: str, new_password: str) -> None:
         """
-        重設密碼
-
-        Args:
-            token: 重設 token
-            new_password: 新密碼
+        重設密碼；成功後 invalidate token。
 
         Raises:
             UnauthorizedException: token 無效或已過期
+            NotFoundException: token 對應的 user 已刪除
         """
         from app.cache.redis_client import get_redis
 
         redis = await get_redis()
-        key = f"gu:password_reset:{token}"
+        key = f"{RESET_TOKEN_KEY_PREFIX}{token}"
         user_id = await redis.get(key)
 
         if user_id is None:
@@ -436,7 +465,7 @@ class AuthService:
         user.updated_at = utc_now()
         await db.flush()
 
-        # 使用後刪除 token
+        # 一次性 token：用完立即刪除
         await redis.delete(key)
 
     @staticmethod

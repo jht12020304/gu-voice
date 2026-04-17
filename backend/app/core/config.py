@@ -9,7 +9,7 @@
 """
 
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urlunparse
 from typing import Optional
 
 from pydantic import Field, field_validator
@@ -100,12 +100,46 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_KEY_PREFIX: str = "gu:"
 
+    # P3 #29：cache / celery broker / celery result 各走獨立 DB index，
+    # 避免 FLUSHDB on cache 誤清掉正在排隊的 Celery 任務。
+    REDIS_DB_CACHE: int = 0
+    REDIS_DB_CELERY_BROKER: int = 1
+    REDIS_DB_CELERY_RESULT: int = 2
+
     @property
     def REDIS_URL(self) -> str:
         if self.REDIS_URL_EXPLICIT:
             return self.REDIS_URL_EXPLICIT
         auth = f":{self.REDIS_PASSWORD}@" if self.REDIS_PASSWORD else ""
         return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
+    def _redis_url_with_db(self, db: int) -> str:
+        """
+        把 base REDIS_URL 的尾端 `/N` 替換成指定的 db index。
+
+        支援三種 base 格式：
+          - `redis://host:6379/0`（已有 db）→ 替換
+          - `redis://host:6379`（沒 db）→ 直接追加
+          - `rediss://user:pass@host:6380/5`（tls + auth + 任意 db）→ 保留 auth 與 tls scheme
+        """
+        base = self.REDIS_URL
+        parsed = urlparse(base)
+        # urlparse 在 scheme=redis(s) 時 path 會從 "/" 開始，等於原本的 "/N"；
+        # 沒有 db 的情況 path == "" 或 "/"
+        new_path = f"/{db}"
+        return urlunparse(parsed._replace(path=new_path))
+
+    @property
+    def REDIS_URL_CACHE(self) -> str:
+        return self._redis_url_with_db(self.REDIS_DB_CACHE)
+
+    @property
+    def REDIS_URL_CELERY_BROKER(self) -> str:
+        return self._redis_url_with_db(self.REDIS_DB_CELERY_BROKER)
+
+    @property
+    def REDIS_URL_CELERY_RESULT(self) -> str:
+        return self._redis_url_with_db(self.REDIS_DB_CELERY_RESULT)
 
     # ── JWT ──────────────────────────────────────────────
     JWT_ALGORITHM: str = "RS256"
@@ -210,6 +244,19 @@ class Settings(BaseSettings):
 
     # ── SENTRY ──────────────────────────────────────────
     SENTRY_DSN: Optional[str] = None
+
+    # ── Email（P3 #31 forgot_password） ─────────────────
+    # 前端 reset-password 頁面 base URL；email 模板會拼成
+    # `{FRONTEND_BASE_URL}/reset-password?token=...`
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
+    # 寄信優先順序：SENDGRID_API_KEY > SMTP_HOST > 皆無時只 log（dev 模式）
+    SENDGRID_API_KEY: Optional[str] = None
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_ADDRESS: str = "no-reply@gu-voice.local"
+    SMTP_USE_TLS: bool = True
 
     # ── CORS ────────────────────────────────────────────
     CORS_ORIGINS: list[str] = [

@@ -32,10 +32,10 @@ _redis_client: Optional[aioredis.Redis] = None
 
 
 async def init_redis() -> aioredis.Redis:
-    """初始化 Redis 連線"""
+    """初始化 Redis 連線（cache DB，P3 #29）"""
     global _redis_client
     _redis_client = aioredis.from_url(
-        settings.REDIS_URL,
+        settings.REDIS_URL_CACHE,
         decode_responses=True,
     )
     return _redis_client

@@ -12,10 +12,12 @@ from celery.signals import worker_process_init
 from app.core.config import settings
 
 # 建立 Celery app
+# P3 #29：broker / result 走獨立 Redis DB index（預設 1 / 2），
+# 避免 cache FLUSHDB 誤清 Celery 佇列。
 celery_app = Celery(
     "gu_voice",
-    broker=settings.REDIS_URL,
-    backend=settings.REDIS_URL,
+    broker=settings.REDIS_URL_CELERY_BROKER,
+    backend=settings.REDIS_URL_CELERY_RESULT,
 )
 
 # ── 序列化設定 ────────────────────────────────────────────
@@ -40,6 +42,8 @@ celery_app.autodiscover_tasks([
     "app.tasks.notification_retry",
     "app.tasks.session_timeout",
     "app.tasks.partition_manager",
+    "app.tasks.audit_retention",
+    "app.tasks.audio_lifecycle",
 ])
 
 # ── Worker 啟動：初始化 Firebase（推播任務需要） ─────────────
@@ -61,5 +65,15 @@ celery_app.conf.beat_schedule = {
     "ensure-monthly-partitions": {
         "task": "app.tasks.partition_manager.ensure_monthly_partitions",
         "schedule": crontab(hour=3, minute=0, day_of_month=25),
+    },
+    # 每月 1 日凌晨 4 點清理 audit_logs 超過 7 年的分區（錯開 ensure_monthly 的 25 日 03:00）
+    "cleanup-audit-retention": {
+        "task": "app.tasks.audit_retention.cleanup_old_audit_partitions",
+        "schedule": crontab(hour=4, minute=0, day_of_month=1),
+    },
+    # 每月 1 日凌晨 5 點清理超過 AUDIO_RETENTION_DAYS 的音訊 blob（錯開 04:00 的 audit 任務）
+    "cleanup-audio-lifecycle": {
+        "task": "app.tasks.audio_lifecycle.cleanup_old_audio_files",
+        "schedule": crontab(hour=5, minute=0, day_of_month=1),
     },
 }

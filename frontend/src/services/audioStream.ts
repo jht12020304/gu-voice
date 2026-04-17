@@ -27,6 +27,29 @@ interface VADConfig {
   silenceEndMs: number;
 }
 
+/**
+ * 依序嘗試可用的 MediaRecorder MIME type。
+ * Safari / iOS 不支援 audio/webm，只接受 audio/mp4；Chrome / Firefox 則偏好 audio/webm。
+ * 全部都不支援時回傳 undefined，讓瀏覽器自動挑選預設格式。
+ */
+function pickSupportedMimeType(): string | undefined {
+  if (typeof MediaRecorder === 'undefined') return undefined;
+  const candidates = [
+    'audio/mp4',
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/wav',
+  ];
+  for (const mime of candidates) {
+    try {
+      if (MediaRecorder.isTypeSupported(mime)) return mime;
+    } catch {
+      // 某些瀏覽器在不支援時會 throw，忽略即可
+    }
+  }
+  return undefined;
+}
+
 class AudioStreamService {
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
@@ -96,9 +119,13 @@ class AudioStreamService {
         },
       });
 
+      // iOS Safari <14.5 沒有標準 AudioContext，僅暴露前綴版本 webkitAudioContext
       const AC =
         window.AudioContext ??
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AC) {
+        throw new Error('AudioContext not supported in this browser');
+      }
       this.audioContext = new AC();
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
@@ -246,15 +273,17 @@ class AudioStreamService {
     this.activeSegmentId = this.nextSegmentId++;
     const thisSegmentId = this.activeSegmentId;
 
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/webm';
+    // Safari / iOS 不支援 audio/webm，僅支援 audio/mp4；依序挑第一個可用的 MIME。
+    // 若所有候選都不支援，fallback 為 undefined，讓瀏覽器自選格式。
+    const mimeType = pickSupportedMimeType();
 
     try {
-      this.mediaRecorder = new MediaRecorder(this.stream, {
-        mimeType,
-        audioBitsPerSecond: 128000,
-      });
+      this.mediaRecorder = new MediaRecorder(
+        this.stream,
+        mimeType
+          ? { mimeType, audioBitsPerSecond: 128000 }
+          : { audioBitsPerSecond: 128000 },
+      );
     } catch (error) {
       this.isSpeaking = false;
       this.callbacks.onError?.(

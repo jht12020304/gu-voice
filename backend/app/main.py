@@ -3,14 +3,17 @@ GU Voice API — FastAPI 入口
 泌尿科 AI 語音問診助手後端服務
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -18,7 +21,11 @@ from app.core.database import engine
 from app.core.dependencies import close_redis, init_redis
 from app.core.exceptions import register_exception_handlers
 from app.core.firebase import initialize_firebase
-from app.core.middleware import AuditLoggingMiddleware, RequestIdMiddleware
+from app.core.middleware import (
+    AuditLoggingMiddleware,
+    RequestIdMiddleware,
+    SecurityHeadersMiddleware,
+)
 from app.core.sentry import init_sentry
 from app.schemas.common import HealthResponse
 
@@ -92,14 +99,27 @@ app = FastAPI(
 
 
 # ── 中介層（順序很重要：先加的最後執行） ──────────────────
+# SecurityHeaders 最早加 → 最後執行 → 確保注入到所有其他 middleware 的 response 之上
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(AuditLoggingMiddleware)
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # P2 #18：明確列舉，杜絕 "*" + credentials 的瀏覽器拒絕（Access-Control-Allow-Origin 不可為 *
+    # 當 credentials 為 true）以及多餘 verb 的誤用
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "X-Request-ID",
+    ],
+    expose_headers=["X-Request-ID"],
+    max_age=600,  # 10 分鐘 preflight cache，減少 OPTIONS 來回
 )
 
 
@@ -146,7 +166,7 @@ app.include_router(audit_logs.router)
 
 
 # ── WebSocket 路由 ────────────────────────────────────────
-from fastapi import Depends, WebSocket  # noqa: E402
+from fastapi import WebSocket  # noqa: E402
 
 from app.core.dependencies import get_db, get_redis  # noqa: E402
 from app.websocket.conversation_handler import conversation_websocket  # noqa: E402
@@ -180,4 +200,55 @@ async def health_check() -> HealthResponse:
         status="ok",
         version="1.0.0",
         timestamp=datetime.now(timezone.utc),
+    )
+
+
+# 深度健康檢查所用的單次檢查逾時；DB / Redis 任一超過 2 秒就判定 fail
+_DEEP_HEALTH_TIMEOUT_SECONDS = 2.0
+
+
+async def _deep_check_db(db: AsyncSession) -> str:
+    """對 DB 跑 SELECT 1；成功回 "ok"，失敗回 "fail: <err>"。"""
+    try:
+        async def _probe() -> None:
+            await db.execute(text("SELECT 1"))
+        await asyncio.wait_for(_probe(), timeout=_DEEP_HEALTH_TIMEOUT_SECONDS)
+        return "ok"
+    except asyncio.TimeoutError:
+        return f"fail: timeout >{_DEEP_HEALTH_TIMEOUT_SECONDS}s"
+    except Exception as exc:  # noqa: BLE001 — 要回報給呼叫端
+        return f"fail: {exc}"
+
+
+async def _deep_check_redis(redis: Any) -> str:
+    """對 Redis 跑 ping；成功回 "ok"，失敗回 "fail: <err>"。"""
+    try:
+        await asyncio.wait_for(redis.ping(), timeout=_DEEP_HEALTH_TIMEOUT_SECONDS)
+        return "ok"
+    except asyncio.TimeoutError:
+        return f"fail: timeout >{_DEEP_HEALTH_TIMEOUT_SECONDS}s"
+    except Exception as exc:  # noqa: BLE001
+        return f"fail: {exc}"
+
+
+@app.get("/api/v1/healthz/deep", tags=["系統"])
+async def deep_health_check(
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+) -> JSONResponse:
+    """
+    深度健康檢查 — 真實連線 DB 與 Redis 各一次。
+
+    - DB 跑 `SELECT 1`、Redis 跑 `PING`，兩者各 2 秒逾時
+    - 全過 → 200 `{"status": "ok", "checks": {...}}`
+    - 任一失敗 → 503，並在 `checks` 欄位回 `fail: <err>` 方便排錯
+    """
+    checks = {
+        "db": await _deep_check_db(db),
+        "redis": await _deep_check_redis(redis),
+    }
+    all_ok = all(v == "ok" for v in checks.values())
+    return JSONResponse(
+        status_code=200 if all_ok else 503,
+        content={"status": "ok" if all_ok else "fail", "checks": checks},
     )

@@ -1,0 +1,128 @@
+name: CI
+
+"on":
+  pull_request: {}
+  push:
+    branches: [main]
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # Backend tests (FastAPI, Python 3.12)
+  # Services are wired so later integration tests work without workflow
+  # changes — current unit suite mostly uses stubs.
+  # ──────────────────────────────────────────────────────────────────────
+  backend-tests:
+    name: backend-tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U test -d test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      APP_ENV: testing
+      DATABASE_URL: postgresql://test:test@localhost:5432/test
+      REDIS_URL: redis://localhost:6379/0
+      JWT_ALGORITHM: HS256
+      JWT_SECRET_KEY: ci-test-secret-not-for-production
+      OPENAI_API_KEY: sk-test-placeholder
+      SUPABASE_URL: http://localhost
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # requirements.txt does not pin pytest; install the test runner explicitly
+          pip install pytest
+
+      - name: Run pytest (unit)
+        working-directory: backend
+        run: pytest tests/unit -q --ignore=tests/unit/api --junitxml=pytest-results.xml
+
+      - name: Upload junit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-pytest-results
+          path: backend/pytest-results.xml
+          if-no-files-found: ignore
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Frontend checks (React/Vite/TS, Node 20)
+  # `npm run build` already runs `tsc -b` first, so typecheck is implicit,
+  # but we keep an explicit type-check step for faster failure surfacing.
+  # `npm run lint` is intentionally NOT run here — repo has no eslint
+  # config file yet (see frontend/ listing). Re-enable once added.
+  # ──────────────────────────────────────────────────────────────────────
+  frontend-checks:
+    name: frontend-checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Type-check
+        working-directory: frontend
+        run: npm run type-check
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  # ──────────────────────────────────────────────────────────────────────
+  # e2e-playwright — PLACEHOLDER
+  # This job is intentionally disabled via `if: false` until `tests/e2e/`
+  # exists and a Playwright config is wired up. Leaving the job shell here
+  # so the wiring (name, structure) is discoverable in the workflow list
+  # without blocking PRs. Remove `if: false` and fill in steps when ready.
+  # ──────────────────────────────────────────────────────────────────────
+  e2e-playwright:
+    name: e2e-playwright
+    runs-on: ubuntu-latest
+    if: false
+    steps:
+      - name: TODO
+        run: 'echo "TODO: wire Playwright once tests/e2e/ exists"'

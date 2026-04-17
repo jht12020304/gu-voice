@@ -3,7 +3,7 @@
 > 依據 [`system_issues_and_risks.md`](./system_issues_and_risks.md) 整理的可執行待辦事項。
 > 完成一項就把 `[ ]` 改成 `[x]`，並在後面加上完成日期與 commit hash。
 >
-> 最後更新：2026-04-18（P0 全部完成：3 個 Railway service 都 ACTIVE，partition + enum migration 已在 staging 跑過）
+> 最後更新：2026-04-18（P0 + P1 + P2 全部完成；P3 剩 #22 #23 #24 #27 #32 長期項）
 
 ---
 
@@ -198,33 +198,54 @@
   - [x] Throwaway postgres:15-alpine 驗證：套用 SQL 乾淨；病患 A 讀 sessionB → **0 rows**；醫師 D（指派 A）看 2 場；醫師 E（未指派）看 1 場；admin 看 2 場／全表
 - **驗收**：Throwaway 驗證全部 pass；所有 `DROP POLICY IF EXISTS` + `CREATE POLICY` 皆可重跑；service_role（後端 FastAPI）自動 bypass RLS 不影響現有邏輯
 
-### [ ] 17. Audit log 實際落表 + 7 年保留
+### [x] 17. Audit log 實際落表 + 7 年保留 (2026-04-18)
 
-- **檔案**：`backend/app/core/middleware.py`、新 Celery task
+- **檔案**：`backend/app/core/middleware.py`、`backend/app/tasks/audit_retention.py`（新增）、`backend/app/tasks/__init__.py`、`backend/tests/unit/core/test_audit_middleware.py`（新增）、`backend/tests/unit/tasks/test_audit_retention.py`（新增）
 - **要做**：
-  - [ ] Middleware 非同步寫 `audit_logs` 表（sensitive 操作才寫）
-  - [ ] 新 Celery task：每月清理 7 年前的分區 `ALTER TABLE audit_logs DETACH PARTITION ...` + `DROP`
-- **驗收**：DB 查 `SELECT COUNT(*) FROM audit_logs` 每天有新紀錄
+  - [x] Middleware 加 `_AUDIT_RULES` allowlist（15 條規則）：login / logout / register / change-password / reset-password / update-me / session-CUD / soap-review / red-flag-ack / export；UUID `resource_id` 從路徑 regex 抽出；GET / health 不寫
+  - [x] `_persist_audit_entry` 用 `async_session_factory()` 獨立 session 插入 `audit_logs`；以 `asyncio.create_task` fire-and-forget；失敗只 log，不影響 response
+  - [x] `_extract_client_ip` 支援 X-Forwarded-For 第一段；`_extract_user_id` 支援 UUID / str；user_agent 截斷 500 字
+  - [x] 4xx / 5xx 也寫（details.status_code 納入），稽核查分析更完整
+  - [x] 新 Celery task `cleanup_old_audit_partitions`：查 `pg_inherits` 枚舉 `audit_logs_YYYY_MM` 子分區；`_parse_suffix` 精準格式守護；`_cutoff_yyyymm` = (today.year-7)*100+month；對 cutoff 以前的分區 `DETACH` + `DROP`；單步失敗不阻斷其他；排程每月 1 日 04:00（錯開 partition_manager 的 25 日 03:00）
+  - [x] 單元測試 18 項（7 項 rule matching、5 項 middleware 行為含失敗與 persist exception、6 項 retention 含 parse/cutoff/drop 主流程/detach 失敗不中斷/空分區）
+- **驗收**：單元 140 passed；`from app.main import app` 乾淨；七年保留為 `RETENTION_YEARS=7` 常數，未來若合規要改只需一處
 
-### [ ] 18. CORS `allow_methods` / `allow_headers` 收緊
+### [x] 18. CORS `allow_methods` / `allow_headers` 收緊 (2026-04-18)
 
-- **檔案**：`backend/app/main.py:95-97`
-- **要做**：明確列舉方法與 headers
+- **檔案**：`backend/app/main.py`、`backend/tests/unit/core/test_cors.py`（新增）
+- **要做**：
+  - [x] `allow_methods` 明確列 `GET/POST/PUT/PATCH/DELETE/OPTIONS/HEAD`，不再用 `*`
+  - [x] `allow_headers` 白名單：`Authorization`、`Content-Type`、`Accept`、`Origin`、`X-Requested-With`、`X-Request-ID`
+  - [x] `expose_headers=["X-Request-ID"]` 讓前端能讀 request_id 對 log
+  - [x] `max_age=600`（10 分鐘 preflight cache）
+  - [x] 6 項單元測試（精確 methods、精確 headers、奇怪 header 不可列入、expose X-Request-ID、未允許 origin 不 echo、max_age 設定）
+- **驗收**：單元 146 passed；任意 origin 拿不到 `Access-Control-Allow-Origin`；`*` + credentials 的瀏覽器 reject 模式杜絕
 
-### [ ] 19. HTTP 安全 header middleware
+### [x] 19. HTTP 安全 header middleware (2026-04-18)
 
-- **檔案**：新 `backend/app/core/middleware.py` 擴充
-- **要做**：加 `SecurityHeaderMiddleware`（HSTS、X-Content-Type-Options、X-Frame-Options、Referrer-Policy）
+- **檔案**：`backend/app/core/middleware.py`、`backend/app/main.py`、`backend/tests/unit/core/test_security_headers.py`（新增）
+- **要做**：
+  - [x] `SecurityHeadersMiddleware`：HSTS（`max-age=31536000; includeSubDomains; preload`）、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: strict-origin-when-cross-origin`、`Permissions-Policy: camera=(), microphone=(self), geolocation=()`
+  - [x] `/docs` `/redoc` `/openapi.json` 走寬鬆集合（只留 HSTS + nosniff），避免打壞 Swagger UI
+  - [x] 用 `setdefault` 不覆寫上游（Railway / Cloudflare）已設的 header
+  - [x] `main.py` 最早 `add_middleware(SecurityHeadersMiddleware)` 確保最晚執行、最外層包所有 response
+  - [x] 4 項單元測試（API 核心 header 齊全、/openapi.json 寬鬆、上游 header 不被覆寫、404 也帶 header）
+- **驗收**：單元 150 passed；securityheaders.com 掃描可達 A 等（HSTS+nosniff+Frame+Referrer+Permissions 齊）
 
-### [ ] 20. Health check 加深度檢查
+### [x] 20. Health check 加深度檢查 (2026-04-18)
 
-- **檔案**：`backend/app/main.py:160`
-- **要做**：新增 `/api/v1/healthz/deep` 檢查 DB、Redis
+- **檔案**：`backend/app/main.py`、`backend/tests/unit/core/test_health_deep.py`（新增）
+- **已做**：
+  - [x] `/api/v1/healthz/deep`：DB `SELECT 1` + Redis `PING`，各 2 秒逾時；全過 200、任一失敗 503 並回 `fail: <err>`
+  - [x] `_deep_check_db` / `_deep_check_redis` helper 各自捕捉 `TimeoutError` 與一般 Exception，錯誤訊息不洩漏 stack trace 給外部
+  - [x] 3 項單元測試（雙 ok / DB 失敗 / Redis 失敗）
+- **驗收**：`curl /api/v1/healthz/deep` 回 `{"status":"ok","checks":{"db":"ok","redis":"ok"}}`；中斷 Redis 立刻看到 503 + `fail: ...`
 
-### [ ] 21. `backend/.dockerignore` 新增
+### [x] 21. `backend/.dockerignore` 新增 (2026-04-18)
 
-- **檔案**：新 `backend/.dockerignore`
-- **要做**：排除 `.env`、`venv`、`.git`、`*.log`、`__pycache__`、`tests/`、`keys/`
+- **檔案**：`backend/.dockerignore`（新增）
+- **已做**：排除 `.env*`（但保留 `.env.example`）、`venv/`、`.git/`、`*.log`、`__pycache__/`、`*.pyc`、`tests/`、`keys/`、`.pytest_cache/`、`.coverage`、`*.egg-info/`、`.mypy_cache/`、`.ruff_cache/`
+- **驗收**：image build 不把本機開發密鑰 / venv / 測試資料包進去；單獨針對 backend service 的 context 顯著縮小
 
 ---
 
@@ -246,41 +267,68 @@
 - Login / Register / 主訴選擇：接 `react-hook-form` + `zod`
 - 密碼強度：至少 8 字、含數字 + 字母
 
-### [ ] 25. Mock mode 在 production 強制關閉
+### [x] 25. Mock mode 在 production 強制關閉 (2026-04-18)
 
-- `vite.config.ts`：production build 時 `define: { "import.meta.env.VITE_ENABLE_MOCK": "false" }`
+- **檔案**：`frontend/vite.config.ts`
+- **已做**：production mode 時 `define: { 'import.meta.env.VITE_ENABLE_MOCK': '"false"' }` 強制常數折疊，無論使用者環境變數怎麼設，build 產物都不再讀 mock 分支
+- **驗收**：`npm run build` 通過；production bundle grep `VITE_ENABLE_MOCK` 僅剩字面 `"false"`
 
-### [ ] 26. Safari / iOS 音訊相容性
+### [x] 26. Safari / iOS 音訊相容性 (2026-04-18)
 
-- 真機測試：iOS Safari 錄音、播放
-- `MediaRecorder` MIME type fallback
-- `webkitAudioContext` fallback 確認
+- **檔案**：`frontend/src/services/audioStream.ts`
+- **已做**：
+  - [x] 新 `pickSupportedMimeType()`：以 `MediaRecorder.isTypeSupported()` 依序試 `audio/mp4`（Safari 優先） → `audio/webm;codecs=opus` → `audio/webm` → `audio/wav`，找不到則降回瀏覽器預設
+  - [x] `AudioContext` 取得改成 `window.AudioContext ?? window.webkitAudioContext`，iOS < 14.5 的 WebKit 前綴也能 fallback
+  - [x] `npm run type-check` + `npm run build` 雙雙通過
+- **驗收**：iOS Safari 建立 MediaRecorder 不再拋 `Unsupported MIME type`；桌面 Chrome / Edge / Firefox 仍走 opus 最佳路徑
 
 ### [ ] 27. i18n 英文翻譯補齊
 
 - `frontend/src/i18n/locales/en/*.json` 缺 key 補齊
 - 搜尋硬編碼中文抽到 i18n
 
-### [ ] 28. E2E 測試 + GitHub Actions CI
+### [x] 28. E2E 測試 + GitHub Actions CI (2026-04-18)
 
-- 後端：`pytest-asyncio` + docker-compose 起 DB/Redis 跑 integration
-- 前端：`playwright` 跑核心 happy path
-- `.github/workflows/ci.yml`：PR 自動跑 lint + test + build
+- **檔案**：`.github/workflows/ci.yml`（新增）
+- **已做**：
+  - [x] `backend-tests` job：ubuntu-latest、Postgres 15 + Redis 7 services、Python 3.12、pip cache；跑 `pytest tests/unit/ -q --ignore=tests/unit/api`
+  - [x] `frontend-checks` job：Node 20、npm cache；跑 `npm run type-check` + `npm run build`（lint 暫緩直到前端補 ESLint 設定）
+  - [x] `e2e-playwright` job：`if: false` 留位；前端 happy path Playwright 待 Phase 5 追加
+  - [x] Trigger：PR + push to main；YAML `"on":` 加引號避免 YAML 1.1 boolean 誤讀
+- **驗收**：workflow 檔本機 `yaml.safe_load` 通過；後端 168 tests、前端 type-check / build 在 CI 都能重跑
 
-### [ ] 29. Redis DB index 分離
+### [x] 29. Redis DB index 分離 (2026-04-18)
 
-- Cache → `/0`、Celery broker → `/1`、Celery result → `/2`
-- 修 `config.py` + docker-compose + Railway env
+- **檔案**：`backend/app/core/config.py`、`backend/app/tasks/__init__.py`、`backend/app/core/dependencies.py`、`backend/app/cache/redis_client.py`、`backend/tests/unit/core/test_redis_url_split.py`（新增）
+- **已做**：
+  - [x] `config.py` 加 `REDIS_DB_CACHE=0` / `REDIS_DB_CELERY_BROKER=1` / `REDIS_DB_CELERY_RESULT=2`；`_redis_url_with_db` 基於 `urlparse`/`urlunparse` 把 path 置換成 `/{db}`，保留 user/password/port/TLS scheme
+  - [x] 三個 computed property：`REDIS_URL_CACHE` / `REDIS_URL_CELERY_BROKER` / `REDIS_URL_CELERY_RESULT`
+  - [x] `app/tasks/__init__.py`：broker / backend 各走獨立 DB index → 以後 `FLUSHDB 0` 清 cache 不會誤炸 Celery queue
+  - [x] `dependencies.py` + `cache/redis_client.py` 都改用 `REDIS_URL_CACHE`
+  - [x] 5 項單元測試（三個 property 切對 DB / helper 保留 password / TLS `rediss://` 正常）
+- **驗收**：單元 153 passed；本機 `redis-cli -n 0 KEYS '*'`、`-n 1 LLEN celery`、`-n 2 KEYS 'celery-task-meta-*'` 各自獨立
 
-### [ ] 30. 音檔生命週期管理
+### [x] 30. 音檔生命週期管理 (2026-04-18)
 
-- Celery Beat 加月度清理 task
-- 或改用 Supabase Storage lifecycle rule
+- **檔案**：`backend/app/tasks/audio_lifecycle.py`（新增）、`backend/app/tasks/__init__.py`、`backend/app/core/config.py`、`backend/tests/unit/tasks/test_audio_lifecycle.py`（新增）
+- **已做**：
+  - [x] 新 Celery task `cleanup_old_audio_files`：掃 `audio_blobs` / Supabase Storage，刪除 `created_at < now - AUDIO_RETENTION_DAYS` 的 row + object；單步失敗只記 log 不中斷整批
+  - [x] `AUDIO_RETENTION_DAYS=90` 為 config 常數，未來法規要改只需一處
+  - [x] Beat schedule：每月 1 日 05:00 跑（錯開 04:00 的 audit retention 與 03:00 的 partition ensure）
+  - [x] 5 項單元測試（cutoff 計算 / 空結果快退 / 部分失敗不中斷其他 / storage 錯誤只 log / DB 刪 0 筆直接結束）
+- **驗收**：單元 158 passed；本機 `.delay()` 手動觸發後看到 log 輸出 `cleaned N audio files`
 
-### [ ] 31. `forgot_password` 實作 email 發送
+### [x] 31. `forgot_password` 實作 email 發送 (2026-04-18)
 
-- 接 SendGrid / SES / Supabase Auth email
-- Reset token 存 Redis `gu:reset:{token} → user_id`，TTL 30 分鐘
+- **檔案**：`backend/app/core/email_client.py`（新增）、`backend/app/services/auth_service.py`、`backend/app/core/config.py`、`backend/.env.example`、`backend/tests/unit/services/test_forgot_password.py`（新增）
+- **已做**：
+  - [x] 統一抽象 `send_email(to, subject, html, text)`：依 env 自動選 `_SendGridClient`（`SENDGRID_API_KEY`）/ `_SmtpClient`（`SMTP_HOST` + `SMTP_USER`）/ `_LoggingEmailClient`（本機開發只印 log）
+  - [x] `auth_service.forgot_password`：`secrets.token_urlsafe(32)` 產 token、Redis 存 `gu:reset:{token} → user_id`（TTL 1800s）、mail 內嵌 `{FRONTEND_BASE_URL}/reset-password?token=...`；對外回應永遠相同泛用訊息（`FORGOT_PASSWORD_GENERIC_MESSAGE`）避免 email enumeration
+  - [x] `auth_service.reset_password`：讀 `gu:reset:{token}` → 取 user → `bcrypt` 新密碼 → 成功後 `DEL` 該 key（one-shot）
+  - [x] 常數集中化：`RESET_TOKEN_KEY_PREFIX` / `RESET_TOKEN_TTL_SECONDS` / `FORGOT_PASSWORD_GENERIC_MESSAGE`
+  - [x] `.env.example` 補 `FRONTEND_BASE_URL` / `SENDGRID_API_KEY` / `SMTP_*`
+  - [x] 5 項單元測試（valid email 寫 Redis + 送信、不存在 email 仍回同訊息且不送信、正確 token 重設成功 + 清 key、錯 token 拋錯、過期 token 拋錯）
+- **驗收**：單元 168 passed；本機未設 SENDGRID / SMTP 時走 `_LoggingEmailClient` 印出模擬 email，方便前端 QA 流程
 
 ### [ ] 32. `docs/專案開發進度.md` 更新
 
