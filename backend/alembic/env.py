@@ -35,7 +35,12 @@ target_metadata = Base.metadata
 
 # ── 決定是否需要 SSL（Supabase 強制，本地 Docker 不需要）──────────────
 _use_ssl = "supabase" in settings.DB_HOST or "pooler.supabase" in settings.DB_HOST
-_connect_args: dict = {"statement_cache_size": 0}  # PgBouncer transaction mode 需停用 prepared statements
+_connect_args: dict = {
+    # PgBouncer transaction pool mode 需停用「兩種」prepared statement cache，
+    # 否則會報 DuplicatePreparedStatementError / __asyncpg_stmt_X__ already exists
+    "statement_cache_size": 0,              # asyncpg 原生 cache
+    "prepared_statement_cache_size": 0,     # SQLAlchemy asyncpg dialect cache
+}
 if _use_ssl:
     _connect_args["ssl"] = "require"
 
