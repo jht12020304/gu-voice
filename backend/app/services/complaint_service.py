@@ -15,6 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import NotFoundException
 from app.models.chief_complaint import ChiefComplaint
+from app.utils.complaint_fallback_i18n import (
+    fallback_translate_category,
+    fallback_translate_description,
+    fallback_translate_name,
+)
 from app.utils.datetime_utils import utc_now
 from app.utils.localized_field import pick
 
@@ -27,26 +32,55 @@ def _seed_name_by_lang(name: str, name_en: Optional[str]) -> dict[str, str]:
     return seed
 
 
+def _resolve_with_fallback(
+    by_lang: Any,
+    target: str,
+    legacy_value: Optional[str],
+    fallback_fn,
+) -> Optional[str]:
+    """pick() 優先；若 DB 沒有 target lang 的明確翻譯，以 legacy zh-TW 查 fallback 字典。
+
+    次序：
+      1. by_lang[target] 明確存在 → 直接用（DB 權威翻譯）
+      2. target 非預設語言 → 嘗試 fallback 字典（覆蓋 admin 未填 _by_lang 的情境）
+      3. 走回標準 pick() chain（zh-TW → 任一 → legacy → None）
+    """
+    if isinstance(by_lang, dict):
+        explicit = by_lang.get(target)
+        if isinstance(explicit, str) and explicit:
+            return explicit
+
+    if target and target != settings.DEFAULT_LANGUAGE and legacy_value:
+        translated = fallback_fn(legacy_value, target)
+        if translated:
+            return translated
+
+    return pick(by_lang, target, legacy_value=legacy_value)
+
+
 def _serialize_complaint(complaint: ChiefComplaint, language: Optional[str]) -> dict[str, Any]:
     """依 language 產出 localized name / description / category，保留 `*_by_lang` 原貌。"""
     target = language or settings.DEFAULT_LANGUAGE
     return {
         "id": complaint.id,
-        "name": pick(
+        "name": _resolve_with_fallback(
             complaint.name_by_lang,
             target,
-            legacy_value=complaint.name,
+            complaint.name,
+            fallback_translate_name,
         ) or complaint.name,
         "name_en": complaint.name_en,
-        "description": pick(
+        "description": _resolve_with_fallback(
             complaint.description_by_lang,
             target,
-            legacy_value=complaint.description,
+            complaint.description,
+            fallback_translate_description,
         ),
-        "category": pick(
+        "category": _resolve_with_fallback(
             complaint.category_by_lang,
             target,
-            legacy_value=complaint.category,
+            complaint.category,
+            fallback_translate_category,
         ) or complaint.category,
         "is_default": complaint.is_default,
         "is_active": complaint.is_active,
