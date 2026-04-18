@@ -1,0 +1,57 @@
+{
+  "sidebar": {
+    "sections": {
+      "tools": "工具區",
+      "data": "資料區",
+      "admin": "管理區",
+      "other": "其他"
+    },
+    "nav": {
+      "dashboard": "儀表板",
+      "tryConversation": "體驗對話流程",
+      "patients": "病患列表",
+      "soapReports": "SOAP 報告",
+      "redFlagAlerts": "紅旗警示",
+      "userManagement": "使用者管理",
+      "complaintTemplates": "主訴模板管理",
+      "systemHealth": "系統狀態",
+      "auditLogs": "稽核日誌",
+      "settings": "設定"
+    }
+  },
+  "alert": {
+    "acknowledged": "已處理",
+    "pending": "待處理",
+    "chiefComplaintLabel": "主訴：{{value}}",
+    "sessionStatusLabel": "場次狀態：{{value}}",
+    "triggerLabel": "觸發：{{value}}",
+    "suggestedActions": "建議 {{count}} 項處置",
+    "viewDetail": "查看詳情",
+    "acknowledge": "確認處理",
+    "acknowledgedBadge": "✓ 已確認"
+  },
+  "transcript": {
+    "title": "問診對話逐字稿",
+    "emptyTitle": "目前沒有可檢視的對話內容",
+    "loading": "載入對話記錄...",
+    "messageCount": "{{count}} 則對話",
+    "summary": "{{patientCount}} 則病患 / {{assistantCount}} 則 AI",
+    "viewFull": "查看完整對話（{{count}} 則更多）...",
+    "searchPlaceholder": "搜尋逐字稿內容",
+    "filter": {
+      "all": "全部",
+      "patient": "病患",
+      "assistant": "AI"
+    },
+    "visibleCount": "顯示 {{visible}} / {{total}} 則對話",
+    "noMatches": "沒有符合條件的逐字稿內容",
+    "redFlag": "紅旗",
+    "lowConfidence": "低辨識信心",
+    "sttConfidence": "STT 信心：{{value}}%",
+    "roles": {
+      "patient": "病患",
+      "assistant": "AI 助手",
+      "system": "系統"
+    }
+  }
+}

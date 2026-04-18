@@ -1,0 +1,83 @@
+{
+  "complete": {
+    "loading": "Loading consultation result...",
+    "title": "Consultation complete",
+    "subtitle": "Thanks for your time — the AI has finished gathering your information.",
+    "summaryTitle": "Consultation summary",
+    "summaryChiefComplaint": "Chief complaint",
+    "summaryStartedAt": "Started at",
+    "summaryDuration": "Duration",
+    "durationMinutes": "{{minutes}} min",
+    "durationEmpty": "—",
+    "redFlagTitle": "Red-flag alert",
+    "reportTitle": "AI analysis report",
+    "reportAnalyzing": "AI is analyzing your consultation…",
+    "reportEmpty": "Report not yet generated",
+    "reviewStatusApproved": "Reviewed by doctor",
+    "reviewStatusRevisionNeeded": "Additional info needed",
+    "reviewStatusPending": "Awaiting doctor review",
+    "aiConfidence": "AI confidence {{percent}}%",
+    "nextStepsTitle": "Next steps",
+    "nextStep1": "Your consultation data has been securely sent to the medical team.",
+    "nextStep2": "A doctor will review the AI report and provide recommendations.",
+    "nextStep3": "If this is an emergency, go to the ER or dial your local emergency number.",
+    "actionHome": "Back to home",
+    "actionHistory": "View consultation history"
+  },
+  "thankYou": {
+    "title": "Consultation complete",
+    "message": "Thank you for joining today's smart consultation. Please wait outside your assigned clinic room; after the doctor's review, a nurse will arrange suitable tests for you.",
+    "autoRedirectHint": "Returning to home in a few seconds…",
+    "backNowAction": "Back to home now"
+  },
+  "patientDetail": {
+    "loading": "Loading consultation record...",
+    "loadError": "Failed to load consultation record",
+    "notFound": "Consultation record not found",
+    "title": "Consultation record",
+    "recordId": "Record ID: {{id}}",
+    "statusCompleted": "Completed",
+    "chiefComplaint": "Chief complaint: {{value}}",
+    "chiefComplaintEmpty": "Not provided",
+    "summaryHeading": "Doctor's summary",
+    "summaryEmpty": "No summary has been generated yet.",
+    "adviceHeading": "Recommendations",
+    "adviceEmpty": "No recommendations available yet.",
+    "doctorLabel": "Attending doctor",
+    "doctorUnassigned": "Unassigned",
+    "durationLabel": "Conversation duration",
+    "durationEmpty": "-"
+  },
+  "doctor": {
+    "list": {
+      "title": "Consultation sessions",
+      "searchPlaceholder": "Search patient or chief complaint...",
+      "tabAll": "All",
+      "tabInProgress": "In progress",
+      "tabWaiting": "Waiting",
+      "tabCompleted": "Completed",
+      "emptyTitle": "No sessions",
+      "emptyMessage": "No consultation sessions match the current filters",
+      "redFlagBadge": "Red flag",
+      "unknownPatient": "Unknown patient",
+      "chiefComplaintEmpty": "-"
+    },
+    "detail": {
+      "loading": "Loading session...",
+      "loadError": "Failed to load session data",
+      "notFound": "Session not found",
+      "title": "Session details",
+      "idLabel": "ID: {{id}}",
+      "infoChiefComplaint": "Chief complaint",
+      "infoChiefComplaintEmpty": "-",
+      "infoLanguage": "Language",
+      "infoStartedAt": "Started at",
+      "infoDuration": "Duration",
+      "redFlagTitle": "Red-flag alert",
+      "viewReport": "View SOAP report",
+      "enterConversation": "Open conversation",
+      "conversationsTitle": "Conversation log",
+      "conversationsEmpty": "No conversation records yet"
+    }
+  }
+}

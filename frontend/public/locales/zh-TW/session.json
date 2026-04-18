@@ -1,0 +1,83 @@
+{
+  "complete": {
+    "loading": "載入問診結果...",
+    "title": "問診完成",
+    "subtitle": "感謝您的配合，AI 已完成問診資料收集",
+    "summaryTitle": "問診摘要",
+    "summaryChiefComplaint": "主訴",
+    "summaryStartedAt": "問診時間",
+    "summaryDuration": "問診時長",
+    "durationMinutes": "{{minutes}} 分鐘",
+    "durationEmpty": "—",
+    "redFlagTitle": "紅旗警示",
+    "reportTitle": "AI 分析報告",
+    "reportAnalyzing": "AI 正在分析您的問診內容…",
+    "reportEmpty": "報告尚未產生",
+    "reviewStatusApproved": "醫師已審閱",
+    "reviewStatusRevisionNeeded": "需補充資料",
+    "reviewStatusPending": "待醫師審閱",
+    "aiConfidence": "AI 信心 {{percent}}%",
+    "nextStepsTitle": "後續注意事項",
+    "nextStep1": "您的問診資料已安全傳送給醫療團隊",
+    "nextStep2": "醫師將審閱 AI 報告並提供診療建議",
+    "nextStep3": "如有緊急狀況，請直接前往急診或撥打 119",
+    "actionHome": "回到首頁",
+    "actionHistory": "查看問診紀錄"
+  },
+  "thankYou": {
+    "title": "問診完成",
+    "message": "感謝您今日參與智慧問診，請至原本診間外等候，醫師評估過後，將由護理師給予您合適的檢查項目。",
+    "autoRedirectHint": "將於數秒後自動回到首頁…",
+    "backNowAction": "立即回到首頁"
+  },
+  "patientDetail": {
+    "loading": "載入問診紀錄...",
+    "loadError": "無法載入問診紀錄",
+    "notFound": "找不到問診紀錄",
+    "title": "問診紀錄詳情",
+    "recordId": "紀錄 ID: {{id}}",
+    "statusCompleted": "已完成",
+    "chiefComplaint": "主訴：{{value}}",
+    "chiefComplaintEmpty": "未填寫",
+    "summaryHeading": "醫師總結",
+    "summaryEmpty": "目前尚無已產生的摘要內容。",
+    "adviceHeading": "醫囑建議",
+    "adviceEmpty": "目前尚無可顯示的醫囑建議。",
+    "doctorLabel": "主治醫師",
+    "doctorUnassigned": "未指派",
+    "durationLabel": "對話時長",
+    "durationEmpty": "-"
+  },
+  "doctor": {
+    "list": {
+      "title": "問診場次",
+      "searchPlaceholder": "搜尋病患、主訴...",
+      "tabAll": "全部",
+      "tabInProgress": "進行中",
+      "tabWaiting": "等待中",
+      "tabCompleted": "已完成",
+      "emptyTitle": "無場次資料",
+      "emptyMessage": "目前沒有符合條件的問診場次",
+      "redFlagBadge": "紅旗",
+      "unknownPatient": "未知病患",
+      "chiefComplaintEmpty": "-"
+    },
+    "detail": {
+      "loading": "載入場次...",
+      "loadError": "無法載入場次資料",
+      "notFound": "場次不存在",
+      "title": "場次詳情",
+      "idLabel": "ID: {{id}}",
+      "infoChiefComplaint": "主訴",
+      "infoChiefComplaintEmpty": "-",
+      "infoLanguage": "語言",
+      "infoStartedAt": "開始時間",
+      "infoDuration": "持續時間",
+      "redFlagTitle": "紅旗警示",
+      "viewReport": "查看 SOAP 報告",
+      "enterConversation": "進入對話",
+      "conversationsTitle": "對話紀錄",
+      "conversationsEmpty": "尚無對話紀錄"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "title": "AI Consultation",
+  "endSession": "End consultation",
+  "loading": "Loading conversation...",
+  "onboarding": {
+    "hint": "Just start speaking — no button needed"
+  },
+  "status": {
+    "notStarted": "Consultation not started",
+    "aiResponding": "AI is responding...",
+    "listening": "Listening {{duration}}",
+    "idle": "Start speaking — I'll listen automatically",
+    "thinking": "AI is thinking...",
+    "speaking": "Speaking"
+  },
+  "scroll": {
+    "latest": "Latest message",
+    "latestWithCount": "Latest message ({{count}})"
+  },
+  "tts": {
+    "failed": "Voice synthesis failed",
+    "replayAria": "Replay AI voice",
+    "replayTitle": "Click to replay voice"
+  },
+  "redFlag": {
+    "more": "+{{count}} more alerts"
+  },
+  "error": {
+    "loadFailed": "Unable to load conversation",
+    "sessionInterrupted": "Consultation interrupted, please restart",
+    "aiUnavailable": "AI service is temporarily unavailable, please try again later",
+    "disconnected": "Connection lost, reconnecting...",
+    "audioTooLong": "Recording too long, automatically stopped",
+    "micPermission": "Please allow microphone permission in your browser settings, then reload the page",
+    "micNotFound": "No microphone device found, please check your microphone is connected",
+    "micGeneric": "Microphone error: {{message}}"
+  },
+  "mockMessages": {
+    "systemStart": "Consultation started — Chief complaint: {{complaint}}"
+  }
+}

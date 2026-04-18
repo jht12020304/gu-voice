@@ -1,0 +1,137 @@
+{
+  "section": {
+    "subjective": {
+      "title": "主觀",
+      "subtitle": "Subjective"
+    },
+    "objective": {
+      "title": "客觀",
+      "subtitle": "Objective"
+    },
+    "assessment": {
+      "title": "評估",
+      "subtitle": "Assessment"
+    },
+    "plan": {
+      "title": "計畫",
+      "subtitle": "Plan"
+    }
+  },
+  "common": {
+    "empty": "尚無資料",
+    "none": "無",
+    "abnormal": "異常",
+    "normal": "正常"
+  },
+  "subjective": {
+    "chiefComplaint": "主訴 Chief Complaint",
+    "hpi": {
+      "title": "現病史 HPI",
+      "onset": "發病時間",
+      "location": "部位",
+      "duration": "持續時間",
+      "severity": "嚴重度",
+      "timing": "發作頻率",
+      "context": "情境",
+      "characteristics": "特徵描述",
+      "aggravatingFactors": "加重因素",
+      "relievingFactors": "緩解因素",
+      "associatedSymptoms": "伴隨症狀"
+    },
+    "pastMedicalHistory": {
+      "title": "過去病史",
+      "conditions": "疾病",
+      "surgeries": "手術史",
+      "hospitalizations": "住院史"
+    },
+    "medicationHistory": {
+      "title": "用藥史",
+      "current": "目前用藥",
+      "past": "過去用藥",
+      "otc": "非處方藥"
+    },
+    "systemReview": {
+      "title": "系統回顧"
+    },
+    "socialHistory": {
+      "title": "社會史"
+    }
+  },
+  "objective": {
+    "vitalSigns": {
+      "title": "生命徵象",
+      "labels": {
+        "bloodPressure": "血壓",
+        "heartRate": "心率",
+        "respiratoryRate": "呼吸速率",
+        "temperature": "體溫",
+        "spo2": "血氧"
+      },
+      "units": {
+        "bloodPressure": "mmHg",
+        "heartRate": "bpm",
+        "respiratoryRate": "次/分",
+        "temperature": "°C",
+        "spo2": "%"
+      }
+    },
+    "physicalExam": {
+      "title": "理學檢查"
+    },
+    "labResults": {
+      "title": "實驗室檢查",
+      "columns": {
+        "test": "項目",
+        "result": "結果",
+        "reference": "參考",
+        "status": "狀態"
+      }
+    }
+  },
+  "assessment": {
+    "clinicalImpression": "臨床印象",
+    "differentialDiagnoses": {
+      "title": "鑑別診斷"
+    },
+    "probability": {
+      "high": "高",
+      "medium": "中",
+      "low": "低"
+    }
+  },
+  "plan": {
+    "diagnosticReasoning": "臨床推理",
+    "recommendedTests": {
+      "title": "建議檢查"
+    },
+    "urgency": {
+      "urgent": "急",
+      "routine": "常規",
+      "elective": "擇期"
+    },
+    "treatments": {
+      "title": "治療處置"
+    },
+    "followUp": {
+      "title": "追蹤計畫",
+      "interval": "回診時間",
+      "reason": "追蹤原因"
+    },
+    "referrals": {
+      "title": "轉介"
+    },
+    "patientEducation": {
+      "title": "衛教指導"
+    }
+  },
+  "fieldLabels": {
+    "general": "一般狀態",
+    "urological": "泌尿系統",
+    "smoking": "吸菸",
+    "alcohol": "飲酒",
+    "occupation": "職業",
+    "abdomen": "腹部",
+    "costovertebral": "肋脊角",
+    "genitourinary": "泌尿生殖"
+  }
+}

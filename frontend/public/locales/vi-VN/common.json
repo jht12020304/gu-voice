@@ -1,0 +1,14 @@
+{
+  "_stub": true,
+  "_stubNotice": "Phase C: 骨架；缺 key 時 fallback en-US → zh-TW。實際翻譯由 add_new_language.md runbook 完成。",
+  "language": {
+    "label": "Ngôn ngữ",
+    "names": {
+      "zh-TW": "繁體中文",
+      "en-US": "English",
+      "ja-JP": "日本語",
+      "ko-KR": "한국어",
+      "vi-VN": "Tiếng Việt"
+    }
+  }
+}

@@ -1,31 +1,20 @@
 // =============================================================================
-// i18n 初始化 — react-i18next + 瀏覽器語言偵測
-// 主語系 zh-TW；en 僅為骨架翻譯，待未來補齊。
+// i18n 初始化 — react-i18next + HTTP Backend（動態載入 locale JSON）+ 瀏覽器語言偵測
+// 主語系 zh-TW；en-US 為 active 第二語系；ja-JP / ko-KR / vi-VN 為 beta。
+//
+// 載入機制：
+//   - i18next-http-backend 在執行期向 /locales/<lng>/<ns>.json 取資料，
+//     初始 bundle 僅下載當下語言/命名空間，減少 first paint bytes。
+//   - Source of truth 是 src/i18n/locales/；Vite plugin（定義於
+//     vite.config.ts 的 i18nLocalesSync）會在 dev / build 時把檔案
+//     同步到 public/locales/，讓瀏覽器可透過 HTTP 直接讀取。
+//   - beta locale 未補齊的 namespace 透過 fallbackLng 退回 en-US → zh-TW。
 // =============================================================================
 
 import i18next from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
-
-import zhTWCommon from './locales/zh-TW/common.json';
-import zhTWConversation from './locales/zh-TW/conversation.json';
-import zhTWWs from './locales/zh-TW/ws.json';
-import zhTWIntake from './locales/zh-TW/intake.json';
-import zhTWSoap from './locales/zh-TW/soap.json';
-import zhTWDashboard from './locales/zh-TW/dashboard.json';
-import zhTWSession from './locales/zh-TW/session.json';
-import enUSCommon from './locales/en-US/common.json';
-import enUSConversation from './locales/en-US/conversation.json';
-import enUSWs from './locales/en-US/ws.json';
-import enUSIntake from './locales/en-US/intake.json';
-import enUSSoap from './locales/en-US/soap.json';
-import enUSDashboard from './locales/en-US/dashboard.json';
-import enUSSession from './locales/en-US/session.json';
-// Phase C beta locales：完整翻譯未就位前，僅提供骨架 common.json（至少讓
-// LanguageSwitcher 切語言不崩），缺 key 靠下方 fallbackLng chain 往 en-US / zh-TW 退。
-import jaJPCommon from './locales/ja-JP/common.json';
-import koKRCommon from './locales/ko-KR/common.json';
-import viVNCommon from './locales/vi-VN/common.json';
+import HttpBackend from 'i18next-http-backend';
 
 export const defaultNS = 'common';
 
@@ -37,37 +26,26 @@ export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 // 標示哪些 locale 是 beta（UI 用於加 "(beta)" 標籤）；上線 active 清單由後端 API 權威。
 export const BETA_LANGUAGES: readonly SupportedLanguage[] = ['ja-JP', 'ko-KR', 'vi-VN'];
 
-export const resources = {
-  'zh-TW': {
-    common: zhTWCommon,
-    conversation: zhTWConversation,
-    ws: zhTWWs,
-    intake: zhTWIntake,
-    soap: zhTWSoap,
-    dashboard: zhTWDashboard,
-    session: zhTWSession,
-  },
-  'en-US': {
-    common: enUSCommon,
-    conversation: enUSConversation,
-    ws: enUSWs,
-    intake: enUSIntake,
-    soap: enUSSoap,
-    dashboard: enUSDashboard,
-    session: enUSSession,
-  },
-  // Beta locales：intake / conversation / ws / soap / dashboard 都走 fallbackLng 退回
-  // en-US → zh-TW，不在此 inline 以保持 bundle 輕量；補齊翻譯後再在各 locale 目錄建同名 JSON。
-  'ja-JP': { common: jaJPCommon },
-  'ko-KR': { common: koKRCommon },
-  'vi-VN': { common: viVNCommon },
-} as const;
+// 所有頁面 / 元件可能會 useTranslation 的 namespace。未列出的會在首次
+// 被引用時才以 loadNamespaces() 補抓；列在這裡會在 init 時預載。
+// NOTE: 新增 namespace 時務必：
+//   1) 在 src/i18n/locales/<lng>/ 建對應 .json（Vite plugin 會同步到 public/）
+//   2) 加進下方 ALL_NAMESPACES 陣列
+export const ALL_NAMESPACES = [
+  'common',
+  'conversation',
+  'ws',
+  'intake',
+  'soap',
+  'dashboard',
+  'session',
+] as const;
 
 void i18next
+  .use(HttpBackend)
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
-    resources,
     // 三層 fallback：選 locale 缺 key → en-US → zh-TW（active locale 是翻譯最完整的後盾）
     fallbackLng: {
       'ja-JP': ['en-US', 'zh-TW'],
@@ -76,10 +54,22 @@ void i18next
       default: ['zh-TW'],
     },
     // 注意：i18next v26 的 isSupportedCode 對 `zh-TW` 比對會返回 false，
-    // 讓 toResolveHierarchy 回空陣列導致 t() 完全失靈。既然 resources 已
-    // inline 載入，不設 supportedLngs 改由 fallbackLng + LanguageDetector 控制。
+    // 讓 toResolveHierarchy 回空陣列導致 t() 完全失靈。這裡沿用舊實作：
+    // 不設 supportedLngs，改由 fallbackLng + LanguageDetector 控制。
     defaultNS,
-    ns: ['common', 'conversation', 'ws', 'intake', 'soap', 'dashboard', 'session'],
+    ns: ALL_NAMESPACES as unknown as string[],
+    // 讓 react-i18next 透過 Suspense 等待 namespace 載入完成（main.tsx 有 <Suspense>）
+    react: {
+      useSuspense: true,
+    },
+    backend: {
+      // Vite 會把 frontend/public/ 當 static root；build 後也會 copy 到 dist/。
+      // i18next-http-backend 會將 {{lng}} / {{ns}} 替換掉。
+      loadPath: '/locales/{{lng}}/{{ns}}.json',
+      requestOptions: {
+        cache: 'default',
+      },
+    },
     interpolation: {
       escapeValue: false, // React already escapes
     },
