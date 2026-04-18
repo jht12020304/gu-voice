@@ -17,7 +17,12 @@ from app.core.config import settings
 # 建立非同步引擎
 # 雲端環境（Supabase）強制需要 SSL，本地 Docker 不需要
 _connect_args: dict = {}
-_is_supabase = bool(settings.DB_HOST) and "supabase.co" in settings.DB_HOST
+# Supabase 的 pooler host 形如 `aws-1-<region>.pooler.supabase.com`，不是
+# `*.supabase.co` —— 早期判斷只比 "supabase.co" 會漏掉 pooler，導致在 Railway
+# 生產環境上 DuplicatePreparedStatementError。這裡改比對較寬：只要 host 含
+# "supabase" 或 "pooler"（任何透過 PgBouncer 連上 Postgres 的情境）都算。
+_db_host = (settings.DB_HOST or "").lower()
+_is_supabase = ("supabase" in _db_host) or ("pooler" in _db_host)
 
 if _is_supabase:
     _connect_args["ssl"] = "require"
