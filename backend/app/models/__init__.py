@@ -14,6 +14,7 @@ from app.models.enums import (
     DevicePlatform,
     Gender,
     NotificationType,
+    ReportRevisionReason,
     ReportStatus,
     ReviewStatus,
     SessionStatus,
@@ -26,6 +27,7 @@ from app.models.red_flag_alert import RedFlagAlert
 from app.models.red_flag_rule import RedFlagRule
 from app.models.session import Session
 from app.models.soap_report import SOAPReport
+from app.models.soap_report_revision import SOAPReportRevision
 from app.models.user import User
 
 __all__ = [
@@ -36,6 +38,7 @@ __all__ = [
     "Conversation",
     "ChiefComplaint",
     "SOAPReport",
+    "SOAPReportRevision",
     "RedFlagAlert",
     "RedFlagRule",
     "Notification",
@@ -49,6 +52,7 @@ __all__ = [
     "AlertType",
     "ReportStatus",
     "ReviewStatus",
+    "ReportRevisionReason",
     "NotificationType",
     "AuditAction",
     "DevicePlatform",

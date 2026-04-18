@@ -49,7 +49,7 @@ async def _async_generate(session_id: str) -> dict:
 
     from app.core.config import settings
     from app.core.database import async_session_factory
-    from app.models.enums import ReportStatus
+    from app.models.enums import ReportRevisionReason, ReportStatus
     from app.models.session import Session
     from app.models.soap_report import SOAPReport
     from app.pipelines.soap_generator import SOAPGenerator
@@ -159,6 +159,16 @@ async def _async_generate(session_id: str) -> dict:
             report.language = language
             report.status = ReportStatus.GENERATED
             report.generated_at = utc_now()
+
+            # M15 append-only：把剛寫入的首版內容存成不可變快照
+            await db.flush()
+            from app.services.report_service import ReportService
+
+            await ReportService._snapshot_revision(
+                db,
+                report,
+                ReportRevisionReason.INITIAL,
+            )
 
             await db.commit()
             logger.info(

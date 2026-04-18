@@ -79,6 +79,19 @@ class ReviewStatus(str, Enum):
     REVISION_NEEDED = "revision_needed"
 
 
+class ReportRevisionReason(str, Enum):
+    """
+    SOAPReportRevision 建立原因（M15 append-only 審計）。
+
+    - INITIAL：Celery 第一次產完報告寫入的首版快照
+    - REGENERATE：醫師要求 regenerate，舊內容被新生成覆寫前的快照
+    - REVIEW_OVERRIDE：醫師審閱時用 soap_overrides 修改內容，覆寫前的快照
+    """
+    INITIAL = "initial"
+    REGENERATE = "regenerate"
+    REVIEW_OVERRIDE = "review_override"
+
+
 class NotificationType(str, Enum):
     """通知類型"""
     RED_FLAG = "red_flag"

@@ -19,6 +19,8 @@ from app.schemas.report import (
     ReportListResponse,
     ReviewReportRequest,
     ReviewReportResponse,
+    SOAPReportRevisionListResponse,
+    SOAPReportRevisionResponse,
 )
 from app.services.report_service import ReportService
 
@@ -139,6 +141,40 @@ async def review_report(
         review_notes=payload.review_notes,
         soap_overrides=payload.soap_overrides,
         reviewed_by=current_user.id,
+    )
+
+
+# ── 報告歷史版本（M15 append-only） ─────────────────────
+
+@router.get(
+    "/api/v1/reports/{report_id}/revisions",
+    response_model=SOAPReportRevisionListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="取得報告歷次版本",
+    dependencies=[Depends(require_role("doctor", "admin"))],
+)
+async def list_report_revisions(
+    report_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> SOAPReportRevisionListResponse:
+    """
+    回傳指定 SOAP 報告的歷次版本快照（依 revision_no 升冪）。
+
+    版本建立時機：
+    - initial：Celery 首次產完報告
+    - regenerate：醫師要求重生，舊內容覆寫前
+    - review_override：醫師審閱時改寫 SOAP 欄位，覆寫前
+    """
+    # 驗證存取權（與 get_report 同權限模型）
+    await report_service.get_report(
+        db,
+        report_id=report_id,
+        current_user=current_user,
+    )
+    revisions = await ReportService.list_revisions(db, report_id=report_id)
+    return SOAPReportRevisionListResponse(
+        data=[SOAPReportRevisionResponse.model_validate(r) for r in revisions]
     )
 
 

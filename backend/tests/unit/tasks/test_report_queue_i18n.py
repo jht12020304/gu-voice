@@ -83,6 +83,7 @@ class _FakeDB:
         self._report_obj = report_obj
         self._calls = 0
         self.commits = 0
+        self.added: list[Any] = []
 
     async def execute(self, stmt):
         self._calls += 1
@@ -93,6 +94,12 @@ class _FakeDB:
 
     async def commit(self):
         self.commits += 1
+
+    async def flush(self):
+        pass
+
+    def add(self, obj):
+        self.added.append(obj)
 
 
 class _FakeSessionFactory:
@@ -138,6 +145,17 @@ def test_async_generate_passes_session_language_to_soap_generator(
 
     monkeypatch.setattr(
         core_db, "async_session_factory", _FakeSessionFactory(db)
+    )
+
+    # M15：Celery 完成時會呼叫 _snapshot_revision；此測試聚焦在 language 傳遞，
+    # snapshot 細節交給 test_soap_revisions.py，這裡直接 stub。
+    from app.services.report_service import ReportService
+
+    async def _noop_snapshot(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        ReportService, "_snapshot_revision", staticmethod(_noop_snapshot)
     )
 
     captured: dict[str, Any] = {}

@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import ReportStatus, ReviewStatus
+from app.models.enums import ReportRevisionReason, ReportStatus, ReviewStatus
 from app.schemas.common import CursorPagination
 
 
@@ -81,6 +81,36 @@ class ReviewReportResponse(BaseModel):
     review_notes: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SOAPReportRevisionResponse(BaseModel):
+    """
+    M15：SOAP 報告版本快照回應（append-only 歷史紀錄）。
+
+    由 ReportService.list_revisions 產出；revision_no 從 1 起算、嚴格單調遞增。
+    reason 描述該快照建立的時機：初次產生 / 重生前 / 審閱覆寫前。
+    """
+    id: UUID
+    report_id: UUID
+    revision_no: int
+    reason: ReportRevisionReason
+    subjective: Optional[dict[str, Any]] = None
+    objective: Optional[dict[str, Any]] = None
+    assessment: Optional[dict[str, Any]] = None
+    plan: Optional[dict[str, Any]] = None
+    summary: Optional[str] = None
+    icd10_codes: Optional[list[str]] = None
+    language: str
+    ai_confidence_score: Optional[Decimal] = None
+    created_by: Optional[UUID] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SOAPReportRevisionListResponse(BaseModel):
+    """SOAP 報告版本列表回應"""
+    data: list[SOAPReportRevisionResponse]
 
 
 # 別名

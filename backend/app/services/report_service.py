@@ -18,8 +18,9 @@ from app.core.exceptions import (
     ReportAlreadyExistsException,
     ReportNotReadyException,
 )
-from app.models.enums import ReportStatus, ReviewStatus
+from app.models.enums import ReportRevisionReason, ReportStatus, ReviewStatus
 from app.models.soap_report import SOAPReport
+from app.models.soap_report_revision import SOAPReportRevision
 from app.utils.datetime_utils import utc_now
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,57 @@ logger = logging.getLogger(__name__)
 
 class ReportService:
     """SOAP 報告業務邏輯"""
+
+    @staticmethod
+    async def _snapshot_revision(
+        db: AsyncSession,
+        report: SOAPReport,
+        reason: ReportRevisionReason,
+        created_by: Optional[UUID] = None,
+    ) -> SOAPReportRevision:
+        """
+        M15 append-only：在 SOAP 內容被覆寫前（或新內容寫入後）留下不可變快照。
+
+        revision_no 會取 `MAX(existing) + 1`；若沒有既有 revision 則從 1 起算。
+        只做 INSERT —呼叫方負責在同一 transaction 內觸發。
+        """
+        max_rev_result = await db.execute(
+            select(func.coalesce(func.max(SOAPReportRevision.revision_no), 0)).where(
+                SOAPReportRevision.report_id == report.id
+            )
+        )
+        next_no = int(max_rev_result.scalar_one() or 0) + 1
+
+        revision = SOAPReportRevision(
+            report_id=report.id,
+            revision_no=next_no,
+            reason=reason,
+            subjective=report.subjective,
+            objective=report.objective,
+            assessment=report.assessment,
+            plan=report.plan,
+            summary=report.summary,
+            icd10_codes=list(report.icd10_codes) if report.icd10_codes else None,
+            language=report.language,
+            ai_confidence_score=report.ai_confidence_score,
+            created_by=created_by,
+        )
+        db.add(revision)
+        await db.flush()
+        return revision
+
+    @staticmethod
+    async def list_revisions(
+        db: AsyncSession,
+        report_id: UUID,
+    ) -> list[SOAPReportRevision]:
+        """回傳指定報告的全部版本快照，依 revision_no 升冪排序。"""
+        result = await db.execute(
+            select(SOAPReportRevision)
+            .where(SOAPReportRevision.report_id == report_id)
+            .order_by(SOAPReportRevision.revision_no.asc())
+        )
+        return list(result.scalars().all())
 
     @staticmethod
     async def list_reports(
@@ -153,15 +205,43 @@ class ReportService:
             raise ReportAlreadyExistsException()
 
         now = utc_now()
-        report = SOAPReport(
-            session_id=session_id,
-            status=ReportStatus.GENERATING,
-            review_status=ReviewStatus.PENDING,
-            created_at=now,
-            updated_at=now,
-        )
-        db.add(report)
-        await db.flush()
+        if existing_report is not None:
+            # M15：regenerate 時先把當前內容快照成 revision（reason=regenerate），
+            # 再把現有 row 重置為 generating 等 Celery 寫回；避免 unique(session_id)
+            # 衝突，也保留舊版內容。
+            if existing_report.status == ReportStatus.GENERATED and existing_report.subjective is not None:
+                await ReportService._snapshot_revision(
+                    db,
+                    existing_report,
+                    ReportRevisionReason.REGENERATE,
+                    created_by=requested_by,
+                )
+            existing_report.status = ReportStatus.GENERATING
+            existing_report.review_status = ReviewStatus.PENDING
+            existing_report.subjective = None
+            existing_report.objective = None
+            existing_report.assessment = None
+            existing_report.plan = None
+            existing_report.summary = None
+            existing_report.icd10_codes = None
+            existing_report.ai_confidence_score = None
+            existing_report.reviewed_by = None
+            existing_report.reviewed_at = None
+            existing_report.review_notes = None
+            existing_report.generated_at = None
+            existing_report.updated_at = now
+            report = existing_report
+            await db.flush()
+        else:
+            report = SOAPReport(
+                session_id=session_id,
+                status=ReportStatus.GENERATING,
+                review_status=ReviewStatus.PENDING,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(report)
+            await db.flush()
 
         # 派送 Celery 任務
         from app.tasks.report_queue import generate_soap_report
@@ -199,6 +279,13 @@ class ReportService:
         report.updated_at = utc_now()
 
         await db.flush()
+
+        # M15：首版內容（或 regenerate 後的新一版）寫入 append-only revision
+        await ReportService._snapshot_revision(
+            db,
+            report,
+            ReportRevisionReason.INITIAL,
+        )
         return report
 
     @staticmethod
@@ -228,6 +315,18 @@ class ReportService:
 
         if report.status != ReportStatus.GENERATED:
             raise ReportNotReadyException()
+
+        # M15：只要 soap_overrides 會改寫內容，覆寫前先 snapshot 當前版本
+        if soap_overrides and any(
+            key in soap_overrides
+            for key in ("subjective", "objective", "assessment", "plan")
+        ):
+            await ReportService._snapshot_revision(
+                db,
+                report,
+                ReportRevisionReason.REVIEW_OVERRIDE,
+                created_by=reviewed_by,
+            )
 
         now = utc_now()
         report.review_status = review_status

@@ -15,6 +15,7 @@ from app.models.enums import ReportStatus, ReviewStatus, pg_enum
 
 if TYPE_CHECKING:
     from app.models.session import Session
+    from app.models.soap_report_revision import SOAPReportRevision
     from app.models.user import User
 
 
@@ -76,6 +77,13 @@ class SOAPReport(Base):
     # ── 關聯 ──────────────────────────────────────────
     session: Mapped["Session"] = relationship("Session", back_populates="soap_report")
     reviewer: Mapped[Optional["User"]] = relationship("User", foreign_keys=[reviewed_by])
+    # M15：append-only 版本快照。insert-only，任何內容覆寫前會先寫一筆 revision。
+    revisions: Mapped[list["SOAPReportRevision"]] = relationship(
+        "SOAPReportRevision",
+        back_populates="report",
+        order_by="SOAPReportRevision.revision_no",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<SOAPReport session={self.session_id} status={self.status.value}>"
