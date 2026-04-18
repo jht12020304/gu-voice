@@ -52,6 +52,22 @@ CATEGORY_FALLBACK_I18N: dict[str, dict[str, str]] = {
         "ko-KR": "통증",
         "vi-VN": "Đau",
     },
+    # admin 另用的「疼痛症狀」—— 與 seed 的「疼痛」同類,讓兩組卡片合併為一個 section
+    "疼痛症狀": {
+        "zh-TW": "疼痛",
+        "en-US": "Pain",
+        "ja-JP": "疼痛",
+        "ko-KR": "통증",
+        "vi-VN": "Đau",
+    },
+    # admin 另用的「排尿」—— 歸為 seed 的「排尿症狀」同類
+    "排尿": {
+        "zh-TW": "排尿症狀",
+        "en-US": "Urinary symptoms",
+        "ja-JP": "排尿症状",
+        "ko-KR": "배뇨 증상",
+        "vi-VN": "Triệu chứng tiết niệu",
+    },
     "檢查異常": {
         "zh-TW": "檢查異常",
         "en-US": "Abnormal findings",
@@ -157,6 +173,17 @@ NAME_FALLBACK_I18N: dict[str, dict[str, str]] = {
         "zh-TW": "腰痛", "en-US": "Flank pain",
         "ja-JP": "腰痛", "ko-KR": "옆구리 통증", "vi-VN": "Đau hông",
     },
+    # admin 變體：全形括號 + 腎臟區域
+    "腰痛（腎臟區域）": {
+        "zh-TW": "腰痛（腎臟區域）", "en-US": "Flank Pain / Renal Area Pain",
+        "ja-JP": "腰痛（腎臓部）", "ko-KR": "옆구리 통증 (신장 부위)",
+        "vi-VN": "Đau hông (vùng thận)",
+    },
+    "腰痛(腎臟區域)": {  # 半形括號版本
+        "zh-TW": "腰痛（腎臟區域）", "en-US": "Flank Pain / Renal Area Pain",
+        "ja-JP": "腰痛（腎臓部）", "ko-KR": "옆구리 통증 (신장 부위)",
+        "vi-VN": "Đau hông (vùng thận)",
+    },
     "下腹痛": {
         "zh-TW": "下腹痛", "en-US": "Lower abdominal pain",
         "ja-JP": "下腹部痛", "ko-KR": "하복부 통증", "vi-VN": "Đau bụng dưới",
@@ -164,6 +191,22 @@ NAME_FALLBACK_I18N: dict[str, dict[str, str]] = {
     "陰囊腫脹": {
         "zh-TW": "陰囊腫脹", "en-US": "Scrotal swelling",
         "ja-JP": "陰嚢腫脹", "ko-KR": "음낭 부종", "vi-VN": "Sưng bìu",
+    },
+    # admin 變體:疼痛或腫脹
+    "陰囊疼痛或腫脹": {
+        "zh-TW": "陰囊疼痛或腫脹", "en-US": "Scrotal Pain or Swelling",
+        "ja-JP": "陰嚢痛または腫脹", "ko-KR": "음낭 통증 또는 부종",
+        "vi-VN": "Đau hoặc sưng bìu",
+    },
+    "陰囊疼痛": {
+        "zh-TW": "陰囊疼痛", "en-US": "Scrotal pain",
+        "ja-JP": "陰嚢痛", "ko-KR": "음낭 통증",
+        "vi-VN": "Đau bìu",
+    },
+    "背部不適": {
+        "zh-TW": "背部不適", "en-US": "Back discomfort",
+        "ja-JP": "背部不快感", "ko-KR": "허리 불편감",
+        "vi-VN": "Khó chịu ở lưng",
     },
     "勃起功能障礙": {
         "zh-TW": "勃起功能障礙", "en-US": "Erectile dysfunction",
@@ -293,6 +336,20 @@ DESCRIPTION_FALLBACK_I18N: dict[str, dict[str, str]] = {
         "ja-JP": "尿路の細菌感染。頻尿、灼熱感、混濁尿などの症状を伴う",
         "ko-KR": "요로 세균 감염. 빈뇨, 작열감, 혼탁뇨 등의 증상이 동반됨",
         "vi-VN": "Nhiễm khuẩn đường tiết niệu, triệu chứng thường gặp gồm tiểu nhiều lần, rát, nước tiểu đục",
+    },
+    "腰部兩側或單側疼痛，可能與腎臟、輸尿管疾病相關": {
+        "zh-TW": "腰部兩側或單側疼痛，可能與腎臟、輸尿管疾病相關",
+        "en-US": "Bilateral or unilateral flank pain, possibly related to kidney or ureteral disease",
+        "ja-JP": "両側または片側の腰痛で、腎臓や尿管の疾患と関連する可能性がある",
+        "ko-KR": "양쪽 또는 한쪽 옆구리 통증으로 신장이나 요관 질환과 관련될 수 있음",
+        "vi-VN": "Đau hông hai bên hoặc một bên, có thể liên quan đến bệnh lý thận hoặc niệu quản",
+    },
+    "陰囊區域疼痛或腫大，需排除睪丸扭轉等緊急狀況": {
+        "zh-TW": "陰囊區域疼痛或腫大，需排除睪丸扭轉等緊急狀況",
+        "en-US": "Pain or swelling in the scrotal area; must rule out emergencies such as testicular torsion",
+        "ja-JP": "陰嚢部の痛みや腫脹で、精巣捻転などの緊急事態を除外する必要がある",
+        "ko-KR": "음낭 부위의 통증이나 부종으로, 고환 염전 등 응급 상황을 배제해야 함",
+        "vi-VN": "Đau hoặc sưng vùng bìu, cần loại trừ tình huống cấp cứu như xoắn tinh hoàn",
     },
 }
 

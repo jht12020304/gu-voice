@@ -4,7 +4,19 @@
 
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig, type AxiosResponse } from 'axios';
 
-import i18n from '../../i18n';
+import i18n, { SUPPORTED_LANGUAGES } from '../../i18n';
+
+// URL `/:lng/*` 是使用者目前 active 語言的權威來源 —— i18n.resolvedLanguage 讀
+// localStorage，切換語言後在 i18next changeLanguage 非同步 resolve 前可能還是
+// 舊值，造成 Accept-Language 與 UI 不一致（韓文 UI 卻送 ko-KR header 的情境
+// 實測發生過）。這裡優先讀 URL 第一段 locale，fallback 才回 i18n。
+const _SUPPORTED_SET = new Set<string>(SUPPORTED_LANGUAGES as readonly string[]);
+
+function getLangFromUrl(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const first = window.location.pathname.split('/').filter(Boolean)[0];
+  return first && _SUPPORTED_SET.has(first) ? first : undefined;
+}
 
 // ---- 深度 key 轉換工具 ----
 
@@ -63,9 +75,10 @@ apiClient.interceptors.request.use(
     }
 
     // 附帶目前語言給後端 LanguageMiddleware 解析；使用 BCP-47（如 zh-TW / en-US）。
-    // 使用者覆蓋（config.headers['Accept-Language']）優先，避免 WebSocket / 測試 fixture 被蓋掉。
+    // 次序：URL `/:lng/*`（權威）→ i18n.resolvedLanguage → i18n.language。
+    // 使用者覆蓋（config.headers['Accept-Language']）仍優先，避免 WebSocket / 測試 fixture 被蓋掉。
     if (config.headers && !config.headers['Accept-Language']) {
-      const lng = (i18n.resolvedLanguage || i18n.language) as string | undefined;
+      const lng = getLangFromUrl() || (i18n.resolvedLanguage || i18n.language);
       if (lng) {
         config.headers['Accept-Language'] = lng;
       }

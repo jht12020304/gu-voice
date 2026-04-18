@@ -40,7 +40,9 @@ const mockComplaints: ChiefComplaint[] = [
 const CATEGORY_I18N_KEY: Record<string, string> = {
   // zh-TW（legacy fallback）
   '排尿症狀': 'urinarySymptoms',
+  '排尿': 'urinarySymptoms',  // admin 變體
   '疼痛': 'pain',
+  '疼痛症狀': 'pain',  // admin 變體：與 seed「疼痛」合併 section
   '檢查異常': 'examinationAbnormalities',
   '其他': 'other',
   // en-US
