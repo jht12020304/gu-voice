@@ -1,0 +1,144 @@
+{
+  "selectComplaint": {
+    "title": "症状を選択してください",
+    "subtitle": "現在の状態に最も近い主訴を選んでください",
+    "customLabel": "補足説明（任意）",
+    "customPlaceholder": "「{{name}}」の症状について、例：どのくらい続いているか、重症度など",
+    "cta": "次へ：病歴を入力",
+    "loading": "症状リストを読み込み中...",
+    "categories": {
+      "urinarySymptoms": "排尿症状",
+      "pain": "痛み",
+      "examinationAbnormalities": "検査異常",
+      "other": "その他"
+    }
+  },
+  "medicalInfo": {
+    "title": "病歴の入力",
+    "complaintLabel": "主訴：{{name}}",
+    "complaintUnset": "未選択",
+    "stepProgress": "ステップ {{current}} / {{total}}",
+    "steps": {
+      "critical": "アレルギー & 服用中の薬",
+      "history": "病歴（任意）"
+    },
+    "patient": {
+      "title": "患者情報",
+      "subtitle": "今回の問診の基本情報",
+      "nameLabel": "氏名",
+      "namePlaceholder": "氏名を入力してください",
+      "nameError": "氏名を入力してください",
+      "genderLabel": "性別",
+      "genderMale": "男性",
+      "genderFemale": "女性",
+      "genderOther": "その他",
+      "genderError": "性別を選択してください",
+      "dobLabel": "生年月日",
+      "dobError": "生年月日を選択してください",
+      "phoneLabel": "電話番号",
+      "phoneOptional": "（任意）",
+      "phonePlaceholder": "例：0912-345-678",
+      "requiredMark": "*"
+    },
+    "allergy": {
+      "title": "アレルギー歴",
+      "subtitle": "薬物・食物・環境アレルギー",
+      "noneLabel": "アレルギーなし",
+      "quickAddLabel": "よくあるアレルゲンをすばやく追加",
+      "placeholder": "アレルゲン名",
+      "hospitalized": "受診または救急搬送の経験あり",
+      "add": "アレルゲンを追加"
+    },
+    "medication": {
+      "title": "服用中の薬",
+      "subtitle": "現在服用中の薬（用量の入力は不要です）",
+      "noneLabel": "現在服用中の薬はありません",
+      "placeholder": "薬剤名（例：降圧薬、胃薬）",
+      "add": "薬を追加"
+    },
+    "history": {
+      "title": "既往歴",
+      "subtitle": "過去に診断された疾患。スキップも可能です",
+      "noneLabel": "特記すべき既往歴なし",
+      "quickAddLabel": "よくある疾患をすばやく追加",
+      "placeholder": "疾患名（例：高血圧）",
+      "yearsAgoLabel": "おおよそ何年前",
+      "stillHas": "現在も継続中",
+      "add": "既往歴を追加"
+    },
+    "family": {
+      "title": "家族歴",
+      "optional": "任意",
+      "hint": "直系親族に遺伝性疾患はありますか？不明な場合はスキップしてください。",
+      "conditionPlaceholder": "疾患（例：糖尿病）",
+      "add": "家族歴を追加"
+    },
+    "summary": {
+      "title": "送信内容の確認",
+      "complaint": "主訴",
+      "allergy": "アレルギー",
+      "medication": "服用中の薬",
+      "history": "既往歴",
+      "noKnownAllergies": "既知のアレルギーなし",
+      "noCurrentMedications": "現在服用中の薬なし",
+      "noPastHistory": "特記すべき既往歴なし",
+      "filled": "入力済み"
+    },
+    "nav": {
+      "back": "戻る",
+      "prev": "前へ",
+      "next": "次へ",
+      "submit": "AI 問診を開始",
+      "submitting": "問診を作成中…"
+    },
+    "errors": {
+      "createSession": "問診の作成に失敗しました。しばらくしてからもう一度お試しください"
+    },
+    "yearsAgo": {
+      "within1": "1年以内",
+      "oneToFive": "1〜5年",
+      "overFive": "5年以上",
+      "unsure": "不明"
+    },
+    "frequency": {
+      "onceDaily": "1日1回",
+      "twiceDaily": "1日2回",
+      "thriceDaily": "1日3回",
+      "asNeeded": "必要時のみ",
+      "weekly": "週1回",
+      "other": "その他"
+    },
+    "relations": {
+      "father": "父",
+      "mother": "母",
+      "brother": "兄弟",
+      "sister": "姉妹",
+      "paternalGrandfather": "祖父",
+      "paternalGrandmother": "祖母",
+      "maternalGrandfather": "外祖父",
+      "maternalGrandmother": "外祖母"
+    },
+    "commonAllergies": {
+      "penicillin": "ペニシリン",
+      "aspirin": "アスピリン",
+      "nsaid": "NSAIDs",
+      "sulfa": "サルファ剤",
+      "seafood": "魚介類",
+      "peanut": "ピーナッツ",
+      "milk": "牛乳",
+      "dust": "ハウスダスト",
+      "pollen": "花粉"
+    },
+    "commonConditions": {
+      "hypertension": "高血圧",
+      "diabetes": "糖尿病",
+      "heartDisease": "心臓病",
+      "stroke": "脳卒中",
+      "kidneyDisease": "腎臓病",
+      "gout": "痛風",
+      "bph": "前立腺肥大症",
+      "urinaryStones": "尿路結石",
+      "cancer": "がん"
+    }
+  }
+}

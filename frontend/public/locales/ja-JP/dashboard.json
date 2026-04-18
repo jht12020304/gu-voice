@@ -1,0 +1,57 @@
+{
+  "sidebar": {
+    "sections": {
+      "tools": "ツール",
+      "data": "データ",
+      "admin": "管理",
+      "other": "その他"
+    },
+    "nav": {
+      "dashboard": "ダッシュボード",
+      "tryConversation": "対話フローを体験",
+      "patients": "患者一覧",
+      "soapReports": "SOAP レポート",
+      "redFlagAlerts": "レッドフラグ警告",
+      "userManagement": "ユーザー管理",
+      "complaintTemplates": "主訴テンプレート管理",
+      "systemHealth": "システムステータス",
+      "auditLogs": "監査ログ",
+      "settings": "設定"
+    }
+  },
+  "alert": {
+    "acknowledged": "対応済み",
+    "pending": "未対応",
+    "chiefComplaintLabel": "主訴：{{value}}",
+    "sessionStatusLabel": "セッション状態：{{value}}",
+    "triggerLabel": "トリガー：{{value}}",
+    "suggestedActions": "推奨対応 {{count}} 件",
+    "viewDetail": "詳細を表示",
+    "acknowledge": "対応を確認",
+    "acknowledgedBadge": "✓ 確認済み"
+  },
+  "transcript": {
+    "title": "問診会話の逐語記録",
+    "emptyTitle": "表示できる会話内容はありません",
+    "loading": "会話記録を読み込み中...",
+    "messageCount": "{{count}} 件の会話",
+    "summary": "患者 {{patientCount}} 件 / AI {{assistantCount}} 件",
+    "viewFull": "全文を表示（残り {{count}} 件）...",
+    "searchPlaceholder": "逐語記録を検索",
+    "filter": {
+      "all": "すべて",
+      "patient": "患者",
+      "assistant": "AI"
+    },
+    "visibleCount": "{{visible}} / {{total}} 件を表示中",
+    "noMatches": "条件に一致する逐語記録はありません",
+    "redFlag": "レッドフラグ",
+    "lowConfidence": "認識信頼度低",
+    "sttConfidence": "STT 信頼度：{{value}}%",
+    "roles": {
+      "patient": "患者",
+      "assistant": "AI アシスタント",
+      "system": "システム"
+    }
+  }
+}

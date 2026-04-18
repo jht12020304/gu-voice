@@ -1,0 +1,137 @@
+{
+  "section": {
+    "subjective": {
+      "title": "主観的情報",
+      "subtitle": "Subjective"
+    },
+    "objective": {
+      "title": "客観的情報",
+      "subtitle": "Objective"
+    },
+    "assessment": {
+      "title": "評価",
+      "subtitle": "Assessment"
+    },
+    "plan": {
+      "title": "計画",
+      "subtitle": "Plan"
+    }
+  },
+  "common": {
+    "empty": "データがありません",
+    "none": "なし",
+    "abnormal": "異常",
+    "normal": "正常"
+  },
+  "subjective": {
+    "chiefComplaint": "主訴 Chief Complaint",
+    "hpi": {
+      "title": "現病歴 HPI",
+      "onset": "発症時期",
+      "location": "部位",
+      "duration": "持続時間",
+      "severity": "重症度",
+      "timing": "発作の頻度",
+      "context": "状況",
+      "characteristics": "性状",
+      "aggravatingFactors": "増悪因子",
+      "relievingFactors": "軽快因子",
+      "associatedSymptoms": "随伴症状"
+    },
+    "pastMedicalHistory": {
+      "title": "既往歴",
+      "conditions": "疾患",
+      "surgeries": "手術歴",
+      "hospitalizations": "入院歴"
+    },
+    "medicationHistory": {
+      "title": "服薬歴",
+      "current": "現在の服用薬",
+      "past": "過去の服用薬",
+      "otc": "市販薬"
+    },
+    "systemReview": {
+      "title": "システムレビュー"
+    },
+    "socialHistory": {
+      "title": "社会歴"
+    }
+  },
+  "objective": {
+    "vitalSigns": {
+      "title": "バイタルサイン",
+      "labels": {
+        "bloodPressure": "血圧",
+        "heartRate": "心拍数",
+        "respiratoryRate": "呼吸数",
+        "temperature": "体温",
+        "spo2": "酸素飽和度"
+      },
+      "units": {
+        "bloodPressure": "mmHg",
+        "heartRate": "bpm",
+        "respiratoryRate": "回/分",
+        "temperature": "°C",
+        "spo2": "%"
+      }
+    },
+    "physicalExam": {
+      "title": "身体所見"
+    },
+    "labResults": {
+      "title": "検査結果",
+      "columns": {
+        "test": "項目",
+        "result": "結果",
+        "reference": "基準値",
+        "status": "判定"
+      }
+    }
+  },
+  "assessment": {
+    "clinicalImpression": "臨床的印象",
+    "differentialDiagnoses": {
+      "title": "鑑別診断"
+    },
+    "probability": {
+      "high": "高",
+      "medium": "中",
+      "low": "低"
+    }
+  },
+  "plan": {
+    "diagnosticReasoning": "臨床推論",
+    "recommendedTests": {
+      "title": "推奨検査"
+    },
+    "urgency": {
+      "urgent": "緊急",
+      "routine": "通常",
+      "elective": "待機的"
+    },
+    "treatments": {
+      "title": "治療"
+    },
+    "followUp": {
+      "title": "フォローアップ",
+      "interval": "再診間隔",
+      "reason": "再診理由"
+    },
+    "referrals": {
+      "title": "紹介"
+    },
+    "patientEducation": {
+      "title": "患者教育"
+    }
+  },
+  "fieldLabels": {
+    "general": "全身状態",
+    "urological": "泌尿器系",
+    "smoking": "喫煙",
+    "alcohol": "飲酒",
+    "occupation": "職業",
+    "abdomen": "腹部",
+    "costovertebral": "肋骨脊柱角",
+    "genitourinary": "泌尿生殖器"
+  }
+}

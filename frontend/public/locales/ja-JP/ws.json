@@ -1,0 +1,37 @@
+{
+  "errors": {
+    "ws": {
+      "handshake_timeout": "制限時間内に認証メッセージが送信されなかったため、接続が切断されました",
+      "handshake_read_failed": "認証メッセージの読み取りに失敗しました",
+      "handshake_invalid_json": "認証メッセージの形式が不正です（有効な JSON ではありません）",
+      "handshake_invalid_shape": "認証メッセージの形式が不正です",
+      "handshake_wrong_type": "認証メッセージの種別が不正です（type=auth である必要があります）",
+      "missing_token": "認証メッセージに token フィールドがありません",
+      "invalid_token": "トークンが無効または期限切れです",
+      "forbidden_role": "権限が不足しています。医師と管理者のみ利用可能です",
+      "session_not_found": "セッションが存在しません",
+      "session_wrong_status": "セッションの状態が正しくないため、接続を確立できません",
+      "unknown_message_type": "サポートされていないメッセージ種別です：{{type}}",
+      "internal_error": "サーバー内部エラーが発生したため、接続を終了します",
+      "invalid_audio": "音声データの形式が無効です",
+      "audio_too_long": "録音時間が長すぎます（上限 {{maxSeconds}} 秒）。自動で終了しました",
+      "invalid_audio_format": "認識できない音声形式のため、該当部分を破棄しました",
+      "rate_limit_exceeded": "AI 呼び出しの頻度が高すぎます。{{retryAfter}} 秒後にもう一度お試しください",
+      "stt_error": "音声認識サービスが一時的に利用できません",
+      "ai_service_unavailable": "AI 応答の生成に失敗しました。もう一度お試しください"
+    }
+  },
+  "events": {
+    "session": {
+      "ws_connected": "WebSocket 接続が確立されました",
+      "resumed": "既存の会話履歴を引き継ぎました",
+      "resume_failed": "既存の会話履歴を引き継げませんでした（{{reason}}）",
+      "idle_timeout": "アイドルタイムアウト（{{minutes}} 分間操作なし）のため、セッションを自動終了しました",
+      "ended_by_user": "患者またはアシスタントがセッションを終了しました",
+      "completed_normal": "セッションは正常に終了しました",
+      "aborted_red_flag": "危急なレッドフラグ症状を検出したためセッションを中止しました。直ちに受診してください",
+      "aborted_red_flag_dashboard": "critical レッドフラグ症状を検出したため、セッションを中止しました",
+      "red_flag_triggered": "レッドフラグ警告を検出しました：{{title}}"
+    }
+  }
+}

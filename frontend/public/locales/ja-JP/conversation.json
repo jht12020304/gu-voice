@@ -1,0 +1,41 @@
+{
+  "title": "AI 問診",
+  "endSession": "問診を終了",
+  "loading": "会話を読み込み中...",
+  "onboarding": {
+    "hint": "そのままお話しください。ボタン操作は不要です"
+  },
+  "status": {
+    "notStarted": "問診はまだ開始されていません",
+    "aiResponding": "AI が応答中です...",
+    "listening": "お話を伺っています {{duration}}",
+    "idle": "そのままお話しください。自動で聞き取ります",
+    "thinking": "AI が考え中です...",
+    "speaking": "発話中"
+  },
+  "scroll": {
+    "latest": "最新メッセージ",
+    "latestWithCount": "最新メッセージ（{{count}}）"
+  },
+  "tts": {
+    "failed": "音声合成に失敗しました",
+    "replayAria": "AI 音声を再生",
+    "replayTitle": "クリックで音声を再生"
+  },
+  "redFlag": {
+    "more": "他 {{count}} 件の警告"
+  },
+  "error": {
+    "loadFailed": "会話を読み込めませんでした",
+    "sessionInterrupted": "問診が中断されました。もう一度お試しください",
+    "aiUnavailable": "AI サービスが一時的に応答できません。しばらくしてからお試しください",
+    "disconnected": "接続が切断されました。再接続しています...",
+    "audioTooLong": "録音時間が長すぎるため、自動で終了しました",
+    "micPermission": "ブラウザの設定でマイクへのアクセスを許可し、ページを再読み込みしてください",
+    "micNotFound": "マイクが見つかりません。マイクが接続されているかご確認ください",
+    "micGeneric": "マイクでエラーが発生しました：{{message}}"
+  },
+  "mockMessages": {
+    "systemStart": "問診を開始しました — 主訴：{{complaint}}"
+  }
+}

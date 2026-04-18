@@ -1,0 +1,83 @@
+{
+  "complete": {
+    "loading": "問診結果を読み込み中...",
+    "title": "問診完了",
+    "subtitle": "ご協力ありがとうございました。AI が問診情報の収集を完了しました",
+    "summaryTitle": "問診サマリー",
+    "summaryChiefComplaint": "主訴",
+    "summaryStartedAt": "問診日時",
+    "summaryDuration": "問診時間",
+    "durationMinutes": "{{minutes}} 分",
+    "durationEmpty": "—",
+    "redFlagTitle": "レッドフラグ警告",
+    "reportTitle": "AI 分析レポート",
+    "reportAnalyzing": "AI が問診内容を分析しています…",
+    "reportEmpty": "レポートはまだ生成されていません",
+    "reviewStatusApproved": "医師確認済み",
+    "reviewStatusRevisionNeeded": "追加情報が必要",
+    "reviewStatusPending": "医師確認待ち",
+    "aiConfidence": "AI 信頼度 {{percent}}%",
+    "nextStepsTitle": "今後の流れ",
+    "nextStep1": "問診内容は医療チームに安全に送信されました",
+    "nextStep2": "医師が AI レポートを確認し、診療方針をご案内します",
+    "nextStep3": "緊急時は直ちに救急外来を受診するか、119 に連絡してください",
+    "actionHome": "ホームに戻る",
+    "actionHistory": "問診履歴を表示"
+  },
+  "thankYou": {
+    "title": "問診完了",
+    "message": "本日はスマート問診にご協力いただきありがとうございました。診察室の外でお待ちください。医師の評価後、看護師が必要な検査をご案内いたします。",
+    "autoRedirectHint": "数秒後に自動でホームへ戻ります…",
+    "backNowAction": "今すぐホームに戻る"
+  },
+  "patientDetail": {
+    "loading": "問診履歴を読み込み中...",
+    "loadError": "問診履歴を読み込めませんでした",
+    "notFound": "問診履歴が見つかりません",
+    "title": "問診履歴の詳細",
+    "recordId": "レコード ID：{{id}}",
+    "statusCompleted": "完了",
+    "chiefComplaint": "主訴：{{value}}",
+    "chiefComplaintEmpty": "未入力",
+    "summaryHeading": "医師サマリー",
+    "summaryEmpty": "現在、生成されたサマリー内容はありません。",
+    "adviceHeading": "医師の指示",
+    "adviceEmpty": "現在、表示できる医師の指示はありません。",
+    "doctorLabel": "担当医",
+    "doctorUnassigned": "未割当",
+    "durationLabel": "会話時間",
+    "durationEmpty": "-"
+  },
+  "doctor": {
+    "list": {
+      "title": "問診セッション",
+      "searchPlaceholder": "患者・主訴を検索...",
+      "tabAll": "すべて",
+      "tabInProgress": "進行中",
+      "tabWaiting": "待機中",
+      "tabCompleted": "完了",
+      "emptyTitle": "セッションはありません",
+      "emptyMessage": "条件に一致する問診セッションはありません",
+      "redFlagBadge": "レッドフラグ",
+      "unknownPatient": "不明な患者",
+      "chiefComplaintEmpty": "-"
+    },
+    "detail": {
+      "loading": "セッションを読み込み中...",
+      "loadError": "セッションデータを読み込めませんでした",
+      "notFound": "セッションが存在しません",
+      "title": "セッション詳細",
+      "idLabel": "ID：{{id}}",
+      "infoChiefComplaint": "主訴",
+      "infoChiefComplaintEmpty": "-",
+      "infoLanguage": "言語",
+      "infoStartedAt": "開始時刻",
+      "infoDuration": "持続時間",
+      "redFlagTitle": "レッドフラグ警告",
+      "viewReport": "SOAP レポートを表示",
+      "enterConversation": "会話に入る",
+      "conversationsTitle": "会話記録",
+      "conversationsEmpty": "会話記録はまだありません"
+    }
+  }
+}
