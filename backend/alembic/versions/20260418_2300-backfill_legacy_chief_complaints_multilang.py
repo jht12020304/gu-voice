@@ -7,19 +7,21 @@
   2) 其 `category` 仍是舊 zh-TW 字串，與 seed 的 `배뇨 증상` 分開成兩組（畫面
      出現同一類別重複 section）。
 
-本 migration 目標：
-  A. 把「與 seed 在 `name_en` 層級完全重覆」的舊記錄 `is_active=false` 軟停用，
-     讓 seed 的多語版本成為唯一正本（不 DELETE，可被 downgrade 還原）。
+本 migration 目標（已修訂）：
   B. 對「非 seed 但有 canonical 英文名的常見泌尿科主訴」（例如 Nocturia、
      Burning sensation during urination、Dysuria/Difficulty urinating），以
      `name_by_lang || '{...}'::jsonb` 非破壞性 merge 的方式補齊 ja/ko/vi 翻譯，
      description_by_lang / category_by_lang 同法處理。
 
+  A 段（軟停用重覆記錄）已移除：
+    原本 `id NOT IN ('uuid-string', ...)` 在線上 PostgreSQL 對 UUID 欄位的
+    隱式 cast 行為不穩，實際跑出來把 seed 本身也一起停掉，造成主訴列表空白
+    （由 20260418_2330 rescue migration 救回）。後續 dedup 改由另一支
+    migration 在確認 DB 實際狀態後以 `id NOT IN (array[...]::uuid[])` 的
+    精準語法執行；在此之前寧可讓舊中文卡片暫時又出現，也不要整個列表空白。
+
 設計原則：
-  - **不刪資料**：全程 UPDATE，is_active 可還原、JSONB key 可以 downgrade 移除。
-  - **比對用 name（zh-TW legacy）而非 UUID**：這些 legacy 記錄 UUID 不固定，
-    無法用 seed 的那套 UUID 白名單鎖定；改用 `name` + 「不在 seed id 白名單」
-    作為辨識條件，避免誤觸 seed 本身。
+  - **不刪資料**：全程 UPDATE，是 JSONB 補譯，可被 downgrade 移除。
   - **只處理 active 記錄**：不動先前已被管理端停用的主訴。
 
 Revision ID: c0d1e2f3a4b5
@@ -178,26 +180,14 @@ def _seed_ids_sql() -> str:
 
 
 def upgrade() -> None:
-    seed_ids_sql = _seed_ids_sql()
-
-    # A. 把與 seed 重覆（同 zh-TW name）且非 seed UUID 的舊記錄軟停用
-    #    —— 不 DELETE；is_active=false 在 downgrade 時可恢復。
-    for zh_name in DUPLICATE_ZHTW_NAMES:
-        op.execute(
-            f"""
-            UPDATE chief_complaints
-            SET is_active = false,
-                updated_at = NOW()
-            WHERE name = {_sql_literal(zh_name)}
-              AND is_active = true
-              AND id NOT IN ({seed_ids_sql})
-            """
-        )
+    # A. 軟停用（已移除）—— 原邏輯參見 module docstring
+    #    後續 dedup 等確認 DB 狀態後以另一支 migration 精準處理。
 
     # B. 非 seed 常見主訴 → 以 JSONB concat 補齊多語欄位
-    #    用 COALESCE + || 保留原有 key（例如 zh-TW 已存在就不覆蓋，但 ja/ko/vi
-    #    若 target 原本沒 key 會被補上）。先 ||（右側覆蓋）會讓本次補譯勝過舊值，
-    #    這是預期行為 —— 我們信任 `LEGACY_BACKFILL` 為 canonical 版本。
+    #    用 COALESCE + || 保留原有 key（zh-TW 已存在就不覆蓋，ja/ko/vi 若 target
+    #    原本沒 key 會被補上）。以 name match 精準鎖定 3 筆 legacy 記錄；
+    #    不使用 `id NOT IN (seeds)` —— 這些 name 與 seed 的 zh-TW name 不相同，
+    #    不會誤觸 seed。
     for entry in LEGACY_BACKFILL:
         match_name = _sql_literal(entry["match_name_zh"])
         category = CATEGORY_I18N[entry["category_key"]]
@@ -210,30 +200,11 @@ def upgrade() -> None:
                 updated_at = NOW()
             WHERE name = {match_name}
               AND is_active = true
-              AND id NOT IN ({seed_ids_sql})
             """
         )
 
 
 def downgrade() -> None:
-    seed_ids_sql = _seed_ids_sql()
-
-    # 還原 A：把被本 migration 停用的舊記錄重新 activate
-    #  —— 以「zh-TW name 在黑名單 & 非 seed UUID & is_active=false」為條件；
-    #   若管理端在本 migration 後又手動停用過，downgrade 會把它們也一併重啟，
-    #   這是已知 trade-off（alembic 沒記錄哪些是本次 migration 動的）。
-    for zh_name in DUPLICATE_ZHTW_NAMES:
-        op.execute(
-            f"""
-            UPDATE chief_complaints
-            SET is_active = true,
-                updated_at = NOW()
-            WHERE name = {_sql_literal(zh_name)}
-              AND is_active = false
-              AND id NOT IN ({seed_ids_sql})
-            """
-        )
-
     # 還原 B：從 *_by_lang 移除本次補上的 ja/ko/vi key
     #  (zh-TW / en-US 保留 —— 舊記錄原本就有)
     removed_locales = ["ja-JP", "ko-KR", "vi-VN"]
@@ -248,6 +219,5 @@ def downgrade() -> None:
                 category_by_lang = category_by_lang - {remove_keys_sql},
                 updated_at = NOW()
             WHERE name = {match_name}
-              AND id NOT IN ({seed_ids_sql})
             """
         )
