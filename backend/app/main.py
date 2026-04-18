@@ -21,6 +21,7 @@ from app.core.database import engine
 from app.core.dependencies import close_redis, init_redis
 from app.core.exceptions import register_exception_handlers
 from app.core.firebase import initialize_firebase
+from app.core.language_middleware import LanguageMiddleware
 from app.core.middleware import (
     AuditLoggingMiddleware,
     RequestIdMiddleware,
@@ -103,6 +104,8 @@ app = FastAPI(
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(AuditLoggingMiddleware)
 app.add_middleware(RequestIdMiddleware)
+# LanguageMiddleware 早於 CORS 以便 handler 及 exception_handler 都能讀 state.language
+app.add_middleware(LanguageMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,

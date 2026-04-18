@@ -3,17 +3,61 @@
 - 查詢預設 / 自訂主訴（依分類分組）
 - CRUD 操作
 - 重新排序
+- 多語：`_serialize` 依 `language` 用 `pick()` 解析 localized 欄位
 """
 
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import Text, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.exceptions import NotFoundException
 from app.models.chief_complaint import ChiefComplaint
 from app.utils.datetime_utils import utc_now
+from app.utils.localized_field import pick
+
+
+def _seed_name_by_lang(name: str, name_en: Optional[str]) -> dict[str, str]:
+    """由 legacy name/name_en 生成最小 *_by_lang dict，避免留空 seed 後拿不到值。"""
+    seed: dict[str, str] = {settings.DEFAULT_LANGUAGE: name}
+    if name_en:
+        seed["en-US"] = name_en
+    return seed
+
+
+def _serialize_complaint(complaint: ChiefComplaint, language: Optional[str]) -> dict[str, Any]:
+    """依 language 產出 localized name / description / category，保留 `*_by_lang` 原貌。"""
+    target = language or settings.DEFAULT_LANGUAGE
+    return {
+        "id": complaint.id,
+        "name": pick(
+            complaint.name_by_lang,
+            target,
+            legacy_value=complaint.name,
+        ) or complaint.name,
+        "name_en": complaint.name_en,
+        "description": pick(
+            complaint.description_by_lang,
+            target,
+            legacy_value=complaint.description,
+        ),
+        "category": pick(
+            complaint.category_by_lang,
+            target,
+            legacy_value=complaint.category,
+        ) or complaint.category,
+        "is_default": complaint.is_default,
+        "is_active": complaint.is_active,
+        "display_order": complaint.display_order,
+        "created_by": complaint.created_by,
+        "created_at": complaint.created_at,
+        "updated_at": complaint.updated_at,
+        "name_by_lang": complaint.name_by_lang or None,
+        "description_by_lang": complaint.description_by_lang,
+        "category_by_lang": complaint.category_by_lang or None,
+    }
 
 
 class ComplaintService:
@@ -63,19 +107,31 @@ class ComplaintService:
         """
         建立主訴
 
-        Args:
-            data: 主訴資料（name, category, description, ...）
-            created_by_id: 建立者 ID（自訂主訴時使用）
-
-        Returns:
-            新建的 ChiefComplaint 物件
+        多語欄位缺省時以 legacy `name/name_en/description/category` seed：
+          name_by_lang     = {zh-TW: name, en-US: COALESCE(name_en, name)}
+          description_by_lang = {zh-TW: description}（description 為 None 時不建）
+          category_by_lang = {zh-TW: category}
         """
         now = utc_now()
+        name = data["name"]
+        name_en = data.get("name_en")
+        description = data.get("description")
+        category = data["category"]
+
+        name_by_lang = data.get("name_by_lang") or _seed_name_by_lang(name, name_en)
+        category_by_lang = data.get("category_by_lang") or {settings.DEFAULT_LANGUAGE: category}
+        description_by_lang = data.get("description_by_lang")
+        if description_by_lang is None and description:
+            description_by_lang = {settings.DEFAULT_LANGUAGE: description}
+
         complaint = ChiefComplaint(
-            name=data["name"],
-            name_en=data.get("name_en"),
-            description=data.get("description"),
-            category=data["category"],
+            name=name,
+            name_en=name_en,
+            description=description,
+            category=category,
+            name_by_lang=name_by_lang,
+            description_by_lang=description_by_lang,
+            category_by_lang=category_by_lang,
             is_default=data.get("is_default", False),
             is_active=True,
             display_order=data.get("display_order", 0),
@@ -109,6 +165,7 @@ class ComplaintService:
         updatable_fields = {
             "name", "name_en", "description", "category",
             "is_active", "display_order",
+            "name_by_lang", "description_by_lang", "category_by_lang",
         }
         for field, value in data.items():
             if field in updatable_fields and value is not None:
@@ -170,14 +227,9 @@ class ComplaintService:
         is_default: bool | None = None,
         search: str | None = None,
         is_active: bool = True,
+        language: Optional[str] = None,
     ) -> dict[str, Any]:
-        """
-        For Router: list_complaints
-        Since the router expects ComplaintListResponse which has total, items, has_next, next_cursor.
-        But get_active_list returns grouped data.
-        Wait, I need to check what ComplaintListResponse expects. Let me provide a mock implementation or proper query.
-        """
-        # Proper implementation for list_complaints
+        """列出主訴，回傳依 language resolve 過的 localized 欄位。"""
         query = select(ChiefComplaint)
 
         if category:
@@ -185,27 +237,30 @@ class ComplaintService:
         if is_default is not None:
             query = query.where(ChiefComplaint.is_default == is_default)
         if search:
-            query = query.where(ChiefComplaint.name.ilike(f"%{search}%"))
+            # search 跨 legacy name + name_by_lang（JSONB 轉 text 再 ilike，
+            # 避免因為 seed 只寫入 _by_lang 時查不到）
+            query = query.where(
+                or_(
+                    ChiefComplaint.name.ilike(f"%{search}%"),
+                    ChiefComplaint.name_by_lang.cast(Text).ilike(f"%{search}%"),
+                )
+            )
         if is_active is not None:
             query = query.where(ChiefComplaint.is_active == is_active)
 
-        query = query.order_by(ChiefComplaint.display_order)
-        
-        # NOTE: Not implementing cursor-based pagination here strictly for brevity, 
-        # just returning all matched limits.
-        query = query.limit(limit)
+        query = query.order_by(ChiefComplaint.display_order).limit(limit)
 
         result = await db.execute(query)
         items = result.scalars().all()
 
         return {
-            "data": items,
+            "data": [_serialize_complaint(c, language) for c in items],
             "pagination": {
                 "next_cursor": None,
                 "has_more": False,
                 "limit": limit,
-                "total_count": len(items)
-            }
+                "total_count": len(items),
+            },
         }
 
     async def create_complaint(
@@ -213,8 +268,10 @@ class ComplaintService:
         db: AsyncSession,
         data: Any,
         created_by: UUID,
-    ) -> ChiefComplaint:
-        return await self.create(db, data.model_dump(), created_by)
+        language: Optional[str] = None,
+    ) -> dict[str, Any]:
+        complaint = await self.create(db, data.model_dump(), created_by)
+        return _serialize_complaint(complaint, language)
 
     async def reorder_complaints(
         self,
@@ -229,14 +286,15 @@ class ComplaintService:
         self,
         db: AsyncSession,
         complaint_id: UUID,
-    ) -> ChiefComplaint:
+        language: Optional[str] = None,
+    ) -> dict[str, Any]:
         result = await db.execute(
             select(ChiefComplaint).where(ChiefComplaint.id == complaint_id)
         )
         complaint = result.scalar_one_or_none()
         if complaint is None:
             raise NotFoundException("errors.complaint_not_found")
-        return complaint
+        return _serialize_complaint(complaint, language)
 
     async def update_complaint(
         self,
@@ -244,8 +302,10 @@ class ComplaintService:
         complaint_id: UUID,
         data: Any,
         current_user: Any,
-    ) -> ChiefComplaint:
-        return await self.update(db, complaint_id, data.model_dump(exclude_unset=True))
+        language: Optional[str] = None,
+    ) -> dict[str, Any]:
+        complaint = await self.update(db, complaint_id, data.model_dump(exclude_unset=True))
+        return _serialize_complaint(complaint, language)
 
     async def delete_complaint(
         self,

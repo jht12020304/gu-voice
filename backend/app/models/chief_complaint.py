@@ -1,11 +1,17 @@
-"""ChiefComplaint 主訴模型"""
+"""ChiefComplaint 主訴模型
+
+多語欄位採 expand-migrate-contract：
+- `name_by_lang` / `description_by_lang` / `category_by_lang` 為新權威來源（JSONB）
+- legacy `name / name_en / description / category` 暫留給管理後台寫入與 fallback；
+  待 B1 seed 與 admin UI 遷移完成後以獨立 migration drop。
+"""
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -27,6 +33,17 @@ class ChiefComplaint(Base):
     name_en: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    # 多語欄位（JSONB，key = BCP-47 locale；由 localized_field.pick() 讀取）
+    name_by_lang: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    description_by_lang: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
+    category_by_lang: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     is_default: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"), nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, server_default=text("0"), nullable=False)

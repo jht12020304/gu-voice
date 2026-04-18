@@ -1,7 +1,17 @@
-"""主訴相關 Pydantic Schema"""
+"""主訴相關 Pydantic Schema
+
+多語版本（Phase 3）：
+- `ComplaintCreate` / `ComplaintUpdate` 接受 `*_by_lang` JSONB 欄位，
+  同時沿用 legacy `name / name_en / description / category` 提供 backwards compatibility。
+- `ComplaintResponse` 有兩組欄位：
+  - `name / description / category`：依 `request.state.language` resolve 後的單一字串，
+    前端可直接渲染
+  - `name_by_lang / description_by_lang / category_by_lang`：完整多語內容，
+    管理後台編輯時使用
+"""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -18,6 +28,10 @@ class ComplaintCreate(BaseModel):
     is_default: bool = False
     is_active: bool = True
     display_order: int = 0
+    # 多語欄位（optional — 未填時由 service 由 legacy 欄位自動 seed）
+    name_by_lang: Optional[dict[str, Any]] = None
+    description_by_lang: Optional[dict[str, Any]] = None
+    category_by_lang: Optional[dict[str, Any]] = None
 
 
 class ComplaintUpdate(BaseModel):
@@ -29,10 +43,17 @@ class ComplaintUpdate(BaseModel):
     is_default: Optional[bool] = None
     is_active: Optional[bool] = None
     display_order: Optional[int] = None
+    name_by_lang: Optional[dict[str, Any]] = None
+    description_by_lang: Optional[dict[str, Any]] = None
+    category_by_lang: Optional[dict[str, Any]] = None
 
 
 class ComplaintResponse(BaseModel):
-    """主訴回應"""
+    """主訴回應
+
+    `name / description / category` 為解析後的目標語言字串；
+    `*_by_lang` 為完整多語 JSONB，管理後台使用。
+    """
     id: UUID
     name: str
     name_en: Optional[str] = None
@@ -44,6 +65,10 @@ class ComplaintResponse(BaseModel):
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
+    # 多語原始資料（前端切語言時不用重打 API）
+    name_by_lang: Optional[dict[str, Any]] = None
+    description_by_lang: Optional[dict[str, Any]] = None
+    category_by_lang: Optional[dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
 

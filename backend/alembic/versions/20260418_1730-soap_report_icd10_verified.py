@@ -4,8 +4,8 @@
 由 `app.pipelines.icd10_validator.validate_icd10_codes` 填入，
 代表 LLM 輸出的 ICD-10 碼是否通過泌尿科白名單 + symptom↔code 對映雙檢。
 
-Revision ID: e5f6a7b8c9d0
-Revises: d4e5f6a7b8c9
+Revision ID: f6a7b8c9d0e1
+Revises: e5f6a7b8c9d0
 Create Date: 2026-04-18 17:30:00.000000+08:00
 """
 
@@ -15,8 +15,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "e5f6a7b8c9d0"
-down_revision: Union[str, None] = "d4e5f6a7b8c9"
+revision: str = "f6a7b8c9d0e1"
+down_revision: Union[str, None] = "e5f6a7b8c9d0"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
