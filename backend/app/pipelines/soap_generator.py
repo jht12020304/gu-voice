@@ -210,17 +210,18 @@ class SOAPGenerator:
             content = entry.get("content", "")
             timestamp = entry.get("timestamp", "")
 
-            # 角色名稱中文化
+            # 角色名稱使用中性英文 code，避免被 LLM 當成「輸出語言線索」照抄中文
+            # （原本的「病患 / AI 助手」會污染日/韓/越場次的 SOAP 輸出語言）。
             role_label = {
-                "patient": "病患",
-                "user": "病患",
-                "assistant": "AI 助手",
-                "ai": "AI 助手",
-                "system": "系統",
+                "patient": "Patient",
+                "user": "Patient",
+                "assistant": "Assistant",
+                "ai": "Assistant",
+                "system": "System",
             }.get(role, role)
 
             time_str = f" [{timestamp}]" if timestamp else ""
-            lines.append(f"{role_label}{time_str}：{content}")
+            lines.append(f"{role_label}{time_str}: {content}")
 
         return "\n".join(lines)
 
@@ -259,39 +260,38 @@ class SOAPGenerator:
         Raises:
             AIServiceUnavailableException: OpenAI API 不可用時
         """
-        # 組合病患資訊
+        # 組合病患資訊（使用中性英文 label + 原始 enum 值，
+        # 避免日/韓/越場次被 LLM 照抄中文欄位名）。
         patient_parts: list[str] = []
         if patient_info.get("name"):
-            patient_parts.append(f"姓名：{patient_info['name']}")
+            patient_parts.append(f"Name: {patient_info['name']}")
         if patient_info.get("age"):
-            patient_parts.append(f"年齡：{patient_info['age']} 歲")
+            patient_parts.append(f"Age: {patient_info['age']}")
         if patient_info.get("gender"):
-            gender_map = {"male": "男性", "female": "女性", "other": "其他"}
-            patient_parts.append(
-                f"性別：{gender_map.get(patient_info['gender'], patient_info['gender'])}"
-            )
+            patient_parts.append(f"Gender: {patient_info['gender']}")
         if patient_info.get("medical_history"):
-            patient_parts.append(f"過去病史：{patient_info['medical_history']}")
+            patient_parts.append(f"Past medical history: {patient_info['medical_history']}")
         if patient_info.get("medications"):
-            patient_parts.append(f"目前用藥：{patient_info['medications']}")
+            patient_parts.append(f"Current medications: {patient_info['medications']}")
         if patient_info.get("allergies"):
-            patient_parts.append(f"過敏史：{patient_info['allergies']}")
+            patient_parts.append(f"Allergies: {patient_info['allergies']}")
         if patient_info.get("family_history"):
-            patient_parts.append(f"家族病史：{patient_info['family_history']}")
+            patient_parts.append(f"Family history: {patient_info['family_history']}")
 
-        patient_text = "\n".join(patient_parts) if patient_parts else "（未提供）"
+        patient_text = "\n".join(patient_parts) if patient_parts else "(not provided)"
         transcript_text = self._format_transcript(transcript)
 
-        user_message = f"""## 病患基本資訊
+        # user_message 用中性英文標題，輸出語言由 system prompt 的語言規則決定。
+        user_message = f"""## Patient Basic Information
 {patient_text}
 
-## 主訴
+## Chief Complaint
 {chief_complaint}
 
-## 問診對話記錄
+## Consultation Transcript
 {transcript_text}
 
-請根據以上資訊產生完整的 SOAP 報告。"""
+Please produce the full SOAP report based on the information above."""
 
         try:
             logger.info(
@@ -300,11 +300,13 @@ class SOAPGenerator:
                 len(transcript),
             )
 
-            # 依 session language 附加輸出語言硬性規定
-            # （_SOAP_SYSTEM_PROMPT 原文用繁中撰寫，臨床知識不變；
-            # 尾段再疊上當次輸出語言的指示。）
-            system_prompt_localized = _SOAP_SYSTEM_PROMPT + get_message(
-                "llm.soap_language_instruction", language
+            # 依 session language 強制輸出語言：
+            # _SOAP_SYSTEM_PROMPT 原文用繁中撰寫（臨床知識、schema 命名不變），
+            # 但若不把輸出語言規則放在最前面，LLM 看到大量中文內文後傾向用中文輸出。
+            # 作法：prepend + append 雙重保險，頂端建立語言錨點、尾端再重申硬性規定。
+            language_rule = get_message("llm.soap_language_instruction", language)
+            system_prompt_localized = (
+                language_rule.lstrip() + "\n\n" + _SOAP_SYSTEM_PROMPT + language_rule
             )
 
             response = await call_with_retry(

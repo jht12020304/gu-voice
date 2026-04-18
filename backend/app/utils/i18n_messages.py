@@ -317,6 +317,31 @@ MESSAGES: dict[str, dict[str, str]] = {
             "- Do not mix Traditional Chinese into English fields "
             "(ICD-10 codes are exempt)."
         ),
+        "ja-JP": (
+            "\n\n## 出力言語(必須)\n"
+            "- ICD-10 コードを除き、すべての文字フィールド(chief_complaint、hpi の各項目、"
+            "differential_diagnoses、clinical_impression、recommended_tests、"
+            "treatments、medications、patient_education、referrals、"
+            "follow_up、diagnostic_reasoning、summary など)は必ず**日本語**で記述してください。\n"
+            "- 日本語フィールドに他言語の原文を混在させないでください(ICD-10 コードは例外)。"
+        ),
+        "ko-KR": (
+            "\n\n## 출력 언어(필수)\n"
+            "- ICD-10 코드를 제외한 모든 텍스트 필드(chief_complaint, hpi 하위 항목, "
+            "differential_diagnoses, clinical_impression, recommended_tests, "
+            "treatments, medications, patient_education, referrals, "
+            "follow_up, diagnostic_reasoning, summary 등)는 반드시 **한국어**로 작성하세요.\n"
+            "- 한국어 필드에 다른 언어 원문을 섞지 마세요(ICD-10 코드는 예외)."
+        ),
+        "vi-VN": (
+            "\n\n## Ngôn ngữ đầu ra (bắt buộc)\n"
+            "- Ngoại trừ mã ICD-10, mọi trường văn bản (chief_complaint, các mục hpi, "
+            "differential_diagnoses, clinical_impression, recommended_tests, "
+            "treatments, medications, patient_education, referrals, "
+            "follow_up, diagnostic_reasoning, summary, v.v.) phải được viết bằng **tiếng Việt**.\n"
+            "- Không xen nguyên văn ngôn ngữ khác vào các trường tiếng Việt "
+            "(mã ICD-10 được miễn trừ)."
+        ),
     },
     # 用於 LLMConversationEngine.build_system_prompt「角色定位」段，
     # 硬性規定 AI 問診助手以病患選擇的語言回覆，避免 Whisper 判對語言但 LLM 仍回中文。

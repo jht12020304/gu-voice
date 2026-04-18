@@ -33,19 +33,48 @@ const mockComplaints: ChiefComplaint[] = [
   { id: 'cc10', name: '尿液檢查異常', nameEn: 'Abnormal Urinalysis', description: '尿液常規檢查發現異常', category: '檢查異常', isDefault: false, isActive: true, displayOrder: 10, createdAt: '', updatedAt: '' },
 ];
 
-// zh-TW → intake.selectComplaint.categories.* 的 key 映射（後端未來會直接回
-// category_by_lang，這張表只在過渡期用於把既有 zh-TW category 字串翻譯成顯示字）。
+// 任一語言 → intake.selectComplaint.categories.* 的 key 映射。
+// 後端已用 Accept-Language 回傳 localized category，但舊記錄可能未 backfill
+// `category_by_lang` → fallback 成 zh-TW；本表同時收錄 5 國語言對應 key，
+// 讓「已翻譯」與「未翻譯」的 category 都落在同一個 i18n bucket，避免出現兩組同名 section。
 const CATEGORY_I18N_KEY: Record<string, string> = {
+  // zh-TW（legacy fallback）
   '排尿症狀': 'urinarySymptoms',
   '疼痛': 'pain',
   '檢查異常': 'examinationAbnormalities',
   '其他': 'other',
+  // en-US
+  'Urinary symptoms': 'urinarySymptoms',
+  'Pain': 'pain',
+  'Abnormal findings': 'examinationAbnormalities',
+  'Other': 'other',
+  // ja-JP（'疼痛' 與 zh-TW 同字，上方已涵蓋）
+  '排尿症状': 'urinarySymptoms',
+  '検査異常': 'examinationAbnormalities',
+  'その他': 'other',
+  // ko-KR
+  '배뇨 증상': 'urinarySymptoms',
+  '통증': 'pain',
+  '검사 이상': 'examinationAbnormalities',
+  '기타': 'other',
+  // vi-VN
+  'Triệu chứng tiết niệu': 'urinarySymptoms',
+  'Đau': 'pain',
+  'Kết quả xét nghiệm bất thường': 'examinationAbnormalities',
+  'Khác': 'other',
 };
+
+/** 將 backend 回傳的 category 字串正規化為穩定 bucket key；
+ *  找不到對應時以原字串當 key（保留 admin 自訂 category 的分組能力）。 */
+function categoryBucket(raw: string): string {
+  return CATEGORY_I18N_KEY[raw] ?? raw;
+}
 
 function groupByCategory(complaints: ChiefComplaint[]): Record<string, ChiefComplaint[]> {
   return complaints.reduce<Record<string, ChiefComplaint[]>>((acc, c) => {
-    if (!acc[c.category]) acc[c.category] = [];
-    acc[c.category].push(c);
+    const bucket = categoryBucket(c.category);
+    if (!acc[bucket]) acc[bucket] = [];
+    acc[bucket].push(c);
     return acc;
   }, {});
 }
@@ -69,9 +98,12 @@ export default function SelectComplaintPage() {
 
   const grouped = useMemo(() => groupByCategory(displayComplaints), [displayComplaints]);
 
-  const localizedCategory = (raw: string) => {
-    const key = CATEGORY_I18N_KEY[raw];
-    return key ? t(`selectComplaint.categories.${key}`) : raw;
+  // groupByCategory 已用 categoryBucket() 正規化過，傳進來的 bucket 可能是 i18n key
+  // （urinarySymptoms / pain / ...）或原 category 字串（admin 自訂類別）。
+  const localizedCategory = (bucket: string) => {
+    // 已是 i18n key → 直接翻譯；否則回傳原字串
+    const KNOWN = new Set(['urinarySymptoms', 'pain', 'examinationAbnormalities', 'other']);
+    return KNOWN.has(bucket) ? t(`selectComplaint.categories.${bucket}`) : bucket;
   };
 
   const handleStart = () => {
