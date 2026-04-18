@@ -318,6 +318,43 @@ MESSAGES: dict[str, dict[str, str]] = {
             "(ICD-10 codes are exempt)."
         ),
     },
+    # 用於 LLMConversationEngine.build_system_prompt「角色定位」段，
+    # 硬性規定 AI 問診助手以病患選擇的語言回覆，避免 Whisper 判對語言但 LLM 仍回中文。
+    "llm.conversation_language_rule": {
+        "zh-TW": "使用繁體中文與病患溝通",
+        "en-US": "Communicate with the patient in US English",
+        "ja-JP": "丁寧な日本語で患者とコミュニケーションを取ってください",
+        "ko-KR": "정중한 한국어로 환자와 소통하세요",
+        "vi-VN": "Giao tiếp với bệnh nhân bằng tiếng Việt trang trọng",
+    },
+    # 問診 system prompt 尾段的強制輸出語言區段，配合 conversation_language_rule 使用。
+    "llm.conversation_output_language_rule": {
+        "zh-TW": (
+            "\n\n## 輸出語言（硬性規定）\n"
+            "- 不論病患用何種語言提問,你都必須以 **繁體中文** 回覆。\n"
+            "- 不要混入其他語言的原文。"
+        ),
+        "en-US": (
+            "\n\n## Output Language (Strict)\n"
+            "- Regardless of the language the patient uses, you must reply in **US English**.\n"
+            "- Do not mix in other languages."
+        ),
+        "ja-JP": (
+            "\n\n## 出力言語(必須)\n"
+            "- 患者がどの言語で話しても、あなたは必ず**日本語**で返答してください。\n"
+            "- 他言語の原文を混ぜないでください。"
+        ),
+        "ko-KR": (
+            "\n\n## 출력 언어(필수)\n"
+            "- 환자가 어떤 언어로 말하든, 반드시 **한국어**로 답변하세요.\n"
+            "- 다른 언어의 원문을 섞지 마세요."
+        ),
+        "vi-VN": (
+            "\n\n## Ngôn ngữ đầu ra (bắt buộc)\n"
+            "- Dù bệnh nhân dùng ngôn ngữ nào, bạn phải trả lời bằng **tiếng Việt**.\n"
+            "- Không xen lẫn nguyên văn ngôn ngữ khác."
+        ),
+    },
     "llm.red_flag_language_instruction": {
         "zh-TW": (
             "\n\n## 輸出語言（硬性規定）\n"
@@ -362,6 +399,19 @@ MESSAGES: dict[str, dict[str, str]] = {
             "Hello! I'm your urology AI intake assistant and I'll help with "
             "your initial assessment today. When did your \"{chief_complaint}\" "
             "symptom first start?"
+        ),
+        "ja-JP": (
+            "こんにちは。泌尿器科のAI問診アシスタントです。本日は初診の問診をお手伝いします。"
+            "「{chief_complaint}」の症状はいつから始まりましたか？"
+        ),
+        "ko-KR": (
+            "안녕하세요. 비뇨기과 AI 문진 도우미입니다. 오늘 초기 문진을 도와드리겠습니다."
+            "「{chief_complaint}」 증상은 언제부터 시작되었나요?"
+        ),
+        "vi-VN": (
+            "Xin chào! Tôi là trợ lý hỏi bệnh AI chuyên khoa Tiết niệu, "
+            "hôm nay tôi sẽ hỗ trợ buổi hỏi bệnh ban đầu của bạn. "
+            "Triệu chứng \"{chief_complaint}\" của bạn bắt đầu từ khi nào?"
         ),
     },
 }

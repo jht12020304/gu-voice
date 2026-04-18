@@ -25,7 +25,7 @@ from app.core.exceptions import RateLimitExceededException
 from app.core.rate_limit import enforce_llm_per_user_rate_limit
 from app.pipelines.llm_conversation import LLMConversationEngine
 from app.pipelines.red_flag_detector import RedFlagDetector
-from app.pipelines.stt_pipeline import STTPipeline
+from app.pipelines.stt_pipeline import STTPipeline, to_whisper_language
 from app.pipelines.tts_pipeline import TTSPipeline
 from app.pipelines.supervisor import SupervisorEngine
 from app.websocket.auth import authenticate_websocket
@@ -323,9 +323,12 @@ async def conversation_websocket(
         }
 
         # 建構系統提示詞
+        # 需把 session.language 傳進去,否則 LLM 會永遠回繁體中文
+        # （即使 STT 判對語言、病患用英文講，回覆仍是中文 → M18 回報）。
         system_prompt = llm_engine.build_system_prompt(
             chief_complaint=session_context["chief_complaint"],
             patient_info=session_context["patient_info"],
+            language=session_context.get("language"),
         )
 
         # 更新場次狀態為進行中
@@ -868,9 +871,13 @@ async def _handle_audio_chunk(
     )
 
     # 呼叫 OpenAI Whisper 轉錄
+    # 場次語言在 MedicalInfoPage 建 session 時用 i18n.resolvedLanguage 寫入
+    # （BCP-47：zh-TW / en-US / ja-JP / ko-KR / vi-VN）。Whisper 只吃 ISO-639-1,
+    # 不轉會讓它退回 STTPipeline._language（預設 "zh"）導致英文被強制轉中文。
+    whisper_lang = to_whisper_language(session_context.get("language"))
     final_text = ""
     try:
-        result = await stt_pipeline.transcribe(complete_audio)
+        result = await stt_pipeline.transcribe(complete_audio, language=whisper_lang)
         final_text = result["text"]
         message_id = str(uuid.uuid4())
 

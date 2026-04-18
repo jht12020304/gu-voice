@@ -16,6 +16,32 @@ from app.core.openai_client import call_with_retry, get_openai_client
 logger = logging.getLogger(__name__)
 
 
+# 明確列表保險：若 LANGUAGE_MAP 因任何原因缺項，這組 BCP-47 → ISO-639-1 仍可救援。
+# Whisper 僅接受 ISO-639-1（"zh" / "en" / ...），傳 "zh-TW" 會 400。
+_BCP47_TO_WHISPER: dict[str, str] = {
+    "zh-TW": "zh",
+    "en-US": "en",
+    "ja-JP": "ja",
+    "ko-KR": "ko",
+    "vi-VN": "vi",
+}
+
+
+def to_whisper_language(bcp47: str | None) -> str | None:
+    """
+    把場次的 BCP-47 語言碼轉成 Whisper 認得的 ISO-639-1。
+
+    None / 空字串 / 未知值 → 回 None，讓 Whisper 自動偵測或由 pipeline 預設填補。
+    """
+    if not bcp47:
+        return None
+    code = _BCP47_TO_WHISPER.get(bcp47)
+    if code:
+        return code
+    # 無 region 時（"en"）直接當 ISO-639-1；有 region 取前段。
+    return bcp47.split("-", 1)[0] if "-" in bcp47 else bcp47
+
+
 def _detect_audio_filename(audio_bytes: bytes) -> str:
     """
     依 magic bytes 推斷 Whisper 可接受的副檔名。

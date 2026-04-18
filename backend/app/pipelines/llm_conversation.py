@@ -21,6 +21,7 @@ from app.pipelines.prompts.shared import (
     render_hpi_checklist,
     render_red_flags_for_conversation,
 )
+from app.utils.i18n_messages import get_message as _i18n_get
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,10 @@ class LLMConversationEngine:
         )
 
     def build_system_prompt(
-        self, chief_complaint: str, patient_info: dict[str, Any]
+        self,
+        chief_complaint: str,
+        patient_info: dict[str, Any],
+        language: str | None = None,
     ) -> str:
         """
         根據主訴與病患資訊建構系統提示詞
@@ -66,10 +70,18 @@ class LLMConversationEngine:
         Args:
             chief_complaint: 病患主訴（例如「血尿」、「頻尿」）
             patient_info: 病患基本資訊（姓名、年齡、性別、病史等）
+            language:       場次語言（BCP-47，如 "en-US"）；用於決定 LLM 輸出語言,
+                            None 會退回 i18n_messages 的 DEFAULT_LANGUAGE（zh-TW）。
 
         Returns:
             完整系統提示詞字串
         """
+        # 角色定位第二行與尾段的「輸出語言（硬性規定）」都依 session 語言查表。
+        # 之前硬寫「使用繁體中文與病患溝通」會導致前端傳 en-US 也被 LLM 以中文回覆。
+        role_language_line = _i18n_get("llm.conversation_language_rule", language)
+        output_language_rule = _i18n_get(
+            "llm.conversation_output_language_rule", language
+        )
         # 組合病患資訊摘要
         patient_summary_parts: list[str] = []
         if patient_info.get("name"):
@@ -100,7 +112,7 @@ class LLMConversationEngine:
 
 ## 角色定位
 - 你是泌尿科門診的 AI 問診助手
-- 使用繁體中文與病患溝通
+- {role_language_line}
 - 語氣親切、專業且具同理心
 
 ## 病患資訊
@@ -142,10 +154,10 @@ class LLMConversationEngine:
 若偵測到紅旗症狀，請在回覆中明確提醒病患盡速就醫。
 
 ## 回覆格式
-- 使用自然、口語化的繁體中文
+- 使用自然、口語化的語言（語言依下方輸出語言規定）
 - 每次回覆簡潔明瞭，通常 1-3 句話
 - 不使用 markdown 格式（不加粗、不用清單）或特殊符號
-- 不說「好的」「了解」等空洞開場白，直接進入問題"""
+- 不說「好的」「了解」等空洞開場白，直接進入問題{output_language_rule}"""
 
         return system_prompt
 
