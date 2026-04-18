@@ -2,7 +2,8 @@
 // 問診場次列表頁
 // =============================================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import StatusBadge from '../../components/medical/StatusBadge';
 import SearchBar from '../../components/form/SearchBar';
@@ -25,19 +26,23 @@ const mockSessions: Session[] = [
   { id: 'rs4', patientId: 'p8', doctorId: 'mock-doctor-001', chiefComplaintId: 'cc8', chiefComplaintText: '勃起功能障礙', status: 'aborted_red_flag', redFlag: true, redFlagReason: '疑似心血管風險', language: 'zh-TW', startedAt: '2026-04-10T09:00:00Z', completedAt: '2026-04-10T09:15:00Z', durationSeconds: 900, createdAt: '2026-04-10T09:00:00Z', updatedAt: '2026-04-10T09:15:00Z', patient: { id: 'p8', userId: 'u8', medicalRecordNumber: 'MRN-2026-0008', name: '周志豪', gender: 'male', dateOfBirth: '1975-04-12', createdAt: '2026-03-22T09:00:00Z', updatedAt: '2026-04-10T09:15:00Z' } },
 ];
 
-const STATUS_TABS = [
-  { key: '', label: '全部' },
-  { key: 'in_progress', label: '進行中' },
-  { key: 'waiting', label: '等待中' },
-  { key: 'completed', label: '已完成' },
-];
-
 export default function SessionListPage() {
   const navigate = useLocalizedNavigate();
+  const { t } = useTranslation('session');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+
+  const statusTabs = useMemo(
+    () => [
+      { key: '', label: t('doctor.list.tabAll') },
+      { key: 'in_progress', label: t('doctor.list.tabInProgress') },
+      { key: 'waiting', label: t('doctor.list.tabWaiting') },
+      { key: 'completed', label: t('doctor.list.tabCompleted') },
+    ],
+    [t]
+  );
 
   useEffect(() => {
     if (IS_MOCK) {
@@ -64,15 +69,15 @@ export default function SessionListPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <h1 className="text-h1 text-ink-heading dark:text-white">問診場次</h1>
+      <h1 className="text-h1 text-ink-heading dark:text-white">{t('doctor.list.title')}</h1>
 
       {/* 篩選 */}
       <div className="flex flex-wrap items-center gap-4">
         <div className="w-64">
-          <SearchBar value={searchQuery} onChange={setSearchQuery} placeholder="搜尋病患、主訴..." />
+          <SearchBar value={searchQuery} onChange={setSearchQuery} placeholder={t('doctor.list.searchPlaceholder')} />
         </div>
         <div className="flex gap-2">
-          {STATUS_TABS.map((tab) => (
+          {statusTabs.map((tab) => (
             <button
               key={tab.key}
               className={`rounded-btn px-3 py-1.5 text-caption font-medium transition-colors ${
@@ -92,7 +97,7 @@ export default function SessionListPage() {
       {isLoading ? (
         <LoadingSpinner fullPage />
       ) : sessions.length === 0 ? (
-        <EmptyState title="無場次資料" message="目前沒有符合條件的問診場次" />
+        <EmptyState title={t('doctor.list.emptyTitle')} message={t('doctor.list.emptyMessage')} />
       ) : (
         <div className="space-y-2">
           {sessions.map((session) => (
@@ -116,14 +121,14 @@ export default function SessionListPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <p className="truncate text-body font-medium text-ink-heading dark:text-white">
-                    {session.patientName ?? session.patient?.name ?? '未知病患'}
+                    {session.patientName ?? session.patient?.name ?? t('doctor.list.unknownPatient')}
                   </p>
                   {session.redFlag && (
-                    <span className="badge badge-red-flag text-tiny px-1.5 py-0.5">紅旗</span>
+                    <span className="badge badge-red-flag text-tiny px-1.5 py-0.5">{t('doctor.list.redFlagBadge')}</span>
                   )}
                 </div>
                 <p className="mt-0.5 truncate text-small text-ink-muted">
-                  {session.chiefComplaintText || '-'}
+                  {session.chiefComplaintText || t('doctor.list.chiefComplaintEmpty')}
                 </p>
               </div>
 

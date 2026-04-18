@@ -4,6 +4,7 @@
 // =============================================================================
 
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 
 /** 自動跳轉回首頁的延遲（毫秒） */
@@ -11,6 +12,7 @@ const AUTO_REDIRECT_MS = 8000;
 
 export default function SessionThankYouPage() {
   const navigate = useLocalizedNavigate();
+  const { t } = useTranslation('session');
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -35,22 +37,22 @@ export default function SessionThankYouPage() {
       </div>
 
       <h1 className="text-h1 font-semibold tracking-tight text-ink-heading dark:text-white">
-        問診完成
+        {t('thankYou.title')}
       </h1>
 
       <p className="mt-6 max-w-xl text-body leading-relaxed text-ink-body dark:text-white/80">
-        感謝您今日參與智慧問診，請至原本診間外等候，醫師評估過後，將由護理師給予您合適的檢查項目。
+        {t('thankYou.message')}
       </p>
 
       <p className="mt-8 text-small text-ink-muted dark:text-white/40">
-        將於數秒後自動回到首頁…
+        {t('thankYou.autoRedirectHint')}
       </p>
 
       <button
         className="btn-primary mt-6 px-8 py-3"
         onClick={() => navigate('/patient', { replace: true })}
       >
-        立即回到首頁
+        {t('thankYou.backNowAction')}
       </button>
     </div>
   );

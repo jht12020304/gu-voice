@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useReportStore } from '../../stores/reportStore';
@@ -33,6 +34,7 @@ const mockSession: Session = {
 export default function SessionCompletePage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useLocalizedNavigate();
+  const { t } = useTranslation('session');
   const { selectedReport, isLoading: reportLoading, fetchReportBySession } = useReportStore();
   const [session, setSession] = useState<Session | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
@@ -59,10 +61,18 @@ export default function SessionCompletePage() {
     load();
   }, [sessionId, fetchReportBySession]);
 
-  if (isLoadingSession) return <LoadingSpinner fullPage message="載入問診結果..." />;
+  if (isLoadingSession) return <LoadingSpinner fullPage message={t('complete.loading')} />;
 
   const report = selectedReport;
   const hasReport = !!report && report.status === 'generated';
+
+  const reviewStatusLabel = report
+    ? report.reviewStatus === 'approved'
+      ? t('complete.reviewStatusApproved')
+      : report.reviewStatus === 'revision_needed'
+        ? t('complete.reviewStatusRevisionNeeded')
+        : t('complete.reviewStatusPending')
+    : '';
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-10 animate-fade-in">
@@ -74,9 +84,9 @@ export default function SessionCompletePage() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
           </svg>
         </div>
-        <h1 className="text-h1 font-semibold tracking-tight text-ink-heading dark:text-white">問診完成</h1>
+        <h1 className="text-h1 font-semibold tracking-tight text-ink-heading dark:text-white">{t('complete.title')}</h1>
         <p className="mt-2 text-body text-ink-muted dark:text-white/50">
-          感謝您的配合，AI 已完成問診資料收集
+          {t('complete.subtitle')}
         </p>
       </div>
 
@@ -84,33 +94,35 @@ export default function SessionCompletePage() {
       {session && (
         <div className="rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
           <div className="px-5 py-4 border-b border-edge/60 dark:border-dark-border">
-            <h2 className="text-tiny font-medium uppercase tracking-widest text-ink-muted dark:text-white/40">問診摘要</h2>
+            <h2 className="text-tiny font-medium uppercase tracking-widest text-ink-muted dark:text-white/40">{t('complete.summaryTitle')}</h2>
           </div>
 
           <div className="divide-y divide-edge/60 dark:divide-dark-border">
             <div className="flex items-center justify-between px-5 py-3.5">
-              <span className="text-small text-ink-muted dark:text-white/50">主訴</span>
+              <span className="text-small text-ink-muted dark:text-white/50">{t('complete.summaryChiefComplaint')}</span>
               <span className="text-body font-medium text-ink-heading dark:text-white">
                 {session.chiefComplaintText}
               </span>
             </div>
             <div className="flex items-center justify-between px-5 py-3.5">
-              <span className="text-small text-ink-muted dark:text-white/50">問診時間</span>
+              <span className="text-small text-ink-muted dark:text-white/50">{t('complete.summaryStartedAt')}</span>
               <span className="text-body text-ink-body dark:text-white/75">
                 {formatDate(session.startedAt)}
               </span>
             </div>
             <div className="flex items-center justify-between px-5 py-3.5">
-              <span className="text-small text-ink-muted dark:text-white/50">問診時長</span>
+              <span className="text-small text-ink-muted dark:text-white/50">{t('complete.summaryDuration')}</span>
               <span className="text-body font-data text-ink-body dark:text-white/75">
-                {session.durationSeconds ? `${Math.round(session.durationSeconds / 60)} 分鐘` : '—'}
+                {session.durationSeconds
+                  ? t('complete.durationMinutes', { minutes: Math.round(session.durationSeconds / 60) })
+                  : t('complete.durationEmpty')}
               </span>
             </div>
 
             {session.redFlag && (
               <div className="px-5 py-3.5">
                 <div className="rounded-card bg-red-50 px-4 py-3 dark:bg-red-900/20">
-                  <p className="text-small font-medium text-red-700 dark:text-red-300">紅旗警示</p>
+                  <p className="text-small font-medium text-red-700 dark:text-red-300">{t('complete.redFlagTitle')}</p>
                   <p className="mt-0.5 text-small text-red-600/80 dark:text-red-400/70">{session.redFlagReason}</p>
                 </div>
               </div>
@@ -122,14 +134,14 @@ export default function SessionCompletePage() {
       {/* AI 分析報告 */}
       <div className="mt-4 rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
         <div className="px-5 py-4 border-b border-edge/60 dark:border-dark-border">
-          <h2 className="text-tiny font-medium uppercase tracking-widest text-ink-muted dark:text-white/40">AI 分析報告</h2>
+          <h2 className="text-tiny font-medium uppercase tracking-widest text-ink-muted dark:text-white/40">{t('complete.reportTitle')}</h2>
         </div>
 
         <div className="px-5 py-4">
           {reportLoading ? (
             <div className="flex items-center gap-3">
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-500 border-t-transparent" />
-              <p className="text-body text-ink-muted dark:text-white/50">AI 正在分析您的問診內容…</p>
+              <p className="text-body text-ink-muted dark:text-white/50">{t('complete.reportAnalyzing')}</p>
             </div>
           ) : hasReport ? (
             <div className="space-y-3">
@@ -149,17 +161,17 @@ export default function SessionCompletePage() {
               )}
               <div className="flex items-center gap-2">
                 <span className={`badge ${report.reviewStatus === 'approved' ? 'badge-completed' : report.reviewStatus === 'revision_needed' ? 'badge-red-flag' : 'badge-waiting'}`}>
-                  {report.reviewStatus === 'approved' ? '醫師已審閱' : report.reviewStatus === 'revision_needed' ? '需補充資料' : '待醫師審閱'}
+                  {reviewStatusLabel}
                 </span>
                 {report.aiConfidenceScore !== undefined && (
                   <span className="text-small font-data text-ink-muted dark:text-white/40">
-                    AI 信心 {Math.round(report.aiConfidenceScore * 100)}%
+                    {t('complete.aiConfidence', { percent: Math.round(report.aiConfidenceScore * 100) })}
                   </span>
                 )}
               </div>
             </div>
           ) : (
-            <p className="text-body text-ink-muted dark:text-white/40">報告尚未產生</p>
+            <p className="text-body text-ink-muted dark:text-white/40">{t('complete.reportEmpty')}</p>
           )}
         </div>
       </div>
@@ -167,17 +179,13 @@ export default function SessionCompletePage() {
       {/* 後續注意事項 */}
       <div className="mt-4 rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
         <div className="px-5 py-4 border-b border-edge/60 dark:border-dark-border">
-          <h2 className="text-tiny font-medium uppercase tracking-widest text-ink-muted dark:text-white/40">後續注意事項</h2>
+          <h2 className="text-tiny font-medium uppercase tracking-widest text-ink-muted dark:text-white/40">{t('complete.nextStepsTitle')}</h2>
         </div>
         <ul className="divide-y divide-edge/60 px-5 dark:divide-dark-border">
-          {[
-            '您的問診資料已安全傳送給醫療團隊',
-            '醫師將審閱 AI 報告並提供診療建議',
-            '如有緊急狀況，請直接前往急診或撥打 119',
-          ].map((item) => (
-            <li key={item} className="flex items-start gap-3 py-3.5">
+          {(['complete.nextStep1', 'complete.nextStep2', 'complete.nextStep3'] as const).map((key) => (
+            <li key={key} className="flex items-start gap-3 py-3.5">
               <span className="mt-px shrink-0 text-ink-muted dark:text-white/30">—</span>
-              <span className="text-body text-ink-body dark:text-white/80">{item}</span>
+              <span className="text-body text-ink-body dark:text-white/80">{t(key)}</span>
             </li>
           ))}
         </ul>
@@ -189,13 +197,13 @@ export default function SessionCompletePage() {
           className="btn-primary flex-1 py-3"
           onClick={() => navigate('/patient')}
         >
-          回到首頁
+          {t('complete.actionHome')}
         </button>
         <button
           className="btn-secondary flex-1 py-3"
           onClick={() => navigate('/patient/history')}
         >
-          查看問診紀錄
+          {t('complete.actionHistory')}
         </button>
       </div>
     </div>

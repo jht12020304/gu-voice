@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import ChatBubble from '../../components/chat/ChatBubble';
 import StatusBadge from '../../components/medical/StatusBadge';
@@ -38,6 +39,7 @@ const mockConversations: Conversation[] = [
 export default function SessionDetailPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useLocalizedNavigate();
+  const { t } = useTranslation('session');
 
   const [session, setSession] = useState<Session | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -63,17 +65,17 @@ export default function SessionDetailPage() {
         setSession(sessionData);
         setConversations(convData.data);
       } catch {
-        setError('無法載入場次資料');
+        setError(t('doctor.detail.loadError'));
       } finally {
         setIsLoading(false);
       }
     }
     load();
-  }, [sessionId]);
+  }, [sessionId, t]);
 
-  if (isLoading) return <LoadingSpinner fullPage message="載入場次..." />;
+  if (isLoading) return <LoadingSpinner fullPage message={t('doctor.detail.loading')} />;
   if (error) return <ErrorState message={error} onRetry={() => window.location.reload()} />;
-  if (!session) return <ErrorState message="場次不存在" />;
+  if (!session) return <ErrorState message={t('doctor.detail.notFound')} />;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -88,18 +90,18 @@ export default function SessionDetailPage() {
           </svg>
         </button>
         <div className="flex-1">
-          <h1 className="text-h1 text-ink-heading dark:text-white">場次詳情</h1>
-          <p className="text-small text-ink-muted font-data">ID: {session.id}</p>
+          <h1 className="text-h1 text-ink-heading dark:text-white">{t('doctor.detail.title')}</h1>
+          <p className="text-small text-ink-muted font-data">{t('doctor.detail.idLabel', { id: session.id })}</p>
         </div>
         <StatusBadge status={session.status as SessionStatus} />
       </div>
 
       {/* 基本資訊 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <InfoCard label="主訴" value={session.chiefComplaintText || '-'} />
-        <InfoCard label="語言" value={session.language} />
-        <InfoCard label="開始時間" value={formatDate(session.startedAt)} />
-        <InfoCard label="持續時間" value={formatDuration(session.durationSeconds)} numeric />
+        <InfoCard label={t('doctor.detail.infoChiefComplaint')} value={session.chiefComplaintText || t('doctor.detail.infoChiefComplaintEmpty')} />
+        <InfoCard label={t('doctor.detail.infoLanguage')} value={session.language} />
+        <InfoCard label={t('doctor.detail.infoStartedAt')} value={formatDate(session.startedAt)} />
+        <InfoCard label={t('doctor.detail.infoDuration')} value={formatDuration(session.durationSeconds)} numeric />
       </div>
 
       {/* 紅旗標記 */}
@@ -109,7 +111,7 @@ export default function SessionDetailPage() {
             <svg className="h-5 w-5 text-alert-critical" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <span className="text-body font-semibold text-alert-critical">紅旗警示</span>
+            <span className="text-body font-semibold text-alert-critical">{t('doctor.detail.redFlagTitle')}</span>
           </div>
           {session.redFlagReason && (
             <p className="mt-1 text-body text-alert-critical-text">{session.redFlagReason}</p>
@@ -126,7 +128,7 @@ export default function SessionDetailPage() {
           <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
           </svg>
-          查看 SOAP 報告
+          {t('doctor.detail.viewReport')}
         </button>
         <button
           className="btn-secondary"
@@ -135,16 +137,16 @@ export default function SessionDetailPage() {
           <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
           </svg>
-          進入對話
+          {t('doctor.detail.enterConversation')}
         </button>
       </div>
 
       {/* 對話紀錄 */}
       <div className="card">
-        <h2 className="mb-4 text-h3 text-ink-heading dark:text-white">對話紀錄</h2>
+        <h2 className="mb-4 text-h3 text-ink-heading dark:text-white">{t('doctor.detail.conversationsTitle')}</h2>
         <div className="max-h-[600px] space-y-1 overflow-y-auto">
           {conversations.length === 0 ? (
-            <p className="py-8 text-center text-body text-ink-muted">尚無對話紀錄</p>
+            <p className="py-8 text-center text-body text-ink-muted">{t('doctor.detail.conversationsEmpty')}</p>
           ) : (
             conversations
               .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
