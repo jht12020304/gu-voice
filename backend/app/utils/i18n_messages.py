@@ -332,6 +332,26 @@ MESSAGES: dict[str, dict[str, str]] = {
         ),
     },
 
+    # ── SOAP Plan urgency（TODO-M13 enum 化 4 級）────
+    # UI 渲染 Plan 的 urgency 時依 locale 取此字串，再與 boilerplate 組合。
+    # 新增 urgency 必須同時更新 `Urgency` enum 與此表（測試有守護）。
+    "soap.urgency.er_now": {
+        "zh-TW": "若有以下情況請立即就醫：請立刻前往急診。",
+        "en-US": "Seek emergency care immediately if the following applies: proceed to the ER now.",
+    },
+    "soap.urgency.24h": {
+        "zh-TW": "若有以下情況請立即就醫：請於 24 小時內就醫評估。",
+        "en-US": "Seek emergency care immediately if the following applies: obtain medical evaluation within 24 hours.",
+    },
+    "soap.urgency.this_week": {
+        "zh-TW": "若有以下情況請立即就醫：請於本週內安排門診評估。",
+        "en-US": "Seek emergency care immediately if the following applies: arrange a clinic visit within this week.",
+    },
+    "soap.urgency.routine": {
+        "zh-TW": "若有以下情況請立即就醫：建議常規門診追蹤即可。",
+        "en-US": "Seek emergency care immediately if the following applies: routine outpatient follow-up is sufficient.",
+    },
+
     # ── Greeting（初始問診語） ───────────────────────
     "ws.initial_greeting": {
         "zh-TW": (

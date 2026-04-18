@@ -71,7 +71,7 @@ async def dashboard_websocket(
                 user_id,
                 user_role,
             )
-            await websocket.close(code=4003, reason="權限不足，僅限醫師與管理員")
+            await websocket.close(code=4003, reason="errors.ws.forbidden_role")
             return
 
         # ── 步驟 2：建立連線（authenticate_websocket 已 accept） ──

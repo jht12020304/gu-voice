@@ -1,0 +1,37 @@
+{
+  "errors": {
+    "ws": {
+      "handshake_timeout": "Authentication message was not received in time; connection closed.",
+      "handshake_read_failed": "Failed to read the authentication handshake.",
+      "handshake_invalid_json": "Authentication handshake is not valid JSON.",
+      "handshake_invalid_shape": "Authentication handshake has an invalid shape.",
+      "handshake_wrong_type": "Authentication handshake has the wrong type; expected type=auth.",
+      "missing_token": "Authentication handshake is missing the token field.",
+      "invalid_token": "Token is invalid or expired.",
+      "forbidden_role": "Insufficient permission; only doctors and administrators are allowed.",
+      "session_not_found": "Session not found.",
+      "session_wrong_status": "Session is in an invalid state for a WebSocket connection.",
+      "unknown_message_type": "Unsupported message type: {{type}}",
+      "internal_error": "Internal server error; the connection will be closed.",
+      "invalid_audio": "Audio data format is invalid.",
+      "audio_too_long": "Recording too long (max {{maxSeconds}} seconds); automatically ended.",
+      "invalid_audio_format": "Unrecognized audio format; the segment has been discarded.",
+      "rate_limit_exceeded": "AI calls are too frequent; please retry in {{retryAfter}} seconds.",
+      "stt_error": "Speech-to-text service is temporarily unavailable.",
+      "ai_service_unavailable": "Failed to generate AI response; please retry."
+    }
+  },
+  "events": {
+    "session": {
+      "ws_connected": "WebSocket connection established.",
+      "resumed": "Existing conversation history has been resumed.",
+      "resume_failed": "Unable to resume the existing conversation ({{reason}}).",
+      "idle_timeout": "Idle timeout ({{minutes}} minutes of inactivity); the session has ended automatically.",
+      "ended_by_user": "The session has been ended by the patient or assistant.",
+      "completed_normal": "Session completed normally.",
+      "aborted_red_flag": "A critical red-flag symptom was detected; the session has been aborted. Please seek medical attention immediately.",
+      "aborted_red_flag_dashboard": "Critical red-flag symptom detected; session aborted.",
+      "red_flag_triggered": "Red-flag alert triggered: {{title}}"
+    }
+  }
+}

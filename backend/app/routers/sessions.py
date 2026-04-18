@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis, require_role
 from app.core.exceptions import AppException
+from app.core.metrics import record_session_created
+from app.core.sentry import set_language_scope
 from app.schemas.session import (
     ConversationListResponse,
     SessionAssignRequest,
@@ -47,12 +49,18 @@ async def create_session(
     語言解析：payload.language > user.preferred_language > Accept-Language > 預設。
     """
     accept_language = request.headers.get("accept-language")
-    return await session_service.create_session(
+    session = await session_service.create_session(
         db,
         data=payload,
         current_user=current_user,
         accept_language=accept_language,
     )
+    # Observability（TODO-O2 / O3）：session 建立成功後記一筆，並把 Sentry
+    # scope 切到該語言，後續 exception 會帶上 session.language tag
+    resolved_language = getattr(session, "language", None)
+    record_session_created(resolved_language or "unknown")
+    set_language_scope(resolved_language)
+    return session
 
 
 @router.get(

@@ -170,11 +170,13 @@ def test_async_generate_passes_session_language_to_soap_generator(
             patient_info,
             chief_complaint,
             language,
+            symptom_id=None,
         ):
             captured["transcript"] = transcript
             captured["patient_info"] = patient_info
             captured["chief_complaint"] = chief_complaint
             captured["language"] = language
+            captured["symptom_id"] = symptom_id
             return {
                 "subjective": {"summary": "s"},
                 "objective": {"summary": "o"},
@@ -182,6 +184,7 @@ def test_async_generate_passes_session_language_to_soap_generator(
                 "plan": {"summary": "p"},
                 "summary": "ok",
                 "icd10_codes": ["N39.0"],
+                "icd10_verified": True,
                 "confidence_score": 0.9,
             }
 

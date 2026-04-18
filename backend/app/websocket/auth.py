@@ -61,37 +61,44 @@ async def authenticate_websocket(
         )
     except asyncio.TimeoutError:
         logger.warning("%s 等候 auth handshake 超時（%ss）", context, HANDSHAKE_TIMEOUT_SECONDS)
-        await websocket.close(code=4001, reason="未在時限內送出認證訊息")
+        await _close_with_code(websocket, 4001, "errors.ws.handshake_timeout")
         return None
     except Exception as exc:
         logger.warning("%s handshake receive 失敗：%s", context, str(exc))
-        await websocket.close(code=4001, reason="handshake 讀取失敗")
+        await _close_with_code(websocket, 4001, "errors.ws.handshake_read_failed")
         return None
 
     try:
         message = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
-        await websocket.close(code=4001, reason="handshake 訊息非合法 JSON")
+        await _close_with_code(websocket, 4001, "errors.ws.handshake_invalid_json")
         return None
 
     if not isinstance(message, dict):
-        await websocket.close(code=4001, reason="handshake 訊息格式錯誤")
+        await _close_with_code(websocket, 4001, "errors.ws.handshake_invalid_shape")
         return None
 
     msg_type = message.get("type")
     if msg_type not in _AUTH_MESSAGE_TYPES:
-        await websocket.close(
-            code=4001,
-            reason=f"期待 type=auth，收到 type={msg_type}",
-        )
+        await _close_with_code(websocket, 4001, "errors.ws.handshake_wrong_type")
         return None
 
     token = message.get("token")
     if not isinstance(token, str) or not token:
-        await websocket.close(code=4001, reason="缺少 token 欄位")
+        await _close_with_code(websocket, 4001, "errors.ws.missing_token")
         return None
 
     return await _verify_and_close_on_fail(websocket, token, context)
+
+
+async def _close_with_code(
+    websocket: WebSocket, close_code: int, canonical_code: str
+) -> None:
+    """統一用 canonical code 當作 close frame reason（< 123 bytes，前端 i18n 渲染）。"""
+    try:
+        await websocket.close(code=close_code, reason=canonical_code)
+    except Exception:
+        pass
 
 
 async def _verify_and_close_on_fail(
@@ -103,6 +110,6 @@ async def _verify_and_close_on_fail(
         payload = verify_access_token(token)
     except JWTError as exc:
         logger.warning("%s Token 驗證失敗：%s", context, str(exc))
-        await websocket.close(code=4001, reason="Token 無效或已過期")
+        await _close_with_code(websocket, 4001, "errors.ws.invalid_token")
         return None
     return payload

@@ -196,6 +196,57 @@ class ConnectionManager:
                 len(self.dashboard_connections),
             )
 
+    # ── Canonical code-based 本地化訊息（TODO-E2） ───────
+    # 以下 helper 統一把 `{code, params, severity}` 的 canonical body
+    # 包進既有 envelope 外殼，確保前端 i18n 能以 `t(code, params)` 渲染，
+    # 切語言時自然重新渲染（不存 rendered string）。
+
+    async def send_localized_to_session(
+        self,
+        session_id: str,
+        msg_type: str,
+        code: str,
+        params: dict[str, Any] | None = None,
+        severity: str = "info",
+    ) -> bool:
+        """向 session 推播 canonical localizable 訊息。"""
+        return await self.send_to_session(
+            session_id,
+            {
+                "type": msg_type,
+                "payload": {
+                    "code": code,
+                    "params": params or {},
+                    "severity": severity,
+                },
+            },
+        )
+
+    async def broadcast_localized_dashboard(
+        self,
+        msg_type: str,
+        code: str,
+        params: dict[str, Any] | None = None,
+        severity: str = "info",
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """向全部 dashboard 廣播 canonical localizable 訊息。
+
+        `extra` 可附加非本地化的結構資料（例：alertId、sessionId），
+        會併入 payload root；與 `code/params/severity` 並列但不衝突。
+        """
+        payload: dict[str, Any] = {
+            "code": code,
+            "params": params or {},
+            "severity": severity,
+        }
+        if extra:
+            for k, v in extra.items():
+                if k in ("code", "params", "severity"):
+                    continue  # 保留 canonical 欄位不被覆寫
+                payload[k] = v
+        await self.broadcast_dashboard({"type": msg_type, "payload": payload})
+
     # ── 工具方法 ─────────────────────────────────────────
 
     @staticmethod

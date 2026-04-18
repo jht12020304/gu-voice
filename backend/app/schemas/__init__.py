@@ -97,6 +97,7 @@ from app.schemas.report import (
     SOAPReportDetailResponse,
     SOAPReportResponse,
 )
+from app.schemas.ws_message import WSMessage, WSSeverity, send_ws_message
 from app.schemas.session import (
     ConversationListResponse,
     SessionAssignRequest,
@@ -212,4 +213,8 @@ __all__ = [
     "AuditLogResponse",
     "AuditLogListResponse",
     "AuditLogDetail",
+    # WebSocket canonical message
+    "WSMessage",
+    "WSSeverity",
+    "send_ws_message",
 ]

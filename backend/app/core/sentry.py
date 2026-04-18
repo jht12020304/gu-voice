@@ -100,3 +100,25 @@ def init_sentry() -> bool:
     )
     logger.info("Sentry 已初始化 | environment=%s", env)
     return True
+
+
+# ── 語言 tag helper（TODO-O3）────────────────────────────
+# Sentry alert rule 可針對特定 tag 過濾，例如「只針對 en-US 且 10 分鐘 >10 issue 告警」；
+# 讓英文版規模上量時能獨立觀察錯誤率，不被中文版背景噪音蓋住。
+def set_language_scope(language: str | None) -> None:
+    """
+    為當前 Sentry scope 設定 `session.language` tag。
+
+    呼叫時機：
+      - `get_current_user` 依賴取出使用者時，依 `user.preferred_language`
+      - session 建立成功後，依 `session.language` 覆寫（session 的值優先於 user preference）
+
+    None / 空字串時不設 tag（避免寫入 "None" 字面值汙染 alert rule 過濾）。
+    即使 Sentry 未初始化，`sentry_sdk.set_tag` 也是 no-op，不必另外 guard。
+    """
+    if not language:
+        return
+    try:
+        sentry_sdk.set_tag("session.language", language)
+    except Exception:  # noqa: BLE001 — observability 不應影響主流程
+        logger.debug("set_language_scope: set_tag 失敗", exc_info=True)

@@ -121,6 +121,10 @@ async def _async_generate(session_id: str) -> dict:
             if not chief_complaint_text and session_obj.chief_complaint is not None:
                 chief_complaint_text = getattr(session_obj.chief_complaint, "name", "") or ""
 
+            # M3：symptom_id 供 ICD-10 validator 對映——優先取 ChiefComplaint.name_en
+            # 正規化後的 snake_case slug（與 `icd10_symptom_map.SYMPTOM_TO_ICD10` 的 key 相容）。
+            symptom_id = _resolve_symptom_id(session_obj)
+
             language = session_obj.language
             generator = SOAPGenerator(settings)
             soap_data = await generator.generate(
@@ -128,6 +132,7 @@ async def _async_generate(session_id: str) -> dict:
                 patient_info=patient_info,
                 chief_complaint=chief_complaint_text,
                 language=language,
+                symptom_id=symptom_id,
             )
 
             raw_transcript = "\n".join(
@@ -155,6 +160,8 @@ async def _async_generate(session_id: str) -> dict:
             report.raw_transcript = raw_transcript
             report.summary = soap_data.get("summary", "")
             report.icd10_codes = soap_data.get("icd10_codes", [])
+            # M3：把 validator 輸出的驗證旗標同步寫入，支援前端顯示「需醫師確認」
+            report.icd10_verified = bool(soap_data.get("icd10_verified", False))
             report.ai_confidence_score = soap_data.get("confidence_score")
             report.language = language
             report.status = ReportStatus.GENERATED
@@ -187,6 +194,25 @@ async def _async_generate(session_id: str) -> dict:
             await _update_report_status(db, session_id, ReportStatus.FAILED)
             await db.commit()
             raise
+
+
+def _resolve_symptom_id(session_obj) -> str | None:
+    """
+    從 session 取得用於 ICD-10 validator 的 symptom_id slug。
+
+    策略：
+    1. 優先讀 `chief_complaint.name_en`（英文 slug 最接近 map key）。
+    2. 退而求其次讀 `chief_complaint.name`（如為中文會 miss，但不 raise）。
+    正規化為 snake_case 小寫；若無資料回 None（validator 會視為「未登記」）。
+    """
+    cc = getattr(session_obj, "chief_complaint", None)
+    if cc is None:
+        return None
+    raw = getattr(cc, "name_en", None) or getattr(cc, "name", None)
+    if not raw:
+        return None
+    slug = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+    return slug or None
 
 
 async def _update_report_status(db, session_id: str, status) -> None:

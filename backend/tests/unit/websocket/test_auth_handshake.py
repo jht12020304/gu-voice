@@ -132,7 +132,8 @@ def test_handshake_timeout_closes_4001(monkeypatch):
     assert payload is None
     assert ws.closed_with is not None
     assert ws.closed_with[0] == 4001
-    assert "時限" in ws.closed_with[1] or "逾時" in ws.closed_with[1] or "未在" in ws.closed_with[1]
+    # TODO-E2: close reason 改送 canonical i18n code（前端負責翻譯）
+    assert ws.closed_with[1] == "errors.ws.handshake_timeout"
 
 
 def test_non_json_message_closes_4001():

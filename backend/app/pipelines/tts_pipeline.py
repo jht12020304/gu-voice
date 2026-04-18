@@ -11,6 +11,7 @@ from typing import Any
 from supabase import create_client, Client as SupabaseClient
 
 from app.core.config import Settings
+from app.core.metrics import observe_tts_latency
 from app.core.openai_client import call_with_retry, get_openai_client
 
 logger = logging.getLogger(__name__)
@@ -48,12 +49,14 @@ class TTSPipeline:
             "connected" if self._supabase else "disabled",
         )
 
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str, language: str | None = None) -> bytes:
         """
         將文字合成為語音 MP3。
 
         Args:
             text: 要合成的文字
+            language: 用於 metrics label 的 BCP-47 語言碼；None → 記為 "unknown"。
+                     目前 OpenAI TTS 不需要語言提示（模型自動偵測），僅作觀測用。
 
         Returns:
             MP3 格式的音訊位元組
@@ -63,15 +66,16 @@ class TTSPipeline:
             return b""
 
         try:
-            response = await call_with_retry(
-                lambda: self._client.audio.speech.create(
-                    model=self._model,
-                    voice=self._voice,
-                    input=text,
-                    response_format="mp3",
-                    speed=self._speed,
+            with observe_tts_latency(language):
+                response = await call_with_retry(
+                    lambda: self._client.audio.speech.create(
+                        model=self._model,
+                        voice=self._voice,
+                        input=text,
+                        response_format="mp3",
+                        speed=self._speed,
+                    )
                 )
-            )
 
             audio_bytes = response.content
 
@@ -93,7 +97,7 @@ class TTSPipeline:
             raise
 
     async def synthesize_to_url(
-        self, text: str, session_id: str, message_id: str
+        self, text: str, session_id: str, message_id: str, language: str | None = None
     ) -> str:
         """
         合成語音後上傳至 Supabase Storage，回傳簽章 URL。
@@ -112,7 +116,7 @@ class TTSPipeline:
                 "請確認 SUPABASE_URL 與 SUPABASE_SERVICE_ROLE_KEY 環境變數。"
             )
 
-        audio_bytes = await self.synthesize(text)
+        audio_bytes = await self.synthesize(text, language=language)
         if not audio_bytes:
             return ""
 

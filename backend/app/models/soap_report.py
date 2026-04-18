@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, Text, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String
@@ -53,6 +53,14 @@ class SOAPReport(Base):
     )
     icd10_codes: Mapped[Optional[list[str]]] = mapped_column(
         ARRAY(String), nullable=True
+    )
+    # M3：ICD-10 驗證旗標——是否已通過泌尿科白名單 + symptom↔code 對映雙檢。
+    # default=False 讓未驗證的舊資料明確標示為未核可，前端據此顯示「需醫師確認」。
+    icd10_verified: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+        default=False,
     )
     ai_confidence_score: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(3, 2), nullable=True

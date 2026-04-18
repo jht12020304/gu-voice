@@ -36,6 +36,8 @@ class SOAPReportDetailResponse(SOAPReportResponse):
     plan: Optional[dict[str, Any]] = None
     raw_transcript: Optional[str] = None
     icd10_codes: Optional[list[str]] = None
+    # M3：ICD-10 是否通過泌尿科白名單 + symptom↔code 驗證
+    icd10_verified: bool = False
     review_notes: Optional[str] = None
 
 

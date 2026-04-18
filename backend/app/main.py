@@ -127,8 +127,12 @@ app.add_middleware(
 register_exception_handlers(app)
 
 
-# ── Prometheus metrics（TODO P1-#10） ──────────────────
+# ── Prometheus metrics（TODO P1-#10 / TODO-O2） ────────
 # /metrics 回 text format；若設 PROMETHEUS_METRICS_ENABLED=false 可關閉
+# import app.core.metrics 會觸發 Counter/Histogram 在 default REGISTRY 註冊，
+# Instrumentator 共用同一個 default REGISTRY，兩者的指標會一起暴露。
+from app.core import metrics as _app_metrics  # noqa: F401, E402
+
 if getattr(settings, "PROMETHEUS_METRICS_ENABLED", True):
     Instrumentator().instrument(app).expose(
         app,

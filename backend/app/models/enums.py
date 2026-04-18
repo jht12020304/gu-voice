@@ -65,6 +65,21 @@ class AlertType(str, Enum):
     COMBINED = "combined"
 
 
+class RedFlagConfidence(str, Enum):
+    """
+    紅旗警示信心層級（TODO-M8 i18n fail-safe）。
+
+    - RULE_HIT：關鍵字 / regex 規則層命中（高信心，原生 rule-based）。
+    - SEMANTIC_ONLY：僅由 LLM 語意層偵測，未被規則層命中（中信心，
+      可能受 locale 覆蓋率影響；前端 UI 應顯示 banner）。
+    - UNCOVERED_LOCALE：session.language 沒有該 canonical_id 的 trigger
+      keywords 覆蓋；自動 escalate 為 physician review，並寫入 audit log。
+    """
+    RULE_HIT = "rule_hit"
+    SEMANTIC_ONLY = "semantic_only"
+    UNCOVERED_LOCALE = "uncovered_locale"
+
+
 class ReportStatus(str, Enum):
     """SOAP 報告狀態"""
     GENERATING = "generating"
@@ -129,6 +144,34 @@ class Gender(str, Enum):
     MALE = "male"
     FEMALE = "female"
     OTHER = "other"
+
+
+class Urgency(str, Enum):
+    """
+    SOAP Plan 緊急度（TODO-M13）。
+
+    4 個離散級別，由重到輕：
+    - ER_NOW：立即至急診
+    - WITHIN_24H：24 小時內就醫
+    - THIS_WEEK：本週內就醫
+    - ROUTINE：常規追蹤
+
+    Notes
+    -----
+    - 與 UI 顯示文字分離：display string 見 `app.utils.i18n_messages`
+      (key `soap.urgency.<value>`).
+    - 若 LLM 吐回不符合的值，`SOAPGenerator._validate_and_fill` 會 fallback
+      成 `ROUTINE` 並 log warning。
+    - `24h` 為合法 enum value（但不符 Python identifier 規則），因此成員名
+      使用 `WITHIN_24H`，value 保持 `24h` 以利前端與 prompt 直接使用。
+    """
+    ER_NOW = "er_now"
+    WITHIN_24H = "24h"
+    THIS_WEEK = "this_week"
+    ROUTINE = "routine"
+
+
+URGENCY_VALUES: frozenset[str] = frozenset(u.value for u in Urgency)
 
 
 class SupportedLanguage(str, Enum):

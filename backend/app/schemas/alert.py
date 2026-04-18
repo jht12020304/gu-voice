@@ -6,13 +6,21 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import AlertSeverity, AlertType
+from app.models.enums import AlertSeverity, AlertType, RedFlagConfidence
 from app.schemas.common import CursorPagination
 
 
 # ── RedFlagAlert ───────────────────────────────────────
 class RedFlagAlertResponse(BaseModel):
-    """紅旗警示回應"""
+    """
+    紅旗警示回應。
+
+    TODO-E6 / TODO-M8：
+    - canonical_id：跨語言穩定 id;前端用來 dedup / 對照規則目錄。
+    - confidence：rule_hit / semantic_only / uncovered_locale;前端非
+      rule_hit 應顯示 banner 提醒醫師此警示由 LLM 語意層或 fail-safe 觸發。
+    - title：依 Accept-Language / session.language 渲染的本地化顯示標題。
+    """
     id: UUID
     session_id: UUID
     conversation_id: UUID
@@ -23,11 +31,14 @@ class RedFlagAlertResponse(BaseModel):
     trigger_reason: str
     trigger_keywords: Optional[list[str]] = None
     matched_rule_id: Optional[UUID] = None
+    canonical_id: Optional[str] = None
+    confidence: RedFlagConfidence = RedFlagConfidence.RULE_HIT
     llm_analysis: Optional[dict[str, Any]] = None
     suggested_actions: Optional[list[str]] = None
     acknowledged_by: Optional[UUID] = None
     acknowledged_at: Optional[datetime] = None
     acknowledge_notes: Optional[str] = None
+    language: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

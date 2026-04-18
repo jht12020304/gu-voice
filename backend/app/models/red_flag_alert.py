@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import AlertSeverity, AlertType, pg_enum
+from app.models.enums import AlertSeverity, AlertType, RedFlagConfidence, pg_enum
 
 if TYPE_CHECKING:
     from app.models.red_flag_rule import RedFlagRule
@@ -57,9 +57,21 @@ class RedFlagAlert(Base):
     )
     acknowledge_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # 生成此 alert 時 session 所用語言（BCP-47）。title / description 可能為該語言。
-    # canonical_id（跨語言穩定 id）未來由 matched_rule_id 關聯取得；見 docs/i18n_plan.md TODO-E6。
     language: Mapped[str] = mapped_column(
         String(10), server_default=text("'zh-TW'"), nullable=False
+    )
+    # TODO-E6：紅旗跨語言穩定 id（snake_case）。dedup 以此為 key，
+    # alert serializer 依 canonical_id + Accept-Language 組 display title。
+    # 舊資料可為 NULL（以 title / matched_rule_id 還原）。
+    canonical_id: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, index=True
+    )
+    # TODO-M8：此 alert 的信心層級（rule_hit / semantic_only / uncovered_locale）。
+    # 舊資料預設為 rule_hit；前端 UI 見非 rule_hit 應顯示 banner。
+    confidence: Mapped[RedFlagConfidence] = mapped_column(
+        pg_enum(RedFlagConfidence, "redflagconfidence"),
+        server_default=text("'rule_hit'"),
+        nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"), nullable=False

@@ -237,6 +237,11 @@ class Settings(BaseSettings):
     MULTILANG_ROLLOUT_PERCENT: int = 100  # 0-100，user_id md5 % 100 決定 bucket
     MULTILANG_DISABLED_LANGUAGES: list[str] = []  # 緊急 kill-switch（逗號分隔）
 
+    # TODO-M8：紅旗 semantic-only 比率閾值。
+    # 一個 session 的紅旗命中若 semantic_only / total > threshold → report 將
+    # 被後端視為 draft（非 zh-TW fail-safe 機制）。預設 0.3。
+    RED_FLAG_SEMANTIC_ONLY_THRESHOLD: float = 0.3
+
     # ── WebSocket / Session Stability (P2) ─────────────
     OPENAI_MODEL_SUMMARIZER: str = "gpt-4o-mini"           # 便宜的摘要模型
     CONVERSATION_HISTORY_MAX_TURNS: int = 50                # 最大保留的對話輪次數

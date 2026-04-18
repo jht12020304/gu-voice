@@ -91,13 +91,29 @@ def render_hpi_checklist() -> str:
 # 泌尿科紅旗統一清單
 # =============================================================================
 # 供 red_flag_detector(語意 prompt + fallback rules)與 llm_conversation
-# (主訴相關紅旗提醒)共用。title 欄位必須與 DB 中的 RedFlagRule.name 對齊,
-# 讓規則層與語意層的命中可以透過 _merge_and_deduplicate 正確合併為 combined。
+# (主訴相關紅旗提醒)共用。
+#
+# canonical_id (TODO-E6):
+#   - 跨語言穩定的 snake_case 標識符;DB RedFlagRule.canonical_id 需對應此值。
+#   - dedup 以 canonical_id 為 key(不再以 title 為 key),以便未來多語言
+#     版本(同一紅旗跨 zh-TW / en-US)能正確合併。
+# display_title_by_lang (TODO-E6):
+#   - 依 Accept-Language / session.language 選對應語言 title 顯示到 UI。
+#   - title 欄位保留為 zh-TW 版本(與語意層 prompt / legacy DB name 對齊)。
+# triggers_by_lang (TODO-M8):
+#   - 按 BCP-47 分層儲存 trigger keywords;若目前 session.language 無此
+#     紅旗的對應 keywords → confidence=uncovered_locale,自動 escalate。
+#   - triggers 欄位維持向後相容(等於 triggers_by_lang["zh-TW"])。
 # =============================================================================
 
 URO_RED_FLAGS: list[dict[str, Any]] = [
     {
+        "canonical_id": "urinary_retention",
         "title": "急性尿滯留",
+        "display_title_by_lang": {
+            "zh-TW": "急性尿滯留",
+            "en-US": "Acute Urinary Retention",
+        },
         "severity": "critical",
         "description": "病患可能出現急性尿滯留,需要緊急處理",
         "triggers": [
@@ -107,6 +123,21 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
             "尿滯留",
             "解不出小便",
         ],
+        "triggers_by_lang": {
+            "zh-TW": [
+                "無法排尿",
+                "尿不出來",
+                "完全排不出",
+                "尿滯留",
+                "解不出小便",
+            ],
+            "en-US": [
+                "cannot urinate",
+                "unable to pee",
+                "urinary retention",
+                "can't pass urine",
+            ],
+        },
         "related_complaints": ["排尿困難", "頻尿"],
         "suggested_actions": [
             "立即通知醫師",
@@ -115,7 +146,12 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         ],
     },
     {
+        "canonical_id": "gross_hematuria_heavy",
         "title": "大量血尿",
+        "display_title_by_lang": {
+            "zh-TW": "大量血尿",
+            "en-US": "Heavy Gross Hematuria",
+        },
         "severity": "critical",
         "description": "嚴重血尿合併血塊,需評估出血原因與血流動力學",
         "triggers": [
@@ -125,6 +161,21 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
             "血尿很多",
             "一大堆血",
         ],
+        "triggers_by_lang": {
+            "zh-TW": [
+                "大量血尿",
+                "血塊",
+                "整個都是血",
+                "血尿很多",
+                "一大堆血",
+            ],
+            "en-US": [
+                "heavy bleeding",
+                "blood clots",
+                "lots of blood",
+                "clot in urine",
+            ],
+        },
         "related_complaints": ["血尿"],
         "suggested_actions": [
             "立即通知醫師",
@@ -133,7 +184,12 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         ],
     },
     {
+        "canonical_id": "testicular_pain_severe",
         "title": "睪丸劇痛",
+        "display_title_by_lang": {
+            "zh-TW": "睪丸劇痛",
+            "en-US": "Severe Testicular Pain",
+        },
         "severity": "critical",
         "description": "可能為睪丸扭轉,需要在 6 小時內處理以避免壞死",
         "triggers": [
@@ -142,6 +198,20 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
             "蛋蛋很痛",
             "突然睪丸",
         ],
+        "triggers_by_lang": {
+            "zh-TW": [
+                "睪丸劇痛",
+                "睪丸突然痛",
+                "蛋蛋很痛",
+                "突然睪丸",
+            ],
+            "en-US": [
+                "testicular pain",
+                "testicle pain",
+                "sudden testicular",
+                "severe scrotal pain",
+            ],
+        },
         "related_complaints": ["睪丸疼痛"],
         "suggested_actions": [
             "立即通知泌尿科醫師",
@@ -150,7 +220,12 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         ],
     },
     {
+        "canonical_id": "urosepsis",
         "title": "尿路敗血症",
+        "display_title_by_lang": {
+            "zh-TW": "尿路敗血症",
+            "en-US": "Urosepsis",
+        },
         "severity": "critical",
         "description": "尿路感染合併全身性感染徵象,可能為尿路敗血症",
         "triggers": [
@@ -159,6 +234,20 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
             "意識不清",
             "發燒加排尿痛",
         ],
+        "triggers_by_lang": {
+            "zh-TW": [
+                "高燒",
+                "寒顫",
+                "意識不清",
+                "發燒加排尿痛",
+            ],
+            "en-US": [
+                "high fever",
+                "chills",
+                "altered consciousness",
+                "fever with dysuria",
+            ],
+        },
         "related_complaints": ["頻尿", "排尿困難", "血尿"],
         "suggested_actions": [
             "立即通知醫師",
@@ -167,7 +256,12 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         ],
     },
     {
+        "canonical_id": "cauda_equina_suspected",
         "title": "疑似馬尾症候群",
+        "display_title_by_lang": {
+            "zh-TW": "疑似馬尾症候群",
+            "en-US": "Suspected Cauda Equina Syndrome",
+        },
         "severity": "critical",
         "description": (
             "會陰麻木、下肢無力合併新發尿失禁或尿滯留,疑似脊髓壓迫 / 馬尾症候群,"
@@ -179,6 +273,20 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
             "新發尿失禁",
             "背痛合併麻木",
         ],
+        "triggers_by_lang": {
+            "zh-TW": [
+                "會陰麻木",
+                "下肢無力",
+                "新發尿失禁",
+                "背痛合併麻木",
+            ],
+            "en-US": [
+                "saddle anesthesia",
+                "leg weakness",
+                "new incontinence",
+                "back pain with numbness",
+            ],
+        },
         "related_complaints": ["排尿困難", "腰痛"],
         "suggested_actions": [
             "立即通知神經外科",
@@ -187,7 +295,12 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         ],
     },
     {
+        "canonical_id": "gross_hematuria",
         "title": "肉眼血尿",
+        "display_title_by_lang": {
+            "zh-TW": "肉眼血尿",
+            "en-US": "Gross Hematuria",
+        },
         "severity": "high",
         "description": "肉眼可見血尿,需進一步檢查排除惡性腫瘤",
         "triggers": [
@@ -197,6 +310,21 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
             "血尿",
             "尿裡有血",
         ],
+        "triggers_by_lang": {
+            "zh-TW": [
+                "肉眼血尿",
+                "尿是紅色",
+                "紅色的尿",
+                "血尿",
+                "尿裡有血",
+            ],
+            "en-US": [
+                "gross hematuria",
+                "blood in urine",
+                "red urine",
+                "hematuria",
+            ],
+        },
         "related_complaints": ["血尿"],
         "suggested_actions": [
             "安排尿液檢查",
@@ -205,7 +333,12 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         ],
     },
     {
+        "canonical_id": "renal_colic_with_fever",
         "title": "腎絞痛合併發燒",
+        "display_title_by_lang": {
+            "zh-TW": "腎絞痛合併發燒",
+            "en-US": "Renal Colic with Fever",
+        },
         "severity": "high",
         "description": "腎結石合併感染,可能需要緊急引流",
         "triggers": [
@@ -213,6 +346,18 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
             "側腹痛加燒",
             "絞痛加發燒",
         ],
+        "triggers_by_lang": {
+            "zh-TW": [
+                "腰痛加發燒",
+                "側腹痛加燒",
+                "絞痛加發燒",
+            ],
+            "en-US": [
+                "flank pain with fever",
+                "back pain with fever",
+                "colic with fever",
+            ],
+        },
         "related_complaints": ["腰痛"],
         "suggested_actions": [
             "安排影像檢查",
@@ -221,7 +366,12 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         ],
     },
     {
+        "canonical_id": "unexplained_weight_loss",
         "title": "不明原因體重下降",
+        "display_title_by_lang": {
+            "zh-TW": "不明原因體重下降",
+            "en-US": "Unexplained Weight Loss",
+        },
         "severity": "high",
         "description": "不明原因體重急速下降,需排除惡性腫瘤",
         "triggers": [
@@ -230,6 +380,20 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
             "吃不下",
             "體重減輕",
         ],
+        "triggers_by_lang": {
+            "zh-TW": [
+                "體重下降",
+                "變瘦",
+                "吃不下",
+                "體重減輕",
+            ],
+            "en-US": [
+                "weight loss",
+                "losing weight",
+                "poor appetite",
+                "unintentional weight loss",
+            ],
+        },
         "related_complaints": ["血尿", "腰痛"],
         "suggested_actions": [
             "安排全面檢查",
@@ -238,6 +402,40 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         ],
     },
 ]
+
+
+def get_display_title(canonical_id: str, language: str | None) -> str:
+    """
+    依 canonical_id 與 language 查找 display title;找不到時退 zh-TW 或 canonical_id。
+
+    用於 alert serializer 按 Accept-Language / session.language 解析 title。
+    """
+    for flag in URO_RED_FLAGS:
+        if flag.get("canonical_id") == canonical_id:
+            by_lang = flag.get("display_title_by_lang", {})
+            if language and language in by_lang:
+                return by_lang[language]
+            if "zh-TW" in by_lang:
+                return by_lang["zh-TW"]
+            return flag.get("title", canonical_id)
+    return canonical_id
+
+
+def has_locale_coverage(canonical_id: str, language: str | None) -> bool:
+    """
+    檢查某 canonical_id 在指定 language 是否有 trigger keywords 覆蓋。
+
+    回 False → RedFlagDetector 會把 confidence 設為 uncovered_locale、
+    自動 escalate 為 physician review。
+    """
+    if not language:
+        return True  # 沒 language 視為 zh-TW(預設)
+    for flag in URO_RED_FLAGS:
+        if flag.get("canonical_id") == canonical_id:
+            by_lang = flag.get("triggers_by_lang", {})
+            keywords = by_lang.get(language, [])
+            return bool(keywords)
+    return False
 
 
 def get_red_flags_for_complaint(chief_complaint: str) -> list[dict[str, Any]]:

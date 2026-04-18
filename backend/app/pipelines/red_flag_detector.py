@@ -16,9 +16,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.metrics import (
+    record_red_flag_rule_layer_coverage,
+    record_red_flag_triggers,
+)
 from app.core.openai_client import call_with_retry, get_openai_client
 from app.pipelines.prompts.shared import (
     URO_RED_FLAGS,
+    get_display_title,
+    has_locale_coverage,
     render_red_flag_titles_for_prompt,
     render_red_flags_by_severity,
 )
@@ -147,7 +153,15 @@ class RedFlagDetector:
                 self._rules.append(
                     {
                         "id": str(rule.id),
+                        # TODO-E6：canonical_id 為跨語言穩定標識符;dedup 以此為 key。
+                        # 若 DB 既有 rule 尚未 backfill canonical_id,fallback 回 name。
+                        "canonical_id": (
+                            getattr(rule, "canonical_id", None) or rule.name
+                        ),
                         "name": rule.name,
+                        "display_title_by_lang": (
+                            getattr(rule, "display_title_by_lang", None) or {}
+                        ),
                         "severity": rule.severity,
                         "category": rule.category,
                         "keywords": rule.keywords if rule.keywords else [],
@@ -176,11 +190,17 @@ class RedFlagDetector:
         直接從 shared.URO_RED_FLAGS 產生,保持與語意層 prompt 的知識庫
         完全一致,避免兩邊漂移(P2-E)。這裡不帶 regex_pattern,因為 shared
         catalogue 是純關鍵字;如需 regex 匹配仍應由 DB 規則主導。
+
+        TODO-E6:攜帶 canonical_id + display_title_by_lang,讓 rule-based 層
+        可以在寫入 RedFlagAlert 時 snapshot canonical_id、alert serializer
+        按 Accept-Language 渲染 title。
         """
         return [
             {
                 "id": None,
+                "canonical_id": flag["canonical_id"],
                 "name": flag["title"],
+                "display_title_by_lang": dict(flag.get("display_title_by_lang", {})),
                 "severity": flag["severity"],
                 "category": flag["title"],  # 暫用 title 當 category
                 "keywords": list(flag["triggers"]),
@@ -241,13 +261,26 @@ class RedFlagDetector:
                     )
 
             if matched:
+                # TODO-E6：依 session.language 從 display_title_by_lang 取 title。
+                # DB rule 若無此欄位,fallback 至 rule.name / shared catalogue 查表。
+                canonical_id = rule.get("canonical_id") or rule.get("name")
+                display_map = rule.get("display_title_by_lang") or {}
+                localized_title = (
+                    (display_map.get(language) if language else None)
+                    or display_map.get("zh-TW")
+                    or get_display_title(canonical_id, language)
+                    or rule.get("name", unknown_title)
+                )
                 alerts.append(
                     {
+                        "canonical_id": canonical_id,
                         "severity": rule.get("severity", "medium"),
-                        "title": rule.get("name", unknown_title),
+                        "title": localized_title,
                         "description": rule.get("description", ""),
                         "trigger_reason": trigger_reason,
                         "alert_type": "rule_based",
+                        # TODO-M8：規則層命中 → confidence=rule_hit(最高信心)。
+                        "confidence": "rule_hit",
                         "suggested_actions": rule.get("suggested_actions", []),
                         "matched_rule_id": rule.get("id"),
                     }
@@ -316,15 +349,34 @@ class RedFlagDetector:
             parsed = json.loads(raw_content)
             raw_alerts = parsed.get("alerts", [])
 
+            # 預先建 title → canonical_id 反查表(所有語言的 display title 都會指向同一 canonical_id),
+            # 讓 LLM 回「Hematuria」、「肉眼血尿」、「Gross Hematuria」都能對到 canonical_id=gross_hematuria。
+            title_to_canonical: dict[str, str] = {}
+            for flag in URO_RED_FLAGS:
+                cid = flag["canonical_id"]
+                title_to_canonical[flag["title"].lower().strip()] = cid
+                for display in (flag.get("display_title_by_lang") or {}).values():
+                    title_to_canonical[display.lower().strip()] = cid
+
             alerts: list[dict[str, Any]] = []
             for alert in raw_alerts:
+                raw_title = alert.get("title", default_semantic_title)
+                canonical_id = title_to_canonical.get(
+                    raw_title.lower().strip(),
+                    # 新型紅旗(LLM 自創命名)→ 無對應 canonical_id,以 title 當 fallback
+                    raw_title,
+                )
                 alerts.append(
                     {
+                        "canonical_id": canonical_id,
                         "severity": alert.get("severity", "medium"),
-                        "title": alert.get("title", default_semantic_title),
+                        "title": raw_title,
                         "description": alert.get("description", ""),
                         "trigger_reason": alert.get("trigger_reason", ""),
                         "alert_type": "semantic",
+                        # TODO-M8：語意層命中 → 預設 semantic_only,後續 merge/escalation
+                        # 可能改寫為 rule_hit(combined)或 uncovered_locale。
+                        "confidence": "semantic_only",
                         "suggested_actions": alert.get("suggested_actions", []),
                         "matched_rule_id": None,
                     }
@@ -404,8 +456,42 @@ class RedFlagDetector:
             logger.error("語意分析層發生例外 | error=%s", str(semantic_alerts))
             semantic_alerts = []
 
+        # Observability（TODO-O2）：各層分開計數，combined 由 Prometheus sum 兩 label 得出
+        try:
+            record_red_flag_triggers(
+                language=language,
+                rule_count=len(rule_alerts),
+                semantic_count=len(semantic_alerts),
+            )
+        except Exception:  # noqa: BLE001 — metrics 失敗不應影響紅旗偵測
+            logger.debug("record_red_flag_triggers 失敗", exc_info=True)
+
         # 合併並去重
         merged = self._merge_and_deduplicate(rule_alerts, semantic_alerts, language)
+
+        # TODO-M8:對仍為 semantic_only 的 alert,若 session.language 沒有
+        # 該 canonical_id 的 trigger keywords 覆蓋 → 降級為 uncovered_locale
+        # (fail-safe:代表本地化規則不足,應自動 escalate 為 physician review)。
+        for alert in merged:
+            if alert.get("confidence") != "semantic_only":
+                continue
+            cid = alert.get("canonical_id")
+            if cid and not has_locale_coverage(cid, language):
+                alert["confidence"] = "uncovered_locale"
+                logger.warning(
+                    "紅旗 locale 覆蓋不足 → 自動 escalate | "
+                    "session=%s, canonical_id=%s, language=%s",
+                    session_id,
+                    cid,
+                    language,
+                )
+
+        # TODO-O4:寫入 rule-layer coverage metric(每個 merged alert 一筆)。
+        for alert in merged:
+            record_red_flag_rule_layer_coverage(
+                language=language,
+                confidence=alert.get("confidence", "semantic_only"),
+            )
 
         # 按嚴重度排序：critical > high > medium
         severity_order = {"critical": 0, "high": 1, "medium": 2}
@@ -430,7 +516,11 @@ class RedFlagDetector:
         """
         合併兩層偵測結果並去除重複項
 
-        若同一標題在兩層都有命中，合併為 combined 類型並保留較高嚴重度。
+        若同一 canonical_id 在兩層都有命中,合併為 combined 類型並保留較高嚴重度;
+        合併後 confidence 升級為 rule_hit(規則層有命中代表高信心)。
+
+        TODO-E6:dedup key 改用 canonical_id,讓 zh-TW 規則層(肉眼血尿)與
+        en-US 語意層(Gross Hematuria)也能正確合併到同一 alert。
 
         Args:
             rule_alerts: 規則比對結果
@@ -443,19 +533,27 @@ class RedFlagDetector:
         merged: dict[str, dict[str, Any]] = {}
         severity_priority = {"critical": 0, "high": 1, "medium": 2}
 
+        def _dedup_key(alert: dict[str, Any]) -> str:
+            """優先用 canonical_id(跨語言穩定),fallback 用 lowercased title。"""
+            cid = alert.get("canonical_id")
+            if cid:
+                return f"cid:{cid}"
+            return f"title:{alert.get('title', '').lower().strip()}"
+
         # 先加入規則比對結果
         for alert in rule_alerts:
-            key = alert["title"].lower().strip()
-            merged[key] = alert.copy()
+            merged[_dedup_key(alert)] = alert.copy()
 
         # 合併語意分析結果
         for alert in semantic_alerts:
-            key = alert["title"].lower().strip()
+            key = _dedup_key(alert)
 
             if key in merged:
                 # 兩層都命中 → 合併為 combined
                 existing = merged[key]
                 existing["alert_type"] = "combined"
+                # TODO-M8:combined 代表規則層也命中 → 升級為 rule_hit(最高信心)。
+                existing["confidence"] = "rule_hit"
 
                 # 取較高嚴重度
                 if severity_priority.get(

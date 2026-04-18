@@ -9,8 +9,10 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 
 import zhTWCommon from './locales/zh-TW/common.json';
 import zhTWConversation from './locales/zh-TW/conversation.json';
+import zhTWWs from './locales/zh-TW/ws.json';
 import enUSCommon from './locales/en-US/common.json';
 import enUSConversation from './locales/en-US/conversation.json';
+import enUSWs from './locales/en-US/ws.json';
 
 export const defaultNS = 'common';
 
@@ -22,10 +24,12 @@ export const resources = {
   'zh-TW': {
     common: zhTWCommon,
     conversation: zhTWConversation,
+    ws: zhTWWs,
   },
   'en-US': {
     common: enUSCommon,
     conversation: enUSConversation,
+    ws: enUSWs,
   },
 } as const;
 
@@ -39,7 +43,7 @@ void i18next
     // 讓 toResolveHierarchy 回空陣列導致 t() 完全失靈。既然 resources 已
     // inline 載入，不設 supportedLngs 改由 fallbackLng + LanguageDetector 控制。
     defaultNS,
-    ns: ['common', 'conversation'],
+    ns: ['common', 'conversation', 'ws'],
     interpolation: {
       escapeValue: false, // React already escapes
     },

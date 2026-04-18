@@ -1,0 +1,108 @@
+{
+  "title": "UroVoice i18n Overview",
+  "uid": "urovoice-i18n-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "tags": ["urovoice", "i18n", "observability"],
+  "timezone": "browser",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Sessions by language (rate/min)",
+      "type": "timeseries",
+      "description": "urovoice_sessions_total increase per minute, split by resolved language. Use to verify rollout shape — if en-US % jumps faster than MULTILANG_ROLLOUT_PERCENT expects, investigate.",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (language) (rate(urovoice_sessions_total[5m])) * 60",
+          "legendFormat": "{{language}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" } }
+    },
+    {
+      "id": 2,
+      "title": "Red flag triggers by language × layer",
+      "type": "timeseries",
+      "description": "Rule vs semantic hits per language. Rule/Semantic ratio should stay within ±30% of zh-TW baseline per language; sustained drop in rule% indicates keyword gap (see TODO-M8).",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (language, layer) (rate(urovoice_red_flag_triggers_total[15m])) * 60",
+          "legendFormat": "{{language}} / {{layer}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" } }
+    },
+    {
+      "id": 3,
+      "title": "Unsupported language requests",
+      "type": "stat",
+      "description": "urovoice_unsupported_language_requests_total by requested code. If a non-supported code accumulates >100/day, consider adding it to SUPPORTED_LANGUAGES.",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 6 },
+      "targets": [
+        {
+          "expr": "sum by (requested) (increase(urovoice_unsupported_language_requests_total[24h]))",
+          "legendFormat": "{{requested}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 4,
+      "title": "STT / TTS p95 latency by language",
+      "type": "timeseries",
+      "description": "p95 of urovoice_stt_latency_seconds / urovoice_tts_latency_seconds. Alert if en-US p95 > 1.5× zh-TW p95 for 30min (indicates OpenAI Whisper EN path degraded).",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (language, le) (rate(urovoice_stt_latency_seconds_bucket[5m])))",
+          "legendFormat": "STT {{language}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (language, le) (rate(urovoice_tts_latency_seconds_bucket[5m])))",
+          "legendFormat": "TTS {{language}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 5,
+      "title": "Forced fallback trend",
+      "type": "timeseries",
+      "description": "urovoice_forced_fallback_total by from→to. Spikes during kill-switch activation are expected; sustained non-zero baseline means a disabled locale is still being requested (user education / client default mismatch).",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (from, to) (rate(urovoice_forced_fallback_total[15m])) * 60",
+          "legendFormat": "{{from}} → {{to}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" } }
+    }
+  ]
+}

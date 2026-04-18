@@ -66,3 +66,5 @@ jinja2==3.1.5
 
 # --- 健康檢查與監控 ---
 prometheus-fastapi-instrumentator==7.0.2
+# prometheus-client 為 instrumentator 的依賴，明確釘版以便自定 Counter/Histogram（TODO-O2）
+prometheus-client>=0.20

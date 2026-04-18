@@ -261,14 +261,15 @@ async def conversation_websocket(
         # ── 步驟 2：驗證場次狀態 ────────────────────────
         session_data = await _validate_session(session_id, db)
         if session_data is None:
-            await websocket.close(code=4004, reason="場次不存在")
+            await websocket.close(code=4004, reason="errors.ws.session_not_found")
             return
 
         session_status = session_data.get("status")
         if session_status not in ("waiting", "in_progress"):
+            # close frame reason 必須 < 123 bytes；送 canonical code 讓前端 i18n 渲染
             await websocket.close(
                 code=4009,
-                reason=f"場次狀態不正確：{session_status}",
+                reason="errors.ws.session_wrong_status",
             )
             return
 
@@ -325,16 +326,16 @@ async def conversation_websocket(
         )
 
         # 通知儀表板
-        await manager.broadcast_dashboard(
-            {
-                "type": "session_status_changed",
-                "payload": {
-                    "sessionId": session_id,
-                    "status": "in_progress",
-                    "previousStatus": session_status,
-                    "reason": "WebSocket 連線建立",
-                },
-            }
+        await manager.broadcast_localized_dashboard(
+            msg_type="session_status_changed",
+            code="events.session.ws_connected",
+            params={},
+            severity="info",
+            extra={
+                "sessionId": session_id,
+                "status": "in_progress",
+                "previousStatus": session_status,
+            },
         )
 
         logger.info(
@@ -355,31 +356,24 @@ async def conversation_websocket(
                     session_id,
                     len(conversation_history),
                 )
-                await manager.send_to_session(
+                await manager.send_localized_to_session(
                     session_id,
-                    {
-                        "type": "session_status",
-                        "payload": {
-                            "sessionId": session_id,
-                            "status": "resumed",
-                            "reason": "沿用既有對話紀錄",
-                        },
-                    },
+                    msg_type="session_status",
+                    code="events.session.resumed",
+                    params={},
+                    severity="info",
                 )
             else:
                 logger.warning(
                     "場次 resume 失敗（checksum 不符或無歷史）| session=%s",
                     session_id,
                 )
-                await manager.send_to_session(
+                await manager.send_localized_to_session(
                     session_id,
-                    {
-                        "type": "resume_failed",
-                        "payload": {
-                            "sessionId": session_id,
-                            "reason": "checksum_mismatch_or_empty",
-                        },
-                    },
+                    msg_type="resume_failed",
+                    code="events.session.resume_failed",
+                    params={"reason": "checksum_mismatch_or_empty"},
+                    severity="warning",
                 )
                 # Fallback: 視為全新場次
                 if not conversation_history:
@@ -431,17 +425,14 @@ async def conversation_websocket(
                             idle_for,
                         )
                         try:
-                            await manager.send_to_session(
+                            await manager.send_localized_to_session(
                                 session_id,
-                                {
-                                    "type": "session_status",
-                                    "payload": {
-                                        "sessionId": session_id,
-                                        "status": "idle_timeout",
-                                        "previousStatus": "in_progress",
-                                        "reason": "閒置逾時（10 分鐘無活動），場次自動結束",
-                                    },
+                                msg_type="session_status",
+                                code="events.session.idle_timeout",
+                                params={
+                                    "minutes": int(idle_timeout_seconds // 60),
                                 },
+                                severity="warning",
                             )
                         except Exception:
                             pass
@@ -495,28 +486,23 @@ async def conversation_websocket(
                     await _update_session_status(
                         db, redis, session_id, "completed", "in_progress"
                     )
-                    await manager.send_to_session(
+                    await manager.send_localized_to_session(
                         session_id,
-                        {
-                            "type": "session_status",
-                            "payload": {
-                                "sessionId": session_id,
-                                "status": "completed",
-                                "previousStatus": "in_progress",
-                                "reason": "病患或助手結束場次",
-                            },
-                        },
+                        msg_type="session_status",
+                        code="events.session.ended_by_user",
+                        params={},
+                        severity="info",
                     )
-                    await manager.broadcast_dashboard(
-                        {
-                            "type": "session_status_changed",
-                            "payload": {
-                                "sessionId": session_id,
-                                "status": "completed",
-                                "previousStatus": "in_progress",
-                                "reason": "場次正常結束",
-                            },
-                        }
+                    await manager.broadcast_localized_dashboard(
+                        msg_type="session_status_changed",
+                        code="events.session.completed_normal",
+                        params={},
+                        severity="info",
+                        extra={
+                            "sessionId": session_id,
+                            "status": "completed",
+                            "previousStatus": "in_progress",
+                        },
                     )
                     # 觸發 SOAP 報告非同步生成
                     asyncio.create_task(
@@ -579,15 +565,12 @@ async def conversation_websocket(
                 session_id,
                 msg_type,
             )
-            await manager.send_to_session(
+            await manager.send_localized_to_session(
                 session_id,
-                {
-                    "type": "error",
-                    "payload": {
-                        "code": "UNKNOWN_MESSAGE_TYPE",
-                        "message": f"不支援的訊息類型：{msg_type}",
-                    },
-                },
+                msg_type="error",
+                code="errors.ws.unknown_message_type",
+                params={"type": msg_type},
+                severity="warning",
             )
 
     except WebSocketDisconnect:
@@ -601,15 +584,12 @@ async def conversation_websocket(
             exc_info=True,
         )
         try:
-            await manager.send_to_session(
+            await manager.send_localized_to_session(
                 session_id,
-                {
-                    "type": "error",
-                    "payload": {
-                        "code": "INTERNAL_ERROR",
-                        "message": "伺服器內部錯誤，連線即將關閉",
-                    },
-                },
+                msg_type="error",
+                code="errors.ws.internal_error",
+                params={},
+                severity="critical",
             )
         except Exception:
             pass
@@ -792,15 +772,12 @@ async def _handle_audio_chunk(
                 session_id,
                 str(exc),
             )
-            await manager.send_to_session(
+            await manager.send_localized_to_session(
                 session_id,
-                {
-                    "type": "error",
-                    "payload": {
-                        "code": "INVALID_AUDIO",
-                        "message": "音訊資料格式無效",
-                    },
-                },
+                msg_type="error",
+                code="errors.ws.invalid_audio",
+                params={},
+                severity="error",
             )
             return
 
@@ -813,15 +790,12 @@ async def _handle_audio_chunk(
             )
             audio_buffer.clear()
             audio_buffer_total_bytes[0] = 0
-            await manager.send_to_session(
+            await manager.send_localized_to_session(
                 session_id,
-                {
-                    "type": "error",
-                    "payload": {
-                        "code": "AUDIO_TOO_LONG",
-                        "message": "錄音時間過長，已自動結束",
-                    },
-                },
+                msg_type="error",
+                code="errors.ws.audio_too_long",
+                params={"maxSeconds": int(max_seconds)},
+                severity="warning",
             )
             return
 
@@ -847,15 +821,12 @@ async def _handle_audio_chunk(
             session_id,
             complete_audio[:16].hex() if complete_audio else "",
         )
-        await manager.send_to_session(
+        await manager.send_localized_to_session(
             session_id,
-            {
-                "type": "error",
-                "payload": {
-                    "code": "INVALID_AUDIO_FORMAT",
-                    "message": "無法辨識的音訊格式，已捨棄該段",
-                },
-            },
+            msg_type="error",
+            code="errors.ws.invalid_audio_format",
+            params={},
+            severity="error",
         )
         return
 
@@ -871,16 +842,14 @@ async def _handle_audio_chunk(
             session_context.get("user_id"),
             (rle.details or {}).get("retry_after"),
         )
-        await manager.send_to_session(
+        await manager.send_localized_to_session(
             session_id,
-            {
-                "type": "error",
-                "payload": {
-                    "code": "RATE_LIMIT_EXCEEDED",
-                    "message": rle.message,
-                    "retryAfter": (rle.details or {}).get("retry_after"),
-                },
+            msg_type="error",
+            code="errors.ws.rate_limit_exceeded",
+            params={
+                "retryAfter": (rle.details or {}).get("retry_after"),
             },
+            severity="warning",
         )
         return
 
@@ -917,15 +886,12 @@ async def _handle_audio_chunk(
             str(exc),
             exc_info=True,
         )
-        await manager.send_to_session(
+        await manager.send_localized_to_session(
             session_id,
-            {
-                "type": "error",
-                "payload": {
-                    "code": "STT_ERROR",
-                    "message": "語音辨識服務暫時不可用",
-                },
-            },
+            msg_type="error",
+            code="errors.ws.stt_error",
+            params={},
+            severity="error",
         )
         return
 
@@ -1062,15 +1028,12 @@ async def _handle_text_message(
             session_id,
             str(exc),
         )
-        await manager.send_to_session(
+        await manager.send_localized_to_session(
             session_id,
-            {
-                "type": "error",
-                "payload": {
-                    "code": "AI_SERVICE_UNAVAILABLE",
-                    "message": "AI 回應生成失敗，請重試",
-                },
-            },
+            msg_type="error",
+            code="errors.ws.ai_service_unavailable",
+            params={},
+            severity="error",
         )
         # 取消紅旗偵測任務與所有尚未完成的 TTS 任務
         red_flag_task.cancel()
@@ -1204,6 +1167,11 @@ async def _handle_text_message(
                 "trigger_keywords": alert.get("trigger_keywords"),
                 "suggested_actions": alert.get("suggested_actions", []),
                 "matched_rule_id": _UUID(alert["matched_rule_id"]) if alert.get("matched_rule_id") else None,
+                # TODO-E6 / TODO-M8：把 canonical_id + confidence 穿到 DB,
+                # 供 serializer 按 Accept-Language 渲染、前端 banner 呈現信心層級。
+                "canonical_id": alert.get("canonical_id"),
+                "confidence": alert.get("confidence", "rule_hit"),
+                "language": session_context.get("language"),
             })
             await db.commit()
             alert_id = str(_db_alert.id)
@@ -1371,28 +1339,23 @@ async def _handle_text_message(
             await _update_session_status(
                 db, redis, session_id, "aborted_red_flag", "in_progress"
             )
-            await manager.send_to_session(
+            await manager.send_localized_to_session(
                 session_id,
-                {
-                    "type": "session_status",
-                    "payload": {
-                        "sessionId": session_id,
-                        "status": "aborted_red_flag",
-                        "previousStatus": "in_progress",
-                        "reason": "偵測到危急紅旗症狀，場次已中止，請立即就醫",
-                    },
-                },
+                msg_type="session_status",
+                code="events.session.aborted_red_flag",
+                params={},
+                severity="critical",
             )
-            await manager.broadcast_dashboard(
-                {
-                    "type": "session_status_changed",
-                    "payload": {
-                        "sessionId": session_id,
-                        "status": "aborted_red_flag",
-                        "previousStatus": "in_progress",
-                        "reason": "偵測到 critical 紅旗症狀",
-                    },
-                }
+            await manager.broadcast_localized_dashboard(
+                msg_type="session_status_changed",
+                code="events.session.aborted_red_flag_dashboard",
+                params={},
+                severity="critical",
+                extra={
+                    "sessionId": session_id,
+                    "status": "aborted_red_flag",
+                    "previousStatus": "in_progress",
+                },
             )
             # 觸發 SOAP 報告生成（紅旗中止場次同樣需要報告供醫師審閱）
             asyncio.create_task(

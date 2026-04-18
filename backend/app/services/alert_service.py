@@ -15,7 +15,7 @@ from app.core.exceptions import (
     AlertAlreadyAcknowledgedException,
     NotFoundException,
 )
-from app.models.enums import AlertSeverity
+from app.models.enums import AlertSeverity, AuditAction, RedFlagConfidence
 from app.models.red_flag_alert import RedFlagAlert
 from app.models.red_flag_rule import RedFlagRule
 from app.utils.datetime_utils import utc_now
@@ -127,6 +127,16 @@ class AlertService:
         Returns:
             新建的 RedFlagAlert 物件
         """
+        # TODO-M8 / TODO-E6: confidence + canonical_id 欄位
+        # - confidence 若未傳入則預設 rule_hit(向後相容)。
+        # - 值可為 str 或 RedFlagConfidence enum;ORM mapper 會自動轉型。
+        confidence_val = data.get("confidence") or RedFlagConfidence.RULE_HIT
+        if isinstance(confidence_val, str):
+            try:
+                confidence_val = RedFlagConfidence(confidence_val)
+            except ValueError:
+                confidence_val = RedFlagConfidence.RULE_HIT
+
         alert = RedFlagAlert(
             session_id=data["session_id"],
             conversation_id=data.get("conversation_id"),
@@ -139,10 +149,45 @@ class AlertService:
             matched_rule_id=data.get("matched_rule_id"),
             llm_analysis=data.get("llm_analysis"),
             suggested_actions=data.get("suggested_actions"),
+            canonical_id=data.get("canonical_id"),
+            confidence=confidence_val,
+            language=data.get("language") or "zh-TW",
             created_at=utc_now(),
         )
         db.add(alert)
         await db.flush()
+
+        # TODO-M8:uncovered_locale(locale 覆蓋不足,fail-safe 觸發 escalation)
+        # 必須寫入 audit log 以利後續檢視哪些紅旗的 i18n 規則需要補。
+        # 走 try/except 以免 audit 失敗影響警示建立。
+        if confidence_val == RedFlagConfidence.UNCOVERED_LOCALE:
+            try:
+                from app.services.audit_log_service import AuditLogService
+                await AuditLogService.log(
+                    db,
+                    user_id=None,
+                    action=AuditAction.CREATE,
+                    resource_type="red_flag_alert",
+                    resource_id=str(alert.id),
+                    details={
+                        "reason": "uncovered_locale_escalation",
+                        "canonical_id": data.get("canonical_id"),
+                        "language": data.get("language"),
+                        "session_id": str(data["session_id"]),
+                        "severity": (
+                            data["severity"].value
+                            if hasattr(data["severity"], "value")
+                            else data["severity"]
+                        ),
+                    },
+                )
+            except Exception:
+                # audit 失敗不應阻擋警示建立,但要 log 以便排查
+                import logging
+                logging.getLogger(__name__).warning(
+                    "uncovered_locale escalation audit log failed",
+                    exc_info=True,
+                )
 
         # 觸發推播通知（非同步任務）
         try:

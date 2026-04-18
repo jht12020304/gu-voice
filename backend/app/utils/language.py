@@ -35,6 +35,23 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _safe_record_unsupported(requested: Optional[str]) -> None:
+    """包 try — metrics import 失敗（單元測試未 mock prometheus）不能壞掉業務邏輯。"""
+    try:
+        from app.core.metrics import record_unsupported_language
+        record_unsupported_language(requested)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _safe_record_forced_fallback(from_lang: Optional[str], to_lang: str) -> None:
+    try:
+        from app.core.metrics import record_forced_fallback
+        record_forced_fallback(from_lang, to_lang)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class _UserLike(Protocol):
     """只需要 preferred_language 屬性 — ORM User 或 dict wrapper 都相容。
 
@@ -152,14 +169,25 @@ def resolve_language(
     所有候選都須落在 `settings.SUPPORTED_LANGUAGES` 才採用；否則略過。
     永遠回字串。
     """
+    default = _safe_default()
+    # 「原本請求的語言」— 用於 forced_fallback 的 from label（優先 payload, 再 user preference）
+    requested_raw = (
+        normalize_bcp47(payload_language)
+        or (normalize_bcp47(getattr(user, "preferred_language", None)) if user is not None else None)
+    )
+
     # Gate 1：全域 kill switch
     if not settings.MULTILANG_GLOBAL_ENABLED:
-        return _safe_default()
+        if requested_raw and requested_raw != default:
+            _safe_record_forced_fallback(requested_raw, default)
+        return default
 
     # Gate 2：rollout bucket
     if not _user_in_rollout(user):
         logger.debug("resolve_language: user not in rollout bucket; using default")
-        return _safe_default()
+        if requested_raw and requested_raw != default:
+            _safe_record_forced_fallback(requested_raw, default)
+        return default
 
     supported = set(settings.SUPPORTED_LANGUAGES)
     disabled = set(settings.MULTILANG_DISABLED_LANGUAGES or [])
@@ -171,7 +199,8 @@ def resolve_language(
         return cand
 
     # 1. payload 顯式指定
-    accepted = _accept(normalize_bcp47(payload_language))
+    normalized_payload = normalize_bcp47(payload_language)
+    accepted = _accept(normalized_payload)
     if accepted:
         return accepted
     if payload_language:
@@ -179,19 +208,31 @@ def resolve_language(
             "resolve_language: payload %r not accepted (supported=%s, disabled=%s)",
             payload_language, supported, disabled,
         )
+        # 不支援 → unsupported；被 disabled → forced fallback（由下方 Gate 3 統一記）
+        if normalized_payload and normalized_payload not in supported:
+            _safe_record_unsupported(normalized_payload)
+        elif normalized_payload in disabled:
+            _safe_record_forced_fallback(normalized_payload, default)
 
     # 2. user.preferred_language
     if user is not None:
-        accepted = _accept(normalize_bcp47(getattr(user, "preferred_language", None)))
+        user_pref = normalize_bcp47(getattr(user, "preferred_language", None))
+        accepted = _accept(user_pref)
         if accepted:
             return accepted
+        if user_pref and user_pref in disabled:
+            _safe_record_forced_fallback(user_pref, default)
 
     # 3. Accept-Language header
     from_header = _pick_from_accept_language(accept_language_header)
     accepted = _accept(from_header)
     if accepted:
         return accepted
+    # header 有值但完全沒對到 supported 語言 → 記一筆 unsupported
+    if accept_language_header and not from_header:
+        first_token = accept_language_header.split(",")[0].split(";")[0].strip()
+        _safe_record_unsupported(normalize_bcp47(first_token) or first_token)
 
     # 4. settings default（DEFAULT_LANGUAGE 本身不受 DISABLED 影響 —
     #    kill switch 觸發時仍用 default 作為 last resort 一致選擇）
-    return _safe_default()
+    return default

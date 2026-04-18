@@ -1,0 +1,37 @@
+{
+  "errors": {
+    "ws": {
+      "handshake_timeout": "未在時限內送出認證訊息，連線已中斷",
+      "handshake_read_failed": "認證訊息讀取失敗",
+      "handshake_invalid_json": "認證訊息格式錯誤（非合法 JSON）",
+      "handshake_invalid_shape": "認證訊息格式錯誤",
+      "handshake_wrong_type": "認證訊息類型錯誤，應為 type=auth",
+      "missing_token": "認證訊息缺少 token 欄位",
+      "invalid_token": "Token 無效或已過期",
+      "forbidden_role": "權限不足，僅限醫師與管理員",
+      "session_not_found": "場次不存在",
+      "session_wrong_status": "場次狀態不正確，無法建立連線",
+      "unknown_message_type": "不支援的訊息類型：{{type}}",
+      "internal_error": "伺服器內部錯誤，連線即將關閉",
+      "invalid_audio": "音訊資料格式無效",
+      "audio_too_long": "錄音時間過長（上限 {{maxSeconds}} 秒），已自動結束",
+      "invalid_audio_format": "無法辨識的音訊格式，已捨棄該段",
+      "rate_limit_exceeded": "AI 呼叫過於頻繁，請於 {{retryAfter}} 秒後再試",
+      "stt_error": "語音辨識服務暫時不可用",
+      "ai_service_unavailable": "AI 回應生成失敗，請重試"
+    }
+  },
+  "events": {
+    "session": {
+      "ws_connected": "WebSocket 連線已建立",
+      "resumed": "已沿用既有對話紀錄",
+      "resume_failed": "無法沿用既有對話紀錄（{{reason}}）",
+      "idle_timeout": "閒置逾時（{{minutes}} 分鐘無活動），場次自動結束",
+      "ended_by_user": "病患或助手結束場次",
+      "completed_normal": "場次正常結束",
+      "aborted_red_flag": "偵測到危急紅旗症狀，場次已中止，請立即就醫",
+      "aborted_red_flag_dashboard": "偵測到 critical 紅旗症狀，場次已中止",
+      "red_flag_triggered": "偵測到紅旗警示：{{title}}"
+    }
+  }
+}

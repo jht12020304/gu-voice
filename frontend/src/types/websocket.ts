@@ -97,16 +97,29 @@ export interface RedFlagAlertPayload {
   suggestedActions: string[];
 }
 
+/**
+ * TODO-E2: session_status 已改為 canonical code 契約。
+ * 後端送 `{code, params, severity}`，前端用 `t(code, params, {ns:'ws'})` 渲染。
+ * sessionId / status / previousStatus 由 `broadcast_localized_dashboard` 的 extra 帶入。
+ */
 export interface SessionStatusPayload {
-  sessionId: string;
-  status: string;
-  previousStatus: string;
-  reason?: string;
+  /** Canonical i18n code，例：events.session.ended_by_user */
+  code: string;
+  params?: Record<string, unknown>;
+  severity?: 'info' | 'warning' | 'error' | 'critical';
+  sessionId?: string;
+  status?: string;
+  previousStatus?: string;
 }
 
+/**
+ * TODO-E2: error payload 也改為 canonical code 契約。
+ * 前端收到 `{code, params, severity}` 後透過 `t(code, params, {ns:'ws'})` 渲染。
+ */
 export interface WSErrorPayload {
   code: string;
-  message: string;
+  params?: Record<string, unknown>;
+  severity?: 'info' | 'warning' | 'error' | 'critical';
 }
 
 export interface PongPayload {

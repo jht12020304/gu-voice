@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from app.core.config import Settings
+from app.core.metrics import observe_stt_latency
 from app.core.openai_client import call_with_retry, get_openai_client
 
 logger = logging.getLogger(__name__)
@@ -66,14 +67,15 @@ class STTPipeline:
             return f
 
         try:
-            response = await call_with_retry(
-                lambda: self._client.audio.transcriptions.create(
-                    model=self._model,
-                    file=_make_file(),
-                    language=lang,
-                    response_format="json",
+            with observe_stt_latency(lang):
+                response = await call_with_retry(
+                    lambda: self._client.audio.transcriptions.create(
+                        model=self._model,
+                        file=_make_file(),
+                        language=lang,
+                        response_format="json",
+                    )
                 )
-            )
 
             text = (response.text or "").strip()
 
