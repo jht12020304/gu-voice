@@ -675,7 +675,10 @@ async def _send_initial_greeting(
         audio_b64: str | None = ""
         tts_failed = False
         try:
-            audio_bytes = await tts_pipeline.synthesize(text=sentence)
+            audio_bytes = await tts_pipeline.synthesize(
+                text=sentence,
+                language=session_context.get("language"),
+            )
             if audio_bytes:
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         except Exception as exc:
@@ -1009,11 +1012,15 @@ async def _handle_text_message(
     # 對應的 TTS 任務列表（與 pending_sentences 同序），每個 item 為 asyncio.Task[bytes]
     pending_tts_tasks: list[asyncio.Task[bytes]] = []
 
+    session_language = session_context.get("language")
+
     def _spawn_tts_task(sentence: str) -> None:
         """將一個句子排入 TTS 合成任務佇列（順序保持）。"""
         pending_sentences.append(sentence)
         pending_tts_tasks.append(
-            asyncio.create_task(tts_pipeline.synthesize(text=sentence))
+            asyncio.create_task(
+                tts_pipeline.synthesize(text=sentence, language=session_language)
+            )
         )
 
     # 啟動紅旗偵測（背景執行）
@@ -1091,6 +1098,7 @@ async def _handle_text_message(
                     chief_complaint=session_context.get("chief_complaint", ""),
                     patient_info=session_context.get("patient_info", {}),
                     redis=redis,
+                    language=session_context.get("language"),
                 ),
                 timeout=supervisor_timeout,
             )

@@ -31,8 +31,10 @@ class TTSPipeline:
     def __init__(self, settings: Settings) -> None:
         self._client = get_openai_client()
         self._model = settings.OPENAI_TTS_MODEL   # "tts-1"
-        self._voice = settings.OPENAI_TTS_VOICE   # "nova"
+        self._voice = settings.OPENAI_TTS_VOICE   # "nova"（zh-TW / en-US 預設）
         self._speed = settings.OPENAI_TTS_SPEED   # 0.9
+        # LANGUAGE_MAP 規劃 ja/ko/vi 用 shimmer；這裡保留引用，synthesize 時依場次語言覆寫。
+        self._language_map = settings.LANGUAGE_MAP
 
         self._supabase: SupabaseClient | None = None
         if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
@@ -42,12 +44,21 @@ class TTSPipeline:
             )
 
         logger.info(
-            "TTSPipeline 初始化 (OpenAI TTS) | model=%s, voice=%s, speed=%.1f, supabase=%s",
+            "TTSPipeline 初始化 (OpenAI TTS) | model=%s, default_voice=%s, speed=%.1f, supabase=%s",
             self._model,
             self._voice,
             self._speed,
             "connected" if self._supabase else "disabled",
         )
+
+    def _voice_for_language(self, language: str | None) -> str:
+        """依 BCP-47 語言碼從 LANGUAGE_MAP 取 voice；未命中回 default voice。"""
+        if not language:
+            return self._voice
+        info = self._language_map.get(language)
+        if not info:
+            return self._voice
+        return info.get("tts_voice") or self._voice
 
     async def synthesize(self, text: str, language: str | None = None) -> bytes:
         """
@@ -65,12 +76,14 @@ class TTSPipeline:
             logger.warning("收到空白文字，跳過 TTS 合成")
             return b""
 
+        voice = self._voice_for_language(language)
+
         try:
             with observe_tts_latency(language):
                 response = await call_with_retry(
                     lambda: self._client.audio.speech.create(
                         model=self._model,
-                        voice=self._voice,
+                        voice=voice,
                         input=text,
                         response_format="mp3",
                         speed=self._speed,

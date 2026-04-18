@@ -29,6 +29,18 @@ from app.pipelines.prompts.shared import (
     SINGLE_QUESTION_RULE,
     render_hpi_checklist,
 )
+from app.utils.i18n_messages import get_message as _i18n_get
+
+
+# BCP-47 → 人類語言名稱，用在 Supervisor 的 next_focus 輸出語言規則。
+# 即使未來新增 locale，這裡只要加一列；fallback 走 English。
+_LANGUAGE_DISPLAY: dict[str, str] = {
+    "zh-TW": "Traditional Chinese (繁體中文)",
+    "en-US": "US English",
+    "ja-JP": "Japanese (日本語)",
+    "ko-KR": "Korean (한국어)",
+    "vi-VN": "Vietnamese (tiếng Việt)",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +112,7 @@ class SupervisorEngine:
         chief_complaint: str,
         patient_info: dict[str, Any],
         redis: Redis,
+        language: str | None = None,
     ) -> None:
         """
         非同步分析對話歷史，找出下一步指引並存入 Redis。
@@ -110,6 +123,8 @@ class SupervisorEngine:
             chief_complaint: 主訴
             patient_info: 病患資訊
             redis: Redis 客戶端
+            language: BCP-47 場次語言；用來鎖 next_focus 輸出語言
+                      （避免 Supervisor 寫中文指令回饋到 Conversation LLM 的英文輸出）。
         """
         if not conversation_history:
             return
@@ -136,6 +151,18 @@ class SupervisorEngine:
         ).replace(
             "{chief_complaint}", chief_complaint
         )
+
+        # 把場次語言硬性規則附加到 system prompt 尾段，讓 next_focus 跟輸出語言一致。
+        # 否則 Supervisor 會永遠寫中文指令 → 灌進 Conversation LLM system prompt 後
+        # 部分情況下 Conversation LLM 會「順著中文指令」回中文，即使已有硬性輸出規則。
+        if language:
+            language_display = _LANGUAGE_DISPLAY.get(language, language)
+            system_prompt += (
+                f"\n\n## next_focus 輸出語言（硬性規定）\n"
+                f"- 該場次病患使用 {language_display}，next_focus 內容必須以 {language_display} 撰寫。\n"
+                f"- 長度限制依 {language_display} 語感調整為合理的短句（約 60 字元內）。\n"
+                f"- missing_hpi 陣列仍使用下方指定的 snake_case id，不翻譯。"
+            )
 
         try:
             logger.info("Supervisor [%s] 啟動背景分析...", session_id)
