@@ -29,6 +29,11 @@ build/
 coverage/
 *.lcov
 
+# ===== Playwright =====
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
 # ===== 日誌 =====
 *.log
 npm-debug.log*

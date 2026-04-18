@@ -12,7 +12,10 @@
     "lint:fix": "eslint . --fix",
     "type-check": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,json}\""
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,json}\"",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.0",
@@ -34,6 +37,7 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.48.0",
     "@sentry/react": "^8.45.0",
     "@types/react": "^18.3.14",
     "@types/react-dom": "^18.3.3",
