@@ -1,4 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;600;700&family=Source+Code+Pro:wght@400;500;600&display=swap');
+/* 字體切片載入 — 依 unicode-range 按 locale 動態載入對應 subset
+ * 詳見 ./styles/fonts.css (Inter / Noto Sans TC / JP / KR / Noto Sans vietnamese) */
+@import url('./styles/fonts.css');
 
 @tailwind base;
 @tailwind components;
@@ -10,9 +12,11 @@
    ============================================================================= */
 
 @layer base {
-  /* 全域字型與色彩 — Inter OpenType cv01+ss03 (Linear 風格幾何替代) */
+  /* 全域字型與色彩 — Inter OpenType cv01+ss03 (Linear 風格幾何替代)
+   * 使用 --font-sans 變數,字體 stack 集中於 styles/fonts.css;
+   * 瀏覽器依 unicode-range 自動挑 Inter / Noto Sans TC / JP / KR / vietnamese 的 subset。 */
   html {
-    font-family: 'Inter', 'Noto Sans TC', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-sans);
     font-feature-settings: 'cv01', 'ss03';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -360,7 +364,7 @@
 
   /* 等寬數據 — 用於病歷號碼、診斷碼 */
   .font-data {
-    font-family: 'Source Code Pro', 'JetBrains Mono', ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-feature-settings: 'tnum';
   }
 

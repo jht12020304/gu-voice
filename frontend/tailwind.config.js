@@ -109,27 +109,13 @@ export default {
         },
       },
 
-      /* ===== 字型設定 ===== */
+      /* ===== 字型設定 =====
+       * 改用 CSS 變數,stack 於 src/styles/fonts.css 集中維護;
+       * 瀏覽器依 unicode-range 自動選用 Inter / Noto Sans TC / JP / KR / vietnamese 的 subset。
+       */
       fontFamily: {
-        // 主字型 — Inter + Noto Sans TC 繁中支援
-        sans: [
-          '"Inter Variable"',
-          '"Inter"',
-          '"Noto Sans TC"',
-          'system-ui',
-          '-apple-system',
-          'BlinkMacSystemFont',
-          'sans-serif',
-        ],
-        // 等寬字型 — 數據、病歷號碼、診斷碼
-        mono: [
-          '"Source Code Pro"',
-          '"JetBrains Mono"',
-          'ui-monospace',
-          'SFMono-Regular',
-          'Menlo',
-          'monospace',
-        ],
+        sans: ['var(--font-sans)'],
+        mono: ['var(--font-mono)'],
       },
 
       /* ===== 字型大小 — 醫療資料密集型比例 ===== */
