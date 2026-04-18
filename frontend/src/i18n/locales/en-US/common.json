@@ -58,6 +58,18 @@
       "switchFailed": "Switch failed, please try again"
     }
   },
+  "status": {
+    "waiting": "Waiting",
+    "in_progress": "In progress",
+    "completed": "Completed",
+    "aborted_red_flag": "Red-flag aborted",
+    "cancelled": "Cancelled"
+  },
+  "severity": {
+    "critical": "Critical",
+    "high": "High",
+    "medium": "Medium"
+  },
   "common": {
     "errorTitle": "Something went wrong",
     "emptyTitle": "No data",

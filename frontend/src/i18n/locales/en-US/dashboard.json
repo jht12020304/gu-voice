@@ -1,0 +1,57 @@
+{
+  "sidebar": {
+    "sections": {
+      "tools": "Tools",
+      "data": "Data",
+      "admin": "Administration",
+      "other": "Other"
+    },
+    "nav": {
+      "dashboard": "Dashboard",
+      "tryConversation": "Try conversation flow",
+      "patients": "Patients",
+      "soapReports": "SOAP reports",
+      "redFlagAlerts": "Red-flag alerts",
+      "userManagement": "User management",
+      "complaintTemplates": "Complaint templates",
+      "systemHealth": "System health",
+      "auditLogs": "Audit logs",
+      "settings": "Settings"
+    }
+  },
+  "alert": {
+    "acknowledged": "Acknowledged",
+    "pending": "Pending",
+    "chiefComplaintLabel": "Chief complaint: {{value}}",
+    "sessionStatusLabel": "Session status: {{value}}",
+    "triggerLabel": "Trigger: {{value}}",
+    "suggestedActions": "{{count}} suggested actions",
+    "viewDetail": "View detail",
+    "acknowledge": "Acknowledge",
+    "acknowledgedBadge": "✓ Acknowledged"
+  },
+  "transcript": {
+    "title": "Consultation transcript",
+    "emptyTitle": "No conversation content to display",
+    "loading": "Loading conversation...",
+    "messageCount": "{{count}} messages",
+    "summary": "{{patientCount}} patient / {{assistantCount}} AI",
+    "viewFull": "View full transcript ({{count}} more)...",
+    "searchPlaceholder": "Search transcript",
+    "filter": {
+      "all": "All",
+      "patient": "Patient",
+      "assistant": "AI"
+    },
+    "visibleCount": "Showing {{visible}} / {{total}} messages",
+    "noMatches": "No transcript matches the filters",
+    "redFlag": "Red flag",
+    "lowConfidence": "Low STT confidence",
+    "sttConfidence": "STT confidence: {{value}}%",
+    "roles": {
+      "patient": "Patient",
+      "assistant": "AI assistant",
+      "system": "System"
+    }
+  }
+}

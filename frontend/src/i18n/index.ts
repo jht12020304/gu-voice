@@ -11,10 +11,14 @@ import zhTWCommon from './locales/zh-TW/common.json';
 import zhTWConversation from './locales/zh-TW/conversation.json';
 import zhTWWs from './locales/zh-TW/ws.json';
 import zhTWIntake from './locales/zh-TW/intake.json';
+import zhTWSoap from './locales/zh-TW/soap.json';
+import zhTWDashboard from './locales/zh-TW/dashboard.json';
 import enUSCommon from './locales/en-US/common.json';
 import enUSConversation from './locales/en-US/conversation.json';
 import enUSWs from './locales/en-US/ws.json';
 import enUSIntake from './locales/en-US/intake.json';
+import enUSSoap from './locales/en-US/soap.json';
+import enUSDashboard from './locales/en-US/dashboard.json';
 // Phase C beta locales：完整翻譯未就位前，僅提供骨架 common.json（至少讓
 // LanguageSwitcher 切語言不崩），缺 key 靠下方 fallbackLng chain 往 en-US / zh-TW 退。
 import jaJPCommon from './locales/ja-JP/common.json';
@@ -37,15 +41,19 @@ export const resources = {
     conversation: zhTWConversation,
     ws: zhTWWs,
     intake: zhTWIntake,
+    soap: zhTWSoap,
+    dashboard: zhTWDashboard,
   },
   'en-US': {
     common: enUSCommon,
     conversation: enUSConversation,
     ws: enUSWs,
     intake: enUSIntake,
+    soap: enUSSoap,
+    dashboard: enUSDashboard,
   },
-  // Beta locales：intake / conversation / ws 都走 fallbackLng 退回 en-US → zh-TW，
-  // 不在此 inline 以保持 bundle 輕量；補齊翻譯後再在各 locale 目錄建同名 JSON。
+  // Beta locales：intake / conversation / ws / soap / dashboard 都走 fallbackLng 退回
+  // en-US → zh-TW，不在此 inline 以保持 bundle 輕量；補齊翻譯後再在各 locale 目錄建同名 JSON。
   'ja-JP': { common: jaJPCommon },
   'ko-KR': { common: koKRCommon },
   'vi-VN': { common: viVNCommon },
@@ -67,7 +75,7 @@ void i18next
     // 讓 toResolveHierarchy 回空陣列導致 t() 完全失靈。既然 resources 已
     // inline 載入，不設 supportedLngs 改由 fallbackLng + LanguageDetector 控制。
     defaultNS,
-    ns: ['common', 'conversation', 'ws', 'intake'],
+    ns: ['common', 'conversation', 'ws', 'intake', 'soap', 'dashboard'],
     interpolation: {
       escapeValue: false, // React already escapes
     },

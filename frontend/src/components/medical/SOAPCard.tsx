@@ -4,6 +4,8 @@
 // =============================================================================
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type {
   SOAPSubjective,
   SOAPObjective,
@@ -136,38 +138,31 @@ interface SOAPCardProps {
   content: Record<string, unknown> | null | undefined;
 }
 
+// i18n t() 型別快捷：SOAPCard 永遠用 'soap' namespace
+type SoapT = TFunction<'soap'>;
+
 const sectionMeta: Record<string, {
   letter: string;
-  title: string;
-  subtitle: string;
   accent: string;
   badge: string;
 }> = {
   subjective: {
     letter: 'S',
-    title: '主觀',
-    subtitle: 'Subjective',
     accent: 'bg-indigo-400 dark:bg-indigo-500',
     badge: 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-500/15 dark:bg-indigo-500/10 dark:text-indigo-400 dark:ring-indigo-400/20',
   },
   objective: {
     letter: 'O',
-    title: '客觀',
-    subtitle: 'Objective',
     accent: 'bg-teal-400 dark:bg-teal-500',
     badge: 'bg-teal-50 text-teal-600 ring-1 ring-teal-500/15 dark:bg-teal-500/10 dark:text-teal-400 dark:ring-teal-400/20',
   },
   assessment: {
     letter: 'A',
-    title: '評估',
-    subtitle: 'Assessment',
     accent: 'bg-amber-400 dark:bg-amber-500',
     badge: 'bg-amber-50 text-amber-700 ring-1 ring-amber-500/15 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-400/20',
   },
   plan: {
     letter: 'P',
-    title: '計畫',
-    subtitle: 'Plan',
     accent: 'bg-violet-400 dark:bg-violet-500',
     badge: 'bg-violet-50 text-violet-600 ring-1 ring-violet-500/15 dark:bg-violet-500/10 dark:text-violet-400 dark:ring-violet-400/20',
   },
@@ -201,9 +196,10 @@ function FieldItem({ label, value }: { label: string; value: React.ReactNode }) 
   );
 }
 
-function TagList({ items }: { items: string[] }) {
+function TagList({ items, noneLabel }: { items: string[]; noneLabel: string }) {
+  // 注意：AI 輸出的中文字面值「無」是資料側慣例，不屬於 UI label
   const filtered = items.filter((s) => s && s !== '無');
-  if (filtered.length === 0) return <span className="text-body text-ink-placeholder">無</span>;
+  if (filtered.length === 0) return <span className="text-body text-ink-placeholder">{noneLabel}</span>;
   return (
     <div className="flex flex-wrap gap-1.5">
       {filtered.map((item, i) => (
@@ -233,46 +229,54 @@ function Callout({ children, border = 'border-l-edge-hover dark:border-l-dark-bo
   );
 }
 
+// 將動態 key（systemReview / socialHistory / physicalExam）解析為顯示標籤：
+// 先查 i18n fieldLabels.*，若該 key 未納入則回退為原始 key（常見於 API 新增欄位）
+function resolveFieldLabel(t: SoapT, key: string): string {
+  const translated = t(`fieldLabels.${key}`, { defaultValue: key });
+  return translated;
+}
+
 // ── S 主觀 ────────────────────────────────────────────────
 
-function SubjectiveContent({ data }: { data: SOAPSubjective }) {
+function SubjectiveContent({ data, t }: { data: SOAPSubjective; t: SoapT }) {
   const { chiefComplaint, hpi, pastMedicalHistory: pmh, medicationHistory: meds, systemReview, socialHistory } = data;
+  const noneLabel = t('common.none');
   return (
     <div className="space-y-3.5">
       <Callout border="border-l-indigo-300 dark:border-l-indigo-600">
-        <SubLabel>主訴 Chief Complaint</SubLabel>
+        <SubLabel>{t('subjective.chiefComplaint')}</SubLabel>
         <p className="mt-0.5 text-h3 font-medium text-ink-heading dark:text-white">{chiefComplaint}</p>
       </Callout>
 
       {hpi && (
         <div>
-          <SectionLabel>現病史 HPI</SectionLabel>
+          <SectionLabel>{t('subjective.hpi.title')}</SectionLabel>
           <FieldGrid>
-            <FieldItem label="發病時間" value={hpi.onset} />
-            <FieldItem label="部位" value={hpi.location} />
-            <FieldItem label="持續時間" value={hpi.duration} />
-            <FieldItem label="嚴重度" value={hpi.severity} />
-            <FieldItem label="發作頻率" value={hpi.timing} />
-            <FieldItem label="情境" value={hpi.context} />
+            <FieldItem label={t('subjective.hpi.onset')} value={hpi.onset} />
+            <FieldItem label={t('subjective.hpi.location')} value={hpi.location} />
+            <FieldItem label={t('subjective.hpi.duration')} value={hpi.duration} />
+            <FieldItem label={t('subjective.hpi.severity')} value={hpi.severity} />
+            <FieldItem label={t('subjective.hpi.timing')} value={hpi.timing} />
+            <FieldItem label={t('subjective.hpi.context')} value={hpi.context} />
           </FieldGrid>
           {hpi.characteristics && (
             <div className="mt-2">
-              <SubLabel>特徵描述</SubLabel>
+              <SubLabel>{t('subjective.hpi.characteristics')}</SubLabel>
               <p className="mt-0.5 text-body-lg text-ink-body dark:text-white/85">{hpi.characteristics}</p>
             </div>
           )}
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div>
-              <SubLabel>加重因素</SubLabel>
-              <div className="mt-1"><TagList items={hpi.aggravatingFactors ?? []} /></div>
+              <SubLabel>{t('subjective.hpi.aggravatingFactors')}</SubLabel>
+              <div className="mt-1"><TagList items={hpi.aggravatingFactors ?? []} noneLabel={noneLabel} /></div>
             </div>
             <div>
-              <SubLabel>緩解因素</SubLabel>
-              <div className="mt-1"><TagList items={hpi.relievingFactors ?? []} /></div>
+              <SubLabel>{t('subjective.hpi.relievingFactors')}</SubLabel>
+              <div className="mt-1"><TagList items={hpi.relievingFactors ?? []} noneLabel={noneLabel} /></div>
             </div>
             <div>
-              <SubLabel>伴隨症狀</SubLabel>
-              <div className="mt-1"><TagList items={hpi.associatedSymptoms ?? []} /></div>
+              <SubLabel>{t('subjective.hpi.associatedSymptoms')}</SubLabel>
+              <div className="mt-1"><TagList items={hpi.associatedSymptoms ?? []} noneLabel={noneLabel} /></div>
             </div>
           </div>
         </div>
@@ -283,21 +287,21 @@ function SubjectiveContent({ data }: { data: SOAPSubjective }) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {pmh && (
           <div>
-            <SectionLabel>過去病史</SectionLabel>
+            <SectionLabel>{t('subjective.pastMedicalHistory.title')}</SectionLabel>
             <div className="space-y-1.5">
-              <div><SubLabel>疾病</SubLabel><div className="mt-0.5"><TagList items={pmh.conditions ?? []} /></div></div>
-              <div><SubLabel>手術史</SubLabel><div className="mt-0.5"><TagList items={pmh.surgeries ?? []} /></div></div>
-              <div><SubLabel>住院史</SubLabel><div className="mt-0.5"><TagList items={pmh.hospitalizations ?? []} /></div></div>
+              <div><SubLabel>{t('subjective.pastMedicalHistory.conditions')}</SubLabel><div className="mt-0.5"><TagList items={pmh.conditions ?? []} noneLabel={noneLabel} /></div></div>
+              <div><SubLabel>{t('subjective.pastMedicalHistory.surgeries')}</SubLabel><div className="mt-0.5"><TagList items={pmh.surgeries ?? []} noneLabel={noneLabel} /></div></div>
+              <div><SubLabel>{t('subjective.pastMedicalHistory.hospitalizations')}</SubLabel><div className="mt-0.5"><TagList items={pmh.hospitalizations ?? []} noneLabel={noneLabel} /></div></div>
             </div>
           </div>
         )}
         {meds && (
           <div>
-            <SectionLabel>用藥史</SectionLabel>
+            <SectionLabel>{t('subjective.medicationHistory.title')}</SectionLabel>
             <div className="space-y-1.5">
-              <div><SubLabel>目前用藥</SubLabel><div className="mt-0.5"><TagList items={meds.current ?? []} /></div></div>
-              {(meds.past?.length ?? 0) > 0 && <div><SubLabel>過去用藥</SubLabel><div className="mt-0.5"><TagList items={meds.past} /></div></div>}
-              {(meds.otc?.length ?? 0) > 0 && <div><SubLabel>非處方藥</SubLabel><div className="mt-0.5"><TagList items={meds.otc} /></div></div>}
+              <div><SubLabel>{t('subjective.medicationHistory.current')}</SubLabel><div className="mt-0.5"><TagList items={meds.current ?? []} noneLabel={noneLabel} /></div></div>
+              {(meds.past?.length ?? 0) > 0 && <div><SubLabel>{t('subjective.medicationHistory.past')}</SubLabel><div className="mt-0.5"><TagList items={meds.past} noneLabel={noneLabel} /></div></div>}
+              {(meds.otc?.length ?? 0) > 0 && <div><SubLabel>{t('subjective.medicationHistory.otc')}</SubLabel><div className="mt-0.5"><TagList items={meds.otc} noneLabel={noneLabel} /></div></div>}
             </div>
           </div>
         )}
@@ -309,20 +313,20 @@ function SubjectiveContent({ data }: { data: SOAPSubjective }) {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {systemReview && Object.keys(systemReview).length > 0 && (
               <div>
-                <SectionLabel>系統回顧</SectionLabel>
+                <SectionLabel>{t('subjective.systemReview.title')}</SectionLabel>
                 <FieldGrid>
                   {Object.entries(systemReview).map(([key, val]) => (
-                    <FieldItem key={key} label={fieldLabels[key] || key} value={val} />
+                    <FieldItem key={key} label={resolveFieldLabel(t, key)} value={val} />
                   ))}
                 </FieldGrid>
               </div>
             )}
             {socialHistory && Object.keys(socialHistory).length > 0 && (
               <div>
-                <SectionLabel>社會史</SectionLabel>
+                <SectionLabel>{t('subjective.socialHistory.title')}</SectionLabel>
                 <FieldGrid>
                   {Object.entries(socialHistory).map(([key, val]) => (
-                    <FieldItem key={key} label={fieldLabels[key] || key} value={val} />
+                    <FieldItem key={key} label={resolveFieldLabel(t, key)} value={val} />
                   ))}
                 </FieldGrid>
               </div>
@@ -336,31 +340,29 @@ function SubjectiveContent({ data }: { data: SOAPSubjective }) {
 
 // ── O 客觀 ────────────────────────────────────────────────
 
-const vitalLabels: Record<string, string> = {
-  bloodPressure: '血壓', heartRate: '心率', respiratoryRate: '呼吸速率', temperature: '體溫', spo2: '血氧',
-};
-const vitalUnits: Record<string, string> = {
-  bloodPressure: 'mmHg', heartRate: 'bpm', respiratoryRate: '次/分', temperature: '°C', spo2: '%',
-};
+const VITAL_KEYS = ['bloodPressure', 'heartRate', 'respiratoryRate', 'temperature', 'spo2'] as const;
 
-function ObjectiveContent({ data }: { data: SOAPObjective }) {
+function ObjectiveContent({ data, t }: { data: SOAPObjective; t: SoapT }) {
   const { vitalSigns, physicalExam, labResults } = data;
   return (
     <div className="space-y-3.5">
       {vitalSigns && (
         <div>
-          <SectionLabel>生命徵象</SectionLabel>
+          <SectionLabel>{t('objective.vitalSigns.title')}</SectionLabel>
           <div className="grid grid-cols-3 gap-2 lg:grid-cols-5">
             {Object.entries(vitalSigns).map(([key, val]) => {
               if (val === undefined || val === null) return null;
+              const isKnown = (VITAL_KEYS as readonly string[]).includes(key);
+              const label = isKnown ? t(`objective.vitalSigns.labels.${key}`) : key;
+              const unit  = isKnown ? t(`objective.vitalSigns.units.${key}`)  : '';
               return (
                 <div
                   key={key}
                   className="rounded-card border border-edge bg-white px-2.5 py-2 text-center dark:border-dark-border dark:bg-dark-card"
                 >
-                  <p className="text-small font-medium text-ink-placeholder dark:text-white/40">{vitalLabels[key] || key}</p>
+                  <p className="text-small font-medium text-ink-placeholder dark:text-white/40">{label}</p>
                   <p className="text-h3 font-semibold font-tnum text-ink-heading dark:text-white">{val}</p>
-                  <p className="text-small text-ink-placeholder dark:text-white/30">{vitalUnits[key] || ''}</p>
+                  <p className="text-small text-ink-placeholder dark:text-white/30">{unit}</p>
                 </div>
               );
             })}
@@ -370,14 +372,14 @@ function ObjectiveContent({ data }: { data: SOAPObjective }) {
 
       {physicalExam && Object.keys(physicalExam).length > 0 && (
         <div>
-          <SectionLabel>理學檢查</SectionLabel>
+          <SectionLabel>{t('objective.physicalExam.title')}</SectionLabel>
           <div className="overflow-hidden rounded-card border border-edge dark:border-dark-border">
             {Object.entries(physicalExam).map(([key, val], i) => (
               <div
                 key={key}
                 className={`flex items-start gap-3 px-3.5 py-2 ${i > 0 ? 'border-t border-edge/60 dark:border-dark-border' : ''}`}
               >
-                <span className="w-20 shrink-0 text-body font-medium text-ink-muted dark:text-white/50">{fieldLabels[key] || key}</span>
+                <span className="w-20 shrink-0 text-body font-medium text-ink-muted dark:text-white/50">{resolveFieldLabel(t, key)}</span>
                 <span className="text-body-lg text-ink-body dark:text-white/85">{val}</span>
               </div>
             ))}
@@ -387,15 +389,15 @@ function ObjectiveContent({ data }: { data: SOAPObjective }) {
 
       {labResults && labResults.length > 0 && (
         <div>
-          <SectionLabel>實驗室檢查</SectionLabel>
+          <SectionLabel>{t('objective.labResults.title')}</SectionLabel>
           <div className="overflow-hidden rounded-card border border-edge dark:border-dark-border">
             <table className="w-full">
               <thead>
                 <tr className="bg-surface-secondary dark:bg-dark-surface">
-                  <th className="px-3.5 py-2 text-left text-small font-semibold uppercase tracking-wider text-ink-muted dark:text-white/40">項目</th>
-                  <th className="px-3.5 py-2 text-left text-small font-semibold uppercase tracking-wider text-ink-muted dark:text-white/40">結果</th>
-                  <th className="px-3.5 py-2 text-left text-small font-semibold uppercase tracking-wider text-ink-muted dark:text-white/40">參考</th>
-                  <th className="px-3.5 py-2 text-center text-small font-semibold uppercase tracking-wider text-ink-muted dark:text-white/40">狀態</th>
+                  <th className="px-3.5 py-2 text-left text-small font-semibold uppercase tracking-wider text-ink-muted dark:text-white/40">{t('objective.labResults.columns.test')}</th>
+                  <th className="px-3.5 py-2 text-left text-small font-semibold uppercase tracking-wider text-ink-muted dark:text-white/40">{t('objective.labResults.columns.result')}</th>
+                  <th className="px-3.5 py-2 text-left text-small font-semibold uppercase tracking-wider text-ink-muted dark:text-white/40">{t('objective.labResults.columns.reference')}</th>
+                  <th className="px-3.5 py-2 text-center text-small font-semibold uppercase tracking-wider text-ink-muted dark:text-white/40">{t('objective.labResults.columns.status')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -410,11 +412,11 @@ function ObjectiveContent({ data }: { data: SOAPObjective }) {
                       {lab.isAbnormal ? (
                         <span className="inline-flex items-center gap-1 rounded-pill bg-red-50 px-2 py-0.5 text-small font-semibold text-red-600 ring-1 ring-red-500/15 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-400/20">
                           <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                          異常
+                          {t('common.abnormal')}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 rounded-pill bg-surface-tertiary px-2 py-0.5 text-small font-medium text-ink-muted dark:bg-dark-border dark:text-white/50">
-                          正常
+                          {t('common.normal')}
                         </span>
                       )}
                     </td>
@@ -431,29 +433,30 @@ function ObjectiveContent({ data }: { data: SOAPObjective }) {
 
 // ── A 評估 ────────────────────────────────────────────────
 
-const probConfig: Record<string, { label: string; dot: string; text: string; bg: string }> = {
-  high:   { label: '高', dot: 'bg-red-500', text: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 ring-1 ring-red-500/15 dark:bg-red-500/10 dark:ring-red-400/20' },
-  medium: { label: '中', dot: 'bg-amber-500', text: 'text-amber-700 dark:text-amber-400', bg: 'bg-amber-50 ring-1 ring-amber-500/15 dark:bg-amber-500/10 dark:ring-amber-400/20' },
-  low:    { label: '低', dot: 'bg-slate-400', text: 'text-ink-muted dark:text-white/50', bg: 'bg-surface-tertiary ring-1 ring-edge dark:bg-dark-border dark:ring-dark-border' },
+const probConfig: Record<string, { dot: string; text: string; bg: string }> = {
+  high:   { dot: 'bg-red-500', text: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 ring-1 ring-red-500/15 dark:bg-red-500/10 dark:ring-red-400/20' },
+  medium: { dot: 'bg-amber-500', text: 'text-amber-700 dark:text-amber-400', bg: 'bg-amber-50 ring-1 ring-amber-500/15 dark:bg-amber-500/10 dark:ring-amber-400/20' },
+  low:    { dot: 'bg-slate-400', text: 'text-ink-muted dark:text-white/50', bg: 'bg-surface-tertiary ring-1 ring-edge dark:bg-dark-border dark:ring-dark-border' },
 };
 
-function AssessmentContent({ data }: { data: SOAPAssessment }) {
+function AssessmentContent({ data, t }: { data: SOAPAssessment; t: SoapT }) {
   const { differentialDiagnoses, clinicalImpression } = data;
   return (
     <div className="space-y-3.5">
       {clinicalImpression && (
         <Callout border="border-l-amber-300 dark:border-l-amber-600">
-          <SubLabel>臨床印象</SubLabel>
+          <SubLabel>{t('assessment.clinicalImpression')}</SubLabel>
           <p className="mt-0.5 text-body-lg font-medium text-ink-heading dark:text-white">{clinicalImpression}</p>
         </Callout>
       )}
 
       {differentialDiagnoses && differentialDiagnoses.length > 0 && (
         <div>
-          <SectionLabel>鑑別診斷</SectionLabel>
+          <SectionLabel>{t('assessment.differentialDiagnoses.title')}</SectionLabel>
           <div className="space-y-2">
             {(differentialDiagnoses as DifferentialDiagnosis[]).map((dx, i) => {
               const p = probConfig[dx.probability] || probConfig.low;
+              const probLabel = t(`assessment.probability.${dx.probability}`, { defaultValue: dx.probability });
               return (
                 <div key={i} className="rounded-card border border-edge px-3.5 py-2.5 dark:border-dark-border">
                   <div className="flex items-start justify-between gap-2">
@@ -468,7 +471,7 @@ function AssessmentContent({ data }: { data: SOAPAssessment }) {
                     </div>
                     <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-pill px-2 py-0.5 text-small font-semibold ${p.bg} ${p.text}`}>
                       <span className={`h-1.5 w-1.5 rounded-full ${p.dot}`} />
-                      {p.label}
+                      {probLabel}
                     </span>
                   </div>
                   {dx.reasoning && (
@@ -486,16 +489,17 @@ function AssessmentContent({ data }: { data: SOAPAssessment }) {
 
 // ── P 計畫 ────────────────────────────────────────────────
 
-const urgConfig: Record<string, { label: string; cls: string }> = {
-  urgent:   { label: '急', cls: 'bg-red-50 text-red-600 ring-1 ring-red-500/15 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-400/20' },
-  routine:  { label: '常規', cls: 'bg-surface-tertiary text-ink-muted ring-1 ring-edge dark:bg-dark-border dark:text-white/50 dark:ring-dark-border' },
-  elective: { label: '擇期', cls: 'bg-surface-tertiary text-ink-placeholder ring-1 ring-edge dark:bg-dark-border dark:text-white/40 dark:ring-dark-border' },
+const urgConfig: Record<string, { cls: string }> = {
+  urgent:   { cls: 'bg-red-50 text-red-600 ring-1 ring-red-500/15 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-400/20' },
+  routine:  { cls: 'bg-surface-tertiary text-ink-muted ring-1 ring-edge dark:bg-dark-border dark:text-white/50 dark:ring-dark-border' },
+  elective: { cls: 'bg-surface-tertiary text-ink-placeholder ring-1 ring-edge dark:bg-dark-border dark:text-white/40 dark:ring-dark-border' },
 };
 
-function PlanContent({ data }: { data: SOAPPlan }) {
+function PlanContent({ data, t }: { data: SOAPPlan; t: SoapT }) {
   const { recommendedTests, treatments, followUp, referrals, patientEducation, diagnosticReasoning } = data;
   const [expandedTests, setExpandedTests] = useState<Record<number, boolean>>({});
   const toggleTest = (i: number) => setExpandedTests((prev) => ({ ...prev, [i]: !prev[i] }));
+  const noneLabel = t('common.none');
 
   return (
     <div className="space-y-3.5">
@@ -506,7 +510,7 @@ function PlanContent({ data }: { data: SOAPPlan }) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
             </svg>
             <div>
-              <p className="text-small font-semibold uppercase tracking-wider text-ink-muted dark:text-white/50 mb-0.5">臨床推理</p>
+              <p className="text-small font-semibold uppercase tracking-wider text-ink-muted dark:text-white/50 mb-0.5">{t('plan.diagnosticReasoning')}</p>
               <p className="text-body-lg leading-relaxed text-ink-body dark:text-white/80">{diagnosticReasoning}</p>
             </div>
           </div>
@@ -515,10 +519,11 @@ function PlanContent({ data }: { data: SOAPPlan }) {
 
       {recommendedTests && recommendedTests.length > 0 && (
         <div>
-          <SectionLabel>建議檢查</SectionLabel>
+          <SectionLabel>{t('plan.recommendedTests.title')}</SectionLabel>
           <div className="space-y-1.5">
             {(recommendedTests as RecommendedTest[]).map((test, i) => {
               const u = urgConfig[test.urgency] || urgConfig.routine;
+              const urgencyLabel = t(`plan.urgency.${test.urgency}`, { defaultValue: test.urgency });
               const isExpanded = expandedTests[i];
               const hasReasoning = !!test.clinicalReasoning;
               return (
@@ -533,7 +538,7 @@ function PlanContent({ data }: { data: SOAPPlan }) {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <p className="text-body-lg font-semibold text-ink-heading dark:text-white">{test.testName}</p>
-                        <span className={`rounded-pill px-2 py-0.5 text-small font-semibold ${u.cls}`}>{u.label}</span>
+                        <span className={`rounded-pill px-2 py-0.5 text-small font-semibold ${u.cls}`}>{urgencyLabel}</span>
                       </div>
                       {test.rationale && (
                         <p className="text-body text-ink-secondary dark:text-white/60">{test.rationale}</p>
@@ -562,7 +567,7 @@ function PlanContent({ data }: { data: SOAPPlan }) {
 
       {treatments && treatments.length > 0 && (
         <div>
-          <SectionLabel>治療處置</SectionLabel>
+          <SectionLabel>{t('plan.treatments.title')}</SectionLabel>
           <div className="space-y-1.5">
             {(treatments as Treatment[]).map((tx, i) => (
               <div key={i} className="flex items-start gap-2.5 rounded-card border border-edge px-3.5 py-2.5 dark:border-dark-border">
@@ -582,11 +587,11 @@ function PlanContent({ data }: { data: SOAPPlan }) {
 
       {followUp && (
         <div>
-          <SectionLabel>追蹤計畫</SectionLabel>
+          <SectionLabel>{t('plan.followUp.title')}</SectionLabel>
           <div className="rounded-card border border-edge px-3.5 py-2.5 dark:border-dark-border">
             <FieldGrid>
-              <FieldItem label="回診時間" value={followUp.interval} />
-              <FieldItem label="追蹤原因" value={followUp.reason} />
+              <FieldItem label={t('plan.followUp.interval')} value={followUp.interval} />
+              <FieldItem label={t('plan.followUp.reason')} value={followUp.reason} />
             </FieldGrid>
             {followUp.additionalNotes && (
               <p className="mt-1.5 text-body italic text-ink-muted dark:text-white/50">{followUp.additionalNotes}</p>
@@ -597,14 +602,14 @@ function PlanContent({ data }: { data: SOAPPlan }) {
 
       {referrals && referrals.length > 0 && (
         <div>
-          <SectionLabel>轉介</SectionLabel>
-          <TagList items={referrals} />
+          <SectionLabel>{t('plan.referrals.title')}</SectionLabel>
+          <TagList items={referrals} noneLabel={noneLabel} />
         </div>
       )}
 
       {patientEducation && patientEducation.length > 0 && (
         <div>
-          <SectionLabel>衛教指導</SectionLabel>
+          <SectionLabel>{t('plan.patientEducation.title')}</SectionLabel>
           <ul className="space-y-1">
             {patientEducation.map((item, i) => (
               <li key={i} className="flex items-start gap-2 text-body-lg text-ink-body dark:text-white/85">
@@ -621,27 +626,20 @@ function PlanContent({ data }: { data: SOAPPlan }) {
   );
 }
 
-// ── 欄位標籤 ────────────────────────────────────────────────
-
-const fieldLabels: Record<string, string> = {
-  general: '一般狀態', urological: '泌尿系統',
-  smoking: '吸菸', alcohol: '飲酒', occupation: '職業',
-  abdomen: '腹部', costovertebral: '肋脊角', genitourinary: '泌尿生殖',
-};
-
 // ── 主元件 ────────────────────────────────────────────────
 
 export default function SOAPCard({ section, content }: SOAPCardProps) {
+  const { t } = useTranslation('soap');
   const meta = sectionMeta[section];
   const [collapsed, setCollapsed] = useState(false);
 
   const renderContent = () => {
-    if (!content) return <p className="py-2 text-center text-body-lg text-ink-placeholder">尚無資料</p>;
+    if (!content) return <p className="py-2 text-center text-body-lg text-ink-placeholder">{t('common.empty')}</p>;
     switch (section) {
-      case 'subjective':  return <SubjectiveContent data={normalizeSubjective(content)} />;
-      case 'objective':   return <ObjectiveContent data={normalizeObjective(content)} />;
-      case 'assessment':  return <AssessmentContent data={normalizeAssessment(content)} />;
-      case 'plan':        return <PlanContent data={normalizePlan(content)} />;
+      case 'subjective':  return <SubjectiveContent data={normalizeSubjective(content)} t={t} />;
+      case 'objective':   return <ObjectiveContent data={normalizeObjective(content)} t={t} />;
+      case 'assessment':  return <AssessmentContent data={normalizeAssessment(content)} t={t} />;
+      case 'plan':        return <PlanContent data={normalizePlan(content)} t={t} />;
       default:            return null;
     }
   };
@@ -659,9 +657,9 @@ export default function SOAPCard({ section, content }: SOAPCardProps) {
           {meta.letter}
         </span>
         <h3 className="flex-1 text-h3 font-semibold tracking-tight text-ink-heading dark:text-white">
-          {meta.title}
+          {t(`section.${section}.title`)}
           <span className="ml-1.5 text-caption font-normal tracking-normal text-ink-placeholder dark:text-white/35">
-            {meta.subtitle}
+            {t(`section.${section}.subtitle`)}
           </span>
         </h3>
         <svg

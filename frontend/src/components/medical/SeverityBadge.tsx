@@ -3,6 +3,8 @@
 // 同時使用顏色+圖標+文字，確保色盲友善
 // =============================================================================
 
+import { useTranslation } from 'react-i18next';
+
 import type { AlertSeverity } from '../../types/enums';
 
 interface SeverityBadgeProps {
@@ -12,22 +14,22 @@ interface SeverityBadgeProps {
 }
 
 const severityConfig: Record<string, {
-  label: string;
+  labelKey: string;
   classes: string;
   icon: string;
 }> = {
   critical: {
-    label: '危急',
+    labelKey: 'severity.critical',
     classes: 'bg-alert-critical-bg text-alert-critical-text border-alert-critical-border',
     icon: '⚠',
   },
   high: {
-    label: '高度',
+    labelKey: 'severity.high',
     classes: 'bg-alert-high-bg text-alert-high-text border-alert-high-border',
     icon: '▲',
   },
   medium: {
-    label: '中度',
+    labelKey: 'severity.medium',
     classes: 'bg-alert-medium-bg text-alert-medium-text border-alert-medium-border',
     icon: '●',
   },
@@ -38,6 +40,7 @@ export default function SeverityBadge({
   size = 'md',
   showIcon = true,
 }: SeverityBadgeProps) {
+  const { t } = useTranslation('common');
   const config = severityConfig[severity] || severityConfig.medium;
   const sizeClasses = size === 'sm'
     ? 'px-2 py-0.5 text-tiny'
@@ -50,7 +53,7 @@ export default function SeverityBadge({
       }`}
     >
       {showIcon && <span className="shrink-0">{config.icon}</span>}
-      {config.label}
+      {t(config.labelKey)}
     </span>
   );
 }

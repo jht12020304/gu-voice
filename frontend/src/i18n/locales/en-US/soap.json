@@ -1,0 +1,137 @@
+{
+  "section": {
+    "subjective": {
+      "title": "Subjective",
+      "subtitle": "Subjective"
+    },
+    "objective": {
+      "title": "Objective",
+      "subtitle": "Objective"
+    },
+    "assessment": {
+      "title": "Assessment",
+      "subtitle": "Assessment"
+    },
+    "plan": {
+      "title": "Plan",
+      "subtitle": "Plan"
+    }
+  },
+  "common": {
+    "empty": "No data available",
+    "none": "None",
+    "abnormal": "Abnormal",
+    "normal": "Normal"
+  },
+  "subjective": {
+    "chiefComplaint": "Chief Complaint",
+    "hpi": {
+      "title": "History of Present Illness (HPI)",
+      "onset": "Onset",
+      "location": "Location",
+      "duration": "Duration",
+      "severity": "Severity",
+      "timing": "Timing",
+      "context": "Context",
+      "characteristics": "Characteristics",
+      "aggravatingFactors": "Aggravating factors",
+      "relievingFactors": "Relieving factors",
+      "associatedSymptoms": "Associated symptoms"
+    },
+    "pastMedicalHistory": {
+      "title": "Past Medical History",
+      "conditions": "Conditions",
+      "surgeries": "Surgical history",
+      "hospitalizations": "Hospitalizations"
+    },
+    "medicationHistory": {
+      "title": "Medication History",
+      "current": "Current medications",
+      "past": "Past medications",
+      "otc": "Over-the-counter"
+    },
+    "systemReview": {
+      "title": "Review of Systems"
+    },
+    "socialHistory": {
+      "title": "Social History"
+    }
+  },
+  "objective": {
+    "vitalSigns": {
+      "title": "Vital Signs",
+      "labels": {
+        "bloodPressure": "Blood pressure",
+        "heartRate": "Heart rate",
+        "respiratoryRate": "Respiratory rate",
+        "temperature": "Temperature",
+        "spo2": "SpO2"
+      },
+      "units": {
+        "bloodPressure": "mmHg",
+        "heartRate": "bpm",
+        "respiratoryRate": "/min",
+        "temperature": "°C",
+        "spo2": "%"
+      }
+    },
+    "physicalExam": {
+      "title": "Physical Examination"
+    },
+    "labResults": {
+      "title": "Laboratory Results",
+      "columns": {
+        "test": "Test",
+        "result": "Result",
+        "reference": "Reference",
+        "status": "Status"
+      }
+    }
+  },
+  "assessment": {
+    "clinicalImpression": "Clinical Impression",
+    "differentialDiagnoses": {
+      "title": "Differential Diagnoses"
+    },
+    "probability": {
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
+    }
+  },
+  "plan": {
+    "diagnosticReasoning": "Clinical Reasoning",
+    "recommendedTests": {
+      "title": "Recommended Tests"
+    },
+    "urgency": {
+      "urgent": "Urgent",
+      "routine": "Routine",
+      "elective": "Elective"
+    },
+    "treatments": {
+      "title": "Treatments"
+    },
+    "followUp": {
+      "title": "Follow-up",
+      "interval": "Interval",
+      "reason": "Reason"
+    },
+    "referrals": {
+      "title": "Referrals"
+    },
+    "patientEducation": {
+      "title": "Patient Education"
+    }
+  },
+  "fieldLabels": {
+    "general": "General",
+    "urological": "Urologic",
+    "smoking": "Smoking",
+    "alcohol": "Alcohol",
+    "occupation": "Occupation",
+    "abdomen": "Abdomen",
+    "costovertebral": "Costovertebral angle",
+    "genitourinary": "Genitourinary"
+  }
+}

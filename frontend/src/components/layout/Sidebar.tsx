@@ -4,6 +4,7 @@
 
 import { NavLink } from 'react-router-dom';
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
 import { useAlertStore } from '../../stores/alertStore';
 import { useCurrentLng } from '../../i18n/paths';
@@ -23,6 +24,7 @@ interface NavSection {
 }
 
 export default function Sidebar() {
+  const { t } = useTranslation(['dashboard', 'common']);
   const user = useAuthStore((s) => s.user);
   const unacknowledgedCount = useAlertStore((s) => s.unacknowledgedCount);
   const fetchUnacknowledgedCount = useAlertStore((s) => s.fetchUnacknowledgedCount);
@@ -34,11 +36,11 @@ export default function Sidebar() {
 
   const navSections: NavSection[] = [
     {
-      label: '工具區',
+      label: t('sidebar.sections.tools'),
       roles: ['doctor', 'admin'],
       items: [
         {
-          label: '儀表板',
+          label: t('sidebar.nav.dashboard'),
           path: '/dashboard',
           roles: ['doctor', 'admin'],
           icon: (
@@ -48,7 +50,7 @@ export default function Sidebar() {
           ),
         },
         {
-          label: '體驗對話流程',
+          label: t('sidebar.nav.tryConversation'),
           path: '/patient',
           roles: ['doctor', 'admin'],
           icon: (
@@ -60,11 +62,11 @@ export default function Sidebar() {
       ],
     },
     {
-      label: '資料區',
+      label: t('sidebar.sections.data'),
       roles: ['doctor', 'admin'],
       items: [
         {
-          label: '病患列表',
+          label: t('sidebar.nav.patients'),
           path: '/patients',
           roles: ['doctor', 'admin'],
           icon: (
@@ -74,7 +76,7 @@ export default function Sidebar() {
           ),
         },
         {
-          label: 'SOAP 報告',
+          label: t('sidebar.nav.soapReports'),
           path: '/reports',
           roles: ['doctor', 'admin'],
           icon: (
@@ -84,7 +86,7 @@ export default function Sidebar() {
           ),
         },
         {
-          label: '紅旗警示',
+          label: t('sidebar.nav.redFlagAlerts'),
           path: '/alerts',
           roles: ['doctor', 'admin'],
           badge: unacknowledgedCount,
@@ -97,11 +99,11 @@ export default function Sidebar() {
       ],
     },
     {
-      label: '管理區',
+      label: t('sidebar.sections.admin'),
       roles: ['admin'],
       items: [
         {
-          label: '使用者管理',
+          label: t('sidebar.nav.userManagement'),
           path: '/admin/users',
           roles: ['admin'],
           icon: (
@@ -112,7 +114,7 @@ export default function Sidebar() {
           ),
         },
         {
-          label: '主訴模板管理',
+          label: t('sidebar.nav.complaintTemplates'),
           path: '/admin/complaints',
           roles: ['admin'],
           icon: (
@@ -122,7 +124,7 @@ export default function Sidebar() {
           ),
         },
         {
-          label: '系統狀態',
+          label: t('sidebar.nav.systemHealth'),
           path: '/admin/health',
           roles: ['admin'],
           icon: (
@@ -132,7 +134,7 @@ export default function Sidebar() {
           ),
         },
         {
-          label: '稽核日誌',
+          label: t('sidebar.nav.auditLogs'),
           path: '/admin/audit-logs',
           roles: ['admin'],
           icon: (
@@ -144,10 +146,10 @@ export default function Sidebar() {
       ],
     },
     {
-      label: '其他',
+      label: t('sidebar.sections.other'),
       items: [
         {
-          label: '設定',
+          label: t('sidebar.nav.settings'),
           path: '/settings',
           icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -169,11 +171,17 @@ export default function Sidebar() {
     }))
     .filter((section) => section.items.length > 0);
 
-  const roleLabel: Record<string, string> = {
-    doctor: '醫師',
-    admin: '管理員',
-    patient: '病患',
+  const roleLabelKey: Record<string, string> = {
+    doctor: 'roles.doctor',
+    admin: 'roles.admin',
+    patient: 'roles.patient',
   };
+
+  const roleDisplay = user?.role
+    ? roleLabelKey[user.role]
+      ? t(roleLabelKey[user.role], { ns: 'common' })
+      : user.role
+    : '';
 
   return (
     <aside className="flex w-sidebar flex-col border-r border-edge bg-surface-secondary dark:bg-dark-surface dark:border-dark-border">
@@ -226,7 +234,7 @@ export default function Sidebar() {
               {user?.name}
             </p>
             <p className="truncate text-tiny text-ink-muted">
-              {roleLabel[user?.role || ''] || user?.role}
+              {roleDisplay}
             </p>
           </div>
         </div>

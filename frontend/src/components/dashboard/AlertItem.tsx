@@ -2,6 +2,7 @@
 // 告警列表項目 — 左側色帶 + Sentry 監控風格
 // =============================================================================
 
+import { useTranslation } from 'react-i18next';
 import SeverityBadge from '../medical/SeverityBadge';
 import { relativeTime } from '../../utils/date';
 import type { AlertSeverity } from '../../types/enums';
@@ -44,6 +45,7 @@ export default function AlertItem({
   onViewDetail,
   onClick,
 }: AlertItemProps) {
+  const { t } = useTranslation('dashboard');
   return (
     <div
       className={`alert-card ${severityBorderClass[severity] || ''} ${
@@ -87,7 +89,7 @@ export default function AlertItem({
                   : 'bg-surface-secondary text-ink-secondary ring-1 ring-edge dark:bg-dark-surface dark:text-dark-text-muted dark:ring-dark-border'
               }`}
             >
-              {isAcknowledged ? '已處理' : '待處理'}
+              {isAcknowledged ? t('alert.acknowledged') : t('alert.pending')}
             </span>
           </div>
 
@@ -99,11 +101,13 @@ export default function AlertItem({
             ) : null}
             {chiefComplaint ? (
               <span className="rounded-pill bg-white px-2.5 py-1 text-small text-ink-secondary ring-1 ring-edge dark:bg-dark-card dark:text-dark-text-muted dark:ring-dark-border">
-                主訴：{chiefComplaint}
+                {t('alert.chiefComplaintLabel', { value: chiefComplaint })}
               </span>
             ) : null}
             {sessionStatus ? (
-              <span className="text-small text-ink-muted">場次狀態：{sessionStatus}</span>
+              <span className="text-small text-ink-muted">
+                {t('alert.sessionStatusLabel', { value: sessionStatus })}
+              </span>
             ) : null}
           </div>
 
@@ -116,11 +120,13 @@ export default function AlertItem({
           <div className="mt-3 flex flex-wrap items-center gap-3 text-tiny text-ink-muted">
             {triggerReason ? (
               <span className="rounded-pill bg-surface-secondary px-2.5 py-1 text-small text-ink-muted dark:bg-dark-surface dark:text-dark-text-muted">
-                觸發：{triggerReason}
+                {t('alert.triggerLabel', { value: triggerReason })}
               </span>
             ) : null}
             {suggestedActionCount ? (
-              <span className="text-small text-ink-muted">建議 {suggestedActionCount} 項處置</span>
+              <span className="text-small text-ink-muted">
+                {t('alert.suggestedActions', { count: suggestedActionCount })}
+              </span>
             ) : null}
             <span>{relativeTime(createdAt)}</span>
           </div>
@@ -143,7 +149,7 @@ export default function AlertItem({
                   onViewDetail();
                 }}
               >
-                查看詳情
+                {t('alert.viewDetail')}
               </button>
             ) : null}
 
@@ -155,11 +161,11 @@ export default function AlertItem({
                   onAcknowledge();
                 }}
               >
-                確認處理
+                {t('alert.acknowledge')}
               </button>
             ) : (
               <span className="shrink-0 rounded-pill bg-green-50 px-3 py-1.5 text-tiny font-semibold text-green-700 dark:bg-green-950/30 dark:text-green-300">
-                ✓ 已確認
+                {t('alert.acknowledgedBadge')}
               </span>
             )}
           </div>

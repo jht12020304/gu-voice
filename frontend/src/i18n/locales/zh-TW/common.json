@@ -58,6 +58,18 @@
       "switchFailed": "切換失敗，請稍後再試"
     }
   },
+  "status": {
+    "waiting": "等待中",
+    "in_progress": "對話中",
+    "completed": "已完成",
+    "aborted_red_flag": "紅旗中止",
+    "cancelled": "已取消"
+  },
+  "severity": {
+    "critical": "危急",
+    "high": "高度",
+    "medium": "中度"
+  },
   "common": {
     "errorTitle": "發生錯誤",
     "emptyTitle": "暫無資料",

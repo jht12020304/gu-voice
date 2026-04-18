@@ -2,6 +2,8 @@
 // 場次狀態徽章 — 設計融合: Sentry uppercase 標籤 + Stripe pill 圓角
 // =============================================================================
 
+import { useTranslation } from 'react-i18next';
+
 import type { SessionStatus } from '../../types/enums';
 
 interface StatusBadgeProps {
@@ -11,38 +13,39 @@ interface StatusBadgeProps {
 }
 
 const statusConfig: Record<string, {
-  label: string;
+  labelKey: string;
   classes: string;
   dotColor: string;
 }> = {
   waiting: {
-    label: '等待中',
+    labelKey: 'status.waiting',
     classes: 'bg-status-waiting-bg text-status-waiting border-status-waiting-border',
     dotColor: 'bg-status-waiting',
   },
   in_progress: {
-    label: '對話中',
+    labelKey: 'status.in_progress',
     classes: 'bg-status-in-progress-bg text-status-in-progress border-status-in-progress-border',
     dotColor: 'bg-status-in-progress',
   },
   completed: {
-    label: '已完成',
+    labelKey: 'status.completed',
     classes: 'bg-status-completed-bg text-status-completed border-status-completed-border',
     dotColor: 'bg-status-completed',
   },
   aborted_red_flag: {
-    label: '紅旗中止',
+    labelKey: 'status.aborted_red_flag',
     classes: 'bg-status-red-flag-bg text-status-red-flag border-status-red-flag-border',
     dotColor: 'bg-status-red-flag',
   },
   cancelled: {
-    label: '已取消',
+    labelKey: 'status.cancelled',
     classes: 'bg-status-cancelled-bg text-status-cancelled border-status-cancelled-border',
     dotColor: 'bg-status-cancelled',
   },
 };
 
 export default function StatusBadge({ status, size = 'md', showDot = true }: StatusBadgeProps) {
+  const { t } = useTranslation('common');
   const config = statusConfig[status] || statusConfig.waiting;
   const sizeClasses = size === 'sm'
     ? 'px-2 py-0.5 text-tiny'
@@ -56,7 +59,7 @@ export default function StatusBadge({ status, size = 'md', showDot = true }: Sta
       {showDot && (
         <span className={`${dotSize} rounded-full ${config.dotColor} shrink-0`} />
       )}
-      {config.label}
+      {t(config.labelKey)}
     </span>
   );
 }
