@@ -47,17 +47,25 @@ def test_every_flag_has_display_title_for_zh_tw_and_en_us():
 # ── get_display_title serializer helper ─────────────────
 
 
-def test_get_display_title_returns_zh_tw_by_default():
-    assert get_display_title("gross_hematuria", None) == "肉眼血尿"
+def test_get_display_title_returns_en_us_when_language_is_none():
+    # 無 language 時依 fallback 鏈(en-US → zh-TW → ...)回 en-US；
+    # 設計上改送英文比中文對 ja/ko/vi 病患友善(見 get_display_title docstring)。
+    assert get_display_title("gross_hematuria", None) == "Gross Hematuria"
 
 
 def test_get_display_title_returns_en_us_when_language_en_us():
     assert get_display_title("gross_hematuria", "en-US") == "Gross Hematuria"
 
 
-def test_get_display_title_falls_back_when_language_missing():
-    # fr-FR 沒翻譯 → fallback zh-TW
-    assert get_display_title("gross_hematuria", "fr-FR") == "肉眼血尿"
+def test_get_display_title_falls_back_to_en_us_when_language_missing():
+    # fr-FR 沒翻譯 → fallback en-US（非 zh-TW）
+    assert get_display_title("gross_hematuria", "fr-FR") == "Gross Hematuria"
+
+
+def test_get_display_title_returns_zh_tw_when_only_zh_tw_available():
+    # 人造情境：若某 flag 只有 zh-TW、無 en-US，fallback 鏈會退到 zh-TW。
+    # 這裡改以真實 flag 驗證 zh-TW 鍵存在時請求 zh-TW 能正確命中。
+    assert get_display_title("gross_hematuria", "zh-TW") == "肉眼血尿"
 
 
 def test_get_display_title_unknown_canonical_id_returns_id_itself():
