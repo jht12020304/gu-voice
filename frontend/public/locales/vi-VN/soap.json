@@ -1,0 +1,137 @@
+{
+  "section": {
+    "subjective": {
+      "title": "Chủ quan",
+      "subtitle": "Subjective"
+    },
+    "objective": {
+      "title": "Khách quan",
+      "subtitle": "Objective"
+    },
+    "assessment": {
+      "title": "Đánh giá",
+      "subtitle": "Assessment"
+    },
+    "plan": {
+      "title": "Kế hoạch",
+      "subtitle": "Plan"
+    }
+  },
+  "common": {
+    "empty": "Chưa có dữ liệu",
+    "none": "Không",
+    "abnormal": "Bất thường",
+    "normal": "Bình thường"
+  },
+  "subjective": {
+    "chiefComplaint": "Lý do khám Chief Complaint",
+    "hpi": {
+      "title": "Bệnh sử hiện tại HPI",
+      "onset": "Thời điểm khởi phát",
+      "location": "Vị trí",
+      "duration": "Thời gian kéo dài",
+      "severity": "Mức độ nghiêm trọng",
+      "timing": "Tần suất xuất hiện",
+      "context": "Bối cảnh",
+      "characteristics": "Mô tả đặc điểm",
+      "aggravatingFactors": "Yếu tố làm nặng thêm",
+      "relievingFactors": "Yếu tố làm giảm nhẹ",
+      "associatedSymptoms": "Triệu chứng kèm theo"
+    },
+    "pastMedicalHistory": {
+      "title": "Tiền sử bệnh",
+      "conditions": "Bệnh lý",
+      "surgeries": "Tiền sử phẫu thuật",
+      "hospitalizations": "Tiền sử nhập viện"
+    },
+    "medicationHistory": {
+      "title": "Tiền sử dùng thuốc",
+      "current": "Thuốc đang dùng",
+      "past": "Thuốc đã dùng",
+      "otc": "Thuốc không kê đơn"
+    },
+    "systemReview": {
+      "title": "Tổng quan hệ cơ quan"
+    },
+    "socialHistory": {
+      "title": "Tiền sử xã hội"
+    }
+  },
+  "objective": {
+    "vitalSigns": {
+      "title": "Dấu hiệu sinh tồn",
+      "labels": {
+        "bloodPressure": "Huyết áp",
+        "heartRate": "Nhịp tim",
+        "respiratoryRate": "Nhịp thở",
+        "temperature": "Nhiệt độ",
+        "spo2": "Độ bão hòa oxy"
+      },
+      "units": {
+        "bloodPressure": "mmHg",
+        "heartRate": "bpm",
+        "respiratoryRate": "lần/phút",
+        "temperature": "°C",
+        "spo2": "%"
+      }
+    },
+    "physicalExam": {
+      "title": "Khám lâm sàng"
+    },
+    "labResults": {
+      "title": "Xét nghiệm",
+      "columns": {
+        "test": "Hạng mục",
+        "result": "Kết quả",
+        "reference": "Tham chiếu",
+        "status": "Trạng thái"
+      }
+    }
+  },
+  "assessment": {
+    "clinicalImpression": "Ấn tượng lâm sàng",
+    "differentialDiagnoses": {
+      "title": "Chẩn đoán phân biệt"
+    },
+    "probability": {
+      "high": "Cao",
+      "medium": "Trung bình",
+      "low": "Thấp"
+    }
+  },
+  "plan": {
+    "diagnosticReasoning": "Lập luận lâm sàng",
+    "recommendedTests": {
+      "title": "Xét nghiệm đề nghị"
+    },
+    "urgency": {
+      "urgent": "Khẩn cấp",
+      "routine": "Thường quy",
+      "elective": "Chọn lịch"
+    },
+    "treatments": {
+      "title": "Điều trị"
+    },
+    "followUp": {
+      "title": "Kế hoạch theo dõi",
+      "interval": "Thời gian tái khám",
+      "reason": "Lý do theo dõi"
+    },
+    "referrals": {
+      "title": "Chuyển tuyến"
+    },
+    "patientEducation": {
+      "title": "Giáo dục bệnh nhân"
+    }
+  },
+  "fieldLabels": {
+    "general": "Tình trạng chung",
+    "urological": "Hệ tiết niệu",
+    "smoking": "Hút thuốc",
+    "alcohol": "Uống rượu",
+    "occupation": "Nghề nghiệp",
+    "abdomen": "Bụng",
+    "costovertebral": "Góc sườn cột sống",
+    "genitourinary": "Tiết niệu sinh dục"
+  }
+}

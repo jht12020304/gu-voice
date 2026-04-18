@@ -1,0 +1,41 @@
+{
+  "title": "Khám AI",
+  "endSession": "Kết thúc phiên khám",
+  "loading": "Đang tải hội thoại...",
+  "onboarding": {
+    "hint": "Hãy nói trực tiếp, không cần nhấn nút"
+  },
+  "status": {
+    "notStarted": "Phiên khám chưa bắt đầu",
+    "aiResponding": "AI đang trả lời...",
+    "listening": "Đang lắng nghe quý vị {{duration}}",
+    "idle": "Hãy nói trực tiếp, tôi sẽ tự động ghi lại",
+    "thinking": "AI đang suy nghĩ...",
+    "speaking": "Đang nói"
+  },
+  "scroll": {
+    "latest": "Tin nhắn mới nhất",
+    "latestWithCount": "Tin nhắn mới nhất ({{count}})"
+  },
+  "tts": {
+    "failed": "Tổng hợp giọng nói thất bại",
+    "replayAria": "Phát lại giọng nói AI",
+    "replayTitle": "Nhấn để phát lại giọng nói"
+  },
+  "redFlag": {
+    "more": "+{{count}} cảnh báo khác"
+  },
+  "error": {
+    "loadFailed": "Không thể tải hội thoại",
+    "sessionInterrupted": "Phiên khám bị gián đoạn, vui lòng bắt đầu lại",
+    "aiUnavailable": "Dịch vụ AI tạm thời không phản hồi, vui lòng thử lại sau",
+    "disconnected": "Mất kết nối, đang kết nối lại...",
+    "audioTooLong": "Thời gian ghi âm quá dài, đã tự động kết thúc",
+    "micPermission": "Vui lòng cho phép quyền micro trong cài đặt trình duyệt và tải lại trang",
+    "micNotFound": "Không tìm thấy micro, vui lòng kiểm tra kết nối micro",
+    "micGeneric": "Lỗi micro: {{message}}"
+  },
+  "mockMessages": {
+    "systemStart": "Bắt đầu phiên khám — Lý do khám: {{complaint}}"
+  }
+}

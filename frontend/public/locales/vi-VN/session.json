@@ -1,0 +1,83 @@
+{
+  "complete": {
+    "loading": "Đang tải kết quả khám...",
+    "title": "Phiên khám hoàn tất",
+    "subtitle": "Cảm ơn quý vị đã hợp tác, AI đã hoàn tất thu thập thông tin khám",
+    "summaryTitle": "Tóm tắt phiên khám",
+    "summaryChiefComplaint": "Lý do khám",
+    "summaryStartedAt": "Thời gian khám",
+    "summaryDuration": "Thời lượng khám",
+    "durationMinutes": "{{minutes}} phút",
+    "durationEmpty": "—",
+    "redFlagTitle": "Cảnh báo cờ đỏ",
+    "reportTitle": "Báo cáo phân tích AI",
+    "reportAnalyzing": "AI đang phân tích nội dung khám của quý vị…",
+    "reportEmpty": "Báo cáo chưa được tạo",
+    "reviewStatusApproved": "Bác sĩ đã duyệt",
+    "reviewStatusRevisionNeeded": "Cần bổ sung thông tin",
+    "reviewStatusPending": "Chờ bác sĩ duyệt",
+    "aiConfidence": "Độ tin cậy AI {{percent}}%",
+    "nextStepsTitle": "Các bước tiếp theo",
+    "nextStep1": "Thông tin khám của quý vị đã được gửi an toàn đến đội ngũ y tế",
+    "nextStep2": "Bác sĩ sẽ duyệt báo cáo AI và đưa ra khuyến nghị điều trị",
+    "nextStep3": "Trong tình huống khẩn cấp, vui lòng đến phòng cấp cứu hoặc gọi 115",
+    "actionHome": "Về trang chủ",
+    "actionHistory": "Xem lịch sử khám"
+  },
+  "thankYou": {
+    "title": "Phiên khám hoàn tất",
+    "message": "Cảm ơn quý vị đã tham gia khám thông minh hôm nay. Vui lòng quay lại phòng khám ban đầu để chờ. Sau khi bác sĩ đánh giá, điều dưỡng sẽ hướng dẫn các hạng mục kiểm tra phù hợp.",
+    "autoRedirectHint": "Sẽ tự động quay về trang chủ sau vài giây…",
+    "backNowAction": "Về trang chủ ngay"
+  },
+  "patientDetail": {
+    "loading": "Đang tải lịch sử khám...",
+    "loadError": "Không thể tải lịch sử khám",
+    "notFound": "Không tìm thấy lịch sử khám",
+    "title": "Chi tiết lịch sử khám",
+    "recordId": "Mã hồ sơ: {{id}}",
+    "statusCompleted": "Hoàn tất",
+    "chiefComplaint": "Lý do khám: {{value}}",
+    "chiefComplaintEmpty": "Chưa điền",
+    "summaryHeading": "Tóm tắt của bác sĩ",
+    "summaryEmpty": "Hiện chưa có nội dung tóm tắt.",
+    "adviceHeading": "Khuyến nghị của bác sĩ",
+    "adviceEmpty": "Hiện chưa có khuyến nghị để hiển thị.",
+    "doctorLabel": "Bác sĩ phụ trách",
+    "doctorUnassigned": "Chưa phân công",
+    "durationLabel": "Thời lượng hội thoại",
+    "durationEmpty": "-"
+  },
+  "doctor": {
+    "list": {
+      "title": "Phiên khám",
+      "searchPlaceholder": "Tìm bệnh nhân, lý do khám...",
+      "tabAll": "Tất cả",
+      "tabInProgress": "Đang khám",
+      "tabWaiting": "Đang chờ",
+      "tabCompleted": "Hoàn tất",
+      "emptyTitle": "Không có dữ liệu phiên khám",
+      "emptyMessage": "Hiện không có phiên khám nào khớp với điều kiện",
+      "redFlagBadge": "Cờ đỏ",
+      "unknownPatient": "Bệnh nhân không rõ",
+      "chiefComplaintEmpty": "-"
+    },
+    "detail": {
+      "loading": "Đang tải phiên khám...",
+      "loadError": "Không thể tải dữ liệu phiên khám",
+      "notFound": "Phiên khám không tồn tại",
+      "title": "Chi tiết phiên khám",
+      "idLabel": "ID: {{id}}",
+      "infoChiefComplaint": "Lý do khám",
+      "infoChiefComplaintEmpty": "-",
+      "infoLanguage": "Ngôn ngữ",
+      "infoStartedAt": "Thời gian bắt đầu",
+      "infoDuration": "Thời lượng",
+      "redFlagTitle": "Cảnh báo cờ đỏ",
+      "viewReport": "Xem báo cáo SOAP",
+      "enterConversation": "Vào hội thoại",
+      "conversationsTitle": "Nhật ký hội thoại",
+      "conversationsEmpty": "Chưa có nhật ký hội thoại"
+    }
+  }
+}

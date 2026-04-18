@@ -1,0 +1,37 @@
+{
+  "errors": {
+    "ws": {
+      "handshake_timeout": "Không gửi thông điệp xác thực trong thời gian quy định, kết nối đã bị ngắt",
+      "handshake_read_failed": "Đọc thông điệp xác thực thất bại",
+      "handshake_invalid_json": "Định dạng thông điệp xác thực sai (không phải JSON hợp lệ)",
+      "handshake_invalid_shape": "Định dạng thông điệp xác thực sai",
+      "handshake_wrong_type": "Loại thông điệp xác thực sai, phải là type=auth",
+      "missing_token": "Thông điệp xác thực thiếu trường token",
+      "invalid_token": "Token không hợp lệ hoặc đã hết hạn",
+      "forbidden_role": "Không đủ quyền, chỉ dành cho bác sĩ và quản trị viên",
+      "session_not_found": "Phiên không tồn tại",
+      "session_wrong_status": "Trạng thái phiên không hợp lệ, không thể thiết lập kết nối",
+      "unknown_message_type": "Loại thông điệp không được hỗ trợ: {{type}}",
+      "internal_error": "Lỗi nội bộ máy chủ, kết nối sắp bị đóng",
+      "invalid_audio": "Định dạng dữ liệu âm thanh không hợp lệ",
+      "audio_too_long": "Thời gian ghi âm quá dài (tối đa {{maxSeconds}} giây), đã tự động kết thúc",
+      "invalid_audio_format": "Không thể nhận diện định dạng âm thanh, đã bỏ qua đoạn này",
+      "rate_limit_exceeded": "Gọi AI quá thường xuyên, vui lòng thử lại sau {{retryAfter}} giây",
+      "stt_error": "Dịch vụ nhận dạng giọng nói tạm thời không khả dụng",
+      "ai_service_unavailable": "Tạo phản hồi AI thất bại, vui lòng thử lại"
+    }
+  },
+  "events": {
+    "session": {
+      "ws_connected": "Kết nối WebSocket đã được thiết lập",
+      "resumed": "Đã tiếp tục nhật ký hội thoại hiện có",
+      "resume_failed": "Không thể tiếp tục nhật ký hội thoại hiện có ({{reason}})",
+      "idle_timeout": "Hết thời gian chờ ({{minutes}} phút không hoạt động), phiên đã tự động kết thúc",
+      "ended_by_user": "Bệnh nhân hoặc trợ lý đã kết thúc phiên",
+      "completed_normal": "Phiên kết thúc bình thường",
+      "aborted_red_flag": "Phát hiện triệu chứng cờ đỏ nguy kịch, phiên đã dừng, vui lòng đi khám ngay",
+      "aborted_red_flag_dashboard": "Phát hiện triệu chứng cờ đỏ critical, phiên đã dừng",
+      "red_flag_triggered": "Phát hiện cảnh báo cờ đỏ: {{title}}"
+    }
+  }
+}

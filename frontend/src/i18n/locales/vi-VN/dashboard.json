@@ -1,0 +1,57 @@
+{
+  "sidebar": {
+    "sections": {
+      "tools": "Công cụ",
+      "data": "Dữ liệu",
+      "admin": "Quản trị",
+      "other": "Khác"
+    },
+    "nav": {
+      "dashboard": "Bảng điều khiển",
+      "tryConversation": "Trải nghiệm luồng hội thoại",
+      "patients": "Danh sách bệnh nhân",
+      "soapReports": "Báo cáo SOAP",
+      "redFlagAlerts": "Cảnh báo cờ đỏ",
+      "userManagement": "Quản lý người dùng",
+      "complaintTemplates": "Quản lý mẫu lý do khám",
+      "systemHealth": "Trạng thái hệ thống",
+      "auditLogs": "Nhật ký kiểm tra",
+      "settings": "Cài đặt"
+    }
+  },
+  "alert": {
+    "acknowledged": "Đã xử lý",
+    "pending": "Chờ xử lý",
+    "chiefComplaintLabel": "Lý do khám: {{value}}",
+    "sessionStatusLabel": "Trạng thái phiên: {{value}}",
+    "triggerLabel": "Kích hoạt: {{value}}",
+    "suggestedActions": "Đề xuất {{count}} hành động",
+    "viewDetail": "Xem chi tiết",
+    "acknowledge": "Xác nhận xử lý",
+    "acknowledgedBadge": "✓ Đã xác nhận"
+  },
+  "transcript": {
+    "title": "Biên bản hội thoại khám",
+    "emptyTitle": "Hiện chưa có nội dung hội thoại để xem",
+    "loading": "Đang tải biên bản hội thoại...",
+    "messageCount": "{{count}} tin nhắn",
+    "summary": "{{patientCount}} bệnh nhân / {{assistantCount}} AI",
+    "viewFull": "Xem toàn bộ hội thoại (còn {{count}} tin)...",
+    "searchPlaceholder": "Tìm trong biên bản",
+    "filter": {
+      "all": "Tất cả",
+      "patient": "Bệnh nhân",
+      "assistant": "AI"
+    },
+    "visibleCount": "Hiển thị {{visible}} / {{total}} tin",
+    "noMatches": "Không có biên bản nào khớp với điều kiện",
+    "redFlag": "Cờ đỏ",
+    "lowConfidence": "Độ tin cậy thấp",
+    "sttConfidence": "Độ tin cậy STT: {{value}}%",
+    "roles": {
+      "patient": "Bệnh nhân",
+      "assistant": "Trợ lý AI",
+      "system": "Hệ thống"
+    }
+  }
+}

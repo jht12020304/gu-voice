@@ -1,0 +1,144 @@
+{
+  "selectComplaint": {
+    "title": "Chọn triệu chứng của quý vị",
+    "subtitle": "Vui lòng chọn lý do khám phù hợp nhất với tình trạng hiện tại",
+    "customLabel": "Mô tả thêm (tùy chọn)",
+    "customPlaceholder": "Vui lòng mô tả ngắn gọn triệu chứng \"{{name}}\", ví dụ: kéo dài bao lâu, mức độ nghiêm trọng…",
+    "cta": "Bước tiếp: Điền tiền sử bệnh",
+    "loading": "Đang tải danh sách triệu chứng...",
+    "categories": {
+      "urinarySymptoms": "Triệu chứng tiết niệu",
+      "pain": "Đau",
+      "examinationAbnormalities": "Bất thường khi kiểm tra",
+      "other": "Khác"
+    }
+  },
+  "medicalInfo": {
+    "title": "Điền thông tin tiền sử bệnh",
+    "complaintLabel": "Lý do khám: {{name}}",
+    "complaintUnset": "Chưa chọn",
+    "stepProgress": "Bước {{current}} / {{total}}",
+    "steps": {
+      "critical": "Dị ứng & Thuốc",
+      "history": "Tiền sử (tùy chọn)"
+    },
+    "patient": {
+      "title": "Thông tin bệnh nhân",
+      "subtitle": "Thông tin cơ bản cho phiên khám này",
+      "nameLabel": "Họ và tên",
+      "namePlaceholder": "Vui lòng nhập họ tên",
+      "nameError": "Vui lòng nhập họ tên",
+      "genderLabel": "Giới tính",
+      "genderMale": "Nam",
+      "genderFemale": "Nữ",
+      "genderOther": "Khác",
+      "genderError": "Vui lòng chọn giới tính",
+      "dobLabel": "Ngày sinh",
+      "dobError": "Vui lòng chọn ngày sinh",
+      "phoneLabel": "Điện thoại",
+      "phoneOptional": "(tùy chọn)",
+      "phonePlaceholder": "VD: 0912-345-678",
+      "requiredMark": "*"
+    },
+    "allergy": {
+      "title": "Tiền sử dị ứng",
+      "subtitle": "Dị ứng thuốc, thực phẩm hoặc môi trường",
+      "noneLabel": "Không dị ứng",
+      "quickAddLabel": "Thêm nhanh các tác nhân dị ứng thường gặp",
+      "placeholder": "Tên tác nhân dị ứng",
+      "hospitalized": "Đã từng đi khám hoặc cấp cứu",
+      "add": "Thêm tác nhân dị ứng"
+    },
+    "medication": {
+      "title": "Thuốc đang dùng",
+      "subtitle": "Thuốc hiện đang sử dụng, không cần ghi liều lượng",
+      "noneLabel": "Hiện không dùng thuốc",
+      "placeholder": "Tên thuốc (VD: thuốc huyết áp, thuốc dạ dày)",
+      "add": "Thêm thuốc"
+    },
+    "history": {
+      "title": "Tiền sử bệnh",
+      "subtitle": "Các bệnh đã được chẩn đoán, có thể bỏ qua bước này",
+      "noneLabel": "Không có tiền sử bệnh đáng kể",
+      "quickAddLabel": "Thêm nhanh các bệnh thường gặp",
+      "placeholder": "Tên bệnh (VD: tăng huyết áp)",
+      "yearsAgoLabel": "Khoảng bao nhiêu năm trước",
+      "stillHas": "Hiện vẫn còn",
+      "add": "Thêm tiền sử"
+    },
+    "family": {
+      "title": "Tiền sử gia đình",
+      "optional": "Tùy chọn",
+      "hint": "Người thân trực hệ có mắc bệnh di truyền không? Nếu không rõ có thể bỏ qua.",
+      "conditionPlaceholder": "Bệnh (VD: tiểu đường)",
+      "add": "Thêm tiền sử gia đình"
+    },
+    "summary": {
+      "title": "Xác nhận thông tin gửi đi",
+      "complaint": "Lý do khám",
+      "allergy": "Dị ứng",
+      "medication": "Thuốc",
+      "history": "Tiền sử",
+      "noKnownAllergies": "Không có dị ứng đã biết",
+      "noCurrentMedications": "Hiện không dùng thuốc",
+      "noPastHistory": "Không có tiền sử bệnh đáng kể",
+      "filled": "Đã điền"
+    },
+    "nav": {
+      "back": "Quay lại",
+      "prev": "Bước trước",
+      "next": "Bước tiếp",
+      "submit": "Bắt đầu khám AI",
+      "submitting": "Đang tạo phiên khám…"
+    },
+    "errors": {
+      "createSession": "Tạo phiên khám thất bại, vui lòng thử lại sau"
+    },
+    "yearsAgo": {
+      "within1": "Trong 1 năm",
+      "oneToFive": "1–5 năm",
+      "overFive": "Trên 5 năm",
+      "unsure": "Không chắc"
+    },
+    "frequency": {
+      "onceDaily": "1 lần/ngày",
+      "twiceDaily": "2 lần/ngày",
+      "thriceDaily": "3 lần/ngày",
+      "asNeeded": "Khi cần",
+      "weekly": "1 lần/tuần",
+      "other": "Khác"
+    },
+    "relations": {
+      "father": "Cha",
+      "mother": "Mẹ",
+      "brother": "Anh / em trai",
+      "sister": "Chị / em gái",
+      "paternalGrandfather": "Ông nội",
+      "paternalGrandmother": "Bà nội",
+      "maternalGrandfather": "Ông ngoại",
+      "maternalGrandmother": "Bà ngoại"
+    },
+    "commonAllergies": {
+      "penicillin": "Penicillin",
+      "aspirin": "Aspirin",
+      "nsaid": "NSAID",
+      "sulfa": "Nhóm Sulfa",
+      "seafood": "Hải sản",
+      "peanut": "Đậu phộng",
+      "milk": "Sữa bò",
+      "dust": "Mạt bụi",
+      "pollen": "Phấn hoa"
+    },
+    "commonConditions": {
+      "hypertension": "Tăng huyết áp",
+      "diabetes": "Tiểu đường",
+      "heartDisease": "Bệnh tim",
+      "stroke": "Đột quỵ",
+      "kidneyDisease": "Bệnh thận",
+      "gout": "Gout",
+      "bph": "Phì đại tuyến tiền liệt",
+      "urinaryStones": "Sỏi đường tiết niệu",
+      "cancer": "Ung thư"
+    }
+  }
+}
