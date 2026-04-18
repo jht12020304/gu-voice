@@ -52,7 +52,7 @@ function groupByCategory(complaints: ChiefComplaint[]): Record<string, ChiefComp
 
 export default function SelectComplaintPage() {
   const navigate = useLocalizedNavigate();
-  const { t } = useTranslation('intake');
+  const { t, i18n } = useTranslation('intake');
   const { complaints, isLoading: storeLoading, fetchComplaints } = useComplaintStore();
   const [selected, setSelected] = useState<ChiefComplaint | null>(null);
   const [customText, setCustomText] = useState('');
@@ -60,11 +60,12 @@ export default function SelectComplaintPage() {
   const displayComplaints = IS_MOCK ? mockComplaints : complaints;
   const isLoading = IS_MOCK ? false : storeLoading;
 
+  // 語言變更時 refetch — 後端依 Accept-Language 回傳 localized name/description/category
   useEffect(() => {
     if (!IS_MOCK) {
       fetchComplaints();
     }
-  }, [fetchComplaints]);
+  }, [fetchComplaints, i18n.resolvedLanguage]);
 
   const grouped = useMemo(() => groupByCategory(displayComplaints), [displayComplaints]);
 

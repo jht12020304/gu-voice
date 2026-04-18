@@ -4,6 +4,8 @@
 
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig, type AxiosResponse } from 'axios';
 
+import i18n from '../../i18n';
+
 // ---- 深度 key 轉換工具 ----
 
 /** snake_case -> camelCase */
@@ -58,6 +60,15 @@ apiClient.interceptors.request.use(
     const token = localStorage.getItem('access_token');
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    // 附帶目前語言給後端 LanguageMiddleware 解析；使用 BCP-47（如 zh-TW / en-US）。
+    // 使用者覆蓋（config.headers['Accept-Language']）優先，避免 WebSocket / 測試 fixture 被蓋掉。
+    if (config.headers && !config.headers['Accept-Language']) {
+      const lng = (i18n.resolvedLanguage || i18n.language) as string | undefined;
+      if (lng) {
+        config.headers['Accept-Language'] = lng;
+      }
     }
 
     // 轉換請求 body
