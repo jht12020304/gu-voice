@@ -1,0 +1,144 @@
+{
+  "selectComplaint": {
+    "title": "증상을 선택해 주세요",
+    "subtitle": "현재 상태에 가장 잘 맞는 주호소를 선택해 주세요",
+    "customLabel": "추가 설명 (선택)",
+    "customPlaceholder": "「{{name}}」 증상을 간단히 설명해 주세요. 예: 지속 기간, 심한 정도 등",
+    "cta": "다음: 병력 입력",
+    "loading": "증상 목록을 불러오는 중...",
+    "categories": {
+      "urinarySymptoms": "배뇨 증상",
+      "pain": "통증",
+      "examinationAbnormalities": "검사 이상",
+      "other": "기타"
+    }
+  },
+  "medicalInfo": {
+    "title": "병력 정보 입력",
+    "complaintLabel": "주호소: {{name}}",
+    "complaintUnset": "선택되지 않음",
+    "stepProgress": "단계 {{current}} / {{total}}",
+    "steps": {
+      "critical": "알레르기 및 복용 약물",
+      "history": "병력 (선택)"
+    },
+    "patient": {
+      "title": "환자 정보",
+      "subtitle": "이번 문진의 기본 정보",
+      "nameLabel": "이름",
+      "namePlaceholder": "이름을 입력해 주세요",
+      "nameError": "이름을 입력해 주세요",
+      "genderLabel": "성별",
+      "genderMale": "남성",
+      "genderFemale": "여성",
+      "genderOther": "기타",
+      "genderError": "성별을 선택해 주세요",
+      "dobLabel": "생년월일",
+      "dobError": "생년월일을 선택해 주세요",
+      "phoneLabel": "전화번호",
+      "phoneOptional": "(선택)",
+      "phonePlaceholder": "예: 0912-345-678",
+      "requiredMark": "*"
+    },
+    "allergy": {
+      "title": "알레르기 병력",
+      "subtitle": "약물, 음식 또는 환경 알레르기",
+      "noneLabel": "알레르기 없음",
+      "quickAddLabel": "흔한 알레르기 유발 물질 빠르게 추가",
+      "placeholder": "알레르기 유발 물질 이름",
+      "hospitalized": "병원 내원 또는 응급실 방문 경험",
+      "add": "알레르기 추가"
+    },
+    "medication": {
+      "title": "현재 복용 약물",
+      "subtitle": "현재 복용 중인 약물 (용량은 입력하지 않아도 됩니다)",
+      "noneLabel": "현재 복용 중인 약물 없음",
+      "placeholder": "약물 이름 (예: 혈압약, 위장약)",
+      "add": "약물 추가"
+    },
+    "history": {
+      "title": "과거 병력",
+      "subtitle": "이전에 진단받은 질환 (건너뛸 수 있습니다)",
+      "noneLabel": "중대한 병력 없음",
+      "quickAddLabel": "흔한 질환 빠르게 추가",
+      "placeholder": "질환명 (예: 고혈압)",
+      "yearsAgoLabel": "대략 몇 년 전",
+      "stillHas": "현재도 있음",
+      "add": "병력 추가"
+    },
+    "family": {
+      "title": "가족력",
+      "optional": "선택",
+      "hint": "직계 가족 중 유전성 질환이 있으신가요? 모르시면 건너뛸 수 있습니다.",
+      "conditionPlaceholder": "질환명 (예: 당뇨병)",
+      "add": "가족력 추가"
+    },
+    "summary": {
+      "title": "제출할 정보 확인",
+      "complaint": "주호소",
+      "allergy": "알레르기",
+      "medication": "복용 약물",
+      "history": "병력",
+      "noKnownAllergies": "알려진 알레르기 없음",
+      "noCurrentMedications": "현재 복용 중인 약물 없음",
+      "noPastHistory": "중대한 병력 없음",
+      "filled": "입력 완료"
+    },
+    "nav": {
+      "back": "뒤로",
+      "prev": "이전",
+      "next": "다음",
+      "submit": "AI 문진 시작",
+      "submitting": "문진 생성 중…"
+    },
+    "errors": {
+      "createSession": "문진 생성에 실패했습니다. 잠시 후 다시 시도해 주세요"
+    },
+    "yearsAgo": {
+      "within1": "1년 이내",
+      "oneToFive": "1~5년",
+      "overFive": "5년 이상",
+      "unsure": "잘 모르겠음"
+    },
+    "frequency": {
+      "onceDaily": "하루 1회",
+      "twiceDaily": "하루 2회",
+      "thriceDaily": "하루 3회",
+      "asNeeded": "필요할 때 복용",
+      "weekly": "주 1회",
+      "other": "기타"
+    },
+    "relations": {
+      "father": "아버지",
+      "mother": "어머니",
+      "brother": "형제",
+      "sister": "자매",
+      "paternalGrandfather": "친할아버지",
+      "paternalGrandmother": "친할머니",
+      "maternalGrandfather": "외할아버지",
+      "maternalGrandmother": "외할머니"
+    },
+    "commonAllergies": {
+      "penicillin": "페니실린",
+      "aspirin": "아스피린",
+      "nsaid": "NSAID",
+      "sulfa": "설파제",
+      "seafood": "해산물",
+      "peanut": "땅콩",
+      "milk": "우유",
+      "dust": "집먼지 진드기",
+      "pollen": "꽃가루"
+    },
+    "commonConditions": {
+      "hypertension": "고혈압",
+      "diabetes": "당뇨병",
+      "heartDisease": "심장 질환",
+      "stroke": "뇌졸중",
+      "kidneyDisease": "신장 질환",
+      "gout": "통풍",
+      "bph": "전립선 비대증",
+      "urinaryStones": "요로결석",
+      "cancer": "암"
+    }
+  }
+}

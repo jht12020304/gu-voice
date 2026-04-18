@@ -1,0 +1,57 @@
+{
+  "sidebar": {
+    "sections": {
+      "tools": "도구",
+      "data": "데이터",
+      "admin": "관리",
+      "other": "기타"
+    },
+    "nav": {
+      "dashboard": "대시보드",
+      "tryConversation": "대화 흐름 체험",
+      "patients": "환자 목록",
+      "soapReports": "SOAP 보고서",
+      "redFlagAlerts": "레드플래그 경고",
+      "userManagement": "사용자 관리",
+      "complaintTemplates": "주호소 템플릿 관리",
+      "systemHealth": "시스템 상태",
+      "auditLogs": "감사 로그",
+      "settings": "설정"
+    }
+  },
+  "alert": {
+    "acknowledged": "처리 완료",
+    "pending": "처리 대기",
+    "chiefComplaintLabel": "주호소: {{value}}",
+    "sessionStatusLabel": "세션 상태: {{value}}",
+    "triggerLabel": "트리거: {{value}}",
+    "suggestedActions": "권장 조치 {{count}}건",
+    "viewDetail": "상세 보기",
+    "acknowledge": "처리 확인",
+    "acknowledgedBadge": "✓ 확인됨"
+  },
+  "transcript": {
+    "title": "문진 대화 전사본",
+    "emptyTitle": "표시할 대화 내용이 없습니다",
+    "loading": "대화 기록을 불러오는 중...",
+    "messageCount": "대화 {{count}}건",
+    "summary": "환자 {{patientCount}}건 / AI {{assistantCount}}건",
+    "viewFull": "전체 대화 보기 ({{count}}건 더 보기)...",
+    "searchPlaceholder": "전사본 내용 검색",
+    "filter": {
+      "all": "전체",
+      "patient": "환자",
+      "assistant": "AI"
+    },
+    "visibleCount": "대화 {{visible}} / {{total}}건 표시",
+    "noMatches": "조건에 맞는 전사본 내용이 없습니다",
+    "redFlag": "레드플래그",
+    "lowConfidence": "낮은 인식 신뢰도",
+    "sttConfidence": "STT 신뢰도: {{value}}%",
+    "roles": {
+      "patient": "환자",
+      "assistant": "AI 도우미",
+      "system": "시스템"
+    }
+  }
+}

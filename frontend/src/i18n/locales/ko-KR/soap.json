@@ -1,0 +1,137 @@
+{
+  "section": {
+    "subjective": {
+      "title": "주관적 정보",
+      "subtitle": "Subjective"
+    },
+    "objective": {
+      "title": "객관적 정보",
+      "subtitle": "Objective"
+    },
+    "assessment": {
+      "title": "평가",
+      "subtitle": "Assessment"
+    },
+    "plan": {
+      "title": "계획",
+      "subtitle": "Plan"
+    }
+  },
+  "common": {
+    "empty": "데이터가 없습니다",
+    "none": "없음",
+    "abnormal": "이상",
+    "normal": "정상"
+  },
+  "subjective": {
+    "chiefComplaint": "주호소 Chief Complaint",
+    "hpi": {
+      "title": "현병력 HPI",
+      "onset": "발병 시점",
+      "location": "부위",
+      "duration": "지속 기간",
+      "severity": "중증도",
+      "timing": "발작 빈도",
+      "context": "상황",
+      "characteristics": "특징",
+      "aggravatingFactors": "악화 요인",
+      "relievingFactors": "완화 요인",
+      "associatedSymptoms": "동반 증상"
+    },
+    "pastMedicalHistory": {
+      "title": "과거 병력",
+      "conditions": "질환",
+      "surgeries": "수술력",
+      "hospitalizations": "입원력"
+    },
+    "medicationHistory": {
+      "title": "약물 복용력",
+      "current": "현재 복용 약물",
+      "past": "과거 복용 약물",
+      "otc": "일반의약품"
+    },
+    "systemReview": {
+      "title": "계통 문진"
+    },
+    "socialHistory": {
+      "title": "사회력"
+    }
+  },
+  "objective": {
+    "vitalSigns": {
+      "title": "활력징후",
+      "labels": {
+        "bloodPressure": "혈압",
+        "heartRate": "심박수",
+        "respiratoryRate": "호흡수",
+        "temperature": "체온",
+        "spo2": "산소포화도"
+      },
+      "units": {
+        "bloodPressure": "mmHg",
+        "heartRate": "bpm",
+        "respiratoryRate": "회/분",
+        "temperature": "°C",
+        "spo2": "%"
+      }
+    },
+    "physicalExam": {
+      "title": "이학적 검사"
+    },
+    "labResults": {
+      "title": "검사 결과",
+      "columns": {
+        "test": "항목",
+        "result": "결과",
+        "reference": "참고치",
+        "status": "상태"
+      }
+    }
+  },
+  "assessment": {
+    "clinicalImpression": "임상 인상",
+    "differentialDiagnoses": {
+      "title": "감별진단"
+    },
+    "probability": {
+      "high": "높음",
+      "medium": "중간",
+      "low": "낮음"
+    }
+  },
+  "plan": {
+    "diagnosticReasoning": "임상 추론",
+    "recommendedTests": {
+      "title": "권장 검사"
+    },
+    "urgency": {
+      "urgent": "긴급",
+      "routine": "일반",
+      "elective": "선택"
+    },
+    "treatments": {
+      "title": "치료 처치"
+    },
+    "followUp": {
+      "title": "추적 관찰 계획",
+      "interval": "재방문 시기",
+      "reason": "추적 사유"
+    },
+    "referrals": {
+      "title": "의뢰"
+    },
+    "patientEducation": {
+      "title": "환자 교육"
+    }
+  },
+  "fieldLabels": {
+    "general": "전신 상태",
+    "urological": "비뇨기계",
+    "smoking": "흡연",
+    "alcohol": "음주",
+    "occupation": "직업",
+    "abdomen": "복부",
+    "costovertebral": "늑척추각",
+    "genitourinary": "비뇨생식기계"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "errors": {
+    "ws": {
+      "handshake_timeout": "제한 시간 내에 인증 메시지를 받지 못해 연결이 종료되었습니다",
+      "handshake_read_failed": "인증 메시지를 읽어오지 못했습니다",
+      "handshake_invalid_json": "인증 메시지 형식이 올바르지 않습니다 (유효한 JSON이 아님)",
+      "handshake_invalid_shape": "인증 메시지 형식이 올바르지 않습니다",
+      "handshake_wrong_type": "인증 메시지 타입이 올바르지 않습니다. type=auth여야 합니다",
+      "missing_token": "인증 메시지에 token 필드가 없습니다",
+      "invalid_token": "토큰이 유효하지 않거나 만료되었습니다",
+      "forbidden_role": "권한이 없습니다. 의사 및 관리자만 접근할 수 있습니다",
+      "session_not_found": "세션을 찾을 수 없습니다",
+      "session_wrong_status": "세션 상태가 올바르지 않아 연결할 수 없습니다",
+      "unknown_message_type": "지원하지 않는 메시지 타입입니다: {{type}}",
+      "internal_error": "서버 내부 오류가 발생했습니다. 연결이 곧 종료됩니다",
+      "invalid_audio": "오디오 데이터 형식이 올바르지 않습니다",
+      "audio_too_long": "녹음 시간이 너무 깁니다 (최대 {{maxSeconds}}초). 자동으로 종료되었습니다",
+      "invalid_audio_format": "인식할 수 없는 오디오 형식입니다. 해당 구간은 폐기되었습니다",
+      "rate_limit_exceeded": "AI 호출이 너무 잦습니다. {{retryAfter}}초 후에 다시 시도해 주세요",
+      "stt_error": "음성 인식 서비스가 일시적으로 이용할 수 없습니다",
+      "ai_service_unavailable": "AI 응답 생성에 실패했습니다. 다시 시도해 주세요"
+    }
+  },
+  "events": {
+    "session": {
+      "ws_connected": "WebSocket 연결이 수립되었습니다",
+      "resumed": "기존 대화 기록을 이어서 사용합니다",
+      "resume_failed": "기존 대화 기록을 이어서 사용할 수 없습니다 ({{reason}})",
+      "idle_timeout": "유휴 상태가 {{minutes}}분 지속되어 세션이 자동으로 종료되었습니다",
+      "ended_by_user": "환자 또는 도우미가 세션을 종료했습니다",
+      "completed_normal": "세션이 정상적으로 종료되었습니다",
+      "aborted_red_flag": "위급한 레드플래그 증상이 감지되어 세션이 중단되었습니다. 즉시 의료진의 도움을 받으세요",
+      "aborted_red_flag_dashboard": "critical 레드플래그 증상이 감지되어 세션이 중단되었습니다",
+      "red_flag_triggered": "레드플래그 경고가 발생했습니다: {{title}}"
+    }
+  }
+}

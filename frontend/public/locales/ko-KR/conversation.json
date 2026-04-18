@@ -1,0 +1,41 @@
+{
+  "title": "AI 문진",
+  "endSession": "문진 종료",
+  "loading": "대화를 불러오는 중...",
+  "onboarding": {
+    "hint": "버튼을 누르지 않아도 그냥 말씀해 주세요"
+  },
+  "status": {
+    "notStarted": "문진이 아직 시작되지 않았습니다",
+    "aiResponding": "AI가 응답하는 중...",
+    "listening": "듣고 있어요 {{duration}}",
+    "idle": "편하게 말씀해 주세요. 자동으로 듣고 있습니다",
+    "thinking": "AI가 생각하는 중...",
+    "speaking": "말하는 중"
+  },
+  "scroll": {
+    "latest": "최신 메시지",
+    "latestWithCount": "최신 메시지 ({{count}})"
+  },
+  "tts": {
+    "failed": "음성 합성에 실패했습니다",
+    "replayAria": "AI 음성 다시 재생",
+    "replayTitle": "클릭하여 음성을 다시 재생합니다"
+  },
+  "redFlag": {
+    "more": "+{{count}}건의 다른 경고"
+  },
+  "error": {
+    "loadFailed": "대화를 불러올 수 없습니다",
+    "sessionInterrupted": "문진이 중단되었습니다. 다시 시작해 주세요",
+    "aiUnavailable": "AI 서비스가 일시적으로 응답할 수 없습니다. 잠시 후 다시 시도해 주세요",
+    "disconnected": "연결이 끊어졌습니다. 다시 연결 중...",
+    "audioTooLong": "녹음 시간이 너무 길어 자동으로 종료되었습니다",
+    "micPermission": "브라우저 설정에서 마이크 권한을 허용한 뒤 페이지를 새로고침해 주세요",
+    "micNotFound": "마이크 장치를 찾을 수 없습니다. 마이크가 연결되어 있는지 확인해 주세요",
+    "micGeneric": "마이크 오류가 발생했습니다: {{message}}"
+  },
+  "mockMessages": {
+    "systemStart": "문진 시작 — 주호소: {{complaint}}"
+  }
+}
