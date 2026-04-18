@@ -19,6 +19,9 @@ export default [
       '*.config.js',
       'vite.config.ts',
       'playwright.config.ts',
+      // Node.js 輔助腳本（i18n extract check 等）—— 跑在 Node runtime，
+      // 不走瀏覽器 global 規範，也不走 React rule，這裡直接排除。
+      'scripts/**',
     ],
   },
   js.configs.recommended,
