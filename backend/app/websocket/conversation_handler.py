@@ -49,10 +49,14 @@ _SENTENCE_BOUNDARY_CHARS = "。！？\n"
 # WAV: "RIFF" + 4 bytes size + "WAVE"
 # Ogg: "OggS"
 # MP3: "ID3" or 0xFF 0xFB / 0xFF 0xF3 / 0xFF 0xF2
+# MP4/M4A: [4-byte box size] + "ftyp" — Chrome 113+/Safari 下 MediaRecorder
+#          會輸出 audio/mp4，前端已將其列為首選 MIME；backend 若不認 ftyp
+#          會把整段丟棄（errors.ws.invalid_audio_format）。Whisper 本身支援 m4a。
 _AUDIO_MAGIC_WEBM = b"\x1a\x45\xdf\xa3"
 _AUDIO_MAGIC_OGG = b"OggS"
 _AUDIO_MAGIC_WAV = b"RIFF"
 _AUDIO_MAGIC_ID3 = b"ID3"
+_AUDIO_MAGIC_MP4 = b"ftyp"
 
 
 def _has_valid_audio_magic(buf: bytes) -> bool:
@@ -70,6 +74,10 @@ def _has_valid_audio_magic(buf: bytes) -> bool:
         return True
     # MP3 frame sync: 0xFF followed by 0xFB/0xF3/0xF2/0xFA/0xF1 etc.
     if head[0] == 0xFF and (head[1] & 0xE0) == 0xE0:
+        return True
+    # MP4/M4A：ISO base media file format — 第一個 box 的 type 位於 bytes[4:8]，
+    # 值為 "ftyp"（後續 brand 可能是 isom/mp42/M4A /dash 等）。
+    if len(head) >= 8 and head[4:8] == _AUDIO_MAGIC_MP4:
         return True
     return False
 

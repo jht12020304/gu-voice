@@ -16,6 +16,30 @@ from app.core.openai_client import call_with_retry, get_openai_client
 logger = logging.getLogger(__name__)
 
 
+def _detect_audio_filename(audio_bytes: bytes) -> str:
+    """
+    依 magic bytes 推斷 Whisper 可接受的副檔名。
+
+    Whisper API 以副檔名辨別容器格式，因此 MP4/M4A 必須命名為 .m4a、
+    WebM 須 .webm、WAV 須 .wav。若誤標會 400。前端 MIME 順序偏好
+    audio/mp4（Chrome 113+/Safari 上會採用），所以 backend 必須認得 MP4。
+    """
+    if not audio_bytes or len(audio_bytes) < 4:
+        return "audio.webm"
+    head = audio_bytes[:16]
+    if head.startswith(b"\x1a\x45\xdf\xa3"):
+        return "audio.webm"
+    if head.startswith(b"OggS"):
+        return "audio.ogg"
+    if head.startswith(b"RIFF"):
+        return "audio.wav"
+    if head.startswith(b"ID3") or (head[0] == 0xFF and (head[1] & 0xE0) == 0xE0):
+        return "audio.mp3"
+    if len(head) >= 8 and head[4:8] == b"ftyp":
+        return "audio.m4a"
+    return "audio.webm"
+
+
 class STTPipeline:
     """
     OpenAI Whisper 語音辨識管線
@@ -60,10 +84,12 @@ class STTPipeline:
 
         lang = language or self._language
 
+        filename = _detect_audio_filename(audio_bytes)
+
         def _make_file() -> io.BytesIO:
             """每次重試時重建 BytesIO；原 stream 可能已被消耗。"""
             f = io.BytesIO(audio_bytes)
-            f.name = "audio.webm"
+            f.name = filename
             return f
 
         try:
