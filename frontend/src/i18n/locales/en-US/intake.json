@@ -1,0 +1,144 @@
+{
+  "selectComplaint": {
+    "title": "Select your symptom",
+    "subtitle": "Pick the chief complaint that best matches your situation",
+    "customLabel": "Additional notes (optional)",
+    "customPlaceholder": "Briefly describe your \"{{name}}\", e.g. how long, how severe…",
+    "cta": "Next: medical history",
+    "loading": "Loading symptom list...",
+    "categories": {
+      "urinarySymptoms": "Urinary symptoms",
+      "pain": "Pain",
+      "examinationAbnormalities": "Abnormal findings",
+      "other": "Other"
+    }
+  },
+  "medicalInfo": {
+    "title": "Medical history",
+    "complaintLabel": "Chief complaint: {{name}}",
+    "complaintUnset": "Not selected",
+    "stepProgress": "Step {{current}} of {{total}}",
+    "steps": {
+      "critical": "Allergies & medications",
+      "history": "History (optional)"
+    },
+    "patient": {
+      "title": "Patient information",
+      "subtitle": "Basic details for this consultation",
+      "nameLabel": "Name",
+      "namePlaceholder": "Enter your name",
+      "nameError": "Please enter your name",
+      "genderLabel": "Gender",
+      "genderMale": "Male",
+      "genderFemale": "Female",
+      "genderOther": "Other",
+      "genderError": "Please choose a gender",
+      "dobLabel": "Date of birth",
+      "dobError": "Please choose a date of birth",
+      "phoneLabel": "Phone",
+      "phoneOptional": "(optional)",
+      "phonePlaceholder": "e.g. 0912-345-678",
+      "requiredMark": "*"
+    },
+    "allergy": {
+      "title": "Allergies",
+      "subtitle": "Medication, food, or environmental allergies",
+      "noneLabel": "No known allergies",
+      "quickAddLabel": "Quick-add common allergens",
+      "placeholder": "Allergen name",
+      "hospitalized": "Hospitalized or ER visit",
+      "add": "Add allergy"
+    },
+    "medication": {
+      "title": "Current medications",
+      "subtitle": "Medicine you're currently taking (no dosage needed)",
+      "noneLabel": "No current medications",
+      "placeholder": "Medication name (e.g. blood-pressure pill)",
+      "add": "Add medication"
+    },
+    "history": {
+      "title": "Past medical history",
+      "subtitle": "Previously diagnosed conditions — skippable",
+      "noneLabel": "No significant history",
+      "quickAddLabel": "Quick-add common conditions",
+      "placeholder": "Condition (e.g. hypertension)",
+      "yearsAgoLabel": "How long ago",
+      "stillHas": "Still present",
+      "add": "Add condition"
+    },
+    "family": {
+      "title": "Family history",
+      "optional": "Optional",
+      "hint": "Any hereditary conditions in your direct family? Skip if unsure.",
+      "conditionPlaceholder": "Condition (e.g. diabetes)",
+      "add": "Add family history"
+    },
+    "summary": {
+      "title": "Review before submitting",
+      "complaint": "Complaint",
+      "allergy": "Allergies",
+      "medication": "Medications",
+      "history": "History",
+      "noKnownAllergies": "No known allergies",
+      "noCurrentMedications": "No current medications",
+      "noPastHistory": "No significant history",
+      "filled": "Entered"
+    },
+    "nav": {
+      "back": "Back",
+      "prev": "Previous",
+      "next": "Next",
+      "submit": "Start AI consultation",
+      "submitting": "Creating session…"
+    },
+    "errors": {
+      "createSession": "Couldn't create the session, please try again."
+    },
+    "yearsAgo": {
+      "within1": "Within 1 year",
+      "oneToFive": "1–5 years",
+      "overFive": "Over 5 years",
+      "unsure": "Unsure"
+    },
+    "frequency": {
+      "onceDaily": "Once daily",
+      "twiceDaily": "Twice daily",
+      "thriceDaily": "Three times daily",
+      "asNeeded": "As needed",
+      "weekly": "Weekly",
+      "other": "Other"
+    },
+    "relations": {
+      "father": "Father",
+      "mother": "Mother",
+      "brother": "Brother",
+      "sister": "Sister",
+      "paternalGrandfather": "Paternal grandfather",
+      "paternalGrandmother": "Paternal grandmother",
+      "maternalGrandfather": "Maternal grandfather",
+      "maternalGrandmother": "Maternal grandmother"
+    },
+    "commonAllergies": {
+      "penicillin": "Penicillin",
+      "aspirin": "Aspirin",
+      "nsaid": "NSAID",
+      "sulfa": "Sulfa drugs",
+      "seafood": "Seafood",
+      "peanut": "Peanut",
+      "milk": "Milk",
+      "dust": "Dust mite",
+      "pollen": "Pollen"
+    },
+    "commonConditions": {
+      "hypertension": "Hypertension",
+      "diabetes": "Diabetes",
+      "heartDisease": "Heart disease",
+      "stroke": "Stroke",
+      "kidneyDisease": "Kidney disease",
+      "gout": "Gout",
+      "bph": "BPH",
+      "urinaryStones": "Urinary stones",
+      "cancer": "Cancer"
+    }
+  }
+}

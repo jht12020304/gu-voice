@@ -1,0 +1,144 @@
+{
+  "selectComplaint": {
+    "title": "選擇您的症狀",
+    "subtitle": "請選擇最符合您目前狀況的主訴",
+    "customLabel": "補充說明（選填）",
+    "customPlaceholder": "請簡述您的「{{name}}」症狀，例如：持續多久、嚴重程度…",
+    "cta": "下一步：填寫病史",
+    "loading": "載入症狀列表...",
+    "categories": {
+      "urinarySymptoms": "排尿症狀",
+      "pain": "疼痛",
+      "examinationAbnormalities": "檢查異常",
+      "other": "其他"
+    }
+  },
+  "medicalInfo": {
+    "title": "填寫病史資料",
+    "complaintLabel": "主訴：{{name}}",
+    "complaintUnset": "未選擇",
+    "stepProgress": "步驟 {{current}} / {{total}}",
+    "steps": {
+      "critical": "過敏 & 用藥",
+      "history": "病史（選填）"
+    },
+    "patient": {
+      "title": "病患資料",
+      "subtitle": "本次問診的基本資料",
+      "nameLabel": "姓名",
+      "namePlaceholder": "請輸入姓名",
+      "nameError": "請輸入姓名",
+      "genderLabel": "性別",
+      "genderMale": "男",
+      "genderFemale": "女",
+      "genderOther": "其他",
+      "genderError": "請選擇性別",
+      "dobLabel": "出生日期",
+      "dobError": "請選擇出生日期",
+      "phoneLabel": "電話",
+      "phoneOptional": "（選填）",
+      "phonePlaceholder": "例：0912-345-678",
+      "requiredMark": "*"
+    },
+    "allergy": {
+      "title": "過敏史",
+      "subtitle": "藥物、食物或環境過敏",
+      "noneLabel": "無過敏",
+      "quickAddLabel": "快速加入常見過敏原",
+      "placeholder": "過敏原名稱",
+      "hospitalized": "曾就醫或送急診",
+      "add": "新增過敏原"
+    },
+    "medication": {
+      "title": "目前用藥",
+      "subtitle": "目前正在服用的藥物，不需填寫劑量",
+      "noneLabel": "目前未服藥",
+      "placeholder": "藥物名稱（例：血壓藥、胃藥）",
+      "add": "新增藥物"
+    },
+    "history": {
+      "title": "過去病史",
+      "subtitle": "曾診斷過的疾病，可略過此步驟",
+      "noneLabel": "無重大病史",
+      "quickAddLabel": "快速加入常見疾病",
+      "placeholder": "疾病名稱（例：高血壓）",
+      "yearsAgoLabel": "大概幾年前",
+      "stillHas": "目前還有",
+      "add": "新增病史"
+    },
+    "family": {
+      "title": "家族病史",
+      "optional": "選填",
+      "hint": "直系親屬中有無遺傳性疾病？如不清楚可略過。",
+      "conditionPlaceholder": "疾病（例：糖尿病）",
+      "add": "新增家族病史"
+    },
+    "summary": {
+      "title": "確認送出的資料",
+      "complaint": "主訴",
+      "allergy": "過敏",
+      "medication": "用藥",
+      "history": "病史",
+      "noKnownAllergies": "無已知過敏",
+      "noCurrentMedications": "目前未服藥",
+      "noPastHistory": "無重大病史",
+      "filled": "已填寫"
+    },
+    "nav": {
+      "back": "返回",
+      "prev": "上一步",
+      "next": "下一步",
+      "submit": "開始 AI 問診",
+      "submitting": "建立問診中…"
+    },
+    "errors": {
+      "createSession": "建立問診失敗，請稍後再試"
+    },
+    "yearsAgo": {
+      "within1": "1年內",
+      "oneToFive": "1–5年",
+      "overFive": "5年以上",
+      "unsure": "不確定"
+    },
+    "frequency": {
+      "onceDaily": "每日一次",
+      "twiceDaily": "每日兩次",
+      "thriceDaily": "每日三次",
+      "asNeeded": "需要時服用",
+      "weekly": "每週一次",
+      "other": "其他"
+    },
+    "relations": {
+      "father": "父親",
+      "mother": "母親",
+      "brother": "兄弟",
+      "sister": "姊妹",
+      "paternalGrandfather": "祖父",
+      "paternalGrandmother": "祖母",
+      "maternalGrandfather": "外祖父",
+      "maternalGrandmother": "外祖母"
+    },
+    "commonAllergies": {
+      "penicillin": "盤尼西林",
+      "aspirin": "Aspirin",
+      "nsaid": "NSAID",
+      "sulfa": "Sulfa 類",
+      "seafood": "海鮮",
+      "peanut": "花生",
+      "milk": "牛奶",
+      "dust": "塵蟎",
+      "pollen": "花粉"
+    },
+    "commonConditions": {
+      "hypertension": "高血壓",
+      "diabetes": "糖尿病",
+      "heartDisease": "心臟病",
+      "stroke": "中風",
+      "kidneyDisease": "腎臟病",
+      "gout": "痛風",
+      "bph": "攝護腺肥大",
+      "urinaryStones": "泌尿道結石",
+      "cancer": "癌症"
+    }
+  }
+}

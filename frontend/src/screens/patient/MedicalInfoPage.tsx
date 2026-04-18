@@ -1,9 +1,17 @@
 // =============================================================================
 // 病史資料填寫頁 — 過敏史、目前用藥、過去病史、家族史（簡化版）
 // 選擇主訴後、進入問診對話前的資料收集
+//
+// 多語策略：
+// - UI 字串、選項 label：走 `useTranslation('intake').medicalInfo.*`
+// - 常數清單（relation / yearsAgo / frequency / commonAllergies / commonConditions）
+//   以穩定 key 儲存、送出時用 `optionLabel(key)` 翻成當下語言
+// - 送 API 時仍以 t() 結果為字串值（兼容後端舊 schema）；後端完成 intake
+//   多語化後可改傳 key
 // =============================================================================
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import * as sessionsApi from '../../services/api/sessions';
@@ -19,37 +27,37 @@ interface AllergyItem {
 
 interface MedicalHistoryItem {
   condition: string;
-  yearsAgo: string;
+  yearsAgo: string; // 存成 key（within1 / oneToFive / ...）
   stillHas: boolean;
 }
 
 interface MedicationItem {
   name: string;
-  frequency: string;
+  frequency: string; // 存成 key（onceDaily / ...）
 }
 
 interface FamilyHistoryItem {
-  relation: string;
+  relation: string; // 存成 key（father / mother / ...）
   condition: string;
 }
 
-// ── 常量 ──
+// ── 常量（以 key 儲存；label 走 t() 翻譯） ──
 
-const yearsAgoOptions = ['1年內', '1–5年', '5年以上', '不確定'];
-const frequencyOptions = ['每日一次', '每日兩次', '每日三次', '需要時服用', '每週一次', '其他'];
-const familyRelations = ['父親', '母親', '兄弟', '姊妹', '祖父', '祖母', '外祖父', '外祖母'];
-
-const commonAllergies = ['盤尼西林', 'Aspirin', 'NSAID', 'Sulfa 類', '海鮮', '花生', '牛奶', '塵蟎', '花粉'];
-const commonConditions = ['高血壓', '糖尿病', '心臟病', '中風', '腎臟病', '痛風', '攝護腺肥大', '泌尿道結石', '癌症'];
-
-// ── 步驟 ──
-
-type Step = 'critical' | 'history';
-
-const steps: { key: Step; label: string }[] = [
-  { key: 'critical', label: '過敏 & 用藥' },
-  { key: 'history', label: '病史（選填）' },
-];
+const YEARS_AGO_KEYS = ['within1', 'oneToFive', 'overFive', 'unsure'] as const;
+const FREQUENCY_KEYS = ['onceDaily', 'twiceDaily', 'thriceDaily', 'asNeeded', 'weekly', 'other'] as const;
+const FAMILY_RELATION_KEYS = [
+  'father', 'mother', 'brother', 'sister',
+  'paternalGrandfather', 'paternalGrandmother',
+  'maternalGrandfather', 'maternalGrandmother',
+] as const;
+const COMMON_ALLERGY_KEYS = [
+  'penicillin', 'aspirin', 'nsaid', 'sulfa',
+  'seafood', 'peanut', 'milk', 'dust', 'pollen',
+] as const;
+const COMMON_CONDITION_KEYS = [
+  'hypertension', 'diabetes', 'heartDisease', 'stroke',
+  'kidneyDisease', 'gout', 'bph', 'urinaryStones', 'cancer',
+] as const;
 
 // ── 輔助元件 ──
 
@@ -103,14 +111,21 @@ function RemoveButton({ onClick }: { onClick: () => void }) {
 // ── 主元件 ──
 
 type Gender = 'male' | 'female' | 'other';
+type Step = 'critical' | 'history';
 
 export default function MedicalInfoPage() {
   const navigate = useLocalizedNavigate();
+  const { t } = useTranslation('intake');
   const [searchParams] = useSearchParams();
 
   const complaintId = searchParams.get('complaintId') || '';
   const complaintName = searchParams.get('complaintName') || '';
   const complaintText = searchParams.get('complaintText') || '';
+
+  const steps: { key: Step; label: string }[] = [
+    { key: 'critical', label: t('medicalInfo.steps.critical') },
+    { key: 'history', label: t('medicalInfo.steps.history') },
+  ];
 
   const [currentStep, setCurrentStep] = useState<Step>('critical');
   const [isCreating, setIsCreating] = useState(false);
@@ -142,18 +157,18 @@ export default function MedicalInfoPage() {
   const updateAllergy = (i: number, field: keyof AllergyItem, value: string | boolean) =>
     setAllergies(allergies.map((a, idx) => (idx === i ? { ...a, [field]: value } : a)));
 
-  const addMedication = () => setMedications([...medications, { name: '', frequency: '每日一次' }]);
+  const addMedication = () => setMedications([...medications, { name: '', frequency: 'onceDaily' }]);
   const removeMedication = (i: number) => setMedications(medications.filter((_, idx) => idx !== i));
   const updateMedication = (i: number, field: keyof MedicationItem, value: string) =>
     setMedications(medications.map((m, idx) => (idx === i ? { ...m, [field]: value } : m)));
 
   const addHistory = (name?: string) =>
-    setHistory([...history, { condition: name || '', yearsAgo: '不確定', stillHas: true }]);
+    setHistory([...history, { condition: name || '', yearsAgo: 'unsure', stillHas: true }]);
   const removeHistory = (i: number) => setHistory(history.filter((_, idx) => idx !== i));
   const updateHistory = (i: number, field: keyof MedicalHistoryItem, value: string | boolean) =>
     setHistory(history.map((h, idx) => (idx === i ? { ...h, [field]: value } : h)));
 
-  const addFamily = () => setFamilyHistory([...familyHistory, { relation: '父親', condition: '' }]);
+  const addFamily = () => setFamilyHistory([...familyHistory, { relation: 'father', condition: '' }]);
   const removeFamily = (i: number) => setFamilyHistory(familyHistory.filter((_, idx) => idx !== i));
   const updateFamily = (i: number, field: keyof FamilyHistoryItem, value: string) =>
     setFamilyHistory(familyHistory.map((f, idx) => (idx === i ? { ...f, [field]: value } : f)));
@@ -161,9 +176,9 @@ export default function MedicalInfoPage() {
   // ── 驗證 ──
   const trimmedName = patientName.trim();
   const trimmedPhone = phone.trim();
-  const nameError = !trimmedName ? '請輸入姓名' : null;
-  const genderError = !gender ? '請選擇性別' : null;
-  const dobError = !dateOfBirth ? '請選擇出生日期' : null;
+  const nameError = !trimmedName ? t('medicalInfo.patient.nameError') : null;
+  const genderError = !gender ? t('medicalInfo.patient.genderError') : null;
+  const dobError = !dateOfBirth ? t('medicalInfo.patient.dobError') : null;
   const identityValid = !nameError && !genderError && !dobError;
 
   const handleNext = () => {
@@ -174,6 +189,10 @@ export default function MedicalInfoPage() {
     setShowFieldErrors(false);
     setCurrentStep('history');
   };
+
+  // 常用過敏原 / 疾病的 quick-add：translate 後回傳 label 清單
+  const commonAllergyLabels = COMMON_ALLERGY_KEYS.map((k) => t(`medicalInfo.commonAllergies.${k}`));
+  const commonConditionLabels = COMMON_CONDITION_KEYS.map((k) => t(`medicalInfo.commonConditions.${k}`));
 
   // ── 送出 ──
   const handleSubmit = async () => {
@@ -209,7 +228,7 @@ export default function MedicalInfoPage() {
                 .filter((item) => item.allergen.trim())
                 .map((item) => ({
                   allergen: item.allergen.trim(),
-                  reaction: item.hadHospitalization ? '曾就醫或急診' : undefined,
+                  reaction: item.hadHospitalization ? t('medicalInfo.allergy.hospitalized') : undefined,
                   severity: item.hadHospitalization ? 'severe' : undefined,
                   hadHospitalization: item.hadHospitalization,
                 })),
@@ -220,7 +239,7 @@ export default function MedicalInfoPage() {
                 .filter((item) => item.name.trim())
                 .map((item) => ({
                   name: item.name.trim(),
-                  frequency: item.frequency,
+                  frequency: t(`medicalInfo.frequency.${item.frequency}`),
                 })),
           noPastMedicalHistory: noHistory,
           medicalHistory: noHistory
@@ -229,20 +248,20 @@ export default function MedicalInfoPage() {
                 .filter((item) => item.condition.trim())
                 .map((item) => ({
                   condition: item.condition.trim(),
-                  yearsAgo: item.yearsAgo,
+                  yearsAgo: t(`medicalInfo.yearsAgo.${item.yearsAgo}`),
                   stillHas: item.stillHas,
                 })),
           familyHistory: familyHistory
             .filter((item) => item.condition.trim())
             .map((item) => ({
-              relation: item.relation,
+              relation: t(`medicalInfo.relations.${item.relation}`),
               condition: item.condition.trim(),
             })),
         },
       });
       navigate(`/conversation/${session.id}`);
     } catch {
-      setError('建立問診失敗，請稍後再試');
+      setError(t('medicalInfo.errors.createSession'));
       setIsCreating(false);
     }
   };
@@ -261,8 +280,12 @@ export default function MedicalInfoPage() {
           </svg>
         </button>
         <div className="flex-1">
-          <h1 className="text-h2 font-semibold tracking-tight text-ink-heading dark:text-white">填寫病史資料</h1>
-          <p className="mt-0.5 text-small text-ink-muted dark:text-white/50">主訴：{complaintName || '未選擇'}</p>
+          <h1 className="text-h2 font-semibold tracking-tight text-ink-heading dark:text-white">
+            {t('medicalInfo.title')}
+          </h1>
+          <p className="mt-0.5 text-small text-ink-muted dark:text-white/50">
+            {t('medicalInfo.complaintLabel', { name: complaintName || t('medicalInfo.complaintUnset') })}
+          </p>
         </div>
       </div>
 
@@ -270,7 +293,7 @@ export default function MedicalInfoPage() {
       <div className="mb-6">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-tiny text-ink-muted dark:text-white/40">
-            步驟 {stepIndex + 1} / {steps.length}
+            {t('medicalInfo.stepProgress', { current: stepIndex + 1, total: steps.length })}
           </p>
           <p className="text-small font-medium text-ink-secondary dark:text-white/60">
             {steps[stepIndex].label}
@@ -293,20 +316,24 @@ export default function MedicalInfoPage() {
           {/* 基本資料 */}
           <div className="rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
             <div className="px-5 py-4 border-b border-edge/60 dark:border-dark-border">
-              <h2 className="text-body font-semibold text-ink-heading dark:text-white">病患資料</h2>
-              <p className="mt-0.5 text-tiny text-ink-muted dark:text-white/40">本次問診的基本資料</p>
+              <h2 className="text-body font-semibold text-ink-heading dark:text-white">
+                {t('medicalInfo.patient.title')}
+              </h2>
+              <p className="mt-0.5 text-tiny text-ink-muted dark:text-white/40">
+                {t('medicalInfo.patient.subtitle')}
+              </p>
             </div>
             <div className="px-5 py-4 space-y-4">
               {/* 姓名 */}
               <div>
                 <label className="mb-1.5 block text-small font-medium text-ink-secondary dark:text-white/70">
-                  姓名 <span className="text-red-500">*</span>
+                  {t('medicalInfo.patient.nameLabel')} <span className="text-red-500">{t('medicalInfo.patient.requiredMark')}</span>
                 </label>
                 <input
                   className="input-base w-full"
                   type="text"
                   maxLength={100}
-                  placeholder="請輸入姓名"
+                  placeholder={t('medicalInfo.patient.namePlaceholder')}
                   value={patientName}
                   onChange={(e) => setPatientName(e.target.value)}
                 />
@@ -318,13 +345,13 @@ export default function MedicalInfoPage() {
               {/* 性別 */}
               <div>
                 <label className="mb-1.5 block text-small font-medium text-ink-secondary dark:text-white/70">
-                  性別 <span className="text-red-500">*</span>
+                  {t('medicalInfo.patient.genderLabel')} <span className="text-red-500">{t('medicalInfo.patient.requiredMark')}</span>
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {([
-                    { value: 'male', label: '男' },
-                    { value: 'female', label: '女' },
-                    { value: 'other', label: '其他' },
+                    { value: 'male', label: t('medicalInfo.patient.genderMale') },
+                    { value: 'female', label: t('medicalInfo.patient.genderFemale') },
+                    { value: 'other', label: t('medicalInfo.patient.genderOther') },
                   ] as { value: Gender; label: string }[]).map((opt) => (
                     <label
                       key={opt.value}
@@ -354,7 +381,7 @@ export default function MedicalInfoPage() {
               {/* 出生日期 */}
               <div>
                 <label className="mb-1.5 block text-small font-medium text-ink-secondary dark:text-white/70">
-                  出生日期 <span className="text-red-500">*</span>
+                  {t('medicalInfo.patient.dobLabel')} <span className="text-red-500">{t('medicalInfo.patient.requiredMark')}</span>
                 </label>
                 <input
                   className="input-base w-full"
@@ -370,13 +397,13 @@ export default function MedicalInfoPage() {
               {/* 電話 */}
               <div>
                 <label className="mb-1.5 block text-small font-medium text-ink-secondary dark:text-white/70">
-                  電話 <span className="text-ink-placeholder">（選填）</span>
+                  {t('medicalInfo.patient.phoneLabel')} <span className="text-ink-placeholder">{t('medicalInfo.patient.phoneOptional')}</span>
                 </label>
                 <input
                   className="input-base w-full"
                   type="tel"
                   maxLength={20}
-                  placeholder="例：0912-345-678"
+                  placeholder={t('medicalInfo.patient.phonePlaceholder')}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                 />
@@ -388,8 +415,12 @@ export default function MedicalInfoPage() {
           <div className="rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
             <div className="flex items-center justify-between px-5 py-4 border-b border-edge/60 dark:border-dark-border">
               <div>
-                <h2 className="text-body font-semibold text-ink-heading dark:text-white">過敏史</h2>
-                <p className="mt-0.5 text-tiny text-ink-muted dark:text-white/40">藥物、食物或環境過敏</p>
+                <h2 className="text-body font-semibold text-ink-heading dark:text-white">
+                  {t('medicalInfo.allergy.title')}
+                </h2>
+                <p className="mt-0.5 text-tiny text-ink-muted dark:text-white/40">
+                  {t('medicalInfo.allergy.subtitle')}
+                </p>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -398,16 +429,16 @@ export default function MedicalInfoPage() {
                   onChange={(e) => { setNoAllergies(e.target.checked); if (e.target.checked) setAllergies([]); }}
                   className="h-4 w-4 rounded border-edge text-primary-600 focus:ring-primary-500"
                 />
-                <span className="text-small text-ink-secondary dark:text-white/60">無過敏</span>
+                <span className="text-small text-ink-secondary dark:text-white/60">{t('medicalInfo.allergy.noneLabel')}</span>
               </label>
             </div>
 
             {!noAllergies && (
               <div className="px-5 py-4 space-y-3">
                 <div>
-                  <p className="mb-2 text-tiny text-ink-muted dark:text-white/40">快速加入常見過敏原</p>
+                  <p className="mb-2 text-tiny text-ink-muted dark:text-white/40">{t('medicalInfo.allergy.quickAddLabel')}</p>
                   <QuickAddChips
-                    items={commonAllergies.filter((a) => !allergies.some((al) => al.allergen === a))}
+                    items={commonAllergyLabels.filter((a) => !allergies.some((al) => al.allergen === a))}
                     onAdd={(item) => addAllergy(item)}
                   />
                 </div>
@@ -418,7 +449,7 @@ export default function MedicalInfoPage() {
                       <div key={i} className="flex items-center gap-3 rounded-card border border-edge/60 bg-surface-secondary/40 px-4 py-3 dark:border-dark-border dark:bg-dark-surface/40">
                         <input
                           className="input-base flex-1"
-                          placeholder="過敏原名稱"
+                          placeholder={t('medicalInfo.allergy.placeholder')}
                           value={allergy.allergen}
                           onChange={(e) => updateAllergy(i, 'allergen', e.target.value)}
                         />
@@ -429,7 +460,7 @@ export default function MedicalInfoPage() {
                             onChange={(e) => updateAllergy(i, 'hadHospitalization', e.target.checked)}
                             className="h-4 w-4 rounded border-edge text-red-500 focus:ring-red-400"
                           />
-                          <span className="text-small text-ink-secondary dark:text-white/60">曾就醫或送急診</span>
+                          <span className="text-small text-ink-secondary dark:text-white/60">{t('medicalInfo.allergy.hospitalized')}</span>
                         </label>
                         <RemoveButton onClick={() => removeAllergy(i)} />
                       </div>
@@ -437,7 +468,7 @@ export default function MedicalInfoPage() {
                   </div>
                 )}
 
-                <AddButton onClick={() => addAllergy()} label="新增過敏原" />
+                <AddButton onClick={() => addAllergy()} label={t('medicalInfo.allergy.add')} />
               </div>
             )}
           </div>
@@ -446,8 +477,12 @@ export default function MedicalInfoPage() {
           <div className="rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
             <div className="flex items-center justify-between px-5 py-4 border-b border-edge/60 dark:border-dark-border">
               <div>
-                <h2 className="text-body font-semibold text-ink-heading dark:text-white">目前用藥</h2>
-                <p className="mt-0.5 text-tiny text-ink-muted dark:text-white/40">目前正在服用的藥物，不需填寫劑量</p>
+                <h2 className="text-body font-semibold text-ink-heading dark:text-white">
+                  {t('medicalInfo.medication.title')}
+                </h2>
+                <p className="mt-0.5 text-tiny text-ink-muted dark:text-white/40">
+                  {t('medicalInfo.medication.subtitle')}
+                </p>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -456,7 +491,7 @@ export default function MedicalInfoPage() {
                   onChange={(e) => { setNoMedications(e.target.checked); if (e.target.checked) setMedications([]); }}
                   className="h-4 w-4 rounded border-edge text-primary-600 focus:ring-primary-500"
                 />
-                <span className="text-small text-ink-secondary dark:text-white/60">目前未服藥</span>
+                <span className="text-small text-ink-secondary dark:text-white/60">{t('medicalInfo.medication.noneLabel')}</span>
               </label>
             </div>
 
@@ -468,7 +503,7 @@ export default function MedicalInfoPage() {
                       <div key={i} className="flex items-center gap-3 rounded-card border border-edge/60 bg-surface-secondary/40 px-4 py-3 dark:border-dark-border dark:bg-dark-surface/40">
                         <input
                           className="input-base flex-1"
-                          placeholder="藥物名稱（例：血壓藥、胃藥）"
+                          placeholder={t('medicalInfo.medication.placeholder')}
                           value={med.name}
                           onChange={(e) => updateMedication(i, 'name', e.target.value)}
                         />
@@ -477,8 +512,8 @@ export default function MedicalInfoPage() {
                           value={med.frequency}
                           onChange={(e) => updateMedication(i, 'frequency', e.target.value)}
                         >
-                          {frequencyOptions.map((f) => (
-                            <option key={f} value={f}>{f}</option>
+                          {FREQUENCY_KEYS.map((k) => (
+                            <option key={k} value={k}>{t(`medicalInfo.frequency.${k}`)}</option>
                           ))}
                         </select>
                         <RemoveButton onClick={() => removeMedication(i)} />
@@ -487,7 +522,7 @@ export default function MedicalInfoPage() {
                   </div>
                 )}
 
-                <AddButton onClick={addMedication} label="新增藥物" />
+                <AddButton onClick={addMedication} label={t('medicalInfo.medication.add')} />
               </div>
             )}
           </div>
@@ -504,8 +539,12 @@ export default function MedicalInfoPage() {
           <div className="rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
             <div className="flex items-center justify-between px-5 py-4 border-b border-edge/60 dark:border-dark-border">
               <div>
-                <h2 className="text-body font-semibold text-ink-heading dark:text-white">過去病史</h2>
-                <p className="mt-0.5 text-tiny text-ink-muted dark:text-white/40">曾診斷過的疾病，可略過此步驟</p>
+                <h2 className="text-body font-semibold text-ink-heading dark:text-white">
+                  {t('medicalInfo.history.title')}
+                </h2>
+                <p className="mt-0.5 text-tiny text-ink-muted dark:text-white/40">
+                  {t('medicalInfo.history.subtitle')}
+                </p>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -514,16 +553,16 @@ export default function MedicalInfoPage() {
                   onChange={(e) => { setNoHistory(e.target.checked); if (e.target.checked) setHistory([]); }}
                   className="h-4 w-4 rounded border-edge text-primary-600 focus:ring-primary-500"
                 />
-                <span className="text-small text-ink-secondary dark:text-white/60">無重大病史</span>
+                <span className="text-small text-ink-secondary dark:text-white/60">{t('medicalInfo.history.noneLabel')}</span>
               </label>
             </div>
 
             {!noHistory && (
               <div className="px-5 py-4 space-y-3">
                 <div>
-                  <p className="mb-2 text-tiny text-ink-muted dark:text-white/40">快速加入常見疾病</p>
+                  <p className="mb-2 text-tiny text-ink-muted dark:text-white/40">{t('medicalInfo.history.quickAddLabel')}</p>
                   <QuickAddChips
-                    items={commonConditions.filter((c) => !history.some((h) => h.condition === c))}
+                    items={commonConditionLabels.filter((c) => !history.some((h) => h.condition === c))}
                     onAdd={(item) => addHistory(item)}
                   />
                 </div>
@@ -536,20 +575,20 @@ export default function MedicalInfoPage() {
                           <div className="flex flex-1 flex-col gap-2">
                             <input
                               className="input-base"
-                              placeholder="疾病名稱（例：高血壓）"
+                              placeholder={t('medicalInfo.history.placeholder')}
                               value={h.condition}
                               onChange={(e) => updateHistory(i, 'condition', e.target.value)}
                             />
                             <div className="flex items-center gap-4 flex-wrap">
                               <div className="flex items-center gap-2">
-                                <span className="text-small text-ink-muted dark:text-white/40 whitespace-nowrap">大概幾年前</span>
+                                <span className="text-small text-ink-muted dark:text-white/40 whitespace-nowrap">{t('medicalInfo.history.yearsAgoLabel')}</span>
                                 <select
                                   className="input-base w-28"
                                   value={h.yearsAgo}
                                   onChange={(e) => updateHistory(i, 'yearsAgo', e.target.value)}
                                 >
-                                  {yearsAgoOptions.map((y) => (
-                                    <option key={y} value={y}>{y}</option>
+                                  {YEARS_AGO_KEYS.map((k) => (
+                                    <option key={k} value={k}>{t(`medicalInfo.yearsAgo.${k}`)}</option>
                                   ))}
                                 </select>
                               </div>
@@ -560,7 +599,7 @@ export default function MedicalInfoPage() {
                                   onChange={(e) => updateHistory(i, 'stillHas', e.target.checked)}
                                   className="h-4 w-4 rounded border-edge text-primary-600 focus:ring-primary-500"
                                 />
-                                <span className="text-small text-ink-secondary dark:text-white/60 whitespace-nowrap">目前還有</span>
+                                <span className="text-small text-ink-secondary dark:text-white/60 whitespace-nowrap">{t('medicalInfo.history.stillHas')}</span>
                               </label>
                             </div>
                           </div>
@@ -571,7 +610,7 @@ export default function MedicalInfoPage() {
                   </div>
                 )}
 
-                <AddButton onClick={() => addHistory()} label="新增病史" />
+                <AddButton onClick={() => addHistory()} label={t('medicalInfo.history.add')} />
               </div>
             )}
           </div>
@@ -584,9 +623,9 @@ export default function MedicalInfoPage() {
               onClick={() => setFamilyOpen((v) => !v)}
             >
               <div className="flex items-center gap-2.5">
-                <span className="text-body font-semibold text-ink-heading dark:text-white">家族病史</span>
+                <span className="text-body font-semibold text-ink-heading dark:text-white">{t('medicalInfo.family.title')}</span>
                 <span className="rounded-pill bg-surface-tertiary px-2 py-0.5 text-tiny text-ink-placeholder dark:bg-dark-surface dark:text-white/30">
-                  選填
+                  {t('medicalInfo.family.optional')}
                 </span>
               </div>
               <svg
@@ -600,7 +639,7 @@ export default function MedicalInfoPage() {
             <div className={`transition-all duration-200 ease-in-out overflow-hidden ${familyOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
               <div className="border-t border-edge/60 px-5 py-4 dark:border-dark-border">
                 <p className="mb-3 text-small text-ink-muted dark:text-white/40">
-                  直系親屬中有無遺傳性疾病？如不清楚可略過。
+                  {t('medicalInfo.family.hint')}
                 </p>
 
                 {familyHistory.length > 0 && (
@@ -612,13 +651,13 @@ export default function MedicalInfoPage() {
                           value={fh.relation}
                           onChange={(e) => updateFamily(i, 'relation', e.target.value)}
                         >
-                          {familyRelations.map((r) => (
-                            <option key={r} value={r}>{r}</option>
+                          {FAMILY_RELATION_KEYS.map((k) => (
+                            <option key={k} value={k}>{t(`medicalInfo.relations.${k}`)}</option>
                           ))}
                         </select>
                         <input
                           className="input-base flex-1"
-                          placeholder="疾病（例：糖尿病）"
+                          placeholder={t('medicalInfo.family.conditionPlaceholder')}
                           value={fh.condition}
                           onChange={(e) => updateFamily(i, 'condition', e.target.value)}
                         />
@@ -628,38 +667,38 @@ export default function MedicalInfoPage() {
                   </div>
                 )}
 
-                <AddButton onClick={addFamily} label="新增家族病史" />
+                <AddButton onClick={addFamily} label={t('medicalInfo.family.add')} />
               </div>
             </div>
           </div>
 
           {/* 資料摘要 */}
           <div className="rounded-panel border border-edge bg-surface-secondary/60 p-5 dark:border-dark-border dark:bg-dark-surface/40">
-            <p className="mb-3 text-tiny font-medium uppercase tracking-widest text-ink-muted dark:text-white/40">確認送出的資料</p>
+            <p className="mb-3 text-tiny font-medium uppercase tracking-widest text-ink-muted dark:text-white/40">{t('medicalInfo.summary.title')}</p>
             <div className="space-y-2">
               {[
-                { label: '主訴', value: complaintName },
+                { label: t('medicalInfo.summary.complaint'), value: complaintName },
                 {
-                  label: '過敏',
+                  label: t('medicalInfo.summary.allergy'),
                   value: noAllergies || allergies.length === 0
-                    ? '無已知過敏'
-                    : allergies.map((a) => a.allergen).filter(Boolean).join('、') || '已填寫',
+                    ? t('medicalInfo.summary.noKnownAllergies')
+                    : allergies.map((a) => a.allergen).filter(Boolean).join(' / ') || t('medicalInfo.summary.filled'),
                 },
                 {
-                  label: '用藥',
+                  label: t('medicalInfo.summary.medication'),
                   value: noMedications || medications.length === 0
-                    ? '目前未服藥'
-                    : medications.map((m) => m.name).filter(Boolean).join('、') || '已填寫',
+                    ? t('medicalInfo.summary.noCurrentMedications')
+                    : medications.map((m) => m.name).filter(Boolean).join(' / ') || t('medicalInfo.summary.filled'),
                 },
                 {
-                  label: '病史',
+                  label: t('medicalInfo.summary.history'),
                   value: noHistory || history.length === 0
-                    ? '無重大病史'
-                    : history.map((h) => h.condition).filter(Boolean).join('、') || '已填寫',
+                    ? t('medicalInfo.summary.noPastHistory')
+                    : history.map((h) => h.condition).filter(Boolean).join(' / ') || t('medicalInfo.summary.filled'),
                 },
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-start gap-3">
-                  <span className="w-10 shrink-0 text-small text-ink-muted dark:text-white/40">{label}</span>
+                  <span className="w-16 shrink-0 text-small text-ink-muted dark:text-white/40">{label}</span>
                   <span className="text-small text-ink-body dark:text-white/70">{value}</span>
                 </div>
               ))}
@@ -678,11 +717,11 @@ export default function MedicalInfoPage() {
       <div className="sticky bottom-0 mt-6 flex gap-3 border-t border-edge bg-surface-secondary/80 py-4 backdrop-blur-sm dark:border-dark-border dark:bg-dark-bg/80">
         {stepIndex > 0 ? (
           <button className="btn-secondary flex-1 py-3" onClick={() => setCurrentStep('critical')}>
-            上一步
+            {t('medicalInfo.nav.prev')}
           </button>
         ) : (
           <button className="btn-secondary flex-1 py-3" onClick={() => navigate('/patient/start')}>
-            返回
+            {t('medicalInfo.nav.back')}
           </button>
         )}
 
@@ -695,9 +734,9 @@ export default function MedicalInfoPage() {
             {isCreating ? (
               <span className="flex items-center justify-center gap-2">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                建立問診中…
+                {t('medicalInfo.nav.submitting')}
               </span>
-            ) : '開始 AI 問診'}
+            ) : t('medicalInfo.nav.submit')}
           </button>
         ) : (
           <button
@@ -705,7 +744,7 @@ export default function MedicalInfoPage() {
             onClick={handleNext}
             disabled={!identityValid}
           >
-            下一步
+            {t('medicalInfo.nav.next')}
           </button>
         )}
       </div>

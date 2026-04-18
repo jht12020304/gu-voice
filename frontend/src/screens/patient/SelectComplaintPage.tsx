@@ -1,8 +1,16 @@
 // =============================================================================
 // 選擇主訴頁 — 病患選擇症狀後進入病史填寫
+//
+// 多語策略：
+// - 頁面 UI 字串：`useTranslation('intake').selectComplaint.*`
+// - 主訴 name / description / category：由後端 `pick()` 依 Accept-Language
+//   回傳已 resolve 的字串，前端直接顯示不再 key map
+// - 類別顯示：用 `selectComplaint.categories.*`，若後端 category 不在已知
+//   清單則原樣顯示（未來可自 JSONB 直接讀 category_by_lang 以取消此映射）
 // =============================================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import { useComplaintStore } from '../../stores/complaintStore';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -10,6 +18,8 @@ import type { ChiefComplaint } from '../../types';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 
+// Mock 僅供本機開發；name/nameEn/description 均以 zh-TW 起步，
+// 切英文時仍看到中文屬可接受的已知限制（真實環境走 API 的多語 resolver）。
 const mockComplaints: ChiefComplaint[] = [
   { id: 'cc1', name: '血尿', nameEn: 'Hematuria', description: '尿液中帶血或呈紅色', category: '排尿症狀', isDefault: true, isActive: true, displayOrder: 1, createdAt: '', updatedAt: '' },
   { id: 'cc2', name: '頻尿', nameEn: 'Frequent Urination', description: '排尿次數異常增多', category: '排尿症狀', isDefault: true, isActive: true, displayOrder: 2, createdAt: '', updatedAt: '' },
@@ -23,6 +33,15 @@ const mockComplaints: ChiefComplaint[] = [
   { id: 'cc10', name: '尿液檢查異常', nameEn: 'Abnormal Urinalysis', description: '尿液常規檢查發現異常', category: '檢查異常', isDefault: false, isActive: true, displayOrder: 10, createdAt: '', updatedAt: '' },
 ];
 
+// zh-TW → intake.selectComplaint.categories.* 的 key 映射（後端未來會直接回
+// category_by_lang，這張表只在過渡期用於把既有 zh-TW category 字串翻譯成顯示字）。
+const CATEGORY_I18N_KEY: Record<string, string> = {
+  '排尿症狀': 'urinarySymptoms',
+  '疼痛': 'pain',
+  '檢查異常': 'examinationAbnormalities',
+  '其他': 'other',
+};
+
 function groupByCategory(complaints: ChiefComplaint[]): Record<string, ChiefComplaint[]> {
   return complaints.reduce<Record<string, ChiefComplaint[]>>((acc, c) => {
     if (!acc[c.category]) acc[c.category] = [];
@@ -33,6 +52,7 @@ function groupByCategory(complaints: ChiefComplaint[]): Record<string, ChiefComp
 
 export default function SelectComplaintPage() {
   const navigate = useLocalizedNavigate();
+  const { t } = useTranslation('intake');
   const { complaints, isLoading: storeLoading, fetchComplaints } = useComplaintStore();
   const [selected, setSelected] = useState<ChiefComplaint | null>(null);
   const [customText, setCustomText] = useState('');
@@ -46,7 +66,12 @@ export default function SelectComplaintPage() {
     }
   }, [fetchComplaints]);
 
-  const grouped = groupByCategory(displayComplaints);
+  const grouped = useMemo(() => groupByCategory(displayComplaints), [displayComplaints]);
+
+  const localizedCategory = (raw: string) => {
+    const key = CATEGORY_I18N_KEY[raw];
+    return key ? t(`selectComplaint.categories.${key}`) : raw;
+  };
 
   const handleStart = () => {
     if (!selected) return;
@@ -58,7 +83,7 @@ export default function SelectComplaintPage() {
     navigate(`/patient/medical-info?${params.toString()}`);
   };
 
-  if (isLoading) return <LoadingSpinner fullPage message="載入症狀列表..." />;
+  if (isLoading) return <LoadingSpinner fullPage message={t('selectComplaint.loading')} />;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8 animate-fade-in">
@@ -74,8 +99,12 @@ export default function SelectComplaintPage() {
           </svg>
         </button>
         <div>
-          <h1 className="text-h2 font-semibold tracking-tight text-ink-heading dark:text-white">選擇您的症狀</h1>
-          <p className="mt-0.5 text-body text-ink-muted dark:text-white/50">請選擇最符合您目前狀況的主訴</p>
+          <h1 className="text-h2 font-semibold tracking-tight text-ink-heading dark:text-white">
+            {t('selectComplaint.title')}
+          </h1>
+          <p className="mt-0.5 text-body text-ink-muted dark:text-white/50">
+            {t('selectComplaint.subtitle')}
+          </p>
         </div>
       </div>
 
@@ -85,7 +114,7 @@ export default function SelectComplaintPage() {
           <div key={category}>
             {/* 分類標題 — 純文字，無圖示 */}
             <h2 className="mb-3 text-tiny font-medium uppercase tracking-widest text-ink-muted dark:text-white/40">
-              {category}
+              {localizedCategory(category)}
             </h2>
 
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -130,12 +159,12 @@ export default function SelectComplaintPage() {
       {selected && (
         <div className="mt-8 animate-fade-in">
           <label className="mb-1.5 block text-small font-medium text-ink-secondary dark:text-white/60">
-            補充說明（選填）
+            {t('selectComplaint.customLabel')}
           </label>
           <textarea
             value={customText}
             onChange={(e) => setCustomText(e.target.value)}
-            placeholder={`請簡述您的「${selected.name}」症狀，例如：持續多久、嚴重程度…`}
+            placeholder={t('selectComplaint.customPlaceholder', { name: selected.name })}
             className="input-base min-h-[80px] resize-y"
             rows={3}
           />
@@ -149,7 +178,7 @@ export default function SelectComplaintPage() {
           disabled={!selected}
           onClick={handleStart}
         >
-          下一步：填寫病史
+          {t('selectComplaint.cta')}
         </button>
       </div>
     </div>
