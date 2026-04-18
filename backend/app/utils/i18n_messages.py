@@ -327,6 +327,41 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ko-KR": "정중한 한국어로 환자와 소통하세요",
         "vi-VN": "Giao tiếp với bệnh nhân bằng tiếng Việt trang trọng",
     },
+    # 問診 prompt 中「偵測到紅旗時要提醒就醫」的規則；以前硬寫中文警示語
+    # 導致英文場次也會照抄「請不要等待」。改成指令形式，讓 LLM 用當下輸出語言組句。
+    "llm.conversation_red_flag_alert_rule": {
+        "zh-TW": (
+            "若偵測紅旗，請在該次回覆結尾以繁體中文加上一句提醒病患儘速就醫的警示"
+            "（語氣自然，不要照抄固定範本）。"
+        ),
+        "en-US": (
+            "If a red-flag symptom is detected, append a short warning at the end "
+            "of your reply, in US English, urging the patient to seek medical "
+            "attention as soon as possible (natural phrasing; do not copy a fixed template)."
+        ),
+        "ja-JP": (
+            "レッドフラッグ症状を検知した場合は、返答の末尾に自然な日本語で"
+            "速やかに受診するよう促す一文を添えてください（定型文を丸写ししないこと）。"
+        ),
+        "ko-KR": (
+            "레드 플래그 증상이 감지되면, 답변 끝에 자연스러운 한국어로 신속한 진료를 "
+            "권유하는 문장을 덧붙이세요(정형 문장을 그대로 베끼지 마세요)."
+        ),
+        "vi-VN": (
+            "Nếu phát hiện triệu chứng cờ đỏ, hãy bổ sung ở cuối câu trả lời một câu "
+            "bằng tiếng Việt nhắc bệnh nhân đi khám càng sớm càng tốt "
+            "(giọng tự nhiên, không sao chép mẫu cố định)."
+        ),
+    },
+    # Conversation handler format_messages 注入 Supervisor 指導時的區段標題。
+    # 放 system prompt 內部不直接給病患看，但避免中文標題被 LLM 誤當輸出語言的訊號。
+    "llm.supervisor_guidance_section": {
+        "zh-TW": "## 👨‍⚕️ 來自資深醫師的即時指導（請優先執行）",
+        "en-US": "## 👨‍⚕️ Realtime guidance from the senior supervising physician (top priority)",
+        "ja-JP": "## 👨‍⚕️ 上級指導医からのリアルタイム指導（最優先）",
+        "ko-KR": "## 👨‍⚕️ 선임 지도 전문의의 실시간 지도(최우선)",
+        "vi-VN": "## 👨‍⚕️ Hướng dẫn thời gian thực từ bác sĩ giám sát cấp cao (ưu tiên cao nhất)",
+    },
     # 問診 system prompt 尾段的強制輸出語言區段，配合 conversation_language_rule 使用。
     "llm.conversation_output_language_rule": {
         "zh-TW": (

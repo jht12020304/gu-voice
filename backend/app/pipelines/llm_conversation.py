@@ -82,33 +82,49 @@ class LLMConversationEngine:
         output_language_rule = _i18n_get(
             "llm.conversation_output_language_rule", language
         )
+        red_flag_alert_rule = _i18n_get(
+            "llm.conversation_red_flag_alert_rule", language
+        )
         # 組合病患資訊摘要
+        # 標籤與性別採英文內部碼（Name / Age / Gender / male / female），
+        # 避免 zh-TW 標籤在 en-US session 被 LLM 照抄（「性別：male」）。
         patient_summary_parts: list[str] = []
         if patient_info.get("name"):
-            patient_summary_parts.append(f"姓名：{patient_info['name']}")
+            patient_summary_parts.append(f"Name: {patient_info['name']}")
         if patient_info.get("age"):
-            patient_summary_parts.append(f"年齡：{patient_info['age']} 歲")
+            patient_summary_parts.append(f"Age: {patient_info['age']}")
         if patient_info.get("gender"):
-            gender_map = {"male": "男性", "female": "女性", "other": "其他"}
-            patient_summary_parts.append(
-                f"性別：{gender_map.get(patient_info['gender'], patient_info['gender'])}"
-            )
+            patient_summary_parts.append(f"Gender: {patient_info['gender']}")
         if patient_info.get("medical_history"):
-            patient_summary_parts.append(f"過去病史：{patient_info['medical_history']}")
+            patient_summary_parts.append(
+                f"Past medical history: {patient_info['medical_history']}"
+            )
         if patient_info.get("medications"):
-            patient_summary_parts.append(f"目前用藥：{patient_info['medications']}")
+            patient_summary_parts.append(
+                f"Current medications: {patient_info['medications']}"
+            )
         if patient_info.get("allergies"):
-            patient_summary_parts.append(f"過敏史：{patient_info['allergies']}")
+            patient_summary_parts.append(f"Allergies: {patient_info['allergies']}")
         if patient_info.get("family_history"):
-            patient_summary_parts.append(f"家族病史：{patient_info['family_history']}")
+            patient_summary_parts.append(
+                f"Family history: {patient_info['family_history']}"
+            )
 
-        patient_section = "\n".join(patient_summary_parts) if patient_summary_parts else "（尚未提供詳細資訊）"
+        patient_section = (
+            "\n".join(patient_summary_parts)
+            if patient_summary_parts
+            else "(not provided)"
+        )
         # HPI 10 欄框架與主訴相關紅旗都從 shared.py 單一來源渲染,
         # 與 SOAP hpi schema、red_flag detector 知識庫對齊(P1-D、P2-E)。
         hpi_section = render_hpi_checklist()
         red_flags_section = render_red_flags_for_conversation(chief_complaint)
 
-        system_prompt = f"""你是一位專業的泌尿科 AI 問診助手，負責協助進行初步問診。
+        # 把「輸出語言」規則放在最前面 — LLM 對 prompt 開頭權重最高,
+        # 尾段的規則容易被中間大量中文內容稀釋,造成 en-US 場次偶發以中文回覆。
+        system_prompt = f"""{output_language_rule.lstrip()}
+
+你是一位專業的泌尿科 AI 問診助手，負責協助進行初步問診。
 
 ## 角色定位
 - 你是泌尿科門診的 AI 問診助手
@@ -143,7 +159,7 @@ class LLMConversationEngine:
 - 適時表達關心與同理心（例如「我了解這對您來說很不舒服」）
 - 不做診斷或治療建議，僅進行症狀收集
 - 每次回覆最多 2 句話，請保持簡潔明瞭
-- 若偵測紅旗，在句尾加上：「這個症狀需要盡速就醫，請不要等待。」
+- {red_flag_alert_rule}
 
 {SINGLE_QUESTION_RULE}
 
@@ -154,15 +170,24 @@ class LLMConversationEngine:
 若偵測到紅旗症狀，請在回覆中明確提醒病患盡速就醫。
 
 ## 回覆格式
-- 使用自然、口語化的語言（語言依下方輸出語言規定）
+- 使用自然、口語化的語言（語言依本文件最開頭的「輸出語言」規定）
 - 每次回覆簡潔明瞭，通常 1-3 句話
 - 不使用 markdown 格式（不加粗、不用清單）或特殊符號
-- 不說「好的」「了解」等空洞開場白，直接進入問題{output_language_rule}"""
+- 不說「好的」「了解」等空洞開場白，直接進入問題
+
+## 最後重申（硬性規定）
+- 本 prompt 中的中文段落都是**內部指引**,你**不得**把其中任何中文詞彙、標題、
+  標籤或例句照抄到給病患的回覆中。
+- 你的回覆必須 100% 採用本文件最開頭「輸出語言」指定的語言。"""
 
         return system_prompt
 
     def format_messages(
-        self, history: list[dict[str, Any]], system_prompt: str, supervisor_guidance: dict[str, Any] | None = None
+        self,
+        history: list[dict[str, Any]],
+        system_prompt: str,
+        supervisor_guidance: dict[str, Any] | None = None,
+        language: str | None = None,
     ) -> list[dict[str, str]]:
         """
         將對話歷史格式化為 OpenAI Chat Completions API 的訊息格式
@@ -171,6 +196,7 @@ class LLMConversationEngine:
             history: 對話歷史列表，每筆包含 role 和 content
             system_prompt: 系統提示詞
             supervisor_guidance: 來自 Supervisor 的動態指導
+            language: 場次語言（BCP-47），用來選擇 Supervisor 指導段的區段標題。
 
         Returns:
             格式化後的訊息列表
@@ -180,7 +206,10 @@ class LLMConversationEngine:
         if supervisor_guidance:
             next_focus = supervisor_guidance.get("next_focus", "")
             if next_focus:
-                final_system_prompt += f"\n\n## 👨‍⚕️ 來自資深醫師的即時指導（請優先執行）\n{next_focus}"
+                section_title = _i18n_get(
+                    "llm.supervisor_guidance_section", language
+                )
+                final_system_prompt += f"\n\n{section_title}\n{next_focus}"
 
         messages: list[dict[str, str]] = [
             {"role": "system", "content": final_system_prompt}

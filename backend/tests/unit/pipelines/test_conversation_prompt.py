@@ -74,7 +74,14 @@ def test_prompt_no_longer_has_hardcoded_red_flags_dict():
 
 
 def test_prompt_patient_info_is_rendered():
-    """patient_info 的年齡性別應出現在 prompt 中。"""
+    """patient_info 的年齡性別應出現在 prompt 中。
+
+    注意：改用 locale-neutral 標籤（Name / Age / Gender + male/female 原字）避免
+    zh-TW 標籤（姓名/年齡/性別/男性）在 en-US 場次被 LLM 原樣照抄。
+    """
     prompt = _build(patient={"age": 62, "gender": "male", "name": "王先生"})
     assert "62" in prompt
-    assert "男性" in prompt
+    assert "male" in prompt
+    assert "王先生" in prompt
+    assert "Gender" in prompt
+    assert "Age" in prompt

@@ -992,7 +992,12 @@ async def _handle_text_message(
         logger.warning("讀取 Supervisor 指導失敗 | session=%s, error=%s", session_id, str(exc))
 
     # 格式化訊息並呼叫 LLM
-    messages = llm_engine.format_messages(conversation_history, system_prompt, supervisor_guidance)
+    messages = llm_engine.format_messages(
+        conversation_history,
+        system_prompt,
+        supervisor_guidance,
+        language=session_context.get("language"),
+    )
 
     # 發送 AI 回應開始
     await manager.send_to_session(
