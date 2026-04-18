@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import { useComplaintStore } from '../../stores/complaintStore';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import type { ChiefComplaint } from '../../types';
@@ -32,7 +32,7 @@ function groupByCategory(complaints: ChiefComplaint[]): Record<string, ChiefComp
 }
 
 export default function SelectComplaintPage() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const { complaints, isLoading: storeLoading, fetchComplaints } = useComplaintStore();
   const [selected, setSelected] = useState<ChiefComplaint | null>(null);
   const [customText, setCustomText] = useState('');

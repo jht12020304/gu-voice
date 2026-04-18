@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
 import type { SOAPReport, Session } from '../../types';
@@ -167,7 +167,7 @@ function countByStatus(reports: SOAPReport[], status: SOAPReport['reviewStatus']
 }
 
 export default function ReportListPage() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const { reports, isLoading: storeLoading, fetchReports } = useReportStore();
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('');
   const [summaryReports, setSummaryReports] = useState<SOAPReport[]>(IS_MOCK ? mockReports : []);

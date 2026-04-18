@@ -3,8 +3,8 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import * as sessionsApi from '../../services/api/sessions';
 import { formatDate } from '../../utils/format';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -90,7 +90,7 @@ const filters: { value: FilterStatus; label: string }[] = [
 ];
 
 export default function PatientHistoryPage() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const user = useAuthStore((s) => s.user);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);

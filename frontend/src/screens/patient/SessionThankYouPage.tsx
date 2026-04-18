@@ -4,13 +4,13 @@
 // =============================================================================
 
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocalizedNavigate } from '../../i18n/paths';
 
 /** 自動跳轉回首頁的延遲（毫秒） */
 const AUTO_REDIRECT_MS = 8000;
 
 export default function SessionThankYouPage() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
 
   useEffect(() => {
     const timer = setTimeout(() => {

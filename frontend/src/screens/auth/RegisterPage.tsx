@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Mail, Lock, User, FileText, ArrowRight } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
+import { useCurrentLng, useLocalizedNavigate } from '../../i18n/paths';
 import * as authApi from '../../services/api/auth';
 
 export default function RegisterPage() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
+  const lng = useCurrentLng();
   const hydrateFromStorage = useAuthStore((state) => state.hydrateFromStorage);
   const [formData, setFormData] = useState({
     name: '',
@@ -194,7 +196,7 @@ export default function RegisterPage() {
             <div className="text-center mt-6">
               <p className="text-surface-500 text-sm">
                 已經有帳號了嗎？{' '}
-                <Link to="/login" className="font-medium text-primary-600 hover:text-primary-500 transition-colors cursor-pointer">
+                <Link to={`/${lng}/login`} className="font-medium text-primary-600 hover:text-primary-500 transition-colors cursor-pointer">
                   立即登入
                 </Link>
               </p>

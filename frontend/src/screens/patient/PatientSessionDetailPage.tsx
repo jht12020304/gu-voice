@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, FileText, Calendar, Activity, CheckCircle2 } from 'lucide-react';
+import { useCurrentLng } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorState from '../../components/common/ErrorState';
 import type { Session, SOAPReport } from '../../types';
@@ -10,6 +11,7 @@ import { formatDate, formatDuration } from '../../utils/format';
 
 export default function PatientSessionDetailPage() {
   const { sessionId } = useParams();
+  const lng = useCurrentLng();
   const [session, setSession] = useState<Session | null>(null);
   const [report, setReport] = useState<SOAPReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -48,7 +50,7 @@ export default function PatientSessionDetailPage() {
     <div className="max-w-3xl mx-auto space-y-6 pb-20">
       <div className="flex items-center gap-4">
         <Link 
-          to="/patient/history" 
+          to={`/${lng}/patient/history`}
           className="p-2 -ml-2 rounded-xl text-surface-500 hover:bg-surface-100 transition-colors"
         >
           <ArrowLeft className="h-5 w-5" />

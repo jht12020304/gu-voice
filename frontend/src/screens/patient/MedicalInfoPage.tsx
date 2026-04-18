@@ -4,7 +4,8 @@
 // =============================================================================
 
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import * as sessionsApi from '../../services/api/sessions';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
@@ -104,7 +105,7 @@ function RemoveButton({ onClick }: { onClick: () => void }) {
 type Gender = 'male' | 'female' | 'other';
 
 export default function MedicalInfoPage() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const [searchParams] = useSearchParams();
 
   const complaintId = searchParams.get('complaintId') || '';

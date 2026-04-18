@@ -3,7 +3,8 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorState from '../../components/common/ErrorState';
 import EmptyState from '../../components/common/EmptyState';
@@ -13,7 +14,7 @@ import { formatDate, formatDuration } from '../../utils/format';
 
 export default function PatientDetailPage() {
   const { patientId } = useParams<{ patientId: string }>();
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);

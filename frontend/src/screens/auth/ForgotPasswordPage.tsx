@@ -5,9 +5,11 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { validateEmail } from '../../utils/validation';
+import { useCurrentLng } from '../../i18n/paths';
 import * as authApi from '../../services/api/auth';
 
 export default function ForgotPasswordPage() {
+  const lng = useCurrentLng();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSent, setIsSent] = useState(false);
@@ -71,7 +73,7 @@ export default function ForgotPasswordPage() {
                 並依照信件中的指示重設密碼。
               </p>
               <Link
-                to="/login"
+                to={`/${lng}/login`}
                 className="mt-6 inline-block text-caption font-medium text-primary-600 hover:text-primary-700 transition-colors"
               >
                 返回登入
@@ -114,7 +116,7 @@ export default function ForgotPasswordPage() {
               </button>
 
               <div className="text-center">
-                <Link to="/login" className="text-caption text-primary-600 hover:text-primary-700 font-medium transition-colors">
+                <Link to={`/${lng}/login`} className="text-caption text-primary-600 hover:text-primary-700 font-medium transition-colors">
                   返回登入
                 </Link>
               </div>

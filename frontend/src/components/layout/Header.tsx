@@ -3,15 +3,15 @@
 // =============================================================================
 
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
 import { useNotificationStore } from '../../stores/notificationStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import LanguageSwitcher from '../common/LanguageSwitcher';
 
 export default function Header() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const { t } = useTranslation('common');
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);

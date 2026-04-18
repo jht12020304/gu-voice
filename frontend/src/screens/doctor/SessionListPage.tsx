@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import StatusBadge from '../../components/medical/StatusBadge';
 import SearchBar from '../../components/form/SearchBar';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -33,7 +33,7 @@ const STATUS_TABS = [
 ];
 
 export default function SessionListPage() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');

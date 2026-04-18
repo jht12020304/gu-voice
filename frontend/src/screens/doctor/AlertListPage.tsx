@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import { useAlertStore } from '../../stores/alertStore';
 import AlertItem from '../../components/dashboard/AlertItem';
 import EmptyState from '../../components/common/EmptyState';
@@ -117,7 +117,7 @@ function AlertListSkeleton() {
 }
 
 export default function AlertListPage() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const {
     alerts,
     isLoading,

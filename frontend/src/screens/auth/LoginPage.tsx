@@ -6,11 +6,13 @@ import { useState, type FormEvent } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
+import { useCurrentLng } from '../../i18n/paths';
 import LanguageSwitcher from '../../components/common/LanguageSwitcher';
 
 export default function LoginPage() {
   const { t } = useTranslation('common');
   const { isAuthenticated, isLoading, error, login, clearError, user } = useAuthStore();
+  const lng = useCurrentLng();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -19,8 +21,8 @@ export default function LoginPage() {
   // 已認證則重導
   if (isAuthenticated && user) {
     const target =
-      user.role === 'patient' ? '/patient/home' : user.role === 'admin' ? '/admin/users' : '/dashboard';
-    return <Navigate to={target} replace />;
+      user.role === 'patient' ? '/patient' : user.role === 'admin' ? '/admin/users' : '/dashboard';
+    return <Navigate to={`/${lng}${target}`} replace />;
   }
 
   const handleSubmit = async (e: FormEvent) => {
@@ -124,7 +126,7 @@ export default function LoginPage() {
 
             {/* 忘記密碼 */}
             <div className="text-right">
-              <Link to="/forgot-password" className="text-caption text-primary-600 hover:text-primary-700 font-medium transition-colors">
+              <Link to={`/${lng}/forgot-password`} className="text-caption text-primary-600 hover:text-primary-700 font-medium transition-colors">
                 {t('login.forgotPassword')}
               </Link>
             </div>

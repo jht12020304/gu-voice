@@ -3,12 +3,12 @@
 // =============================================================================
 
 import { useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import { useLocalizedNavigate } from '../i18n/paths';
 
 export function useAuth() {
   const store = useAuthStore();
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
 
   // 初始化時從 localStorage 恢復認證狀態
   useEffect(() => {

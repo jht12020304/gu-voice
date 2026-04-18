@@ -3,7 +3,8 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useReportStore } from '../../stores/reportStore';
 import { formatDate } from '../../utils/format';
@@ -31,7 +32,7 @@ const mockSession: Session = {
 
 export default function SessionCompletePage() {
   const { sessionId } = useParams<{ sessionId: string }>();
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const { selectedReport, isLoading: reportLoading, fetchReportBySession } = useReportStore();
   const [session, setSession] = useState<Session | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Clock, Target, CheckCircle, Lightbulb, User } from 'lucide-react';
+import { useCurrentLng } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorState from '../../components/common/ErrorState';
 import type { RedFlagAlert, Session } from '../../types';
@@ -10,6 +11,7 @@ import { formatDate } from '../../utils/format';
 
 export default function AlertDetailPage() {
   const { alertId } = useParams();
+  const lng = useCurrentLng();
   const [alert, setAlert] = useState<RedFlagAlert | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -60,7 +62,9 @@ export default function AlertDetailPage() {
   if (!alert) return <ErrorState message="找不到警示資料" />;
 
   const patientName = session?.patient?.name ?? '未知病患';
-  const patientPath = session?.patientId ? `/patients/${session.patientId}` : '/patients';
+  const patientPath = session?.patientId
+    ? `/${lng}/patients/${session.patientId}`
+    : `/${lng}/patients`;
   const llmAnalysis =
     typeof alert.llmAnalysis === 'string'
       ? alert.llmAnalysis
@@ -71,7 +75,7 @@ export default function AlertDetailPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-10">
       <div className="flex items-center gap-4 mb-4">
-        <Link to="/alerts" className="p-2 -ml-2 rounded-xl text-surface-500 hover:bg-surface-100 transition-colors">
+        <Link to={`/${lng}/alerts`} className="p-2 -ml-2 rounded-xl text-surface-500 hover:bg-surface-100 transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <div>
@@ -178,7 +182,7 @@ export default function AlertDetailPage() {
               </div>
               <div>
                 <p className="text-xs text-surface-400 mb-1">對應 Session ID</p>
-                <Link to={`/sessions/${alert.sessionId}`} className="font-mono text-primary-600 hover:underline text-sm truncate block">
+                <Link to={`/${lng}/sessions/${alert.sessionId}`} className="font-mono text-primary-600 hover:underline text-sm truncate block">
                   {alert.sessionId}
                 </Link>
               </div>
@@ -194,7 +198,7 @@ export default function AlertDetailPage() {
               {alert.acknowledgedAt ? '已標示處理' : isSubmitting ? '處理中...' : '標示為已處理'}
             </button>
             <Link
-              to={`/sessions/${alert.sessionId}`}
+              to={`/${lng}/sessions/${alert.sessionId}`}
               className="mt-2 block w-full rounded-xl border border-surface-200 px-4 py-2.5 text-center font-medium text-surface-700 transition-colors hover:bg-surface-50"
             >
               前往場次詳情

@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
 import ErrorState from '../../components/common/ErrorState';
@@ -24,7 +24,7 @@ function getNotificationRoute(notification: {
 }
 
 export default function NotificationPage() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const {
     notifications,
     isLoading,

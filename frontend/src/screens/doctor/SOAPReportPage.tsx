@@ -3,7 +3,8 @@
 // =============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import TranscriptPanel from '../../components/medical/TranscriptPanel';
 import SOAPCard from '../../components/medical/SOAPCard';
 import StatusBadge from '../../components/medical/StatusBadge';
@@ -152,7 +153,7 @@ function HighlightList({
 
 export default function SOAPReportPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const {
     selectedReport,
     conversations,

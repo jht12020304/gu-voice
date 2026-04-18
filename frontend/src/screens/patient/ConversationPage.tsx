@@ -3,8 +3,9 @@
 // =============================================================================
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import ChatBubble from '../../components/chat/ChatBubble';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import StatusBadge from '../../components/medical/StatusBadge';
@@ -48,9 +49,9 @@ const mockConvMessages: Array<{ id: string; sessionId: string; sender: 'patient'
 ];
 
 export default function ConversationPage() {
-  const { t } = useTranslation(['conversation', 'common']);
+  const { t } = useTranslation(['conversation', 'common', 'ws']);
   const { sessionId } = useParams<{ sessionId: string }>();
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -422,23 +423,42 @@ export default function ConversationPage() {
       }
     });
 
-    // 場次狀態變更
+    // 場次狀態變更（TODO-E2：canonical code payload；code/params 渲染走 i18n）
     on('session_status', (payload) => {
       const data = payload as SessionStatusPayload;
-      if (currentSession) {
+      if (currentSession && data.status) {
         setCurrentSession({ ...currentSession, status: data.status as SessionStatus });
       }
       if (data.status === 'completed') {
         navigate(`/patient/session/${sessionId}/thank-you`, { replace: true });
       } else if (data.status === 'failed') {
         setError(t('conversation:error.sessionInterrupted'));
+      } else if (data.code) {
+        // 非最終狀態（idle_timeout / aborted_red_flag / resumed 等）用 canonical code 提示
+        setError(
+          t(data.code, {
+            ns: 'ws',
+            ...(data.params ?? {}),
+            defaultValue: t('conversation:error.sessionInterrupted'),
+          }) as string,
+        );
       }
     });
 
-    // 後端錯誤（STT_ERROR / AI_SERVICE_UNAVAILABLE / INVALID_AUDIO / ...）
+    // 後端錯誤（TODO-E2：canonical code payload）
     on('error', (payload) => {
-      const data = payload as { code?: string; message?: string };
-      setError(data.message || t('conversation:error.aiUnavailable'));
+      const data = payload as { code?: string; params?: Record<string, unknown> };
+      if (data.code) {
+        setError(
+          t(data.code, {
+            ns: 'ws',
+            ...(data.params ?? {}),
+            defaultValue: t('conversation:error.aiUnavailable'),
+          }) as string,
+        );
+      } else {
+        setError(t('conversation:error.aiUnavailable'));
+      }
       // 也解除 VAD mute，避免使用者卡在「等 AI 回應」的狀態
       unmuteVAD();
     });

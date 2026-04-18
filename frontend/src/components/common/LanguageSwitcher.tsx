@@ -6,10 +6,12 @@
 // =============================================================================
 
 import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../../i18n';
+import { buildSwitchedPath } from '../../i18n/paths';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useConversationStore } from '../../stores/conversationStore';
@@ -40,6 +42,15 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
   const user = useAuthStore((s) => s.user);
   const currentSession = useConversationStore((s) => s.currentSession);
   const resetSession = useConversationStore((s) => s.resetSession);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const syncUrlLng = (lng: SupportedLanguage) => {
+    const next = buildSwitchedPath(location.pathname, location.search, location.hash, lng);
+    if (next !== `${location.pathname}${location.search}${location.hash}`) {
+      navigate(next, { replace: true });
+    }
+  };
 
   const [open, setOpen] = useState(false);
   const [pendingLng, setPendingLng] = useState<SupportedLanguage | null>(null);
@@ -80,6 +91,7 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
 
   const applyLanguageLocally = (lng: SupportedLanguage) => {
     setLanguage(lng);
+    syncUrlLng(lng);
     toast.success(t('language.switched', { name: t(`language.names.${lng}`) }));
     persistPreference(lng);
   };
@@ -109,6 +121,7 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
       await sessionsApi.endSessionForLanguageSwitch(currentSession.id, pendingLng);
       resetSession();
       setLanguage(pendingLng);
+      syncUrlLng(pendingLng);
       persistPreference(pendingLng);
       toast.success(
         t('language.switchModal.switchedEnded', {

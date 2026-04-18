@@ -4,7 +4,7 @@
 
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
 import { useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import SearchBar from '../../components/form/SearchBar';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
@@ -73,7 +73,7 @@ function PatientMetricCard({
 }
 
 export default function PatientListPage() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const {
     patients,
     isLoading,

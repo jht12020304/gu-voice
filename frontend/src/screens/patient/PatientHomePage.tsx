@@ -3,9 +3,9 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
+import { useLocalizedNavigate } from '../../i18n/paths';
 import * as sessionsApi from '../../services/api/sessions';
 import { formatDate } from '../../utils/format';
 import type { Session } from '../../types';
@@ -54,7 +54,7 @@ const statusKeyMap: Record<string, { labelKey: string; cls: string }> = {
 };
 
 export default function PatientHomePage() {
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const { t } = useTranslation('common');
   const user = useAuthStore((s) => s.user);
   const [recentSessions, setRecentSessions] = useState<Session[]>([]);

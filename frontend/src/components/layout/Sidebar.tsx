@@ -6,6 +6,7 @@ import { NavLink } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { useAlertStore } from '../../stores/alertStore';
+import { useCurrentLng } from '../../i18n/paths';
 
 interface NavItem {
   label: string;
@@ -25,6 +26,7 @@ export default function Sidebar() {
   const user = useAuthStore((s) => s.user);
   const unacknowledgedCount = useAlertStore((s) => s.unacknowledgedCount);
   const fetchUnacknowledgedCount = useAlertStore((s) => s.fetchUnacknowledgedCount);
+  const lng = useCurrentLng();
 
   useEffect(() => {
     fetchUnacknowledgedCount();
@@ -193,7 +195,7 @@ export default function Sidebar() {
                 {section.items.map((item) => (
                   <NavLink
                     key={item.path}
-                    to={item.path}
+                    to={`/${lng}${item.path}`}
                     className={({ isActive }) =>
                       `sidebar-item ${isActive ? 'sidebar-item-active' : ''}`
                     }

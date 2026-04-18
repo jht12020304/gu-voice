@@ -1,12 +1,15 @@
 // =============================================================================
 // 根路由設定 (React Router v6)
 // 支援醫師端、病患端、管理員端角色分流
+// 以 `/:lng/*` 為語言前綴；無 lng 的訪問會自動推算並 redirect。
 // =============================================================================
 
 import React, { type ReactNode } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
+import LanguageLayout from '../components/layout/LanguageLayout';
+import { detectInitialLanguage, useCurrentLng } from '../i18n/paths';
 
 // ---- 頁面 lazy load ----
 const LoginPage = lazyWithRetry(() => import('../screens/auth/LoginPage'), 'LoginPage');
@@ -47,6 +50,7 @@ const PatientLayout = lazyWithRetry(() => import('../components/layout/PatientLa
 function ProtectedRoute({ children }: { children?: ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const lng = useCurrentLng();
 
   if (isLoading) {
     return (
@@ -57,7 +61,7 @@ function ProtectedRoute({ children }: { children?: ReactNode }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={`/${lng}/login`} replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;
@@ -66,23 +70,34 @@ function ProtectedRoute({ children }: { children?: ReactNode }) {
 // ---- 角色路由守衛 ----
 function RoleGuard({ allowedRoles, children }: { allowedRoles: string[]; children?: ReactNode }) {
   const user = useAuthStore((s) => s.user);
+  const lng = useCurrentLng();
 
   if (!user || !allowedRoles.includes(user.role)) {
-    // 依角色重導到正確首頁
-    const home = user?.role === 'patient' ? '/patient' : '/dashboard';
+    const home = user?.role === 'patient' ? `/${lng}/patient` : `/${lng}/dashboard`;
     return <Navigate to={home} replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;
 }
 
-// ---- 根據角色重導首頁 ----
+// ---- 根據角色重導首頁（已帶 lng 前綴） ----
 function RoleRedirect() {
   const user = useAuthStore((s) => s.user);
+  const lng = useCurrentLng();
   if (user?.role === 'patient') {
-    return <Navigate to="/patient" replace />;
+    return <Navigate to={`/${lng}/patient`} replace />;
   }
-  return <Navigate to="/dashboard" replace />;
+  return <Navigate to={`/${lng}/dashboard`} replace />;
+}
+
+// ---- 根路徑重導（`/` → `/<lng>/...`） ----
+function RootRedirect() {
+  const location = useLocation();
+  const target = detectInitialLanguage();
+  const tail = location.pathname === '/' ? '' : location.pathname;
+  return (
+    <Navigate to={`/${target}${tail}${location.search || ''}${location.hash || ''}`} replace />
+  );
 }
 
 // ---- Suspense 包裝 ----
@@ -105,60 +120,68 @@ export default function RootNavigator() {
     <BrowserRouter>
       <SuspenseWrapper>
         <Routes>
-          {/* 公開路由 */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          {/* 根路徑 → 依偵測結果 redirect 到 `/:lng` */}
+          <Route path="/" element={<RootRedirect />} />
 
-          {/* 受保護路由 */}
-          <Route element={<ProtectedRoute />}>
+          {/* 帶 lng 前綴的主路由 */}
+          <Route path="/:lng" element={<LanguageLayout />}>
+            {/* 公開路由（相對 path） */}
+            <Route path="login" element={<LoginPage />} />
+            <Route path="register" element={<RegisterPage />} />
+            <Route path="forgot-password" element={<ForgotPasswordPage />} />
 
-            {/* ── 病患端路由（PatientLayout：無 Sidebar） ── */}
-            <Route element={<RoleGuard allowedRoles={['patient', 'doctor', 'admin']} />}>
-              <Route element={<PatientLayout />}>
-                <Route path="/patient" element={<PatientHomePage />} />
-                <Route path="/patient/start" element={<SelectComplaintPage />} />
-                <Route path="/patient/medical-info" element={<MedicalInfoPage />} />
-                <Route path="/patient/history" element={<PatientHistoryPage />} />
-                <Route path="/patient/history/:sessionId" element={<PatientSessionDetailPage />} />
-                <Route path="/patient/settings" element={<PatientSettingsPage />} />
-                <Route path="/patient/session/:sessionId/complete" element={<SessionCompletePage />} />
-                <Route path="/patient/session/:sessionId/thank-you" element={<SessionThankYouPage />} />
+            {/* 受保護路由 */}
+            <Route element={<ProtectedRoute />}>
+              {/* ── 病患端路由（PatientLayout：無 Sidebar） ── */}
+              <Route element={<RoleGuard allowedRoles={['patient', 'doctor', 'admin']} />}>
+                <Route element={<PatientLayout />}>
+                  <Route path="patient" element={<PatientHomePage />} />
+                  <Route path="patient/start" element={<SelectComplaintPage />} />
+                  <Route path="patient/medical-info" element={<MedicalInfoPage />} />
+                  <Route path="patient/history" element={<PatientHistoryPage />} />
+                  <Route path="patient/history/:sessionId" element={<PatientSessionDetailPage />} />
+                  <Route path="patient/settings" element={<PatientSettingsPage />} />
+                  <Route path="patient/session/:sessionId/complete" element={<SessionCompletePage />} />
+                  <Route path="patient/session/:sessionId/thank-you" element={<SessionThankYouPage />} />
+                </Route>
               </Route>
-            </Route>
 
-            {/* 病患對話頁（全螢幕，不含 sidebar，病患與醫師都可訪問） */}
-            <Route path="/conversation/:sessionId" element={<ConversationPage />} />
+              {/* 病患對話頁（全螢幕） */}
+              <Route path="conversation/:sessionId" element={<ConversationPage />} />
 
-            {/* ── 醫師端路由（MainLayout：含 Sidebar） ── */}
-            <Route element={<RoleGuard allowedRoles={['doctor', 'admin']} />}>
-              <Route element={<MainLayout />}>
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/patients" element={<PatientListPage />} />
-                <Route path="/patients/:patientId" element={<PatientDetailPage />} />
-                <Route path="/sessions" element={<SessionListPage />} />
-                <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
-                <Route path="/reports" element={<ReportListPage />} />
-                <Route path="/reports/:sessionId" element={<SOAPReportPage />} />
-                <Route path="/alerts" element={<AlertListPage />} />
-                <Route path="/alerts/:alertId" element={<AlertDetailPage />} />
-                <Route path="/notifications" element={<NotificationPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
+              {/* ── 醫師端路由（MainLayout：含 Sidebar） ── */}
+              <Route element={<RoleGuard allowedRoles={['doctor', 'admin']} />}>
+                <Route element={<MainLayout />}>
+                  <Route path="dashboard" element={<DashboardPage />} />
+                  <Route path="patients" element={<PatientListPage />} />
+                  <Route path="patients/:patientId" element={<PatientDetailPage />} />
+                  <Route path="sessions" element={<SessionListPage />} />
+                  <Route path="sessions/:sessionId" element={<SessionDetailPage />} />
+                  <Route path="reports" element={<ReportListPage />} />
+                  <Route path="reports/:sessionId" element={<SOAPReportPage />} />
+                  <Route path="alerts" element={<AlertListPage />} />
+                  <Route path="alerts/:alertId" element={<AlertDetailPage />} />
+                  <Route path="notifications" element={<NotificationPage />} />
+                  <Route path="settings" element={<SettingsPage />} />
 
-                {/* 管理員路由 */}
-                <Route element={<RoleGuard allowedRoles={['admin']} />}>
-                  <Route path="/admin/users" element={<UserManagementPage />} />
-                  <Route path="/admin/complaints" element={<ComplaintManagementPage />} />
-                  <Route path="/admin/health" element={<SystemHealthPage />} />
-                  <Route path="/admin/audit-logs" element={<AuditLogsPage />} />
+                  {/* 管理員路由 */}
+                  <Route element={<RoleGuard allowedRoles={['admin']} />}>
+                    <Route path="admin/users" element={<UserManagementPage />} />
+                    <Route path="admin/complaints" element={<ComplaintManagementPage />} />
+                    <Route path="admin/health" element={<SystemHealthPage />} />
+                    <Route path="admin/audit-logs" element={<AuditLogsPage />} />
+                  </Route>
                 </Route>
               </Route>
             </Route>
+
+            {/* 根據角色重導首頁：lng index 與 lng 底下的 catch-all */}
+            <Route index element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
+            <Route path="*" element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
           </Route>
 
-          {/* 根據角色重導 */}
-          <Route path="/" element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
-          <Route path="*" element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
+          {/* 未知頂層路徑（不是以合法 lng 開頭）→ 讓 LanguageLayout 接手 redirect */}
+          <Route path="*" element={<RootRedirect />} />
         </Routes>
       </SuspenseWrapper>
     </BrowserRouter>
