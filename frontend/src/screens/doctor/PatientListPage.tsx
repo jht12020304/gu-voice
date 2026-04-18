@@ -4,6 +4,8 @@
 
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
 import { useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import SearchBar from '../../components/form/SearchBar';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -17,21 +19,21 @@ function formatMonthRange(monthDate: Date): string {
   return `${format(startOfMonth(monthDate), 'yyyy/MM/dd')} - ${format(endOfMonth(monthDate), 'yyyy/MM/dd')}`;
 }
 
-function formatGroupHeading(dateKey: string): string {
-  return new Intl.DateTimeFormat('zh-TW', {
+function formatGroupHeading(dateKey: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
     month: 'long',
     day: 'numeric',
     weekday: 'long',
   }).format(new Date(`${dateKey}T00:00:00`));
 }
 
-function getGenderLabel(gender: Patient['gender']): string {
-  if (gender === 'male') return '男';
-  if (gender === 'female') return '女';
-  return '其他';
+function getGenderLabel(gender: Patient['gender'], t: TFunction): string {
+  if (gender === 'male') return t('gender.male');
+  if (gender === 'female') return t('gender.female');
+  return t('gender.other');
 }
 
-function groupPatientsByCreatedDate(patients: Patient[]) {
+function groupPatientsByCreatedDate(patients: Patient[], locale: string) {
   const groups = patients.reduce<Record<string, Patient[]>>((acc, patient) => {
     const dateKey = format(new Date(patient.createdAt), 'yyyy-MM-dd');
     if (!acc[dateKey]) {
@@ -45,7 +47,7 @@ function groupPatientsByCreatedDate(patients: Patient[]) {
     .sort(([left], [right]) => right.localeCompare(left))
     .map(([dateKey, items]) => ({
       dateKey,
-      label: formatGroupHeading(dateKey),
+      label: formatGroupHeading(dateKey, locale),
       items,
     }));
 }
@@ -73,6 +75,7 @@ function PatientMetricCard({
 }
 
 export default function PatientListPage() {
+  const { t, i18n } = useTranslation('common');
   const navigate = useLocalizedNavigate();
   const {
     patients,
@@ -125,7 +128,8 @@ export default function PatientListPage() {
   const selectedMonthDate = new Date(`${selectedMonth}-01T00:00:00`);
   const selectedMonthLabel = format(selectedMonthDate, 'yyyy 年 M 月');
   const monthRangeLabel = formatMonthRange(selectedMonthDate);
-  const groupedPatients = groupPatientsByCreatedDate(patients);
+  const currentLocale = i18n.resolvedLanguage || i18n.language || 'en-US';
+  const groupedPatients = groupPatientsByCreatedDate(patients, currentLocale);
 
   const loadedCountHelper = hasMore
     ? `已載入 ${patients.length} / ${totalCount} 位病患`
@@ -254,7 +258,7 @@ export default function PatientListPage() {
                       </div>
                     </div>
                     <div className="text-body font-data text-ink-body">{formatMRN(patient.medicalRecordNumber)}</div>
-                    <div className="text-body text-ink-body">{getGenderLabel(patient.gender)}</div>
+                    <div className="text-body text-ink-body">{getGenderLabel(patient.gender, t)}</div>
                     <div className="text-body font-tnum text-ink-body">
                       {formatDate(patient.dateOfBirth, { year: 'numeric', month: '2-digit', day: '2-digit' })}
                     </div>

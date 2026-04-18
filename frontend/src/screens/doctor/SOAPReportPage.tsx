@@ -4,6 +4,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import TranscriptPanel from '../../components/medical/TranscriptPanel';
 import SOAPCard from '../../components/medical/SOAPCard';
@@ -50,11 +52,14 @@ function uniqueStrings(items: Array<string | undefined | null>): string[] {
   return [...new Set(items.map((item) => (item ?? '').trim()).filter(Boolean))];
 }
 
-function getGenderLabel(gender?: Session['patient'] extends { gender: infer T } ? T : string): string {
-  if (gender === 'male') return '男';
-  if (gender === 'female') return '女';
-  if (gender === 'other') return '其他';
-  return '未提供';
+function getGenderLabel(
+  gender: (Session['patient'] extends { gender: infer G } ? G : string) | undefined,
+  t: TFunction,
+): string {
+  if (gender === 'male') return t('gender.male');
+  if (gender === 'female') return t('gender.female');
+  if (gender === 'other') return t('gender.other');
+  return t('gender.unknown');
 }
 
 function extractNegativeFindings(report: SOAPReport): string[] {
@@ -152,6 +157,7 @@ function HighlightList({
 }
 
 export default function SOAPReportPage() {
+  const { t } = useTranslation('common');
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useLocalizedNavigate();
   const {
@@ -334,7 +340,7 @@ export default function SOAPReportPage() {
             value={patientName}
             helper={[
               session?.patient?.medicalRecordNumber ? formatMRN(session.patient.medicalRecordNumber) : null,
-              session?.patient ? `${getGenderLabel(session.patient.gender)} · ${formatDate(session.patient.dateOfBirth, { year: 'numeric', month: '2-digit', day: '2-digit' })}` : null,
+              session?.patient ? `${getGenderLabel(session.patient.gender, t)} · ${formatDate(session.patient.dateOfBirth, { year: 'numeric', month: '2-digit', day: '2-digit' })}` : null,
             ].filter(Boolean).join(' · ')}
           />
           <MetaCard

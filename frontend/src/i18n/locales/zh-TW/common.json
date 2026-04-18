@@ -70,6 +70,12 @@
     "high": "高度",
     "medium": "中度"
   },
+  "gender": {
+    "male": "男",
+    "female": "女",
+    "other": "其他",
+    "unknown": "未提供"
+  },
   "time": {
     "justNow": "剛剛"
   },
@@ -157,6 +163,15 @@
       "severityCritical": "危急",
       "severityHigh": "高度",
       "severityMedium": "中度"
+    },
+    "patient": {
+      "noPhone": "未設定聯絡電話",
+      "noName": "未命名病患",
+      "labels": {
+        "gender": "性別",
+        "dateOfBirth": "出生日期",
+        "createdAt": "建立日期"
+      }
     }
   },
   "patient": {

@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorState from '../../components/common/ErrorState';
@@ -13,6 +14,7 @@ import * as patientsApi from '../../services/api/patients';
 import { formatDate, formatDuration } from '../../utils/format';
 
 export default function PatientDetailPage() {
+  const { t } = useTranslation('common');
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useLocalizedNavigate();
   const [patient, setPatient] = useState<Patient | null>(null);
@@ -79,14 +81,23 @@ export default function PatientDetailPage() {
             </div>
             <div>
               <h2 className="text-h3 text-ink-heading dark:text-white">{patientName}</h2>
-              <p className="text-small text-ink-muted">{patient.phone || '未設定聯絡電話'}</p>
+              <p className="text-small text-ink-muted">{patient.phone || t('doctor.patient.noPhone')}</p>
             </div>
           </div>
 
           <div className="space-y-3">
-            <InfoRow label="性別" value={patient.gender === 'male' ? '男' : patient.gender === 'female' ? '女' : '其他'} />
-            <InfoRow label="出生日期" value={formatDate(patient.dateOfBirth, { year: 'numeric', month: '2-digit', day: '2-digit' })} />
-            <InfoRow label="建立日期" value={formatDate(patient.createdAt, { year: 'numeric', month: '2-digit', day: '2-digit' })} />
+            <InfoRow
+              label={t('doctor.patient.labels.gender')}
+              value={
+                patient.gender === 'male'
+                  ? t('gender.male')
+                  : patient.gender === 'female'
+                    ? t('gender.female')
+                    : t('gender.other')
+              }
+            />
+            <InfoRow label={t('doctor.patient.labels.dateOfBirth')} value={formatDate(patient.dateOfBirth, { year: 'numeric', month: '2-digit', day: '2-digit' })} />
+            <InfoRow label={t('doctor.patient.labels.createdAt')} value={formatDate(patient.createdAt, { year: 'numeric', month: '2-digit', day: '2-digit' })} />
           </div>
         </div>
 

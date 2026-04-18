@@ -560,7 +560,9 @@ class SessionService:
                 patient = Patient(
                     user_id=current_user_id,
                     medical_record_number=mrn,
-                    name=user_obj.name if user_obj else "未知",
+                    # DB 要求 NOT NULL,使用者沒填名字時以英文 "Unknown" 佔位,
+                    # 避免中文「未知」外流到 en-US / ja-JP 等場次的病患清單。
+                    name=user_obj.name if user_obj else "Unknown",
                     gender=Gender.OTHER,
                     date_of_birth=date(1900, 1, 1),
                 )

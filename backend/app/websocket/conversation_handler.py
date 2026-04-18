@@ -1230,9 +1230,12 @@ async def _handle_text_message(
                 "payload": {
                     "alertId": alert_id,
                     "sessionId": session_id,
+                    # fallback 改成空字串而非中文「未知」,讓 dashboard 前端依 locale
+                    # 決定顯示字樣（Unknown / 未知 / Inconnu …）,不要在後端送中文。
                     "patientName": session_context.get("patient_info", {}).get(
-                        "name", "未知"
-                    ),
+                        "name"
+                    )
+                    or "",
                     "severity": alert["severity"],
                     "title": alert["title"],
                     "description": alert["description"],

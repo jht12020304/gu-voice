@@ -70,6 +70,12 @@
     "high": "High",
     "medium": "Medium"
   },
+  "gender": {
+    "male": "Male",
+    "female": "Female",
+    "other": "Other",
+    "unknown": "Unknown"
+  },
   "time": {
     "justNow": "Just now"
   },
@@ -157,6 +163,15 @@
       "severityCritical": "Critical",
       "severityHigh": "High",
       "severityMedium": "Medium"
+    },
+    "patient": {
+      "noPhone": "No contact phone",
+      "noName": "Unnamed patient",
+      "labels": {
+        "gender": "Gender",
+        "dateOfBirth": "Date of birth",
+        "createdAt": "Created at"
+      }
     }
   },
   "patient": {

@@ -268,7 +268,7 @@ class DashboardService:
             queue_items.append(QueueItemResponse(
                 session_id=session.id,
                 patient_id=session.patient_id,
-                patient_name=patient_name or "未知",
+                patient_name=patient_name or "",
                 chief_complaint=session.chief_complaint_text or "",
                 status=session.status,
                 has_red_flag=session.red_flag,
@@ -315,7 +315,7 @@ class DashboardService:
             RecentAlertItem(
                 alert_id=alert.id,
                 session_id=alert.session_id,
-                patient_name=patient_name or "未知",
+                patient_name=patient_name or "",
                 severity=alert.severity.value,
                 title=alert.title,
                 acknowledged=alert.acknowledged_by is not None,
@@ -350,7 +350,7 @@ class DashboardService:
         items = [
             RecentSessionItem(
                 session_id=session.id,
-                patient_name=patient_name or "未知",
+                patient_name=patient_name or "",
                 chief_complaint=session.chief_complaint_text or "",
                 status=session.status,
                 red_flag=session.red_flag,

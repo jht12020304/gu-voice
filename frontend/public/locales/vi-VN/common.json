@@ -70,6 +70,12 @@
     "high": "Cao",
     "medium": "Trung bình"
   },
+  "gender": {
+    "male": "Nam",
+    "female": "Nữ",
+    "other": "Khác",
+    "unknown": "Chưa cung cấp"
+  },
   "time": {
     "justNow": "Vừa xong"
   },
@@ -157,6 +163,15 @@
       "severityCritical": "Nguy kịch",
       "severityHigh": "Cao",
       "severityMedium": "Trung bình"
+    },
+    "patient": {
+      "noPhone": "Chưa có số điện thoại",
+      "noName": "Bệnh nhân chưa đặt tên",
+      "labels": {
+        "gender": "Giới tính",
+        "dateOfBirth": "Ngày sinh",
+        "createdAt": "Ngày tạo"
+      }
     }
   },
   "patient": {

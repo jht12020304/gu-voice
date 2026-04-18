@@ -265,10 +265,14 @@ class RedFlagDetector:
                 # DB rule 若無此欄位,fallback 至 rule.name / shared catalogue 查表。
                 canonical_id = rule.get("canonical_id") or rule.get("name")
                 display_map = rule.get("display_title_by_lang") or {}
+                # Fallback 順序: session lang → en-US → catalogue(含 en-US / zh-TW)
+                # → 規則 name → unknown_title。先試 en-US 再退到 zh-TW,避免
+                # 日/韓/越場次因 DB rule 缺該語言翻譯直接收到中文標題。
                 localized_title = (
                     (display_map.get(language) if language else None)
-                    or display_map.get("zh-TW")
+                    or display_map.get("en-US")
                     or get_display_title(canonical_id, language)
+                    or display_map.get("zh-TW")
                     or rule.get("name", unknown_title)
                 )
                 alerts.append(

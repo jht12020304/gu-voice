@@ -406,7 +406,13 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
 
 def get_display_title(canonical_id: str, language: str | None) -> str:
     """
-    依 canonical_id 與 language 查找 display title;找不到時退 zh-TW 或 canonical_id。
+    依 canonical_id 與 language 查找 display title;找不到時依序退到更通用的語言。
+
+    Fallback 順序:
+        requested language → en-US → zh-TW → catalogue name → canonical_id
+
+    先試 en-US 再試 zh-TW，是因為:ja-JP / ko-KR / vi-VN 若某紅旗無對應翻譯,
+    改送英文「Heavy Gross Hematuria」比送中文「大量血尿」對病患更友善。
 
     用於 alert serializer 按 Accept-Language / session.language 解析 title。
     """
@@ -415,6 +421,8 @@ def get_display_title(canonical_id: str, language: str | None) -> str:
             by_lang = flag.get("display_title_by_lang", {})
             if language and language in by_lang:
                 return by_lang[language]
+            if "en-US" in by_lang:
+                return by_lang["en-US"]
             if "zh-TW" in by_lang:
                 return by_lang["zh-TW"]
             return flag.get("title", canonical_id)

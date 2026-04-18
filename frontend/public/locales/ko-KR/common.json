@@ -70,6 +70,12 @@
     "high": "높음",
     "medium": "중간"
   },
+  "gender": {
+    "male": "남성",
+    "female": "여성",
+    "other": "기타",
+    "unknown": "미등록"
+  },
   "time": {
     "justNow": "방금"
   },
@@ -157,6 +163,15 @@
       "severityCritical": "위급",
       "severityHigh": "높음",
       "severityMedium": "중간"
+    },
+    "patient": {
+      "noPhone": "연락처 미등록",
+      "noName": "이름 미등록 환자",
+      "labels": {
+        "gender": "성별",
+        "dateOfBirth": "생년월일",
+        "createdAt": "등록일"
+      }
     }
   },
   "patient": {
