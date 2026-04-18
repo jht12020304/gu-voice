@@ -56,3 +56,18 @@ export async function assignDoctor(id: string, doctorId: string): Promise<Sessio
   const { data } = await apiClient.post<Session>(`${BASE}/${id}/assign`, { doctorId });
   return data;
 }
+
+/**
+ * M16：對話中切語言 → 結束當前 session，同時把使用者偏好語言更新為 toLanguage。
+ * 後端會寫 audit_log (action=language_switch_end_session)。
+ * 非 active（waiting/in_progress）狀態會回 409。
+ */
+export async function endSessionForLanguageSwitch(
+  id: string,
+  toLanguage: string,
+): Promise<{ id: string; status: string; previousStatus?: string; updatedAt: string }> {
+  const { data } = await apiClient.post(`${BASE}/${id}/end-for-language-switch`, {
+    toLanguage,
+  });
+  return data;
+}

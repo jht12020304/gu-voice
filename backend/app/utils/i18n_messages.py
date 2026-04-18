@@ -123,6 +123,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-TW": "場次非活躍狀態",
         "en-US": "Session is not active",
     },
+    "errors.session_not_switchable": {
+        "zh-TW": "目前場次狀態無法切換語言",
+        "en-US": "Cannot switch language on a session in the current state",
+    },
     "errors.invalid_status_transition": {
         "zh-TW": "不合法的狀態轉移",
         "en-US": "Invalid status transition",

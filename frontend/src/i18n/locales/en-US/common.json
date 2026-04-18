@@ -43,6 +43,15 @@
     "names": {
       "zh-TW": "繁體中文",
       "en-US": "English"
+    },
+    "switchModal": {
+      "title": "End current consultation to switch language",
+      "description": "Your consultation (in {{from}}) is in progress. To avoid mixing languages in a single session, switching to {{to}} will end this session. You can start a new consultation afterwards.",
+      "confirm": "End session & switch",
+      "cancel": "Cancel",
+      "switching": "Switching…",
+      "switchedEnded": "Session ended and switched to {{name}}",
+      "switchFailed": "Switch failed, please try again"
     }
   },
   "common": {

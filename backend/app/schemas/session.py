@@ -106,6 +106,27 @@ class SessionUpdateStatus(BaseModel):
     reason: Optional[str] = None
 
 
+class SessionEndForLanguageSwitch(BaseModel):
+    """
+    M16：對話中切語言時用此端點結束 session。
+    前端在 LanguageSwitcher 偵測到 active session 時先開 modal 取使用者
+    同意，確認後帶 `to_language` 呼叫；server 會結束 session 並寫
+    audit_log（action=language_switch_end_session）。
+    """
+    to_language: str = Field(..., min_length=2, max_length=10, alias="toLanguage")
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("to_language")
+    @classmethod
+    def _validate_to_language(cls, v: str) -> str:
+        normalized = normalize_bcp47(v)
+        if normalized is None or normalized not in settings.SUPPORTED_LANGUAGES:
+            raise ValueError(
+                f"to_language must be one of: {', '.join(settings.SUPPORTED_LANGUAGES)}"
+            )
+        return normalized
+
+
 class SessionResponse(BaseModel):
     """場次回應"""
     id: UUID

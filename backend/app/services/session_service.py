@@ -14,16 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import (
+    ConflictException,
     ForbiddenException,
     InvalidStatusTransitionException,
     NotFoundException,
     SessionNotFoundException,
 )
 from app.models.conversation import Conversation
-from app.models.enums import SessionStatus, UserRole
+from app.models.enums import AuditAction, SessionStatus, UserRole
 from app.core.config import settings
 from app.models.patient import Patient
 from app.models.session import Session
+from app.models.user import User
 from app.utils.datetime_utils import utc_now
 from app.utils.language import resolve_language
 
@@ -311,6 +313,67 @@ class SessionService:
             session.red_flag = True
             if reason:
                 session.red_flag_reason = reason
+
+        await db.flush()
+        return session
+
+    @staticmethod
+    async def end_for_language_switch(
+        db: AsyncSession,
+        session_id: UUID,
+        to_language: str,
+        current_user: Any,
+    ) -> Session:
+        """
+        M16：使用者在對話中切語言 → 結束 session 並寫 audit log。
+
+        - 僅 waiting / in_progress 狀態可用；其他狀態 → 409 Conflict
+        - to_language 必須在 SUPPORTED_LANGUAGES（schema 層已驗證）
+        - 同時更新 user.preferred_language，下一場 session 預設套用
+        - audit_log 紀錄 from_lang / to_lang / session_id
+        """
+        from app.services.audit_log_service import AuditLogService
+
+        session = await SessionService.get_by_id(db, session_id)
+        await _authorize_session_access(db, session, current_user)
+
+        if session.status not in (SessionStatus.WAITING, SessionStatus.IN_PROGRESS):
+            raise ConflictException(
+                "errors.session_not_switchable",
+                details={
+                    "session_id": str(session.id),
+                    "current_status": session.status.value,
+                },
+            )
+
+        from_lang = session.language
+        now = utc_now()
+        session.status = SessionStatus.CANCELLED
+        session.completed_at = now
+        session.updated_at = now
+        if session.started_at:
+            session.duration_seconds = int((now - session.started_at).total_seconds())
+
+        # 更新 user preferred_language（下次登入 / 下一場新 session 會套用）
+        user_id = getattr(current_user, "id", None)
+        if user_id is not None:
+            result = await db.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+            if user is not None:
+                user.preferred_language = to_language
+                user.updated_at = now
+
+        await AuditLogService.log(
+            db,
+            user_id=user_id,
+            action=AuditAction.LANGUAGE_SWITCH_END_SESSION,
+            resource_type="session",
+            resource_id=str(session.id),
+            details={
+                "from_lang": from_lang,
+                "to_lang": to_language,
+            },
+        )
 
         await db.flush()
         return session

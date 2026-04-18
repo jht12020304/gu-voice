@@ -16,6 +16,7 @@ from app.schemas.session import (
     SessionAssignRequest,
     SessionCreate,
     SessionDetail,
+    SessionEndForLanguageSwitch,
     SessionListResponse,
     SessionStatusUpdate,
     SessionStatusResponse,
@@ -133,6 +134,31 @@ async def update_session_status(
         session_id=session_id,
         new_status=payload.status,
         reason=payload.reason,
+        current_user=current_user,
+    )
+
+
+@router.post(
+    "/{session_id}/end-for-language-switch",
+    response_model=SessionStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="因語言切換結束場次",
+)
+async def end_session_for_language_switch(
+    session_id: UUID,
+    payload: SessionEndForLanguageSwitch,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> SessionStatusResponse:
+    """
+    對話中切語言時呼叫：結束當前 session（狀態→cancelled）並把
+    使用者偏好語言更新為 `to_language`，下一場新 session 預設使用新語言。
+    進行中 / 等待中以外的狀態會回 409。
+    """
+    return await session_service.end_for_language_switch(
+        db,
+        session_id=session_id,
+        to_language=payload.to_language,
         current_user=current_user,
     )
 

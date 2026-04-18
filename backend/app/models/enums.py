@@ -100,6 +100,8 @@ class AuditAction(str, Enum):
     ACKNOWLEDGE = "acknowledge"
     SESSION_START = "session_start"
     SESSION_END = "session_end"
+    # 對話中語言切換 → 強制結束當前 session（M16）
+    LANGUAGE_SWITCH_END_SESSION = "language_switch_end_session"
 
 
 class DevicePlatform(str, Enum):
