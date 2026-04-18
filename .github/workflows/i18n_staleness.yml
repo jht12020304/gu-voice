@@ -1,0 +1,155 @@
+name: i18n-staleness
+
+# PR-triggered translation coverage check. Fails the workflow when an active
+# locale (non-beta) drops below the configured threshold. Posts a summary to
+# $GITHUB_STEP_SUMMARY every run, and upserts a PR comment when the result is
+# FAIL or when coverage shifts by more than 5% vs. the previous report on this
+# PR (to avoid spamming comments on trivial changes).
+
+"on":
+  pull_request:
+    paths:
+      - "frontend/src/i18n/locales/**"
+      - "scripts/check_translations.py"
+      - "scripts/tests/test_check_translations.py"
+      - ".github/workflows/i18n_staleness.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  translation-coverage:
+    name: translation-coverage
+    runs-on: ubuntu-latest
+    env:
+      # Tunable — raise once en-US catches up, lower for emergencies.
+      THRESHOLD: "95"
+      COMMENT_MARKER: "<!-- urosense-i18n-staleness -->"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run translation coverage (JSON)
+        id: json_report
+        run: |
+          python scripts/check_translations.py \
+            --threshold "${THRESHOLD}" \
+            --json > translations.json
+        continue-on-error: true
+
+      - name: Capture exit code
+        id: exit_code
+        run: |
+          echo "code=${{ steps.json_report.outcome == 'success' && '0' || '1' }}" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Append report to GITHUB_STEP_SUMMARY
+        run: |
+          python scripts/check_translations.py \
+            --threshold "${THRESHOLD}" \
+            --github-summary >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload JSON report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i18n-translations-report
+          path: translations.json
+          if-no-files-found: ignore
+
+      - name: Render Markdown for PR comment
+        id: render_md
+        if: github.event_name == 'pull_request'
+        run: |
+          {
+            echo "${COMMENT_MARKER}"
+            python scripts/check_translations.py \
+              --threshold "${THRESHOLD}" \
+              --github-summary
+          } > pr_comment.md
+          # Expose body via heredoc-safe file path (github-script will read it)
+          echo "path=pr_comment.md" >> "$GITHUB_OUTPUT"
+
+      - name: Upsert PR comment (if FAIL or large coverage shift)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          COMMENT_MARKER: ${{ env.COMMENT_MARKER }}
+          SCRIPT_EXIT: ${{ steps.exit_code.outputs.code }}
+          BODY_PATH: ${{ steps.render_md.outputs.path }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = process.env.COMMENT_MARKER;
+            const failed = process.env.SCRIPT_EXIT !== '0';
+            const body = fs.readFileSync(process.env.BODY_PATH, 'utf8');
+
+            const report = JSON.parse(fs.readFileSync('translations.json', 'utf8'));
+            const currentCov = {};
+            for (const loc of report.locales || []) {
+              currentCov[loc.locale] = loc.coverage_pct;
+            }
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            const existing = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 }
+            );
+            const prior = existing.find(c => c.body && c.body.includes(marker));
+
+            let shouldComment = failed;
+            if (prior && !shouldComment) {
+              // parse previous coverage from prior comment's embedded json marker
+              const m = prior.body.match(/<!-- coverage-json: (.+?) -->/);
+              if (m) {
+                try {
+                  const prev = JSON.parse(m[1]);
+                  for (const [loc, pct] of Object.entries(currentCov)) {
+                    if (Math.abs((prev[loc] ?? 0) - pct) > 5) {
+                      shouldComment = true;
+                      break;
+                    }
+                  }
+                } catch (_) {
+                  shouldComment = true;
+                }
+              }
+            } else if (!prior && !failed) {
+              // first run and passing — stay quiet
+              shouldComment = false;
+            }
+
+            if (!shouldComment) {
+              core.info('No significant change and status OK; skipping PR comment.');
+              return;
+            }
+
+            const enriched =
+              body +
+              `\n<!-- coverage-json: ${JSON.stringify(currentCov)} -->\n`;
+
+            if (prior) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: prior.id, body: enriched,
+              });
+              core.info(`Updated existing comment ${prior.id}`);
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number, body: enriched,
+              });
+              core.info('Created new PR comment');
+            }
+
+      - name: Fail job if threshold not met
+        if: steps.exit_code.outputs.code != '0'
+        run: |
+          echo "::error::Translation coverage below threshold (${THRESHOLD}%). See summary."
+          exit 1
