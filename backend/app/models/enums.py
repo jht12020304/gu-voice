@@ -180,8 +180,13 @@ class SupportedLanguage(str, Enum):
 
     設計決定：
     - 用 `String(10)` 欄位 + 應用層驗證，不用 PG 原生 enum。
-      理由：未來擴 locale（ko-KR、vi-VN…）不用 `ALTER TYPE`，避免交易鎖問題。
+      理由：擴 locale 不用 `ALTER TYPE`，避免交易鎖問題。
     - `DEFAULT_LANGUAGE` 在 `app.core.config.settings.DEFAULT_LANGUAGE` 單一來源。
+    - Phase C：ja-JP / ko-KR / vi-VN 已加入 enum，但 LLM prompt、red-flag
+      trigger、臨床 / 法律 sign-off 尚未到位；僅前端可切換、骨架層級完成。
     """
     ZH_TW = "zh-TW"
     EN_US = "en-US"
+    JA_JP = "ja-JP"
+    KO_KR = "ko-KR"
+    VI_VN = "vi-VN"

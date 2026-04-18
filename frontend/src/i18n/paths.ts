@@ -29,6 +29,9 @@ export function normalizeLanguage(raw: string | null | undefined): SupportedLang
   const lower = raw.toLowerCase();
   if (lower.startsWith('zh')) return 'zh-TW';
   if (lower.startsWith('en')) return 'en-US';
+  if (lower.startsWith('ja')) return 'ja-JP';
+  if (lower.startsWith('ko')) return 'ko-KR';
+  if (lower.startsWith('vi')) return 'vi-VN';
   return null;
 }
 

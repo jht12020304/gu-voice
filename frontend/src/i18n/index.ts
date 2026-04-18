@@ -13,12 +13,21 @@ import zhTWWs from './locales/zh-TW/ws.json';
 import enUSCommon from './locales/en-US/common.json';
 import enUSConversation from './locales/en-US/conversation.json';
 import enUSWs from './locales/en-US/ws.json';
+// Phase C beta locales：完整翻譯未就位前，僅提供骨架 common.json（至少讓
+// LanguageSwitcher 切語言不崩），缺 key 靠下方 fallbackLng chain 往 en-US / zh-TW 退。
+import jaJPCommon from './locales/ja-JP/common.json';
+import koKRCommon from './locales/ko-KR/common.json';
+import viVNCommon from './locales/vi-VN/common.json';
 
 export const defaultNS = 'common';
 
-// 與後端 settings.SUPPORTED_LANGUAGES 一致（BCP-47 完整 locale code）
-export const SUPPORTED_LANGUAGES = ['zh-TW', 'en-US'] as const;
+// 與後端 settings.LANGUAGE_MAP 一致（BCP-47 完整 locale code）。
+// status=active：zh-TW / en-US；status=beta：ja-JP / ko-KR / vi-VN（前端可切、翻譯未齊）。
+export const SUPPORTED_LANGUAGES = ['zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'vi-VN'] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
+
+// 標示哪些 locale 是 beta（UI 用於加 "(beta)" 標籤）；上線 active 清單由後端 API 權威。
+export const BETA_LANGUAGES: readonly SupportedLanguage[] = ['ja-JP', 'ko-KR', 'vi-VN'];
 
 export const resources = {
   'zh-TW': {
@@ -31,6 +40,9 @@ export const resources = {
     conversation: enUSConversation,
     ws: enUSWs,
   },
+  'ja-JP': { common: jaJPCommon },
+  'ko-KR': { common: koKRCommon },
+  'vi-VN': { common: viVNCommon },
 } as const;
 
 void i18next
@@ -38,7 +50,13 @@ void i18next
   .use(initReactI18next)
   .init({
     resources,
-    fallbackLng: 'zh-TW',
+    // 三層 fallback：選 locale 缺 key → en-US → zh-TW（active locale 是翻譯最完整的後盾）
+    fallbackLng: {
+      'ja-JP': ['en-US', 'zh-TW'],
+      'ko-KR': ['en-US', 'zh-TW'],
+      'vi-VN': ['en-US', 'zh-TW'],
+      default: ['zh-TW'],
+    },
     // 注意：i18next v26 的 isSupportedCode 對 `zh-TW` 比對會返回 false，
     // 讓 toResolveHierarchy 回空陣列導致 t() 完全失靈。既然 resources 已
     // inline 載入，不設 supportedLngs 改由 fallbackLng + LanguageDetector 控制。

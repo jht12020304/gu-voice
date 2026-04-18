@@ -78,9 +78,17 @@ def test_accept_language_family_expansion():
 
 def test_accept_language_q_order_respected():
     """多語言時取第一個可支援的（忽略 q 權重數值，順序即優先序）。"""
+    # ja-JP 已進 SUPPORTED_LANGUAGES（beta），header 順序先列會命中。
     assert (
         resolve_language(
             accept_language_header="fr-FR,ja-JP;q=0.9,en-US;q=0.8",
+        )
+        == "ja-JP"
+    )
+    # unsupported 跳過：de-DE 不在清單，往後找到 en-US。
+    assert (
+        resolve_language(
+            accept_language_header="de-DE;q=0.9,en-US;q=0.8",
         )
         == "en-US"
     )

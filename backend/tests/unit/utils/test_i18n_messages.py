@@ -91,12 +91,16 @@ def test_initial_greeting_substitutes_chief_complaint():
 
 
 @pytest.mark.parametrize("key", sorted(MESSAGES.keys()))
-def test_every_key_has_every_supported_locale(key: str):
-    """每個 key 都必須涵蓋 SUPPORTED_LANGUAGES 的所有 locale，避免缺譯。"""
+def test_every_key_has_every_active_locale(key: str):
+    """每個 key 都必須涵蓋 ACTIVE_LANGUAGES 的所有 locale，避免缺譯。
+
+    Beta locale（ja-JP / ko-KR / vi-VN）為 best-effort — 允許缺譯並 fallback
+    至 DEFAULT_LANGUAGE，待 add_new_language.md runbook 跑完補齊。
+    """
     entry = MESSAGES[key]
-    for locale in settings.SUPPORTED_LANGUAGES:
+    for locale in settings.ACTIVE_LANGUAGES:
         assert locale in entry, (
             f"i18n key {key!r} 缺 {locale} 翻譯；"
-            f"SUPPORTED_LANGUAGES={settings.SUPPORTED_LANGUAGES}"
+            f"ACTIVE_LANGUAGES={settings.ACTIVE_LANGUAGES}"
         )
         assert entry[locale], f"i18n key {key!r} 的 {locale} 翻譯為空"

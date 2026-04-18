@@ -220,14 +220,21 @@ class Settings(BaseSettings):
     OPENAI_STT_LANGUAGE: str = "zh"      # ISO-639-1，zh = 中文（繁/簡皆可）
 
     # ── Multi-language (i18n) ────────────────────────────
-    # 見 docs/i18n_plan.md；Phase 1 僅 zh-TW + en-US 上線，其餘 locale 待臨床 sign-off。
-    # SupportedLanguage enum (app/models/enums.py) 是 locale 清單的單一來源；
+    # 見 docs/i18n_plan.md；SupportedLanguage enum (app/models/enums.py) 為 locale 清單的單一來源；
     # LANGUAGE_MAP 則負責把 BCP-47 → Whisper / TTS voice / 顯示名稱。
+    #
+    # status:
+    #   active     前端切換可用、臨床內容已 sign-off（上線可收真實流量）
+    #   beta       前端切換可用、臨床內容未 sign-off（僅內測 / 灰度）
+    #
+    # ja-JP / ko-KR / vi-VN 先以 beta 進入骨架階段，待 TODO-M1 / M2 / M13 sign-off 後升 active。
     DEFAULT_LANGUAGE: str = "zh-TW"
-    # Whisper 接 ISO-639-1 2 碼；TTS voice 先用 OpenAI 內建，後續可換 Azure / ElevenLabs。
     LANGUAGE_MAP: dict[str, dict[str, str]] = {
-        "zh-TW": {"whisper": "zh", "tts_voice": "nova", "display": "繁體中文", "native": "繁體中文"},
-        "en-US": {"whisper": "en", "tts_voice": "nova", "display": "English", "native": "English"},
+        "zh-TW": {"whisper": "zh", "tts_voice": "nova",    "display": "繁體中文", "native": "繁體中文", "status": "active"},
+        "en-US": {"whisper": "en", "tts_voice": "nova",    "display": "English",  "native": "English",  "status": "active"},
+        "ja-JP": {"whisper": "ja", "tts_voice": "shimmer", "display": "Japanese", "native": "日本語",   "status": "beta"},
+        "ko-KR": {"whisper": "ko", "tts_voice": "shimmer", "display": "Korean",   "native": "한국어",   "status": "beta"},
+        "vi-VN": {"whisper": "vi", "tts_voice": "shimmer", "display": "Vietnamese","native": "Tiếng Việt","status": "beta"},
     }
 
     # TODO-O1 feature flag 分層（上線後可用 env / Redis 動態覆寫）。
@@ -304,8 +311,20 @@ class Settings(BaseSettings):
 
     @property
     def SUPPORTED_LANGUAGES(self) -> list[str]:
-        """來源於 LANGUAGE_MAP key；避免兩個地方維護。"""
+        """來源於 LANGUAGE_MAP key；避免兩個地方維護。
+
+        `resolve_language` 允許 fallback 至此清單內任一 locale（含 beta）。
+        """
         return list(self.LANGUAGE_MAP.keys())
+
+    @property
+    def ACTIVE_LANGUAGES(self) -> list[str]:
+        """LANGUAGE_MAP 中 status=='active' 的 locale；是後端 i18n 字串 parity 的強制範圍。
+
+        Beta locale（ja-JP / ko-KR / vi-VN）可跳過此強制 — 後端 `get_message`
+        查不到時 fallback 至 DEFAULT_LANGUAGE，不 raise。
+        """
+        return [code for code, info in self.LANGUAGE_MAP.items() if info.get("status") == "active"]
 
 
 settings = Settings()

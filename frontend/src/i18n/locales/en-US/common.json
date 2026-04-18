@@ -42,8 +42,12 @@
     "switched": "Switched to {{name}}",
     "names": {
       "zh-TW": "繁體中文",
-      "en-US": "English"
+      "en-US": "English",
+      "ja-JP": "日本語",
+      "ko-KR": "한국어",
+      "vi-VN": "Tiếng Việt"
     },
+    "betaTag": " (beta)",
     "switchModal": {
       "title": "End current consultation to switch language",
       "description": "Your consultation (in {{from}}) is in progress. To avoid mixing languages in a single session, switching to {{to}} will end this session. You can start a new consultation afterwards.",

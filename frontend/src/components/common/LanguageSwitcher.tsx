@@ -26,6 +26,9 @@ interface LanguageSwitcherProps {
 const SHORT_LABELS: Record<SupportedLanguage, string> = {
   'zh-TW': '繁',
   'en-US': 'EN',
+  'ja-JP': '日',
+  'ko-KR': '한',
+  'vi-VN': 'VI',
 };
 
 type ActiveStatus = 'waiting' | 'in_progress';

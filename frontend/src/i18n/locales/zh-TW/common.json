@@ -42,8 +42,12 @@
     "switched": "已切換至 {{name}}",
     "names": {
       "zh-TW": "繁體中文",
-      "en-US": "English"
+      "en-US": "English",
+      "ja-JP": "日本語",
+      "ko-KR": "한국어",
+      "vi-VN": "Tiếng Việt"
     },
+    "betaTag": "（beta）",
     "switchModal": {
       "title": "切換語言前需結束目前問診",
       "description": "目前問診（{{from}}）進行中，為避免問診內容混用語言，切換至 {{to}} 會結束此場次。結束後可重新開始新的問診。",
