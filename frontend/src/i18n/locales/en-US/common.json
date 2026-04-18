@@ -70,6 +70,9 @@
     "high": "High",
     "medium": "Medium"
   },
+  "time": {
+    "justNow": "Just now"
+  },
   "common": {
     "errorTitle": "Something went wrong",
     "emptyTitle": "No data",

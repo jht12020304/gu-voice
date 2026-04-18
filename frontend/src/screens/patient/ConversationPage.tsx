@@ -308,7 +308,14 @@ export default function ConversationPage() {
         if (useConversationStore.getState().conversations.length === 0) {
           setConversations(convs.data.map(conversationToMessage));
         }
-      } catch {
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[ConversationPage] load failed', err);
+        const anyErr = err as any;
+        if (anyErr?.response) {
+          // eslint-disable-next-line no-console
+          console.error('[ConversationPage] response.status=', anyErr.response.status, 'data=', anyErr.response.data);
+        }
         setError(t('conversation:error.loadFailed'));
       }
     }

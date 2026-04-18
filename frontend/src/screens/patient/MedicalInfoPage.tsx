@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { useLocalizedNavigate } from '../../i18n/paths';
+import { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../../i18n';
 import * as sessionsApi from '../../services/api/sessions';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
@@ -115,7 +116,7 @@ type Step = 'critical' | 'history';
 
 export default function MedicalInfoPage() {
   const navigate = useLocalizedNavigate();
-  const { t } = useTranslation('intake');
+  const { t, i18n } = useTranslation('intake');
   const [searchParams] = useSearchParams();
 
   const complaintId = searchParams.get('complaintId') || '';
@@ -209,11 +210,19 @@ export default function MedicalInfoPage() {
       return;
     }
 
+    // 以當前 UI 語系建立 session，讓後端 WS 開場白與 session.language 一致。
+    // 若 i18n.resolvedLanguage 意外落在支援清單之外，退回 zh-TW。
+    const resolved = i18n.resolvedLanguage;
+    const sessionLanguage: SupportedLanguage =
+      resolved && (SUPPORTED_LANGUAGES as readonly string[]).includes(resolved)
+        ? (resolved as SupportedLanguage)
+        : 'zh-TW';
+
     try {
       const session = await sessionsApi.createSession({
         chiefComplaintId: complaintId,
         chiefComplaintText: complaintText || complaintName,
-        language: 'zh-TW',
+        language: sessionLanguage,
         patientInfo: {
           name: trimmedName,
           gender: gender as Gender,

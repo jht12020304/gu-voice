@@ -70,6 +70,9 @@
     "high": "高度",
     "medium": "中度"
   },
+  "time": {
+    "justNow": "剛剛"
+  },
   "common": {
     "errorTitle": "發生錯誤",
     "emptyTitle": "暫無資料",

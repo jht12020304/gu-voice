@@ -70,6 +70,9 @@
     "high": "Cao",
     "medium": "Trung bình"
   },
+  "time": {
+    "justNow": "Vừa xong"
+  },
   "common": {
     "errorTitle": "Đã xảy ra lỗi",
     "emptyTitle": "Chưa có dữ liệu",
