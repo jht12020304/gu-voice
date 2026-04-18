@@ -2,6 +2,7 @@
 資料庫連線設定 — Async SQLAlchemy 2.0
 """
 
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -28,6 +29,18 @@ if _is_supabase:
     _connect_args["ssl"] = "require"
     # PgBouncer transaction pool mode → 停用 asyncpg 原生 prepared statement cache
     _connect_args["statement_cache_size"] = 0
+    # 關鍵修正：即使關掉兩層 cache，SA asyncpg dialect 仍會呼叫
+    # `connection.prepare(sql, name=self._prepared_statement_name_func())`。
+    # `_default_name_func()` 回 None 時 asyncpg 會自動產生 counter-based
+    # `__asyncpg_stmt_1__、__asyncpg_stmt_2__`…… 這些名字在同一條物理連線
+    # （PgBouncer pool 裡的 backend）上會重複 → DuplicatePreparedStatementError。
+    # 官方 workaround：每次都產 UUID 作為 name，跨邏輯連線在同一 backend 上
+    # 就不會衝名。這個欄位被 SA 的 AsyncAdapt_asyncpg_dbapi.connect() 從
+    # connect_args pop 出來，所以放 connect_args 是對的位置（雖然 asyncpg 本身
+    # 沒這參數）。
+    _connect_args["prepared_statement_name_func"] = (
+        lambda: f"__asyncpg_{uuid.uuid4()}__"
+    )
 
 # SQLAlchemy asyncpg dialect 自己還有一層 prepared statement cache，
 # 這個是 *dialect* 參數，只能透過 URL query string 注入
