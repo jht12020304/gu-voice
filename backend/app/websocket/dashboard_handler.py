@@ -400,7 +400,10 @@ async def _get_queue_status(
                 {
                     "session_id": str(sess.id),
                     "status": sess.status,
-                    "chief_complaint": getattr(sess, "chief_complaint", ""),
+                    # chief_complaint 是未 eager-load 的 relationship，在 async session
+                    # 直接存取會觸發 lazy-load → greenlet 例外被吞掉使整個排隊數歸 0。
+                    # 改用已載入的純文字欄位 chief_complaint_text。
+                    "chief_complaint": getattr(sess, "chief_complaint_text", "") or "",
                     "created_at": (
                         sess.created_at.isoformat()
                         if hasattr(sess, "created_at") and sess.created_at

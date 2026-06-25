@@ -549,7 +549,18 @@ class AlertService:
             created_by_id: 建立者 ID
         """
         now = utc_now()
+        # canonical_id 為 NOT NULL + UNIQUE，但 RedFlagRuleCreate schema 未含此欄位，
+        # client 無從提供。未提供時由 name 衍生 snake_case slug + 短 uuid 後綴確保唯一，
+        # 避免 NotNullViolation（H-1 真因修補）。
+        canonical_id = data.get("canonical_id")
+        if not canonical_id:
+            import re as _re
+            from uuid import uuid4 as _uuid4
+
+            _base = _re.sub(r"[^a-z0-9]+", "_", (data.get("name") or "rule").lower()).strip("_")[:40]
+            canonical_id = f"{_base or 'rule'}_{_uuid4().hex[:8]}"
         rule = RedFlagRule(
+            canonical_id=canonical_id,
             name=data["name"],
             description=data.get("description"),
             category=data["category"],
