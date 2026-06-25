@@ -24,6 +24,14 @@
 
 1. Project → **+ New** → **Empty Service**，命名為 `gu-voice-celery-worker`
 2. **Settings → Source** 選同一個 GitHub repo、同一分支，root 設為 `backend/`
+
+   > ⚠️ 已驗證（2026-06-26）：生產的主 API service（專案 `gu-voice-api` / service
+   > `gu-voice-app`，https://gu-voice-app-production.up.railway.app）目前**未連 GitHub
+   > source**，而是用 `railway up`（Docker build，`RAILWAY_DOCKERFILE_PATH=Dockerfile`）
+   > 上傳 image 部署。若要與主服務共用同一 image，worker/beat 也可改走相同流程：
+   > `railway up --detach` 觸發 build（headless / 非 TTY 環境亦可，不等 log 串流），
+   > 再於各 service 設定不同的 Start Command。改任一環境變數則會用既有 image
+   > 觸發 redeploy（約 1 分鐘、免重建）。
 3. **Settings → Deploy**
    - **Start Command**: `/app/scripts/start_worker.sh`
    - **Restart Policy**: `ON_FAILURE`（最多重試 5 次）
@@ -33,6 +41,11 @@
    - 必備：`DATABASE_URL` or `DB_*`、`REDIS_URL` or `REDIS_*`、`OPENAI_API_KEY`、
      `FCM_CREDENTIALS_JSON`、`APP_SECRET_KEY`、`JWT_*`、`SENTRY_DSN`
    - 可額外加：`CELERY_CONCURRENCY=2`
+   - **DB 連線**：worker/beat 同為常駐容器，`DATABASE_URL` 必須走 Supabase
+     **session-mode pooler**（host `aws-1-ap-southeast-1.pooler.supabase.com`，**port 5432**），
+     不要用 transaction-mode（6543）——6543 的 PgBouncer 會讓 asyncpg 的 prepared statement
+     跨 backend 失效。並把連線池調小：`DB_POOL_SIZE=5`、`DB_MAX_OVERFLOW=5`
+     （session pooler 連線數有限，每個 service 都會佔用連線）。
 5. Deploy，在 Logs 確認看到：
    ```
    celery@... ready.
@@ -81,3 +94,5 @@
 | `ValueError: default Firebase app does not exist` | `FCM_CREDENTIALS_JSON` 沒複製過來；見 `app/core/firebase.py` |
 | Beat 重複觸發同一 task | 多個 beat 副本同時跑 → `numReplicas = 1` 檢查 |
 | 任務一直 pending 沒被消化 | Worker 沒訂閱到同一 broker 的 queue，檢查 `REDIS_URL` 是否與 API 一致 |
+| 任務噴 `prepared statement "__asyncpg_stmt_*__" does not exist` | `DATABASE_URL` 用到 transaction-mode pooler（6543）；改用 session-mode（**5432**）。偵測邏輯見 `app/core/database.py` 的 `_is_supabase`（從 `ASYNC_DATABASE_URL` 解析 host） |
+| Worker / Beat 一啟動就 crash 或反覆 restart | 從 API 複製來的 `CORS_ORIGINS` / `MULTILANG_DISABLED_LANGUAGES` 格式問題：pydantic-settings v2 會先 `json.loads()`，舊 code 需**合法 JSON 陣列**；新 code（`app/core/config.py` 已加 `Annotated[..., NoDecode]`）逗號分隔或 JSON 陣列皆可 |

@@ -24,11 +24,11 @@
 ### 後端 (.env)
 路徑: `backend/.env`
 關鍵配置：
-*   **DB_HOST**: `aws-1-ap-northeast-1.pooler.supabase.com` (Supabase 雲端資料庫)
+*   **DB_HOST**: `aws-1-ap-southeast-1.pooler.supabase.com` (Supabase 雲端資料庫)
 *   **SUPABASE_URL**: `https://udydlelmkusyjmegtviq.supabase.co`
 *   **REDIS_URL**: `redis://localhost:6379/0` (用於 Supervisor 指導訊息快取)
 *   **OPENAI_API_KEY**: (已配置 gpt-4o / gpt-4o-mini 等模型金鑰)
-*   **CORS_ORIGINS**: `["http://localhost:5173", "http://localhost:3000"]` (允許前端存取)
+*   **CORS_ORIGINS**: `["http://localhost:5173", "http://localhost:3000"]` (允許前端存取；生產環境注入格式注意事項見第 6 節)
 
 ### 前端 (.env)
 路徑: `frontend/.env`
@@ -91,4 +91,7 @@ npm run dev -- --host 127.0.0.1 --port 3000
 
 ## 6. 注意事項
 *   **WebSocket 穩定性**: 如果您在 `http://localhost:3000` 看到「載入對話失敗」，請檢查後端是否因 `google.auth.exceptions.DefaultCredentialsError` 崩潰。我已加入 try-except，現在應會自動降級到「純文字模式」。
-*   **DB 連線**: 因使用 Supabase Pooler (Port 5432)，連線較為穩定。
+*   **DB 連線 (Supabase Pooler 模式)**: 常駐容器（如 Railway）務必使用 **session-mode pooler（port 5432）**，不要用 transaction-mode（port 6543）。6543 的 PgBouncer 會讓 asyncpg 為 JSONB codec 型別 introspection 建立的 prepared statement 跨 backend 失效，造成特定端點回 500（錯誤訊息 `prepared statement "__asyncpg_stmt_*__" does not exist`）；session-mode 每個 client 連線對應專屬 backend，prepared statement 才會持久。
+    *   session pooler 連線數有限，請把連線池調小：`DB_POOL_SIZE=5` / `DB_MAX_OVERFLOW=5`。
+    *   `app/core/database.py` 的 `_is_supabase` 偵測已改為從 `ASYNC_DATABASE_URL` 解析 host；先前只看 `settings.DB_HOST`，但以完整 `DATABASE_URL` 注入時 `DB_HOST` 仍是預設 `localhost` → mitigation 全失效。
+*   **CORS_ORIGINS 環境變數格式 (生產部署)**: pydantic-settings v2 對 `list[str]` 欄位會在 source 層先 `json.loads()`。`app/core/config.py` 已對 `CORS_ORIGINS` 與 `MULTILANG_DISABLED_LANGUAGES` 加上 `Annotated[list[str], NoDecode]` + `field_validator`，故修正後「逗號分隔字串」與「JSON 陣列」兩種注入格式皆可。但若部署的是舊 code，`CORS_ORIGINS` 必須是**合法 JSON 陣列**（如 `["https://a.com","https://b.com"]`）；改用逗號分隔字串會觸發 SettingsError，容器一啟動就 crash → healthcheck 永遠失敗 → 平台（Railway）顯示 offline。

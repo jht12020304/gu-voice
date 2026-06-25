@@ -103,7 +103,8 @@
    - **Project URL**: `https://<project-ref>.supabase.co`
    - **Anon Key**: 用於前端
    - **Service Role Key**: 用於後端 (擁有完整權限，絕對不可暴露於前端)
-   - **Database Connection String**: `postgresql://postgres.<ref>:<password>@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres`
+   - **Database Connection String** (session-mode pooler, port `5432`): `postgresql://postgres.<ref>:<password>@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres`
+     - **重要**: 常駐的 Railway 後端容器務必使用 **session-mode pooler (port `5432`)**，勿用 transaction-mode (port `6543`)。原因與連線池設定見 §2.6。
 
 ### 2.2 Database 設定
 
@@ -228,6 +229,18 @@ const channel = supabase
   )
   .subscribe();
 ```
+
+### 2.6 連線池與 Pooler 模式 (Gotcha)
+
+> **生產實測 (2026-06-26)**
+
+常駐的 Railway 後端容器**必須使用 session-mode pooler (port `5432`)**，不可使用 transaction-mode pooler (port `6543`)：
+
+- transaction-mode (6543) 的 PgBouncer 會在多個後端連線間輪替，導致 asyncpg 為 JSONB codec 型別 introspection 建立的 prepared statement 跨 backend 失效，特定端點會回 500，錯誤訊息為 `prepared statement "__asyncpg_stmt_*__" does not exist`。
+- session-mode (5432) 每個 client 連線對應專屬 backend，prepared statement 得以持久，問題消失。
+- session pooler 連線數有限，務必把連線池調小：`DB_POOL_SIZE=5` / `DB_MAX_OVERFLOW=5`。
+
+> **程式碼已修** (`app/core/database.py`): `_is_supabase` 偵測改為從 `ASYNC_DATABASE_URL` 解析 host。先前只看 `settings.DB_HOST`，但若以完整 `DATABASE_URL` 注入，`DB_HOST` 仍為預設 `localhost`，導致上述 mitigation 全部失效。
 
 ---
 
@@ -391,7 +404,10 @@ APP_PORT=8000
 APP_WORKERS=4
 
 # ===== Supabase / Database =====
-DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres
+# 常駐容器使用 session-mode pooler (port 5432)，勿用 transaction-mode (6543)。見 §2.6
+DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres
+DB_POOL_SIZE=5          # session pooler 連線數有限，連線池調小
+DB_MAX_OVERFLOW=5
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...  # 完整權限，僅後端使用
 SUPABASE_JWT_SECRET=<jwt-secret>
@@ -430,8 +446,13 @@ SUPABASE_STORAGE_BUCKET=audio-recordings
 SENTRY_DSN=https://xxx@sentry.io/xxx
 
 # ===== CORS =====
-CORS_ORIGINS=https://dashboard.gu-voice.com
+# 格式見下方 Gotcha：修正後逗號分隔字串與 JSON 陣列皆可；舊 code 必須是合法 JSON 陣列。
+CORS_ORIGINS=["https://dashboard.gu-voice.com"]
 ```
+
+> **Gotcha -- `CORS_ORIGINS` 格式**: pydantic-settings v2 對 `list[str]` 欄位會在 source 層先 `json.loads()`。若以**逗號分隔字串**注入 (如 `https://a.com,https://b.com`)，舊版 code 會 `SettingsError` → 容器一啟動就 crash → healthcheck 永遠失敗 → Railway 顯示 offline。
+> - **已修** (`app/core/config.py`): `CORS_ORIGINS` 與 `MULTILANG_DISABLED_LANGUAGES` 加上 `Annotated[list[str], NoDecode]`，讓 `field_validator` 接到原始字串，同時容忍「逗號分隔」與「JSON 陣列」兩種格式。
+> - 結論: 修正後兩種格式皆可；但若部署的是**舊 code**，`CORS_ORIGINS` 必須是合法 JSON 陣列，例如 `["https://dashboard.gu-voice.com"]`。
 
 ### 5.2 Vercel (Frontend) 環境變數
 
@@ -713,6 +734,7 @@ Sentry.init({
   ```
 - [ ] Supabase Dashboard 中設定 Allowed Origins
 - [ ] 不使用 `allow_origins=["*"]` 於 Production
+- [ ] `CORS_ORIGINS` 環境變數為合法 JSON 陣列 (如 `["https://dashboard.gu-voice.com"]`)；逗號分隔字串僅在含 `NoDecode` 修正的 code 上才安全，否則容器啟動即 crash (見 §5.1 Gotcha)
 
 ### 10.4 Rate Limiting
 

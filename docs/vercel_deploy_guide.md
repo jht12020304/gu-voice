@@ -44,6 +44,7 @@ Vercel 非常適合 Vite + React 架構，只需簡單設定。
    * **Output Directory**: `dist`
 5. **Environment Variables (環境變數)**：
    你必須在這裡設定前端需要的全域變數 (請從你本地的 `.env` 中複製)：
+   > ℹ️ **提醒**：`VITE_*` 變數在 build 時被 inline 進打包產物，且 **Vercel dashboard 設定的環境變數會覆寫 repo 內的 `frontend/.env.production`**。所以正式網址請以 Vercel dashboard 為準；改動後需重新 build/redeploy 才會生效。
    * `VITE_API_BASE_URL`: **(這必須填寫你未來要部署的後端正式網址，例如 `https://gu-voice-api.onrender.com/api/v1`)**
    * `VITE_WS_BASE_URL`: **(例如 `wss://gu-voice-api.onrender.com/api/v1`)**
    * `VITE_ENABLE_MOCK`: `false`
@@ -72,11 +73,20 @@ Vercel 非常適合 Vite + React 架構，只需簡單設定。
 5. **Environment Variables (環境變數)**：
    這非常關鍵，請將後端需要的 `.env` 複製上去：
    * `SUPABASE_URL`: 你的 Supabase 網址
-   * `SUPABASE_SERVICE_ROLE_KEY`: Supabase 的 Service 密鑰
+   * `SUPABASE_SERVICE_ROLE_KEY`: Supabase 的 Service 密鑰（請用 `<REDACTED>` 佔位，切勿把真實密鑰寫進文件）
+   * `DATABASE_URL` / `ASYNC_DATABASE_URL`: Supabase Postgres 連線字串。
+     > ⚠️ **Pooler Gotcha（Supabase）**：常駐後端容器請用 **session-mode pooler（port `5432`）**，**不要**用 transaction-mode（`6543`）。
+     > 6543 的 PgBouncer 會讓 asyncpg 為 JSONB codec 型別 introspection 建立的 prepared statement 跨 backend 失效，造成特定端點 500（錯誤訊息：`prepared statement "__asyncpg_stmt_*__" does not exist`）；session-mode 每個 client 連線對應專屬 backend，prepared statement 才會持久。
+     > host 形如 `aws-1-ap-southeast-1.pooler.supabase.com:5432`。session pooler 連線數有限，請把連線池調小：`DB_POOL_SIZE=5`、`DB_MAX_OVERFLOW=5`。
+     > 注意：`_is_supabase` 偵測（`app/core/database.py`）是從 `ASYNC_DATABASE_URL` 解析 host；若只以完整 `DATABASE_URL` 注入而沒另設 `DB_HOST`，舊版 code 只看 `settings.DB_HOST`（預設 `localhost`）會讓上述 mitigation 全失效。
    * `OPENAI_API_KEY`: 你的 OpenAI 金鑰
    * `REDIS_URL`: 如果你有外部 Redis (如 Upstash)，填寫這裡；如果沒有請在 Render 開一個免費 Redis 服務並將 Internal URL 填入這。
    * *(如果還要支援語音)* `GOOGLE_APPLICATION_CREDENTIALS_JSON`: 將 Google 授權 JSON 整包貼成長字串（或改由程式讀取環境變數配置）。
    * `CORS_ORIGINS`: 填上你在 Vercel 部署獲得的前端網址 `https://gu-voice.vercel.app` (超級重要，不然會被 CORS 擋住)
+     > ⚠️ **格式 Gotcha（CORS_ORIGINS）**：此欄位是 `list[str]` 型別，pydantic-settings v2 會在 source 層先對它做 `json.loads()`。
+     > 目前 code（`app/core/config.py`）已用 `Annotated[list[str], NoDecode]` + `field_validator` 同時容忍「逗號分隔字串」與「JSON 陣列」兩種格式，故兩種注入皆可。
+     > 但若部署的是**舊版 code**，`CORS_ORIGINS` **必須是合法 JSON 陣列**（例如 `["https://gu-voice.vercel.app"]`，多網域 `["https://a.vercel.app","https://b.vercel.app"]`）；若用逗號分隔字串會讓容器一啟動就 `SettingsError` crash → healthcheck 永遠失敗 → 平台顯示 offline。
+     > `MULTILANG_DISABLED_LANGUAGES` 同屬此類型、適用同樣規則。
 
 ### 3. 等候部署完成
 Render 部署可能需要幾分鐘，完成後會給你一個後端網址（例如 `https://gu-voice-backend.onrender.com`）。

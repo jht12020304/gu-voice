@@ -12,16 +12,27 @@
 ## 2. 資料庫連線 (Critical)
 本專案的 FastAPI 後端使用 `asyncpg` 與 `SQLAlchemy 2.0` 非同步連線。直接連線 (Direct connection, port 5432) 在某些網路環境 (包含開發環境) 可能會遭遇 DNS 解析失敗 (`socket.gaierror`)。
 
-🟢 **唯一正確的連線方式：透過 Transaction Pooler**
-請在 `.env` 中如此設定：
+🟢 **正確的連線方式：一律走 Pooler host（不要用 direct connection 5432）**
+開發環境 / Alembic 遷移使用 **Transaction-mode（port 6543）**，請在 `.env` 中如此設定：
 ```env
-DB_HOST=aws-1-ap-northeast-1.pooler.supabase.com
+DB_HOST=aws-1-ap-southeast-1.pooler.supabase.com
 DB_PORT=6543
 DB_NAME=postgres
 DB_USER=postgres.udydlelmkusyjmegtviq
 DB_PASSWORD=<你的密碼>
 ```
 *注意：`DB_USER` 必須包含 `.udydlelmkusyjmegtviq` 這個後綴，因為走的是 Pooler (PgBouncer)。*
+
+> 🚨 **生產環境（Railway 常駐容器）必須改用 Session-mode Pooler（port 5432）**
+> 上面的 6543 是 **Transaction-mode**，適合本機開發 / 短連線與 Alembic 遷移。但**常駐容器**若用 6543，PgBouncer 會讓 `asyncpg` 為 JSONB codec 型別 introspection 建立的 prepared statement 在不同 backend 間失效，造成特定端點偶發 500（錯誤訊息：`prepared statement "__asyncpg_stmt_*__" does not exist`）。
+> Session-mode 下每個 client 連線對應專屬 backend，prepared statement 持久，可根治此問題。設定時**沿用同一個 pooler host，只把 port 改成 5432**（注意：這與「direct connection 5432」不同，host 仍是 pooler）：
+> ```env
+> DB_HOST=aws-1-ap-southeast-1.pooler.supabase.com
+> DB_PORT=5432
+> # Session pooler 連線數有限，務必把連線池調小
+> DB_POOL_SIZE=5
+> DB_MAX_OVERFLOW=5
+> ```
 
 ### ⚠️ 連線地雷與解法 (Asyncpg + PL/Bouncer)
 1. **密碼包含特殊字元 (`@`)**：密碼中若有 `@`，直接組裝 URL 會造成 SQLAlchemy 解析失敗，必須使用 `urllib.parse.quote(..., safe="")` 進行 URL Encode（例如 `@` -> `%40`）。目前已在 `app.core.config.py` 中實作。
@@ -35,7 +46,8 @@ DB_PASSWORD=<你的密碼>
 
 ### 🚨 Alembic 執行注意事項
 1. **連線設定 (`env.py`)**：目前 Alembic `env.py` 已改為直接從 `settings.ASYNC_DATABASE_URL` 拿連線字串，避免 ConfigParser 解析 `%40` 時誤認為 Python interpolation (`ValueError: invalid interpolation syntax`) 導致閃退。
-2. **SSL 強制要求**：Supabase 要求 SSL 連線。在 `env.py` 及 `database.py` 中，如果偵測到 `supabase` 或 `pooler.supabase`，會自動加上 `ssl=require` 參數。如果遇到連線斷開，請先檢查這段邏輯。
+2. **SSL 強制要求 & Supabase 偵測來源**：Supabase 要求 SSL 連線。在 `env.py` 及 `database.py` 中，如果偵測到 `supabase` 或 `pooler.supabase`，會自動加上 `ssl=require` 參數。如果遇到連線斷開，請先檢查這段邏輯。
+   * **注意（已修）**：`database.py` 的 `_is_supabase` 偵測改為從 `settings.ASYNC_DATABASE_URL` 解析 host，**不再只看 `settings.DB_HOST`**。原因：若部署時以完整 `DATABASE_URL` 注入（Railway 常見做法），`DB_HOST` 仍會是預設值 `localhost`，導致 SSL 與 pooler mitigation（session-mode 相關處理）全部失效。
 3. **Enum Type 的坑 (PostgreSQL)**：
    - SQLAlchemy 2.0 原生可以自動在 `op.create_table` 時建立 PostgreSQL 的 `ENUM` type (只要你不寫 `create_type=False`)。
    - **坑點**：如果是 `server_default`，例如 `sa.text("'WAITING'")`，大小寫必須與 Enum 定義的字串 **完全吻合**。如果 Enum 定義了 `'WAITING'` 但 Default 給了 `'waiting'`，Alembic migrate 會直接吐錯誤 (`InvalidTextRepresentationError`)。
