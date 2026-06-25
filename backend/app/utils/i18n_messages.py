@@ -472,6 +472,12 @@ MESSAGES: dict[str, dict[str, str]] = {
     # ── SOAP Plan urgency（TODO-M13 enum 化 4 級）────
     # UI 渲染 Plan 的 urgency 時依 locale 取此字串，再與 boilerplate 組合。
     # 新增 urgency 必須同時更新 `Urgency` enum 與此表（測試有守護）。
+    "soap.red_flag_impression_prefix": {
+        "zh-TW": "偵測到紅旗徵象，需優先緊急評估。",
+        "en-US": "Red flag detected — requires urgent priority evaluation.",
+        "ja-JP": "レッドフラグを検出しました。緊急の優先評価が必要です。",
+        "ko-KR": "위험 징후가 감지되었습니다. 긴급 우선 평가가 필요합니다.",
+    },
     "soap.urgency.er_now": {
         "zh-TW": "若有以下情況請立即就醫：請立刻前往急診。",
         "en-US": "Seek emergency care immediately if the following applies: proceed to the ER now.",

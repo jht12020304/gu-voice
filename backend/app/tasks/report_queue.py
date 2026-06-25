@@ -185,6 +185,29 @@ async def _async_generate(session_id: str) -> dict:
             # 正規化後的 snake_case slug（與 `icd10_symptom_map.SYMPTOM_TO_ICD10` 的 key 相容）。
             symptom_id = _resolve_symptom_id(session_obj)
 
+            # 取出本場次即時偵測並持久化的紅旗，注入 SOAP 生成（安全關鍵：
+            # 避免 LLM 自逐字稿重新推導時把 critical 急症 under-triage）。
+            from app.models.red_flag_alert import RedFlagAlert
+
+            rf_rows = (
+                await db.execute(
+                    select(RedFlagAlert).where(RedFlagAlert.session_id == session_id)
+                )
+            ).scalars().all()
+            red_flags = [
+                {
+                    "severity": (
+                        rf.severity.value
+                        if hasattr(rf.severity, "value")
+                        else str(rf.severity)
+                    ),
+                    "canonical_id": getattr(rf, "canonical_id", None),
+                    "trigger_reason": rf.trigger_reason or "",
+                    "suggested_actions": rf.suggested_actions or [],
+                }
+                for rf in rf_rows
+            ]
+
             language = session_obj.language
             generator = SOAPGenerator(settings)
             soap_data = await generator.generate(
@@ -193,6 +216,7 @@ async def _async_generate(session_id: str) -> dict:
                 chief_complaint=chief_complaint_text,
                 language=language,
                 symptom_id=symptom_id,
+                red_flags=red_flags,
             )
 
             raw_transcript = "\n".join(

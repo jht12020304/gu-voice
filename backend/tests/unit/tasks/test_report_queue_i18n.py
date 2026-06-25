@@ -70,11 +70,15 @@ def _fake_report() -> SimpleNamespace:
 
 
 class _FakeResult:
-    def __init__(self, obj: Any):
+    def __init__(self, obj: Any = None, rows: list[Any] | None = None):
         self._obj = obj
+        self._rows = rows or []
 
     def scalar_one_or_none(self):
         return self._obj
+
+    def scalars(self):
+        return SimpleNamespace(all=lambda: self._rows)
 
 
 class _FakeDB:
@@ -87,10 +91,13 @@ class _FakeDB:
 
     async def execute(self, stmt):
         self._calls += 1
-        # 第一次查 Session、之後查 SOAPReport
-        if self._calls == 1:
-            return _FakeResult(self._session_obj)
-        return _FakeResult(self._report_obj)
+        # 依 stmt 對應的資料表判斷回傳（不依賴呼叫順序，較穩健）：
+        s = str(stmt)
+        if "red_flag_alerts" in s:
+            return _FakeResult(rows=[])  # 無紅旗
+        if "soap_reports" in s:
+            return _FakeResult(obj=self._report_obj)
+        return _FakeResult(obj=self._session_obj)
 
     async def commit(self):
         self.commits += 1
@@ -171,12 +178,14 @@ def test_async_generate_passes_session_language_to_soap_generator(
             chief_complaint,
             language,
             symptom_id=None,
+            red_flags=None,
         ):
             captured["transcript"] = transcript
             captured["patient_info"] = patient_info
             captured["chief_complaint"] = chief_complaint
             captured["language"] = language
             captured["symptom_id"] = symptom_id
+            captured["red_flags"] = red_flags
             return {
                 "subjective": {"summary": "s"},
                 "objective": {"summary": "o"},
