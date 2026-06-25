@@ -132,8 +132,8 @@ export default function PatientListPage() {
   const groupedPatients = groupPatientsByCreatedDate(patients, currentLocale);
 
   const loadedCountHelper = hasMore
-    ? `已載入 ${patients.length} / ${totalCount} 位病患`
-    : `目前共 ${totalCount} 位病患`;
+    ? t('patientList.loadedCount', '已載入 {{loaded}} / {{total}} 位病患', { loaded: patients.length, total: totalCount })
+    : t('patientList.totalCount', '目前共 {{total}} 位病患', { total: totalCount });
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -141,17 +141,17 @@ export default function PatientListPage() {
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <p className="text-small font-semibold uppercase tracking-[0.18em] text-ink-muted">Patients</p>
-            <h1 className="mt-2 text-h1 text-ink-heading dark:text-white">病患列表</h1>
+            <h1 className="mt-2 text-h1 text-ink-heading dark:text-white">{t('patientList.title', '病患列表')}</h1>
             <p className="mt-2 text-body text-ink-secondary">
-              以月份切換檢視病患資料，並依建檔日期整理每日新增病患。
+              {t('patientList.subtitle', '以月份切換檢視病患資料，並依建檔日期整理每日新增病患。')}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="rounded-pill bg-surface-tertiary px-3 py-1.5 text-tiny font-semibold text-ink-secondary dark:bg-dark-surface dark:text-dark-text-muted">
-                資料區間 {monthRangeLabel}
+                {t('patientList.dateRange', '資料區間 {{range}}', { range: monthRangeLabel })}
               </span>
               {searchQuery ? (
                 <span className="rounded-pill bg-primary-50 px-3 py-1.5 text-tiny font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
-                  搜尋中：{searchQuery}
+                  {t('patientList.searching', '搜尋中：{{query}}', { query: searchQuery })}
                 </span>
               ) : null}
             </div>
@@ -160,9 +160,10 @@ export default function PatientListPage() {
           <div className="flex items-center gap-2 rounded-panel border border-edge bg-white p-1.5 shadow-card dark:border-dark-border dark:bg-dark-card">
             <button
               type="button"
-              className="rounded-card p-2 text-ink-secondary transition-colors hover:bg-surface-tertiary hover:text-ink-heading dark:hover:bg-dark-surface dark:hover:text-white"
+              className="rounded-card p-2 text-ink-secondary transition-colors hover:bg-surface-tertiary hover:text-ink-heading disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-dark-surface dark:hover:text-white"
               onClick={() => setSelectedMonth(format(addMonths(selectedMonthDate, -1), 'yyyy-MM'))}
-              aria-label="上一個月"
+              disabled={isLoading}
+              aria-label={t('patientList.previousMonth', '上一個月')}
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -173,9 +174,10 @@ export default function PatientListPage() {
             </div>
             <button
               type="button"
-              className="rounded-card p-2 text-ink-secondary transition-colors hover:bg-surface-tertiary hover:text-ink-heading dark:hover:bg-dark-surface dark:hover:text-white"
+              className="rounded-card p-2 text-ink-secondary transition-colors hover:bg-surface-tertiary hover:text-ink-heading disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-dark-surface dark:hover:text-white"
               onClick={() => setSelectedMonth(format(addMonths(selectedMonthDate, 1), 'yyyy-MM'))}
-              aria-label="下一個月"
+              disabled={isLoading}
+              aria-label={t('patientList.nextMonth', '下一個月')}
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5L15.75 12l-7.5 7.5" />
@@ -186,13 +188,15 @@ export default function PatientListPage() {
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-2">
           <PatientMetricCard
-            title={`${selectedMonthLabel} 新增病患`}
+            title={t('patientList.newPatientsInMonth', '{{month}} 新增病患', { month: selectedMonthLabel })}
             value={totalCount}
-            helper={searchQuery ? '符合搜尋條件的病患數' : '本月建立的病患總數'}
+            helper={searchQuery
+              ? t('patientList.matchedCountHelper', '符合搜尋條件的病患數')
+              : t('patientList.monthTotalHelper', '本月建立的病患總數')}
             accentClass="border-t-4 border-t-[#8F3A6F]"
           />
           <PatientMetricCard
-            title="日期分組"
+            title={t('patientList.dateGroups', '日期分組')}
             value={groupedPatients.length}
             helper={loadedCountHelper}
             accentClass="border-t-4 border-t-[#4A7AF7]"
@@ -203,7 +207,7 @@ export default function PatientListPage() {
           <SearchBar
             value={searchQuery}
             onChange={handleSearch}
-            placeholder="搜尋病患姓名、病歷號..."
+            placeholder={t('patientList.searchPlaceholder', '搜尋病患姓名、病歷號...')}
           />
         </div>
       </section>
@@ -212,8 +216,10 @@ export default function PatientListPage() {
 
       {!error && patients.length === 0 && !isLoading ? (
         <EmptyState
-          title={`${selectedMonthLabel} 無病患資料`}
-          message={searchQuery ? '目前沒有符合搜尋條件的病患' : '目前這個月份尚無建立病患資料'}
+          title={t('patientList.emptyTitle', '{{month}} 無病患資料', { month: selectedMonthLabel })}
+          message={searchQuery
+            ? t('patientList.emptySearchMessage', '目前沒有符合搜尋條件的病患')
+            : t('patientList.emptyMonthMessage', '目前這個月份尚無建立病患資料')}
         />
       ) : null}
 
@@ -227,16 +233,16 @@ export default function PatientListPage() {
                   <p className="mt-1 text-small text-ink-muted font-tnum">{group.dateKey}</p>
                 </div>
                 <span className="rounded-pill bg-white px-3 py-1 text-tiny font-semibold text-ink-secondary shadow-sm dark:bg-dark-card dark:text-dark-text-muted">
-                  {group.items.length} 位病患
+                  {t('patientList.patientCount', '{{count}} 位病患', { count: group.items.length })}
                 </span>
               </div>
 
               <div className="hidden border-b border-edge px-6 py-3 text-tiny font-semibold uppercase tracking-[0.16em] text-ink-muted dark:border-dark-border md:grid md:grid-cols-[minmax(0,2fr)_1.2fr_0.8fr_1fr_0.8fr_auto] md:gap-4">
-                <span>病患</span>
-                <span>病歷號</span>
-                <span>性別</span>
-                <span>出生日期</span>
-                <span>建檔時間</span>
+                <span>{t('patientList.columnPatient', '病患')}</span>
+                <span>{t('patientList.columnMrn', '病歷號')}</span>
+                <span>{t('patientList.columnGender', '性別')}</span>
+                <span>{t('patientList.columnDob', '出生日期')}</span>
+                <span>{t('patientList.columnCreatedAt', '建檔時間')}</span>
                 <span />
               </div>
 
@@ -254,7 +260,7 @@ export default function PatientListPage() {
                       </div>
                       <div className="min-w-0">
                         <p className="truncate text-body font-medium text-ink-heading dark:text-white">{patient.name}</p>
-                        <p className="truncate text-small text-ink-muted">{patient.phone || '未提供電話'}</p>
+                        <p className="truncate text-small text-ink-muted">{patient.phone || t('patientList.noPhone', '未提供電話')}</p>
                       </div>
                     </div>
                     <div className="text-body font-data text-ink-body">{formatMRN(patient.medicalRecordNumber)}</div>

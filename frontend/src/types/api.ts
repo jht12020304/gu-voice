@@ -36,10 +36,9 @@ export interface RegisterRequest {
   email: string;
   password: string;
   name: string;
-  role: 'patient' | 'doctor';
+  // 對齊後端 UserRole（patient/doctor/admin）；後端註冊預設為 patient
+  role: 'patient' | 'doctor' | 'admin';
   phone?: string;
-  gender?: 'male' | 'female' | 'other';
-  dateOfBirth?: string;
   licenseNumber?: string;
   department?: string;
 }
@@ -295,6 +294,54 @@ export interface NotificationListParams {
 
 export interface UnreadCountResponse {
   count: number;
+}
+
+/**
+ * 標記已讀回應（對齊後端 MarkReadResponse，僅回傳精簡欄位）。
+ * 後端 PUT /notifications/{id}/read 不回傳完整 Notification。
+ */
+export interface MarkReadResponse {
+  id: string;
+  isRead: boolean;
+  readAt: string;
+}
+
+/** 通知偏好（GDPR opt-out）。red_flag 為病安關鍵，後端恆為開。 */
+export interface NotificationPreference {
+  userId: string;
+  redFlagEnabled: boolean;
+  sessionCompleteEnabled: boolean;
+  reportReadyEnabled: boolean;
+  systemEnabled: boolean;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+}
+
+/** 更新通知偏好（僅更新提供的欄位） */
+export interface NotificationPreferenceUpdate {
+  redFlagEnabled?: boolean;
+  sessionCompleteEnabled?: boolean;
+  reportReadyEnabled?: boolean;
+  systemEnabled?: boolean;
+  emailEnabled?: boolean;
+  pushEnabled?: boolean;
+}
+
+/** 註冊 FCM 推播 Token 請求 */
+export interface FcmTokenCreateRequest {
+  deviceToken: string;
+  platform: 'ios' | 'android' | 'web';
+  deviceName?: string;
+}
+
+/** FCM Token 回應 */
+export interface FcmTokenResponse {
+  id: string;
+  deviceToken: string;
+  platform: 'ios' | 'android' | 'web';
+  deviceName?: string;
+  isActive: boolean;
+  createdAt: string;
 }
 
 // ---- 管理員 ----

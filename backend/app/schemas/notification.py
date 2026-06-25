@@ -33,8 +33,11 @@ class NotificationListResponse(BaseModel):
 
 
 class UnreadCountResponse(BaseModel):
-    """未讀通知計數"""
-    unread_count: int = 0
+    """未讀通知計數
+
+    欄位名為 ``count``，與前端 ``data.count`` 讀取一致。
+    """
+    count: int = 0
 
 
 class MarkReadResponse(BaseModel):
@@ -55,6 +58,32 @@ class MarkAllReadResponse(BaseModel):
 class MessageResponse(BaseModel):
     """通用訊息回應"""
     message: str
+
+
+class NotificationPreferenceResponse(BaseModel):
+    """通知偏好回應（GDPR opt-out）"""
+    user_id: UUID
+    red_flag_enabled: bool
+    session_complete_enabled: bool
+    report_ready_enabled: bool
+    system_enabled: bool
+    email_enabled: bool
+    push_enabled: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NotificationPreferenceUpdate(BaseModel):
+    """更新通知偏好（僅更新提供的欄位）
+
+    注意：red_flag 為病安關鍵，服務層會忽略關閉 red_flag 的請求並維持恆為開。
+    """
+    red_flag_enabled: Optional[bool] = None
+    session_complete_enabled: Optional[bool] = None
+    report_ready_enabled: Optional[bool] = None
+    system_enabled: Optional[bool] = None
+    email_enabled: Optional[bool] = None
+    push_enabled: Optional[bool] = None
 
 
 class FCMTokenCreate(BaseModel):

@@ -143,7 +143,10 @@ async def _summarize_history_segment(
         content = (resp.choices[0].message.content or "").strip()
         return content or None
     except Exception as exc:
-        logger.warning("對話歷史摘要失敗，將改為直接丟棄舊輪次 | error=%s", str(exc))
+        logger.warning(
+            "對話歷史摘要失敗，將保留原始舊輪次以免遺失臨床脈絡 | error=%s",
+            str(exc),
+        )
         return None
 
 
@@ -154,7 +157,7 @@ async def _cap_conversation_history(
     """
     若 conversation_history 超過上限（預設 50 輪 = 100 entries），
     將最舊的一半超額部分摘要為單一 system 訊息，其餘保留。
-    就地修改 history。摘要失敗則硬丟棄。
+    就地修改 history。摘要失敗時保留原始舊輪次（不靜默丟棄），以免遺失紅旗臨床脈絡。
     """
     max_turns = getattr(settings, "CONVERSATION_HISTORY_MAX_TURNS", 50)
     # 一輪 = patient + assistant → 2 筆，list 長度上限 = max_turns * 2
@@ -202,7 +205,24 @@ async def _cap_conversation_history(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
-    # 若摘要失敗且沒有既有摘要：硬丟棄舊輪次（不阻塞對話）
+    else:
+        # 摘要失敗且沒有既有摘要：不可靜默丟棄舊輪次，否則可能遺失紅旗臨床脈絡。
+        # 改為保留原始舊輪次（接受 token 成本），並注入 system 標記提示脈絡未壓縮。
+        # log 在 _summarize_history_segment 內已記錄；此處再以 ERROR 強調未壓縮的後果。
+        logger.error(
+            "對話歷史摘要失敗且無既有摘要，保留原始舊輪次以免遺失臨床脈絡 | "
+            "dropped_avoided=%d",
+            len(old_segment),
+        )
+        history.append(
+            {
+                "role": "system",
+                "content": "[前段對話摘要] 摘要暫時無法產生，以下保留原始較舊對話內容以維持臨床脈絡完整。",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        history.extend(old_segment)
+    # 若摘要失敗且沒有既有摘要：保留舊輪次（見上方 else 分支），不再硬丟棄
     history.extend(recent)
 
 
@@ -348,6 +368,9 @@ async def conversation_websocket(
                 "previousStatus": session_status,
             },
         )
+        # H-8：場次狀態變更會改變排隊 / 統計數字，順帶推播 queue_updated +
+        # stats_updated（非致命，內部已 swallow 例外）。
+        await _broadcast_dashboard_queue_and_stats(db, redis)
 
         logger.info(
             "問診 WebSocket 已就緒 | session=%s, user=%s",
@@ -515,6 +538,8 @@ async def conversation_websocket(
                             "previousStatus": "in_progress",
                         },
                     )
+                    # H-8：完成場次後排隊 / 統計數字改變，順帶推播 queue/stats。
+                    await _broadcast_dashboard_queue_and_stats(db, redis)
                     # 觸發 SOAP 報告非同步生成
                     asyncio.create_task(
                         _generate_soap_report_async(
@@ -931,6 +956,92 @@ async def _handle_audio_chunk(
         )
 
 
+# ── Supervisor 指導 WS 推播（CONV-2 / CONV-3） ───────────
+async def _emit_supervisor_guidance(
+    session_id: str,
+    guidance: dict[str, Any] | None,
+) -> None:
+    """
+    CONV-2：將本輪可用的 Supervisor 指導以專屬事件推播給病患場次。
+
+    只送結構化的 canonical 欄位（next_focus / missing_hpi / hpi_completion_percentage），
+    前端依 code/params 與 missing_hpi id 自行 i18n 渲染。指導不存在或僅為 fallback
+    佔位時不送（degradation 由 _emit_supervisor_degraded 另行通知）。
+    本函式不可拋例外，避免阻塞主 turn 流程。
+    """
+    if not isinstance(guidance, dict):
+        return
+    # fallback 佔位指導（Supervisor 逾時時寫入）不視為可用指導，跳過。
+    if guidance.get("fallback"):
+        return
+    next_focus = guidance.get("next_focus")
+    missing_hpi = guidance.get("missing_hpi")
+    hpi_completion = guidance.get("hpi_completion_percentage")
+    # 完全沒有任何可呈現內容就不送（不阻塞、不雜訊）。
+    if not next_focus and not missing_hpi and hpi_completion is None:
+        return
+    try:
+        await manager.send_to_session(
+            session_id,
+            {
+                "type": "supervisor_guidance",
+                "payload": {
+                    "nextFocus": next_focus or "",
+                    "missingHpi": missing_hpi or [],
+                    "hpiCompletionPercentage": hpi_completion,
+                },
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "Supervisor 指導事件推播失敗（非致命） | session=%s, error=%s",
+            session_id,
+            str(exc),
+        )
+
+
+async def _emit_supervisor_degraded(session_id: str) -> None:
+    """
+    CONV-3：Supervisor 分析逾時 / 退回 fallback 時，送出低嚴重度警示事件，
+    讓降級狀態可被前端觀察，而非靜默。canonical code 由前端 i18n 渲染。
+    本函式不可拋例外。
+    """
+    try:
+        await manager.send_localized_to_session(
+            session_id,
+            msg_type="supervisor_degraded",
+            code="events.supervisor.degraded",
+            params={},
+            severity="warning",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Supervisor 降級事件推播失敗（非致命） | session=%s, error=%s",
+            session_id,
+            str(exc),
+        )
+
+
+# ── 儀表板 queue/stats 順帶推播（H-8） ───────────────────
+async def _broadcast_dashboard_queue_and_stats(
+    db: AsyncSession,
+    redis: Redis,
+) -> None:
+    """場次狀態變更後，順帶向儀表板推播最新 queue_updated + stats_updated。
+
+    委派給 dashboard_handler.broadcast_queue_and_stats（lazy import 避免任何
+    匯入順序問題）。本函式不可拋例外，避免阻塞對話主流程。
+    """
+    try:
+        from app.websocket.dashboard_handler import broadcast_queue_and_stats
+
+        await broadcast_queue_and_stats(db, redis)
+    except Exception as exc:
+        logger.warning(
+            "順帶推播儀表板 queue/stats 失敗（非致命） | error=%s", str(exc)
+        )
+
+
 # ── 文字訊息處理 ─────────────────────────────────────────
 async def _handle_text_message(
     *,
@@ -1133,6 +1244,8 @@ async def _handle_text_message(
                     session_id,
                     str(exc),
                 )
+            # CONV-3：降級可被觀察 — 額外推播低嚴重度警示事件給場次，而非靜默。
+            await _emit_supervisor_degraded(session_id)
         except Exception as exc:
             logger.error(
                 "Supervisor 背景任務失敗 | session=%s, error=%s",
@@ -1177,9 +1290,12 @@ async def _handle_text_message(
         if str(a.get("severity", "")).lower() not in ("critical", "high")
     ]
 
-    async def _persist_and_emit_alert(alert: dict[str, Any]) -> str:
-        """儲存單一紅旗警示至資料庫，並發送 WS 通知前端與儀表板。"""
-        alert_id = str(uuid.uuid4())
+    async def _persist_and_emit_alert(alert: dict[str, Any]) -> str | None:
+        """儲存單一紅旗警示至資料庫，並發送 WS 通知前端與儀表板。
+
+        儲存失敗時不可偽造 alert_id 給前端（否則醫師會誤以為警示已存在）。
+        改為送出真正的 error 事件、以 ERROR level 記錄，並回傳 None 中止本次 emit。
+        """
         try:
             from app.services.alert_service import AlertService
             from app.models.enums import AlertSeverity, AlertType
@@ -1204,11 +1320,27 @@ async def _handle_text_message(
             await db.commit()
             alert_id = str(_db_alert.id)
         except Exception as _e:
-            logger.warning("紅旗警示儲存失敗 | session=%s, error=%s", session_id, str(_e))
+            logger.error(
+                "紅旗警示儲存失敗，不對前端偽造 alert_id | session=%s, severity=%s, error=%s",
+                session_id,
+                alert.get("severity"),
+                str(_e),
+                exc_info=True,
+            )
             try:
                 await db.rollback()
             except Exception:
                 pass
+            # 送出真正的 error 事件，讓前端知道偵測到的警示「未能持久化」，
+            # 不可送出帶有偽造 alertId 的 red_flag_alert 事件。
+            await manager.send_localized_to_session(
+                session_id,
+                msg_type="error",
+                code="errors.ws.red_flag_persist_failed",
+                params={"severity": str(alert.get("severity", ""))},
+                severity="critical",
+            )
+            return None
 
         await manager.send_to_session(
             session_id,
@@ -1294,6 +1426,10 @@ async def _handle_text_message(
             },
         },
     )
+
+    # CONV-2：本輪 AI 回覆結束後，若有可用的 Supervisor 指導即推播專屬事件。
+    # supervisor_guidance 於本輪開頭自 Redis 讀入（前一輪分析結果）。不阻塞主流程。
+    await _emit_supervisor_guidance(session_id, supervisor_guidance)
 
     # Fix 13: 達到上限時 FIFO 摘要壓縮
     try:
@@ -1388,6 +1524,8 @@ async def _handle_text_message(
                     "previousStatus": "in_progress",
                 },
             )
+            # H-8：紅旗中止場次後排隊 / 統計數字改變，順帶推播 queue/stats。
+            await _broadcast_dashboard_queue_and_stats(db, redis)
             # 觸發 SOAP 報告生成（紅旗中止場次同樣需要報告供醫師審閱）
             asyncio.create_task(
                 _generate_soap_report_async(

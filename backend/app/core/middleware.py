@@ -23,6 +23,11 @@ from app.models.enums import AuditAction
 
 logger = logging.getLogger(__name__)
 
+# fire-and-forget audit task 的強參考集合。asyncio 只保留 task 的弱參考，
+# 若不持有強參考，task 可能在執行完成前被 GC 回收而靜默消失。
+# done callback 會把自己 discard，避免無限增長。
+_audit_tasks: set[asyncio.Task] = set()
+
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
     """
@@ -109,14 +114,17 @@ _AUDIT_RULES: list[tuple[str, re.Pattern[str], AuditAction, str]] = [
     ("PUT",    re.compile(rf"^/api/v1/sessions/(?P<rid>{_UUID_RE})/?$"),       AuditAction.UPDATE,      "session"),
     ("PATCH",  re.compile(rf"^/api/v1/sessions/(?P<rid>{_UUID_RE})/?$"),       AuditAction.UPDATE,      "session"),
     ("DELETE", re.compile(rf"^/api/v1/sessions/(?P<rid>{_UUID_RE})/?$"),       AuditAction.DELETE,      "session"),
-    # SOAP 報告審閱
-    ("PUT",    re.compile(rf"^/api/v1/soap-reports/(?P<rid>{_UUID_RE})/?$"),   AuditAction.REVIEW,      "soap_report"),
-    ("PATCH",  re.compile(rf"^/api/v1/soap-reports/(?P<rid>{_UUID_RE})/?$"),   AuditAction.REVIEW,      "soap_report"),
-    # 紅旗 ack
-    ("POST",   re.compile(rf"^/api/v1/red-flag-alerts/(?P<rid>{_UUID_RE})/acknowledge/?$"), AuditAction.ACKNOWLEDGE, "red_flag_alert"),
-    # 匯出
-    ("POST",   re.compile(r"^/api/v1/.*/export$"),                             AuditAction.EXPORT,      "export"),
-    ("GET",    re.compile(r"^/api/v1/.*/export$"),                             AuditAction.EXPORT,      "export"),
+    # SOAP 報告審閱（實際 router：reports.py `PUT /api/v1/reports/{id}/review`）
+    ("PUT",    re.compile(rf"^/api/v1/reports/(?P<rid>{_UUID_RE})/review/?$"),  AuditAction.REVIEW,      "soap_report"),
+    ("PATCH",  re.compile(rf"^/api/v1/reports/(?P<rid>{_UUID_RE})/review/?$"),  AuditAction.REVIEW,      "soap_report"),
+    # 紅旗 ack（實際 router：alerts.py `POST /api/v1/alerts/{id}/acknowledge`）
+    ("POST",   re.compile(rf"^/api/v1/alerts/(?P<rid>{_UUID_RE})/acknowledge/?$"), AuditAction.ACKNOWLEDGE, "red_flag_alert"),
+    # admin 使用者管理（HIPAA：建立 / 更新 / 啟用停用都必須留痕）
+    # toggle-active 須排在通用 /users/{id} 規則之前，避免被前者誤吞
+    ("PUT",    re.compile(rf"^/api/v1/admin/users/(?P<rid>{_UUID_RE})/toggle-active/?$"), AuditAction.UPDATE, "user"),
+    ("POST",   re.compile(r"^/api/v1/admin/users/?$"),                          AuditAction.CREATE,      "user"),
+    ("PUT",    re.compile(rf"^/api/v1/admin/users/(?P<rid>{_UUID_RE})/?$"),     AuditAction.UPDATE,      "user"),
+    ("PATCH",  re.compile(rf"^/api/v1/admin/users/(?P<rid>{_UUID_RE})/?$"),     AuditAction.UPDATE,      "user"),
 ]
 
 
@@ -187,8 +195,9 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
             action.value, resource_type, resource_id, user_id, client_ip, response.status_code,
         )
 
-        # 非同步落表（fire-and-forget）
-        asyncio.create_task(
+        # 非同步落表（fire-and-forget）。存入 module-level set 保留強參考，
+        # 避免 task 在完成前被 GC；done callback 再 discard 釋放。
+        task = asyncio.create_task(
             _persist_audit_entry(
                 user_id=user_id,
                 action=action,
@@ -199,6 +208,8 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 user_agent=user_agent,
             )
         )
+        _audit_tasks.add(task)
+        task.add_done_callback(_audit_tasks.discard)
 
         return response
 
@@ -220,12 +231,10 @@ def _extract_user_id(request: Request) -> Optional[UUID]:
 
 
 def _extract_client_ip(request: Request) -> Optional[str]:
-    xff = request.headers.get("x-forwarded-for", "")
-    if xff:
-        return xff.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return None
+    """解析 client IP（透過 net.get_client_ip 統一處理 proxy 信任策略）。"""
+    from app.core.net import get_client_ip
+
+    return get_client_ip(request) or None
 
 
 async def _persist_audit_entry(

@@ -77,7 +77,30 @@
       "viewReport": "Xem báo cáo SOAP",
       "enterConversation": "Vào hội thoại",
       "conversationsTitle": "Nhật ký hội thoại",
-      "conversationsEmpty": "Chưa có nhật ký hội thoại"
+      "conversationsEmpty": "Chưa có nhật ký hội thoại",
+      "actionsTitle": "Thao tác phiên",
+      "actionsHint": "Có thể gán phiên cho bạn, đổi trạng thái hoặc tạo báo cáo",
+      "assignedToMe": "Phiên này đã được gán cho bạn",
+      "assignToMe": "Gán cho tôi",
+      "assigning": "Đang gán...",
+      "assignSuccess": "Đã gán phiên cho bạn",
+      "assignError": "Gán bác sĩ thất bại. Vui lòng thử lại sau.",
+      "markCompleted": "Đánh dấu hoàn thành",
+      "markCompletedTitle": "Đánh dấu phiên hoàn thành",
+      "markCompletedConfirm": "Đánh dấu phiên này là hoàn thành? Sau đó bạn có thể tạo báo cáo SOAP.",
+      "cancelSession": "Hủy phiên",
+      "cancelSessionTitle": "Hủy phiên",
+      "cancelSessionConfirm": "Hủy phiên này? Hành động này không thể hoàn tác.",
+      "statusCompletedSuccess": "Đã đánh dấu phiên hoàn thành",
+      "statusCancelledSuccess": "Đã hủy phiên",
+      "statusUpdateError": "Cập nhật trạng thái phiên thất bại. Vui lòng thử lại sau.",
+      "generateReport": "Tạo báo cáo",
+      "generatingReport": "Đang tạo báo cáo...",
+      "generateReportSuccess": "Đã tạo báo cáo",
+      "generateReportError": "Tạo báo cáo thất bại. Vui lòng thử lại sau.",
+      "confirm": "Xác nhận",
+      "cancelAction": "Hủy",
+      "processing": "Đang xử lý..."
     }
   }
 }

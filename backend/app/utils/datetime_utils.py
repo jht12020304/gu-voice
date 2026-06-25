@@ -7,6 +7,8 @@
 from datetime import datetime, timezone
 from typing import Optional
 
+from app.core.exceptions import ValidationException
+
 
 def utc_now() -> datetime:
     """取得當前 UTC 時間（帶時區資訊）"""
@@ -40,10 +42,20 @@ def parse_iso(s: Optional[str]) -> Optional[datetime]:
 
     Returns:
         帶 UTC 時區的 datetime 物件
+
+    Raises:
+        ValidationException: 非 None 但格式不合法（含空字串、非 ISO-8601），
+            避免非法輸入冒泡成裸 500；合法輸入與 None 行為不變。
     """
     if s is None:
         return None
-    dt = datetime.fromisoformat(s)
+    try:
+        dt = datetime.fromisoformat(s)
+    except (ValueError, TypeError) as exc:
+        raise ValidationException(
+            "errors.invalid_date_format",
+            details={"value": s},
+        ) from exc
     # 若無時區資訊，假設為 UTC
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)

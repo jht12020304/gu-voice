@@ -87,7 +87,11 @@ class ConversationService:
         limit: int = 50,
     ) -> dict[str, Any]:
         """
-        取得場次的對話紀錄列表（Cursor-based 分頁）
+        取得場次的對話紀錄列表（Cursor-based 分頁）。
+
+        L-4：此方法原與 ``SessionService.get_conversations_static`` 完整重複，
+        為避免邏輯漂移，改為委派至該單一來源（cursor UUID 驗證、分頁、count
+        皆由其負責）。
 
         Args:
             session_id: 場次 ID
@@ -97,47 +101,11 @@ class ConversationService:
         Returns:
             包含 data、pagination 的字典
         """
-        limit = min(limit, 100)
+        from app.services.session_service import SessionService
 
-        query = (
-            select(Conversation)
-            .where(Conversation.session_id == session_id)
-            .order_by(Conversation.sequence_number.asc())
+        return await SessionService.get_conversations_static(
+            db, session_id, cursor=cursor, limit=limit
         )
-
-        if cursor:
-            result = await db.execute(
-                select(Conversation).where(Conversation.id == cursor)
-            )
-            cursor_record = result.scalar_one_or_none()
-            if cursor_record:
-                query = query.where(
-                    Conversation.sequence_number > cursor_record.sequence_number
-                )
-
-        result = await db.execute(query.limit(limit + 1))
-        conversations = result.scalars().all()
-
-        has_more = len(conversations) > limit
-        if has_more:
-            conversations = conversations[:limit]
-
-        count_result = await db.execute(
-            select(func.count())
-            .select_from(Conversation)
-            .where(Conversation.session_id == session_id)
-        )
-        total_count = count_result.scalar() or 0
-
-        return {
-            "data": conversations,
-            "pagination": {
-                "next_cursor": str(conversations[-1].id) if has_more and conversations else None,
-                "has_more": has_more,
-                "limit": limit,
-                "total_count": total_count,
-            },
-        }
 
     @staticmethod
     async def get_by_id(db: AsyncSession, conversation_id: UUID) -> Conversation:

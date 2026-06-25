@@ -77,7 +77,30 @@
       "viewReport": "View SOAP report",
       "enterConversation": "Open conversation",
       "conversationsTitle": "Conversation log",
-      "conversationsEmpty": "No conversation records yet"
+      "conversationsEmpty": "No conversation records yet",
+      "actionsTitle": "Session Actions",
+      "actionsHint": "Assign the session to yourself, change its status, or generate a report",
+      "assignedToMe": "This session is assigned to you",
+      "assignToMe": "Assign to Me",
+      "assigning": "Assigning...",
+      "assignSuccess": "Session assigned to you",
+      "assignError": "Failed to assign physician. Please try again later.",
+      "markCompleted": "Mark Completed",
+      "markCompletedTitle": "Mark Session Completed",
+      "markCompletedConfirm": "Mark this session as completed? You can generate a SOAP report afterwards.",
+      "cancelSession": "Cancel Session",
+      "cancelSessionTitle": "Cancel Session",
+      "cancelSessionConfirm": "Cancel this session? This action cannot be undone.",
+      "statusCompletedSuccess": "Session marked as completed",
+      "statusCancelledSuccess": "Session cancelled",
+      "statusUpdateError": "Failed to update session status. Please try again later.",
+      "generateReport": "Generate Report",
+      "generatingReport": "Generating report...",
+      "generateReportSuccess": "Report generated",
+      "generateReportError": "Failed to generate report. Please try again later.",
+      "confirm": "Confirm",
+      "cancelAction": "Cancel",
+      "processing": "Processing..."
     }
   }
 }

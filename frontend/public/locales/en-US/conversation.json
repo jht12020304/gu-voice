@@ -25,6 +25,23 @@
   "redFlag": {
     "more": "+{{count}} more alerts"
   },
+  "supervisor": {
+    "hintLabel": "Coming up next",
+    "missingLabel": "Still to cover:",
+    "degraded": "Live guidance is temporarily unavailable, but your consultation continues as usual.",
+    "hpi": {
+      "onset": "Onset",
+      "location": "Location",
+      "duration": "Duration",
+      "characteristics": "Characteristics",
+      "severity": "Severity",
+      "aggravating_factors": "Aggravating factors",
+      "relieving_factors": "Relieving factors",
+      "associated_symptoms": "Associated symptoms",
+      "timing": "Timing",
+      "context": "Context"
+    }
+  },
   "error": {
     "loadFailed": "Unable to load conversation",
     "sessionInterrupted": "Consultation interrupted, please restart",
@@ -37,5 +54,9 @@
   },
   "mockMessages": {
     "systemStart": "Consultation started — Chief complaint: {{complaint}}"
+  },
+  "connection": {
+    "reconnecting": "Connection lost, reconnecting…",
+    "retry": "Retry"
   }
 }

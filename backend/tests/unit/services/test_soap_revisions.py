@@ -22,12 +22,38 @@ from app.models.enums import (
     ReportRevisionReason,
     ReportStatus,
     ReviewStatus,
+    SessionStatus,
 )
 from app.services.report_service import ReportService
 
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def _execute_seq(*values):
+    """產生一個依呼叫順序回傳 values[i] 的 fake `db.execute`。
+
+    generate_report 會先查 session.status（gate），再查既有 SOAPReport，
+    兩次 execute 回傳型別不同，故需依序回應；耗盡後重複最後一個。
+    每個 value 會包成 scalar_one_or_none() 回傳它的 Result。
+    """
+    seq = list(values)
+    state = {"i": 0}
+
+    class _Result:
+        def __init__(self, v):
+            self._v = v
+
+        def scalar_one_or_none(self):
+            return self._v
+
+    async def _execute(stmt):
+        i = state["i"]
+        state["i"] += 1
+        return _Result(seq[i] if i < len(seq) else seq[-1])
+
+    return _execute
 
 
 @dataclass
@@ -94,7 +120,7 @@ def patch_snapshot(monkeypatch):
 def test_review_with_overrides_snapshots_pre_override(
     monkeypatch, fake_db, fake_report, patch_snapshot
 ):
-    async def _fake_get_report(db, report_id):
+    async def _fake_get_report(db, report_id, current_user=None):
         return fake_report
 
     monkeypatch.setattr(ReportService, "get_report", staticmethod(_fake_get_report))
@@ -124,7 +150,7 @@ def test_review_with_overrides_snapshots_pre_override(
 def test_review_metadata_only_does_not_snapshot(
     monkeypatch, fake_db, fake_report, patch_snapshot
 ):
-    async def _fake_get_report(db, report_id):
+    async def _fake_get_report(db, report_id, current_user=None):
         return fake_report
 
     monkeypatch.setattr(ReportService, "get_report", staticmethod(_fake_get_report))
@@ -146,7 +172,7 @@ def test_review_metadata_only_does_not_snapshot(
 def test_review_with_empty_overrides_dict_does_not_snapshot(
     monkeypatch, fake_db, fake_report, patch_snapshot
 ):
-    async def _fake_get_report(db, report_id):
+    async def _fake_get_report(db, report_id, current_user=None):
         return fake_report
 
     monkeypatch.setattr(ReportService, "get_report", staticmethod(_fake_get_report))
@@ -170,18 +196,10 @@ def test_regenerate_existing_report_snapshots_before_reset(
     """generate_report(regenerate=True) 且已 GENERATED → 先 snapshot 再 reset。"""
     fake_report.status = ReportStatus.GENERATED
 
-    # 模擬 db.execute(select(SOAPReport).where(session_id=...)) 回傳既有 report
-    class _Result:
-        def __init__(self, v):
-            self._v = v
-
-        def scalar_one_or_none(self):
-            return self._v
-
-    async def _fake_execute(stmt):
-        return _Result(fake_report)
-
-    monkeypatch.setattr(fake_db, "execute", _fake_execute)
+    # execute 序列：先回 session.status=COMPLETED（gate），再回既有 report
+    monkeypatch.setattr(
+        fake_db, "execute", _execute_seq(SessionStatus.COMPLETED, fake_report)
+    )
 
     # Celery.delay 避免真的送任務
     import app.tasks.report_queue as rq
@@ -223,17 +241,9 @@ def test_regenerate_empty_existing_report_does_not_snapshot(
         summary=None,
     )
 
-    class _Result:
-        def __init__(self, v):
-            self._v = v
-
-        def scalar_one_or_none(self):
-            return self._v
-
-    async def _fake_execute(stmt):
-        return _Result(empty)
-
-    monkeypatch.setattr(fake_db, "execute", _fake_execute)
+    monkeypatch.setattr(
+        fake_db, "execute", _execute_seq(SessionStatus.COMPLETED, empty)
+    )
 
     import app.tasks.report_queue as rq
 
@@ -253,14 +263,10 @@ def test_regenerate_empty_existing_report_does_not_snapshot(
 def test_generate_first_time_does_not_snapshot(monkeypatch, fake_db, patch_snapshot):
     """沒有 existing → 直接建 row，snapshot 由 Celery 完成時才寫。"""
 
-    class _Result:
-        def scalar_one_or_none(self):
-            return None
-
-    async def _fake_execute(stmt):
-        return _Result()
-
-    monkeypatch.setattr(fake_db, "execute", _fake_execute)
+    # 無既有 report：gate 回 COMPLETED，既有報告查詢回 None
+    monkeypatch.setattr(
+        fake_db, "execute", _execute_seq(SessionStatus.COMPLETED, None)
+    )
 
     import app.tasks.report_queue as rq
 

@@ -5,6 +5,8 @@
 - 紅旗規則管理
 """
 
+import logging
+from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
@@ -15,10 +17,86 @@ from app.core.exceptions import (
     AlertAlreadyAcknowledgedException,
     NotFoundException,
 )
-from app.models.enums import AlertSeverity, AuditAction, RedFlagConfidence
+from app.models.enums import AlertSeverity, AuditAction, RedFlagConfidence, UserRole
 from app.models.red_flag_alert import RedFlagAlert
 from app.models.red_flag_rule import RedFlagRule
+from app.models.session import Session
 from app.utils.datetime_utils import utc_now
+
+logger = logging.getLogger(__name__)
+
+
+async def _broadcast_red_flag_acknowledged(
+    db: AsyncSession,
+    alert: RedFlagAlert,
+    acknowledged_by: UUID,
+) -> None:
+    """H-8：警示確認後向儀表板推播 red_flag_acknowledged + 最新 queue/stats。
+
+    在同一 FastAPI 進程內透過 in-memory ConnectionManager 廣播；無 dashboard
+    連線時提早 return（不查 DB），故對以 fake DB 驅動的單元測試無副作用。
+    本函式吞掉所有例外，絕不影響 acknowledge 主流程（亦不額外觸發 db.flush）。
+    """
+    try:
+        from app.cache.redis_client import get_redis
+        from app.websocket.connection_manager import manager
+        from app.websocket.dashboard_handler import broadcast_queue_and_stats
+
+        if manager.dashboard_connection_count == 0:
+            return  # 無儀表板連線，免去後續查詢與廣播
+
+        await manager.broadcast_red_flag_acknowledged(
+            alert_id=str(getattr(alert, "id", "")),
+            acknowledged_by=str(acknowledged_by),
+        )
+        # acknowledge 會改變未審閱數 / pending_reviews，故順帶刷新 stats（含 queue）。
+        redis = await get_redis()
+        await broadcast_queue_and_stats(db, redis)
+    except Exception as exc:  # pragma: no cover - 推播失敗非致命
+        logger.warning(
+            "警示確認後推播儀表板事件失敗（非致命） | alert=%s, error=%s",
+            getattr(alert, "id", None),
+            str(exc),
+        )
+
+
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    """將 ISO-8601 字串轉成 datetime；無效或 None 時回 None（不拋例外）。"""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _get_user_role(current_user: Any) -> Optional[UserRole]:
+    """從 current_user 取出 role，容忍 string 或 enum 兩種來源。"""
+    if current_user is None:
+        return None
+    raw = getattr(current_user, "role", None)
+    if raw is None:
+        return None
+    if isinstance(raw, UserRole):
+        return raw
+    try:
+        return UserRole(raw)
+    except ValueError:
+        return None
+
+
+def _doctor_scope_id(current_user: Any) -> Optional[UUID]:
+    """
+    回傳醫師範圍限制用的 doctor_id：
+    - DOCTOR → 自己的 id（query 須以 session.doctor_id == 此值 過濾）
+    - ADMIN / 其他 → None（不在此函式區分，由呼叫端決定 admin 看全部、
+      其他角色拒絕；與 get_list 既有慣例一致）。
+    """
+    if _get_user_role(current_user) == UserRole.DOCTOR:
+        return getattr(current_user, "id", None)
+    return None
 
 
 class AlertService:
@@ -34,6 +112,11 @@ class AlertService:
         severity: Optional[AlertSeverity] = None,
         acknowledged: Optional[bool] = None,
         session_id: Optional[UUID] = None,
+        alert_type: Any = None,
+        patient_id: Optional[UUID] = None,
+        date_from: Any = None,
+        date_to: Any = None,
+        current_user: Any = None,
     ) -> dict[str, Any]:
         """
         取得警示列表（Cursor-based 分頁）
@@ -44,22 +127,59 @@ class AlertService:
             severity: 篩選嚴重度
             acknowledged: 篩選是否已確認
             session_id: 篩選場次
+            alert_type: 篩選偵測方式（rule_based / semantic / combined）
+            patient_id: 篩選病患（join Session 並以 session.patient_id 過濾）
+            date_from: 起始時間（含；以 created_at 比對，ISO-8601 字串）
+            date_to: 結束時間（含；以 created_at 比對，ISO-8601 字串）
+            current_user: 當前使用者；doctor 僅能看到自己負責場次的警示，
+                admin 看全部（與 session_service 授權慣例一致）。
         """
         limit = min(limit, 100)
+
+        parsed_date_from = _parse_iso_datetime(date_from)
+        parsed_date_to = _parse_iso_datetime(date_to)
+
+        # 醫師範圍限制：join Session 並以 session.doctor_id == self.id 過濾。
+        # 在 query 層過濾（非 post-hoc），確保分頁 / 計數一致。
+        doctor_scope_id = _doctor_scope_id(current_user)
+
+        # patient_id 需 join Session（patient_id 為 session 欄位）。doctor 範圍
+        # 限制同樣 join Session，避免重複 join；故只在任一條件需要時 join 一次。
+        needs_session_join = doctor_scope_id is not None or patient_id is not None
+
+        def _apply_session_filters(stmt):
+            if needs_session_join:
+                stmt = stmt.join(Session, RedFlagAlert.session_id == Session.id)
+                if doctor_scope_id is not None:
+                    stmt = stmt.where(Session.doctor_id == doctor_scope_id)
+                if patient_id is not None:
+                    stmt = stmt.where(Session.patient_id == patient_id)
+            return stmt
+
+        def _apply_common_filters(stmt):
+            if severity:
+                stmt = stmt.where(RedFlagAlert.severity == severity)
+            if alert_type:
+                stmt = stmt.where(RedFlagAlert.alert_type == alert_type)
+            if session_id:
+                stmt = stmt.where(RedFlagAlert.session_id == session_id)
+            if parsed_date_from is not None:
+                stmt = stmt.where(RedFlagAlert.created_at >= parsed_date_from)
+            if parsed_date_to is not None:
+                stmt = stmt.where(RedFlagAlert.created_at <= parsed_date_to)
+            return stmt
 
         query = select(RedFlagAlert).order_by(
             RedFlagAlert.created_at.desc(), RedFlagAlert.id.desc()
         )
+        query = _apply_session_filters(query)
+        query = _apply_common_filters(query)
 
-        if severity:
-            query = query.where(RedFlagAlert.severity == severity)
         if acknowledged is not None:
             if acknowledged:
                 query = query.where(RedFlagAlert.acknowledged_by.isnot(None))
             else:
                 query = query.where(RedFlagAlert.acknowledged_by.is_(None))
-        if session_id:
-            query = query.where(RedFlagAlert.session_id == session_id)
 
         if cursor:
             result = await db.execute(
@@ -83,10 +203,17 @@ class AlertService:
             alerts = alerts[:limit]
 
         count_query = select(func.count()).select_from(RedFlagAlert)
-        if severity:
-            count_query = count_query.where(RedFlagAlert.severity == severity)
-        if session_id:
-            count_query = count_query.where(RedFlagAlert.session_id == session_id)
+        count_query = _apply_session_filters(count_query)
+        count_query = _apply_common_filters(count_query)
+        if acknowledged is not None:
+            if acknowledged:
+                count_query = count_query.where(
+                    RedFlagAlert.acknowledged_by.isnot(None)
+                )
+            else:
+                count_query = count_query.where(
+                    RedFlagAlert.acknowledged_by.is_(None)
+                )
         total_result = await db.execute(count_query)
         total_count = total_result.scalar() or 0
 
@@ -101,16 +228,65 @@ class AlertService:
         }
 
     @staticmethod
-    async def get_by_id(db: AsyncSession, alert_id: UUID) -> RedFlagAlert:
+    async def get_unacknowledged_count(
+        db: AsyncSession,
+        current_user: Any = None,
+    ) -> int:
+        """
+        取得未確認警示數量，套用與 get_list 相同的醫師範圍限制。
+
+        - DOCTOR：僅計自己負責場次（join Session 並以 session.doctor_id == self.id
+          過濾），與 get_list 計數一致。
+        - ADMIN：看全部，不加範圍限制。
+        - patient / 未知角色：回傳 0（router 已以 require_role 擋下，這裡 fail-safe）。
+        """
+        role = _get_user_role(current_user)
+        if role not in (UserRole.DOCTOR, UserRole.ADMIN):
+            return 0
+
+        count_query = (
+            select(func.count())
+            .select_from(RedFlagAlert)
+            .where(RedFlagAlert.acknowledged_by.is_(None))
+        )
+
+        doctor_scope_id = _doctor_scope_id(current_user)
+        if doctor_scope_id is not None:
+            count_query = count_query.join(
+                Session, RedFlagAlert.session_id == Session.id
+            ).where(Session.doctor_id == doctor_scope_id)
+
+        result = await db.execute(count_query)
+        return result.scalar() or 0
+
+    @staticmethod
+    async def get_by_id(
+        db: AsyncSession,
+        alert_id: UUID,
+        current_user: Any = None,
+    ) -> RedFlagAlert:
         """
         根據 ID 取得警示
 
+        Args:
+            current_user: 當前使用者；若為 doctor 角色，僅能取得自己負責場次的
+                警示（IDOR 防護，與 get_list / get_unacknowledged_count 的範圍
+                慣例一致）。違規時一律回 NotFoundException（不洩漏存在性）。
+                None 或 admin 不加範圍限制（向後相容：內部呼叫如 acknowledge）。
+
         Raises:
-            NotFoundException: 警示不存在
+            NotFoundException: 警示不存在，或 doctor 無權存取此警示
         """
-        result = await db.execute(
-            select(RedFlagAlert).where(RedFlagAlert.id == alert_id)
-        )
+        query = select(RedFlagAlert).where(RedFlagAlert.id == alert_id)
+
+        # 醫師範圍限制：join Session 並以 session.doctor_id == self.id 過濾。
+        doctor_scope_id = _doctor_scope_id(current_user)
+        if doctor_scope_id is not None:
+            query = query.join(
+                Session, RedFlagAlert.session_id == Session.id
+            ).where(Session.doctor_id == doctor_scope_id)
+
+        result = await db.execute(query)
         alert = result.scalar_one_or_none()
         if alert is None:
             raise NotFoundException("errors.alert_not_found")
@@ -231,6 +407,7 @@ class AlertService:
         alert_id: UUID,
         user_id: UUID,
         notes: Optional[str] = None,
+        action_taken: Optional[str] = None,
     ) -> RedFlagAlert:
         """
         確認警示
@@ -239,6 +416,7 @@ class AlertService:
             alert_id: 警示 ID
             user_id: 確認醫師 ID
             notes: 確認備註
+            action_taken: 醫師對此警示採取的實際處置（稽核軌跡）
 
         Raises:
             NotFoundException: 警示不存在
@@ -253,8 +431,13 @@ class AlertService:
         alert.acknowledged_by = user_id
         alert.acknowledged_at = now
         alert.acknowledge_notes = notes
+        alert.action_taken = action_taken
 
         await db.flush()
+
+        # H-8：確認成功後向儀表板推播 red_flag_acknowledged 與最新 queue/stats。
+        # helper 不可拋例外、不額外 db.flush，故不影響回傳值與既有測試斷言。
+        await _broadcast_red_flag_acknowledged(db, alert, user_id)
         return alert
 
     # ── 紅旗規則管理 ──────────────────────────────────────
@@ -279,6 +462,80 @@ class AlertService:
         return list(result.scalars().all())
 
     @staticmethod
+    async def get_rules_paginated(
+        db: AsyncSession,
+        cursor: Optional[str] = None,
+        limit: int = 20,
+        severity: Optional[AlertSeverity] = None,
+        is_active: Optional[bool] = None,
+        category: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        取得紅旗規則列表（Cursor-based 分頁），回傳符合
+        RedFlagRuleListResponse（data + pagination）的結構。
+
+        Args:
+            cursor: 分頁游標（上一頁最後一筆規則 id）
+            limit: 每頁筆數
+            severity: 篩選嚴重度
+            is_active: 篩選啟用狀態（None 表示全部）
+            category: 篩選分類
+        """
+        limit = min(limit, 100)
+
+        def _apply_filters(stmt):
+            if severity:
+                stmt = stmt.where(RedFlagRule.severity == severity)
+            if is_active is not None:
+                stmt = stmt.where(RedFlagRule.is_active == is_active)
+            if category:
+                stmt = stmt.where(RedFlagRule.category == category)
+            return stmt
+
+        query = _apply_filters(
+            select(RedFlagRule).order_by(
+                RedFlagRule.created_at.desc(), RedFlagRule.id.desc()
+            )
+        )
+
+        if cursor:
+            result = await db.execute(
+                select(RedFlagRule).where(RedFlagRule.id == cursor)
+            )
+            cursor_record = result.scalar_one_or_none()
+            if cursor_record:
+                query = query.where(
+                    (RedFlagRule.created_at < cursor_record.created_at)
+                    | (
+                        (RedFlagRule.created_at == cursor_record.created_at)
+                        & (RedFlagRule.id < cursor_record.id)
+                    )
+                )
+
+        result = await db.execute(query.limit(limit + 1))
+        rules = list(result.scalars().all())
+
+        has_more = len(rules) > limit
+        if has_more:
+            rules = rules[:limit]
+
+        count_query = _apply_filters(
+            select(func.count()).select_from(RedFlagRule)
+        )
+        total_result = await db.execute(count_query)
+        total_count = total_result.scalar() or 0
+
+        return {
+            "data": rules,
+            "pagination": {
+                "next_cursor": str(rules[-1].id) if has_more and rules else None,
+                "has_more": has_more,
+                "limit": limit,
+                "total_count": total_count,
+            },
+        }
+
+    @staticmethod
     async def create_rule(
         db: AsyncSession,
         data: dict[str, Any],
@@ -292,7 +549,18 @@ class AlertService:
             created_by_id: 建立者 ID
         """
         now = utc_now()
+        # canonical_id 為 NOT NULL + UNIQUE，但 RedFlagRuleCreate schema 未含此欄位，
+        # client 無從提供。未提供時由 name 衍生 snake_case slug + 短 uuid 後綴確保唯一，
+        # 避免 NotNullViolation（H-1 真因修補）。
+        canonical_id = data.get("canonical_id")
+        if not canonical_id:
+            import re as _re
+            from uuid import uuid4 as _uuid4
+
+            _base = _re.sub(r"[^a-z0-9]+", "_", (data.get("name") or "rule").lower()).strip("_")[:40]
+            canonical_id = f"{_base or 'rule'}_{_uuid4().hex[:8]}"
         rule = RedFlagRule(
+            canonical_id=canonical_id,
             name=data["name"],
             description=data.get("description"),
             category=data["category"],
@@ -364,18 +632,27 @@ class AlertService:
     # ── Aliases for router compatibility ─────────────────
     async def list_alerts(self, db, cursor=None, limit=20, severity=None,
                           alert_type=None, is_acknowledged=None, session_id=None,
-                          patient_id=None, date_from=None, date_to=None):
+                          patient_id=None, date_from=None, date_to=None,
+                          current_user=None):
         return await self.get_list(db, cursor=cursor, limit=limit, severity=severity,
-                                   acknowledged=is_acknowledged, session_id=session_id)
+                                   acknowledged=is_acknowledged, session_id=session_id,
+                                   alert_type=alert_type, patient_id=patient_id,
+                                   date_from=date_from, date_to=date_to,
+                                   current_user=current_user)
 
-    async def get_alert(self, db, alert_id):
-        return await self.get_by_id(db, alert_id)
+    async def get_alert(self, db, alert_id, current_user=None):
+        return await self.get_by_id(db, alert_id, current_user=current_user)
 
-    async def acknowledge_alert(self, db, alert_id, user_id, notes=None):
-        return await self.acknowledge(db, alert_id=alert_id, user_id=user_id, notes=notes)
+    async def acknowledge_alert(self, db, alert_id, acknowledged_by, acknowledge_notes=None,
+                                action_taken=None):
+        return await self.acknowledge(db, alert_id=alert_id, user_id=acknowledged_by,
+                                      notes=acknowledge_notes, action_taken=action_taken)
 
-    async def list_rules(self, db, is_active=None):
-        return await self.get_rules(db, is_active=is_active)
+    async def list_rules(self, db, cursor=None, limit=20, severity=None,
+                         is_active=None, category=None):
+        return await self.get_rules_paginated(db, cursor=cursor, limit=limit,
+                                              severity=severity, is_active=is_active,
+                                              category=category)
 
     async def create_rule_entry(self, db, data, created_by=None):
         return await self.create_rule(db, data=data.model_dump() if hasattr(data, 'model_dump') else data, created_by_id=created_by)

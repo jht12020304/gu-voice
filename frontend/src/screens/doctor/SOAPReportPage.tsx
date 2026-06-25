@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
+import toast from 'react-hot-toast';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import TranscriptPanel from '../../components/medical/TranscriptPanel';
 import SOAPCard from '../../components/medical/SOAPCard';
@@ -14,6 +15,7 @@ import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorState from '../../components/common/ErrorState';
 import Modal from '../../components/common/Modal';
 import { useReportStore } from '../../stores/reportStore';
+import * as reportsApi from '../../services/api/reports';
 import * as sessionsApi from '../../services/api/sessions';
 import type { SOAPReport, Session } from '../../types';
 import type { SessionStatus } from '../../types/enums';
@@ -169,14 +171,18 @@ export default function SOAPReportPage() {
     fetchReportBySession,
     fetchConversations,
     reviewReport,
+    generateReport,
   } = useReportStore();
 
   const [session, setSession] = useState<Session | null>(IS_MOCK ? mockSession : null);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [showRegenerateModal, setShowRegenerateModal] = useState(false);
   const [reviewAction, setReviewAction] = useState<'approved' | 'revision_needed'>('approved');
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewError, setReviewError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const [activeTab, setActiveTab] = useState<'report' | 'transcript'>('report');
   const report = selectedReport;
   const positiveFindings = useMemo(() => (report ? extractPositiveFindings(report) : []), [report]);
@@ -222,6 +228,48 @@ export default function SOAPReportPage() {
       setReviewError('審閱送出失敗，請稍後再試。');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!selectedReport || isExporting) return;
+
+    setIsExporting(true);
+    try {
+      const blob = await reportsApi.exportReportPDF(selectedReport.id);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `soap-report-${selectedReport.id}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success(t('soap:export.success', 'PDF 已開始下載'));
+    } catch {
+      toast.error(t('soap:export.error', 'PDF 匯出失敗，請稍後再試'));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    if (!sessionId || isRegenerating) return;
+
+    setIsRegenerating(true);
+    try {
+      await generateReport(sessionId);
+      // generateReport 不會 throw，改以 store 內最新狀態判斷成敗
+      if (useReportStore.getState().error) {
+        toast.error(t('soap:regenerate.error', '報告重新產生失敗，請稍後再試'));
+      } else {
+        setShowRegenerateModal(false);
+        toast.success(t('soap:regenerate.success', '報告已重新產生'));
+      }
+    } catch {
+      toast.error(t('soap:regenerate.error', '報告重新產生失敗，請稍後再試'));
+    } finally {
+      setIsRegenerating(false);
     }
   };
 
@@ -315,6 +363,46 @@ export default function SOAPReportPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={handleExportPDF}
+              disabled={isExporting || report.status !== 'generated'}
+            >
+              {isExporting ? (
+                <>
+                  <LoadingSpinner size="sm" />
+                  <span className="ml-2">{t('soap:export.loading', '匯出中...')}</span>
+                </>
+              ) : (
+                <>
+                  <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  {t('soap:export.button', '匯出 PDF')}
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => setShowRegenerateModal(true)}
+              disabled={isRegenerating}
+            >
+              {isRegenerating ? (
+                <>
+                  <LoadingSpinner size="sm" />
+                  <span className="ml-2">{t('soap:regenerate.loading', '重新產生中...')}</span>
+                </>
+              ) : (
+                <>
+                  <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                  {t('soap:regenerate.button', '重新產生')}
+                </>
+              )}
+            </button>
             <button
               type="button"
               className="btn-secondary"
@@ -567,6 +655,47 @@ export default function SOAPReportPage() {
             <p className="text-small font-medium text-red-600 dark:text-red-400">{reviewError}</p>
           ) : null}
         </div>
+      </Modal>
+
+      <Modal
+        visible={showRegenerateModal}
+        onClose={() => {
+          if (isRegenerating) return;
+          setShowRegenerateModal(false);
+        }}
+        title={t('soap:regenerate.title', '重新產生報告')}
+        footer={
+          <>
+            <button
+              className="btn-secondary"
+              onClick={() => setShowRegenerateModal(false)}
+              disabled={isRegenerating}
+            >
+              {t('soap:regenerate.cancel', '取消')}
+            </button>
+            <button
+              className="btn-primary bg-alert-high hover:bg-orange-700"
+              onClick={handleRegenerate}
+              disabled={isRegenerating}
+            >
+              {isRegenerating ? (
+                <>
+                  <LoadingSpinner size="sm" />
+                  <span className="ml-2">{t('soap:regenerate.loading', '重新產生中...')}</span>
+                </>
+              ) : (
+                t('soap:regenerate.confirm', '確認重新產生')
+              )}
+            </button>
+          </>
+        }
+      >
+        <p className="text-body text-ink-body">
+          {t(
+            'soap:regenerate.description',
+            '重新產生會以最新逐字稿重新執行 AI 分析，並覆蓋現有 SOAP 報告內容，此動作無法復原。確定要繼續嗎？',
+          )}
+        </p>
       </Modal>
     </div>
   );

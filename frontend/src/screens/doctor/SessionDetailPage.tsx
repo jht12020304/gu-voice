@@ -5,65 +5,70 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import toast from 'react-hot-toast';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import ChatBubble from '../../components/chat/ChatBubble';
 import StatusBadge from '../../components/medical/StatusBadge';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorState from '../../components/common/ErrorState';
+import Modal from '../../components/common/Modal';
 import * as sessionsApi from '../../services/api/sessions';
+import * as reportsApi from '../../services/api/reports';
+import { useReportStore } from '../../stores/reportStore';
+import { useAuthStore } from '../../stores/authStore';
 import type { Session, Conversation } from '../../types';
 import type { SessionStatus } from '../../types/enums';
 import { formatDate, formatDuration } from '../../utils/format';
 
-const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
-
-const mockSession: Session = {
-  id: 's1', patientId: 'p1', doctorId: 'mock-doctor-001', chiefComplaintId: 'cc1',
-  chiefComplaintText: '血尿持續三天', status: 'in_progress', redFlag: true,
-  redFlagReason: '肉眼血尿持續超過 48 小時，需排除膀胱腫瘤', language: 'zh-TW',
-  startedAt: '2026-04-10T13:30:00Z', durationSeconds: 1200,
-  createdAt: '2026-04-10T13:30:00Z', updatedAt: '2026-04-10T13:50:00Z',
-  patient: { id: 'p1', userId: 'u1', medicalRecordNumber: 'MRN-2026-0001', name: '陳小明', gender: 'male', dateOfBirth: '1985-03-15', createdAt: '2026-01-15T08:00:00Z', updatedAt: '2026-04-10T10:00:00Z' },
-};
-
-const mockConversations: Conversation[] = [
-  { id: 'cv1', sessionId: 's1', sequenceNumber: 1, role: 'system', contentText: '問診開始，主訴: 血尿持續三天', redFlagDetected: false, createdAt: '2026-04-10T13:30:00Z' },
-  { id: 'cv2', sessionId: 's1', sequenceNumber: 2, role: 'assistant', contentText: '您好，陳先生。我是泌尿科 AI 問診助手，將協助您進行初步問診。請問您的血尿是什麼時候開始的？', redFlagDetected: false, createdAt: '2026-04-10T13:30:15Z' },
-  { id: 'cv3', sessionId: 's1', sequenceNumber: 3, role: 'patient', contentText: '大概三天前開始的，剛開始小便結束的時候有一點紅色，後來整泡尿都是紅色的。', redFlagDetected: false, createdAt: '2026-04-10T13:31:00Z', sttConfidence: 0.92 },
-  { id: 'cv4', sessionId: 's1', sequenceNumber: 4, role: 'assistant', contentText: '了解。請問您排尿時是否有疼痛或灼熱感？有沒有伴隨其他症狀，例如頻尿、急尿或腰痛？', redFlagDetected: false, createdAt: '2026-04-10T13:31:15Z' },
-  { id: 'cv5', sessionId: 's1', sequenceNumber: 5, role: 'patient', contentText: '有一點痛，就是小便的時候尾端會有點刺刺的。然後比較頻尿，大概一個小時就要跑一次廁所。腰倒是不太痛。', redFlagDetected: false, createdAt: '2026-04-10T13:32:00Z', sttConfidence: 0.89 },
-  { id: 'cv6', sessionId: 's1', sequenceNumber: 6, role: 'assistant', contentText: '謝謝您的描述。有幾個重要的問題想再確認：\n1. 血尿中有沒有看到血塊？\n2. 有沒有發燒？\n3. 之前有沒有類似的情況？', redFlagDetected: false, createdAt: '2026-04-10T13:32:15Z' },
-  { id: 'cv7', sessionId: 's1', sequenceNumber: 7, role: 'patient', contentText: '有血塊，昨天比較多。沒有發燒。以前沒有過這種情況，這是第一次。', redFlagDetected: true, createdAt: '2026-04-10T13:33:00Z', sttConfidence: 0.94 },
-];
+type StatusAction = 'completed' | 'cancelled';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useLocalizedNavigate();
   const { t } = useTranslation('session');
 
+  const currentUser = useAuthStore((s) => s.user);
+  const generateReport = useReportStore((s) => s.generateReport);
+
   const [session, setSession] = useState<Session | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [hasReport, setHasReport] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // 狀態變更（完成／取消）— 走確認 Modal
+  const [statusModal, setStatusModal] = useState<StatusAction | null>(null);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
+  // 指派醫師（指派給自己）
+  const [isAssigning, setIsAssigning] = useState(false);
+
+  // 產生報告
+  const [isGenerating, setIsGenerating] = useState(false);
+
   useEffect(() => {
     if (!sessionId) return;
-
-    if (IS_MOCK) {
-      setSession(mockSession);
-      setConversations(mockConversations);
-      setIsLoading(false);
-      return;
-    }
+    const id = sessionId;
 
     async function load() {
+      setIsLoading(true);
+      setError('');
       try {
         const [sessionData, convData] = await Promise.all([
-          sessionsApi.getSession(sessionId!),
-          sessionsApi.getSessionConversations(sessionId!, { limit: 100 }),
+          sessionsApi.getSession(id),
+          sessionsApi.getSessionConversations(id, { limit: 100 }),
         ]);
         setSession(sessionData);
         setConversations(convData.data);
+        // 偵測是否已有報告（決定是否顯示「產生報告」）
+        if (sessionData.status === 'completed') {
+          try {
+            await reportsApi.getReportBySession(id);
+            setHasReport(true);
+          } catch {
+            setHasReport(false);
+          }
+        }
       } catch {
         setError(t('doctor.detail.loadError'));
       } finally {
@@ -73,9 +78,67 @@ export default function SessionDetailPage() {
     load();
   }, [sessionId, t]);
 
+  const handleStatusChange = async (status: StatusAction) => {
+    if (!session) return;
+    setIsUpdatingStatus(true);
+    try {
+      const updated = await sessionsApi.updateSessionStatus(session.id, status);
+      setSession(updated);
+      setStatusModal(null);
+      toast.success(
+        status === 'completed'
+          ? t('doctor.detail.statusCompletedSuccess', '場次已標記為完成')
+          : t('doctor.detail.statusCancelledSuccess', '場次已取消'),
+      );
+    } catch {
+      toast.error(t('doctor.detail.statusUpdateError', '更新場次狀態失敗，請稍後再試'));
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleAssignToMe = async () => {
+    if (!session || !currentUser) return;
+    setIsAssigning(true);
+    try {
+      const updated = await sessionsApi.assignDoctor(session.id, currentUser.id);
+      setSession(updated);
+      toast.success(t('doctor.detail.assignSuccess', '已將場次指派給您'));
+    } catch {
+      toast.error(t('doctor.detail.assignError', '指派醫師失敗，請稍後再試'));
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  const handleGenerateReport = async () => {
+    if (!session) return;
+    setIsGenerating(true);
+    try {
+      await generateReport(session.id);
+      const storeError = useReportStore.getState().error;
+      if (storeError) {
+        toast.error(t('doctor.detail.generateReportError', '報告生成失敗，請稍後再試'));
+        return;
+      }
+      toast.success(t('doctor.detail.generateReportSuccess', '報告已生成'));
+      setHasReport(true);
+      navigate(`/reports/${session.id}`);
+    } catch {
+      toast.error(t('doctor.detail.generateReportError', '報告生成失敗，請稍後再試'));
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   if (isLoading) return <LoadingSpinner fullPage message={t('doctor.detail.loading')} />;
   if (error) return <ErrorState message={error} onRetry={() => window.location.reload()} />;
   if (!session) return <ErrorState message={t('doctor.detail.notFound')} />;
+
+  const isAssignedToMe = !!currentUser && session.doctorId === currentUser.id;
+  const canComplete = session.status === 'waiting' || session.status === 'in_progress';
+  const canCancel = session.status === 'waiting' || session.status === 'in_progress';
+  const canGenerateReport = session.status === 'completed' && !hasReport;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -100,7 +163,7 @@ export default function SessionDetailPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <InfoCard label={t('doctor.detail.infoChiefComplaint')} value={session.chiefComplaintText || t('doctor.detail.infoChiefComplaintEmpty')} />
         <InfoCard label={t('doctor.detail.infoLanguage')} value={session.language} />
-        <InfoCard label={t('doctor.detail.infoStartedAt')} value={formatDate(session.startedAt)} />
+        <InfoCard label={t('doctor.detail.infoStartedAt')} value={session.startedAt ? formatDate(session.startedAt) : '-'} />
         <InfoCard label={t('doctor.detail.infoDuration')} value={formatDuration(session.durationSeconds)} numeric />
       </div>
 
@@ -119,7 +182,84 @@ export default function SessionDetailPage() {
         </div>
       )}
 
-      {/* 操作按鈕 */}
+      {/* 場次操作（醫師變更／指派／產生報告） */}
+      <div className="card">
+        <h2 className="mb-1 text-h3 text-ink-heading dark:text-white">
+          {t('doctor.detail.actionsTitle', '場次操作')}
+        </h2>
+        <p className="mb-4 text-small text-ink-muted">
+          {isAssignedToMe
+            ? t('doctor.detail.assignedToMe', '此場次已指派給您')
+            : t('doctor.detail.actionsHint', '可指派場次給自己、變更狀態或產生報告')}
+        </p>
+        <div className="flex flex-wrap gap-3">
+          {/* 指派給自己 */}
+          {!isAssignedToMe && (
+            <button
+              className="btn-secondary"
+              onClick={handleAssignToMe}
+              disabled={isAssigning || !currentUser}
+            >
+              {isAssigning ? (
+                <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              ) : (
+                <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                </svg>
+              )}
+              {isAssigning ? t('doctor.detail.assigning', '指派中...') : t('doctor.detail.assignToMe', '指派給我')}
+            </button>
+          )}
+
+          {/* 標記完成 */}
+          {canComplete && (
+            <button
+              className="btn-primary bg-alert-success hover:bg-green-700"
+              onClick={() => setStatusModal('completed')}
+              disabled={isUpdatingStatus}
+            >
+              <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {t('doctor.detail.markCompleted', '標記完成')}
+            </button>
+          )}
+
+          {/* 取消場次 */}
+          {canCancel && (
+            <button
+              className="btn-secondary text-alert-critical hover:bg-red-50 dark:hover:bg-red-950/30"
+              onClick={() => setStatusModal('cancelled')}
+              disabled={isUpdatingStatus}
+            >
+              <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {t('doctor.detail.cancelSession', '取消場次')}
+            </button>
+          )}
+
+          {/* 產生報告（完成且尚無報告時） */}
+          {canGenerateReport && (
+            <button
+              className="btn-primary"
+              onClick={handleGenerateReport}
+              disabled={isGenerating}
+            >
+              {isGenerating ? (
+                <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              )}
+              {isGenerating ? t('doctor.detail.generatingReport', '生成報告中...') : t('doctor.detail.generateReport', '產生報告')}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* 導覽按鈕 */}
       <div className="flex gap-3">
         <button
           className="btn-primary"
@@ -165,6 +305,49 @@ export default function SessionDetailPage() {
           )}
         </div>
       </div>
+
+      {/* 狀態變更確認 Modal */}
+      <Modal
+        visible={statusModal !== null}
+        onClose={() => {
+          if (!isUpdatingStatus) setStatusModal(null);
+        }}
+        title={
+          statusModal === 'completed'
+            ? t('doctor.detail.markCompletedTitle', '標記場次完成')
+            : t('doctor.detail.cancelSessionTitle', '取消場次')
+        }
+        closable={!isUpdatingStatus}
+        footer={
+          <>
+            <button
+              className="btn-secondary"
+              onClick={() => setStatusModal(null)}
+              disabled={isUpdatingStatus}
+            >
+              {t('doctor.detail.cancelAction', '取消')}
+            </button>
+            <button
+              className={`btn-primary ${statusModal === 'cancelled' ? 'bg-alert-critical hover:bg-red-700' : ''}`}
+              onClick={() => statusModal && handleStatusChange(statusModal)}
+              disabled={isUpdatingStatus}
+            >
+              {isUpdatingStatus && (
+                <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              )}
+              {isUpdatingStatus
+                ? t('doctor.detail.processing', '處理中...')
+                : t('doctor.detail.confirm', '確認')}
+            </button>
+          </>
+        }
+      >
+        <p className="text-body text-ink-body dark:text-white/85">
+          {statusModal === 'completed'
+            ? t('doctor.detail.markCompletedConfirm', '確認將此場次標記為完成？完成後可產生 SOAP 報告。')
+            : t('doctor.detail.cancelSessionConfirm', '確認取消此場次？此操作無法復原。')}
+        </p>
+      </Modal>
     </div>
   );
 }

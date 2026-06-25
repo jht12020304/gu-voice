@@ -16,7 +16,8 @@
       "complaintTemplates": "Quản lý mẫu lý do khám",
       "systemHealth": "Trạng thái hệ thống",
       "auditLogs": "Nhật ký kiểm tra",
-      "settings": "Cài đặt"
+      "settings": "Cài đặt",
+      "sessions": "Hồ sơ khám"
     }
   },
   "alert": {
@@ -28,7 +29,36 @@
     "suggestedActions": "Đề xuất {{count}} hành động",
     "viewDetail": "Xem chi tiết",
     "acknowledge": "Xác nhận xử lý",
-    "acknowledgedBadge": "✓ Đã xác nhận"
+    "acknowledgedBadge": "✓ Đã xác nhận",
+    "detail": {
+      "loadError": "Không thể tải chi tiết cảnh báo",
+      "acknowledgeSuccess": "Đã đánh dấu là đã xử lý",
+      "acknowledgeError": "Xác nhận cảnh báo thất bại",
+      "loading": "Đang tải chi tiết cảnh báo...",
+      "notFound": "Không tìm thấy cảnh báo",
+      "unknownPatient": "Bệnh nhân không xác định",
+      "title": "Chi tiết cảnh báo",
+      "acknowledgedBadge": "Đã xử lý",
+      "triggerKeywords": "Từ khóa kích hoạt",
+      "noKeywords": "Không có dữ liệu từ khóa cho cảnh báo này",
+      "llmAnalysis": "Phân tích ngữ nghĩa LLM",
+      "noLlmAnalysis": "Không có phân tích ngữ nghĩa bổ sung",
+      "suggestedActions": "Hành động đề xuất",
+      "noSuggestedActions": "Không có hành động đề xuất",
+      "trackingTitle": "Theo dõi sự kiện & bệnh nhân",
+      "affectedPatient": "Bệnh nhân liên quan",
+      "occurredAt": "Thời điểm xảy ra",
+      "sessionIdLabel": "ID phiên liên quan",
+      "acknowledgedHeading": "Đã xử lý",
+      "actionTakenLabel": "Hành động đã thực hiện",
+      "noActionRecorded": "Chưa ghi nhận hành động",
+      "actionTakenPlaceholder": "Ví dụ: Đã sắp xếp khám ngay và báo bác sĩ điều trị",
+      "notesLabel": "Ghi chú (tùy chọn)",
+      "notesPlaceholder": "Ghi chú bổ sung",
+      "acknowledging": "Đang xử lý...",
+      "acknowledgeButton": "Đánh dấu đã xử lý",
+      "goToSession": "Đến chi tiết phiên"
+    }
   },
   "transcript": {
     "title": "Biên bản hội thoại khám",

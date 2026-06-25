@@ -11,8 +11,13 @@ from app.schemas.common import CursorPagination
 
 
 class PatientCreate(BaseModel):
-    """新增病患"""
-    user_id: UUID
+    """新增病患
+
+    Note:
+        user_id 為 Optional：service 一律以 created_by（當前登入醫師 / 管理員）
+        覆寫 patient.user_id，故此欄位即使傳入也會被忽略，無須必填。
+    """
+    user_id: UUID | None = None
     medical_record_number: str = Field(..., max_length=50)
     name: str = Field(..., min_length=1, max_length=100)
     gender: Gender

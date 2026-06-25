@@ -56,6 +56,23 @@ RESET_TOKEN_TTL_SECONDS = 1800
 FORGOT_PASSWORD_GENERIC_MESSAGE = "若此電子郵件已註冊，密碼重設連結已寄出"
 
 
+def _is_admin(current_user: Any) -> bool:
+    """current_user 是否為已認證的 ADMIN（role 容忍 string 或 enum）。
+
+    與 session_service._get_user_role 相同的容錯解析慣例：未登入 / 解不出角色
+    一律視為非 admin，公開註冊因此一律降級為 PATIENT（AUTH-3）。
+    """
+    if current_user is None:
+        return False
+    raw = getattr(current_user, "role", None)
+    if isinstance(raw, UserRole):
+        return raw == UserRole.ADMIN
+    try:
+        return UserRole(raw) == UserRole.ADMIN
+    except ValueError:
+        return False
+
+
 def _refresh_key(user_id: Any, jti: str) -> str:
     return f"{REFRESH_TOKEN_KEY_PREFIX}{user_id}:{jti}"
 
@@ -197,13 +214,22 @@ class AuthService:
         if result.scalar_one_or_none() is not None:
             raise EmailAlreadyExistsException()
 
+        # AUTH-3：公開註冊一律為 PATIENT；唯有以已認證 ADMIN 身分呼叫才可指定角色。
+        # 管理員建立帳號走 admin_service.create_user，這裡只是防止自助註冊提權。
+        requested_role = getattr(data, "role", None) or UserRole.PATIENT
+        effective_role = (
+            requested_role
+            if _is_admin(current_user)
+            else UserRole.PATIENT
+        )
+
         # 建立使用者
         now = utc_now()
         user = User(
             email=data.email,
             password_hash=hash_password(data.password),
             name=data.name,
-            role=data.role,
+            role=effective_role,
             phone=data.phone,
             department=data.department,
             license_number=data.license_number,
@@ -292,6 +318,7 @@ class AuthService:
             "access_token": new_access,
             "refresh_token": new_refresh,
             "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         }
 
     @staticmethod
@@ -451,9 +478,18 @@ class AuthService:
 
         redis = await get_redis()
         key = f"{RESET_TOKEN_KEY_PREFIX}{token}"
-        user_id = await redis.get(key)
+        raw_user_id = await redis.get(key)
 
-        if user_id is None:
+        if raw_user_id is None:
+            raise UnauthorizedException("errors.password_reset_link_invalid")
+
+        # forgot_password 以 str(user.id) 寫入 Redis，redis decode_responses=True 取回亦為 str；
+        # User.id 是 UUID(as_uuid=True)，必須先轉 UUID 再比較，否則 valid token 也查不到 user
+        # 而誤拋 user_not_found（HIGH 修正）。token 內容由我方產生，理論上恆為合法 UUID，
+        # 防禦性地把畸形值視同 token 失效。
+        try:
+            user_id = UUID(raw_user_id)
+        except (ValueError, AttributeError, TypeError):
             raise UnauthorizedException("errors.password_reset_link_invalid")
 
         result = await db.execute(

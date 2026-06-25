@@ -249,6 +249,16 @@ class Settings(BaseSettings):
     # 被後端視為 draft（非 zh-TW fail-safe 機制）。預設 0.3。
     RED_FLAG_SEMANTIC_ONLY_THRESHOLD: float = 0.3
 
+    # ── Rate limit（per-IP / per-user policy 旋鈕） ─────
+    # 登入端點 per-IP sliding window（rate_limit.py 的 LOGIN_IP_LIMIT/WINDOW 預設
+    # 與此對齊；新增 policy 一律從這裡讀，方便維運不改 code 就能調整）。
+    LOGIN_IP_LIMIT: int = 10        # 每 IP 每 window 次數
+    LOGIN_IP_WINDOW: int = 60       # window 秒數
+    # 忘記密碼 / 重設密碼端點 per-IP sliding window。比登入保守得多：
+    # 寄信 / 改密碼成本高且不該被高頻打，預設 5 次 / 15 分鐘。
+    PASSWORD_RESET_IP_LIMIT: int = 5     # 每 IP 每 window 次數
+    PASSWORD_RESET_IP_WINDOW: int = 900  # window 秒數（15 分鐘）
+
     # ── WebSocket / Session Stability (P2) ─────────────
     OPENAI_MODEL_SUMMARIZER: str = "gpt-4o-mini"           # 便宜的摘要模型
     CONVERSATION_HISTORY_MAX_TURNS: int = 50                # 最大保留的對話輪次數
@@ -287,6 +297,27 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM_ADDRESS: str = "no-reply@gu-voice.local"
     SMTP_USE_TLS: bool = True
+
+    # ── Proxy / Client IP ───────────────────────────────
+    # 是否信任反向代理注入的 X-Forwarded-For。預設 False：直接用 socket peer
+    # （request.client.host），避免客戶端偽造 XFF 繞過 per-IP rate limit / 污染 audit。
+    # 部署在 Railway / Cloudflare 等可信代理後方時才設為 True。
+    TRUST_PROXY_HEADERS: bool = False
+
+    # ── Auth Cookies / CSRF（M-22） ─────────────────────
+    # refresh token 從前端可讀儲存遷移到 httpOnly Secure cookie，搭配 double-submit
+    # CSRF token（非 httpOnly，前端要能讀回填 X-CSRF-Token header）。
+    #   - REFRESH_COOKIE_NAME：httpOnly + Secure + SameSite 的 refresh token cookie 名稱
+    #   - CSRF_COOKIE_NAME：非 httpOnly 的 CSRF token cookie 名稱（double-submit 比對）
+    #   - COOKIE_SECURE：cookie 是否帶 Secure flag（production 必為 True；本機 http 開發可關）
+    #   - COOKIE_SAMESITE：lax / strict / none（none 必須搭配 Secure=True）
+    #   - REFRESH_COOKIE_PATH：限縮 cookie scope，只在 auth 端點送出
+    REFRESH_COOKIE_NAME: str = "gu_refresh_token"
+    CSRF_COOKIE_NAME: str = "gu_csrf_token"
+    CSRF_HEADER_NAME: str = "X-CSRF-Token"
+    COOKIE_SECURE: bool = True
+    COOKIE_SAMESITE: str = "lax"
+    REFRESH_COOKIE_PATH: str = "/api/v1/auth"
 
     # ── CORS ────────────────────────────────────────────
     CORS_ORIGINS: list[str] = [

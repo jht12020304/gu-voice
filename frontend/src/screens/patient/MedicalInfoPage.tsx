@@ -11,6 +11,7 @@
 // =============================================================================
 
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { useLocalizedNavigate } from '../../i18n/paths';
@@ -60,9 +61,22 @@ const COMMON_CONDITION_KEYS = [
   'kidneyDisease', 'gout', 'bph', 'urinaryStones', 'cancer',
 ] as const;
 
+// 自由文字欄位的字數上限（過敏原 / 用藥 / 病史 / 家族史）
+const FREE_TEXT_MAX = 100;
+
 // ── 輔助元件 ──
 
-function QuickAddChips({ items, onAdd }: { items: string[]; onAdd: (item: string) => void }) {
+// 字數計數器（接近上限時轉為警示色）
+function CharCounter({ value, max }: { value: string; max: number }) {
+  const near = value.length >= max * 0.9;
+  return (
+    <span className={`shrink-0 text-tiny tabular-nums ${near ? 'text-red-500' : 'text-ink-placeholder dark:text-white/30'}`}>
+      {value.length}/{max}
+    </span>
+  );
+}
+
+function QuickAddChips({ items, onAdd, disabled }: { items: string[]; onAdd: (item: string) => void; disabled?: boolean }) {
   if (items.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -70,7 +84,8 @@ function QuickAddChips({ items, onAdd }: { items: string[]; onAdd: (item: string
         <button
           key={item}
           type="button"
-          className="rounded-pill bg-surface-tertiary px-3 py-1 text-small text-ink-secondary transition-colors hover:bg-surface-secondary hover:text-ink-heading dark:bg-dark-surface dark:text-white/50 dark:hover:bg-dark-hover dark:hover:text-white/80"
+          disabled={disabled}
+          className="rounded-pill bg-surface-tertiary px-3 py-1 text-small text-ink-secondary transition-colors hover:bg-surface-secondary hover:text-ink-heading disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface-tertiary disabled:hover:text-ink-secondary dark:bg-dark-surface dark:text-white/50 dark:hover:bg-dark-hover dark:hover:text-white/80"
           onClick={() => onAdd(item)}
         >
           {item}
@@ -80,11 +95,12 @@ function QuickAddChips({ items, onAdd }: { items: string[]; onAdd: (item: string
   );
 }
 
-function AddButton({ onClick, label }: { onClick: () => void; label: string }) {
+function AddButton({ onClick, label, disabled }: { onClick: () => void; label: string; disabled?: boolean }) {
   return (
     <button
       type="button"
-      className="mt-3 flex items-center gap-1.5 text-small font-medium text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+      disabled={disabled}
+      className="mt-3 flex items-center gap-1.5 text-small font-medium text-primary-600 transition-colors hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300"
       onClick={onClick}
     >
       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -95,11 +111,12 @@ function AddButton({ onClick, label }: { onClick: () => void; label: string }) {
   );
 }
 
-function RemoveButton({ onClick }: { onClick: () => void }) {
+function RemoveButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
-      className="rounded-card p-1 text-ink-placeholder hover:text-red-500 transition-colors"
+      disabled={disabled}
+      className="rounded-card p-1 text-ink-placeholder hover:text-red-500 transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-ink-placeholder"
       onClick={onClick}
     >
       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -152,8 +169,10 @@ export default function MedicalInfoPage() {
   const stepIndex = steps.findIndex((s) => s.key === currentStep);
 
   // ── Helpers ──
-  const addAllergy = (name?: string) =>
+  const addAllergy = (name?: string) => {
     setAllergies([...allergies, { allergen: name || '', hadHospitalization: false }]);
+    if (name) toast.success(t('medicalInfo.feedback.added', '已新增「{{item}}」', { item: name }));
+  };
   const removeAllergy = (i: number) => setAllergies(allergies.filter((_, idx) => idx !== i));
   const updateAllergy = (i: number, field: keyof AllergyItem, value: string | boolean) =>
     setAllergies(allergies.map((a, idx) => (idx === i ? { ...a, [field]: value } : a)));
@@ -163,8 +182,10 @@ export default function MedicalInfoPage() {
   const updateMedication = (i: number, field: keyof MedicationItem, value: string) =>
     setMedications(medications.map((m, idx) => (idx === i ? { ...m, [field]: value } : m)));
 
-  const addHistory = (name?: string) =>
+  const addHistory = (name?: string) => {
     setHistory([...history, { condition: name || '', yearsAgo: 'unsure', stillHas: true }]);
+    if (name) toast.success(t('medicalInfo.feedback.added', '已新增「{{item}}」', { item: name }));
+  };
   const removeHistory = (i: number) => setHistory(history.filter((_, idx) => idx !== i));
   const updateHistory = (i: number, field: keyof MedicalHistoryItem, value: string | boolean) =>
     setHistory(history.map((h, idx) => (idx === i ? { ...h, [field]: value } : h)));
@@ -281,8 +302,9 @@ export default function MedicalInfoPage() {
       {/* Header */}
       <div className="mb-6 flex items-center gap-3">
         <button
-          className="rounded-card p-1.5 text-ink-placeholder hover:bg-surface-tertiary hover:text-ink-secondary transition-colors"
+          className="rounded-card p-1.5 text-ink-placeholder hover:bg-surface-tertiary hover:text-ink-secondary transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => navigate('/patient/start')}
+          disabled={isCreating}
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -342,6 +364,7 @@ export default function MedicalInfoPage() {
                   className="input-base w-full"
                   type="text"
                   maxLength={100}
+                  disabled={isCreating}
                   placeholder={t('medicalInfo.patient.namePlaceholder')}
                   value={patientName}
                   onChange={(e) => setPatientName(e.target.value)}
@@ -364,7 +387,9 @@ export default function MedicalInfoPage() {
                   ] as { value: Gender; label: string }[]).map((opt) => (
                     <label
                       key={opt.value}
-                      className={`flex cursor-pointer items-center gap-2 rounded-pill border px-4 py-2 text-small transition-colors ${
+                      className={`flex items-center gap-2 rounded-pill border px-4 py-2 text-small transition-colors ${
+                        isCreating ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                      } ${
                         gender === opt.value
                           ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300'
                           : 'border-edge bg-surface-secondary/40 text-ink-secondary hover:bg-surface-tertiary dark:border-dark-border dark:bg-dark-surface/40 dark:text-white/60'
@@ -375,6 +400,7 @@ export default function MedicalInfoPage() {
                         name="gender"
                         value={opt.value}
                         checked={gender === opt.value}
+                        disabled={isCreating}
                         onChange={() => setGender(opt.value)}
                         className="sr-only"
                       />
@@ -395,6 +421,7 @@ export default function MedicalInfoPage() {
                 <input
                   className="input-base w-full"
                   type="date"
+                  disabled={isCreating}
                   value={dateOfBirth}
                   onChange={(e) => setDateOfBirth(e.target.value)}
                 />
@@ -412,6 +439,7 @@ export default function MedicalInfoPage() {
                   className="input-base w-full"
                   type="tel"
                   maxLength={20}
+                  disabled={isCreating}
                   placeholder={t('medicalInfo.patient.phonePlaceholder')}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
@@ -431,10 +459,11 @@ export default function MedicalInfoPage() {
                   {t('medicalInfo.allergy.subtitle')}
                 </p>
               </div>
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className={`flex items-center gap-2 ${isCreating ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                 <input
                   type="checkbox"
                   checked={noAllergies}
+                  disabled={isCreating}
                   onChange={(e) => { setNoAllergies(e.target.checked); if (e.target.checked) setAllergies([]); }}
                   className="h-4 w-4 rounded border-edge text-primary-600 focus:ring-primary-500"
                 />
@@ -449,6 +478,7 @@ export default function MedicalInfoPage() {
                   <QuickAddChips
                     items={commonAllergyLabels.filter((a) => !allergies.some((al) => al.allergen === a))}
                     onAdd={(item) => addAllergy(item)}
+                    disabled={isCreating}
                   />
                 </div>
 
@@ -456,28 +486,34 @@ export default function MedicalInfoPage() {
                   <div className="space-y-2 pt-1">
                     {allergies.map((allergy, i) => (
                       <div key={i} className="flex items-center gap-3 rounded-card border border-edge/60 bg-surface-secondary/40 px-4 py-3 dark:border-dark-border dark:bg-dark-surface/40">
-                        <input
-                          className="input-base flex-1"
-                          placeholder={t('medicalInfo.allergy.placeholder')}
-                          value={allergy.allergen}
-                          onChange={(e) => updateAllergy(i, 'allergen', e.target.value)}
-                        />
-                        <label className="flex shrink-0 items-center gap-1.5 cursor-pointer whitespace-nowrap">
+                        <div className="flex flex-1 items-center gap-2">
+                          <input
+                            className="input-base flex-1"
+                            maxLength={FREE_TEXT_MAX}
+                            disabled={isCreating}
+                            placeholder={t('medicalInfo.allergy.placeholder')}
+                            value={allergy.allergen}
+                            onChange={(e) => updateAllergy(i, 'allergen', e.target.value)}
+                          />
+                          <CharCounter value={allergy.allergen} max={FREE_TEXT_MAX} />
+                        </div>
+                        <label className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap ${isCreating ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                           <input
                             type="checkbox"
                             checked={allergy.hadHospitalization}
+                            disabled={isCreating}
                             onChange={(e) => updateAllergy(i, 'hadHospitalization', e.target.checked)}
                             className="h-4 w-4 rounded border-edge text-red-500 focus:ring-red-400"
                           />
                           <span className="text-small text-ink-secondary dark:text-white/60">{t('medicalInfo.allergy.hospitalized')}</span>
                         </label>
-                        <RemoveButton onClick={() => removeAllergy(i)} />
+                        <RemoveButton onClick={() => removeAllergy(i)} disabled={isCreating} />
                       </div>
                     ))}
                   </div>
                 )}
 
-                <AddButton onClick={() => addAllergy()} label={t('medicalInfo.allergy.add')} />
+                <AddButton onClick={() => addAllergy()} label={t('medicalInfo.allergy.add')} disabled={isCreating} />
               </div>
             )}
           </div>
@@ -493,10 +529,11 @@ export default function MedicalInfoPage() {
                   {t('medicalInfo.medication.subtitle')}
                 </p>
               </div>
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className={`flex items-center gap-2 ${isCreating ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                 <input
                   type="checkbox"
                   checked={noMedications}
+                  disabled={isCreating}
                   onChange={(e) => { setNoMedications(e.target.checked); if (e.target.checked) setMedications([]); }}
                   className="h-4 w-4 rounded border-edge text-primary-600 focus:ring-primary-500"
                 />
@@ -510,28 +547,34 @@ export default function MedicalInfoPage() {
                   <div className="space-y-2">
                     {medications.map((med, i) => (
                       <div key={i} className="flex items-center gap-3 rounded-card border border-edge/60 bg-surface-secondary/40 px-4 py-3 dark:border-dark-border dark:bg-dark-surface/40">
-                        <input
-                          className="input-base flex-1"
-                          placeholder={t('medicalInfo.medication.placeholder')}
-                          value={med.name}
-                          onChange={(e) => updateMedication(i, 'name', e.target.value)}
-                        />
+                        <div className="flex flex-1 items-center gap-2">
+                          <input
+                            className="input-base flex-1"
+                            maxLength={FREE_TEXT_MAX}
+                            disabled={isCreating}
+                            placeholder={t('medicalInfo.medication.placeholder')}
+                            value={med.name}
+                            onChange={(e) => updateMedication(i, 'name', e.target.value)}
+                          />
+                          <CharCounter value={med.name} max={FREE_TEXT_MAX} />
+                        </div>
                         <select
                           className="input-base w-32 shrink-0"
                           value={med.frequency}
+                          disabled={isCreating}
                           onChange={(e) => updateMedication(i, 'frequency', e.target.value)}
                         >
                           {FREQUENCY_KEYS.map((k) => (
                             <option key={k} value={k}>{t(`medicalInfo.frequency.${k}`)}</option>
                           ))}
                         </select>
-                        <RemoveButton onClick={() => removeMedication(i)} />
+                        <RemoveButton onClick={() => removeMedication(i)} disabled={isCreating} />
                       </div>
                     ))}
                   </div>
                 )}
 
-                <AddButton onClick={addMedication} label={t('medicalInfo.medication.add')} />
+                <AddButton onClick={addMedication} label={t('medicalInfo.medication.add')} disabled={isCreating} />
               </div>
             )}
           </div>
@@ -555,10 +598,11 @@ export default function MedicalInfoPage() {
                   {t('medicalInfo.history.subtitle')}
                 </p>
               </div>
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className={`flex items-center gap-2 ${isCreating ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                 <input
                   type="checkbox"
                   checked={noHistory}
+                  disabled={isCreating}
                   onChange={(e) => { setNoHistory(e.target.checked); if (e.target.checked) setHistory([]); }}
                   className="h-4 w-4 rounded border-edge text-primary-600 focus:ring-primary-500"
                 />
@@ -573,6 +617,7 @@ export default function MedicalInfoPage() {
                   <QuickAddChips
                     items={commonConditionLabels.filter((c) => !history.some((h) => h.condition === c))}
                     onAdd={(item) => addHistory(item)}
+                    disabled={isCreating}
                   />
                 </div>
 
@@ -582,18 +627,24 @@ export default function MedicalInfoPage() {
                       <div key={i} className="rounded-card border border-edge/60 bg-surface-secondary/40 px-4 py-3 dark:border-dark-border dark:bg-dark-surface/40">
                         <div className="flex items-start gap-3">
                           <div className="flex flex-1 flex-col gap-2">
-                            <input
-                              className="input-base"
-                              placeholder={t('medicalInfo.history.placeholder')}
-                              value={h.condition}
-                              onChange={(e) => updateHistory(i, 'condition', e.target.value)}
-                            />
+                            <div className="flex items-center gap-2">
+                              <input
+                                className="input-base flex-1"
+                                maxLength={FREE_TEXT_MAX}
+                                disabled={isCreating}
+                                placeholder={t('medicalInfo.history.placeholder')}
+                                value={h.condition}
+                                onChange={(e) => updateHistory(i, 'condition', e.target.value)}
+                              />
+                              <CharCounter value={h.condition} max={FREE_TEXT_MAX} />
+                            </div>
                             <div className="flex items-center gap-4 flex-wrap">
                               <div className="flex items-center gap-2">
                                 <span className="text-small text-ink-muted dark:text-white/40 whitespace-nowrap">{t('medicalInfo.history.yearsAgoLabel')}</span>
                                 <select
                                   className="input-base w-28"
                                   value={h.yearsAgo}
+                                  disabled={isCreating}
                                   onChange={(e) => updateHistory(i, 'yearsAgo', e.target.value)}
                                 >
                                   {YEARS_AGO_KEYS.map((k) => (
@@ -601,10 +652,11 @@ export default function MedicalInfoPage() {
                                   ))}
                                 </select>
                               </div>
-                              <label className="flex items-center gap-1.5 cursor-pointer">
+                              <label className={`flex items-center gap-1.5 ${isCreating ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                                 <input
                                   type="checkbox"
                                   checked={h.stillHas}
+                                  disabled={isCreating}
                                   onChange={(e) => updateHistory(i, 'stillHas', e.target.checked)}
                                   className="h-4 w-4 rounded border-edge text-primary-600 focus:ring-primary-500"
                                 />
@@ -612,14 +664,14 @@ export default function MedicalInfoPage() {
                               </label>
                             </div>
                           </div>
-                          <RemoveButton onClick={() => removeHistory(i)} />
+                          <RemoveButton onClick={() => removeHistory(i)} disabled={isCreating} />
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
 
-                <AddButton onClick={() => addHistory()} label={t('medicalInfo.history.add')} />
+                <AddButton onClick={() => addHistory()} label={t('medicalInfo.history.add')} disabled={isCreating} />
               </div>
             )}
           </div>
@@ -628,7 +680,8 @@ export default function MedicalInfoPage() {
           <div className="rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
             <button
               type="button"
-              className="flex w-full items-center justify-between px-5 py-4 text-left"
+              disabled={isCreating}
+              className="flex w-full items-center justify-between px-5 py-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
               onClick={() => setFamilyOpen((v) => !v)}
             >
               <div className="flex items-center gap-2.5">
@@ -658,25 +711,31 @@ export default function MedicalInfoPage() {
                         <select
                           className="input-base w-24 shrink-0"
                           value={fh.relation}
+                          disabled={isCreating}
                           onChange={(e) => updateFamily(i, 'relation', e.target.value)}
                         >
                           {FAMILY_RELATION_KEYS.map((k) => (
                             <option key={k} value={k}>{t(`medicalInfo.relations.${k}`)}</option>
                           ))}
                         </select>
-                        <input
-                          className="input-base flex-1"
-                          placeholder={t('medicalInfo.family.conditionPlaceholder')}
-                          value={fh.condition}
-                          onChange={(e) => updateFamily(i, 'condition', e.target.value)}
-                        />
-                        <RemoveButton onClick={() => removeFamily(i)} />
+                        <div className="flex flex-1 items-center gap-2">
+                          <input
+                            className="input-base flex-1"
+                            maxLength={FREE_TEXT_MAX}
+                            disabled={isCreating}
+                            placeholder={t('medicalInfo.family.conditionPlaceholder')}
+                            value={fh.condition}
+                            onChange={(e) => updateFamily(i, 'condition', e.target.value)}
+                          />
+                          <CharCounter value={fh.condition} max={FREE_TEXT_MAX} />
+                        </div>
+                        <RemoveButton onClick={() => removeFamily(i)} disabled={isCreating} />
                       </div>
                     ))}
                   </div>
                 )}
 
-                <AddButton onClick={addFamily} label={t('medicalInfo.family.add')} />
+                <AddButton onClick={addFamily} label={t('medicalInfo.family.add')} disabled={isCreating} />
               </div>
             </div>
           </div>
@@ -725,11 +784,11 @@ export default function MedicalInfoPage() {
       {/* ── 底部導航 ── */}
       <div className="sticky bottom-0 mt-6 flex gap-3 border-t border-edge bg-surface-secondary/80 py-4 backdrop-blur-sm dark:border-dark-border dark:bg-dark-bg/80">
         {stepIndex > 0 ? (
-          <button className="btn-secondary flex-1 py-3" onClick={() => setCurrentStep('critical')}>
+          <button className="btn-secondary flex-1 py-3" onClick={() => setCurrentStep('critical')} disabled={isCreating}>
             {t('medicalInfo.nav.prev')}
           </button>
         ) : (
-          <button className="btn-secondary flex-1 py-3" onClick={() => navigate('/patient/start')}>
+          <button className="btn-secondary flex-1 py-3" onClick={() => navigate('/patient/start')} disabled={isCreating}>
             {t('medicalInfo.nav.back')}
           </button>
         )}

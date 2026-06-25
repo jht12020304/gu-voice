@@ -10,13 +10,25 @@ from app.models.enums import SessionStatus
 
 
 class DashboardStatsResponse(BaseModel):
-    """儀表板統計回應"""
+    """儀表板統計回應
+
+    語意說明：
+    - sessions_today / completed / red_flags / pending_reviews 依 `date`
+      區間（當日 UTC）統計。
+    - average_duration_seconds：該區間內「已完成」場次的平均時長（秒），
+      取 completed_at / started_at（缺則退回 duration_seconds）計算；
+      無已完成場次時為 None。
+    - in_progress / waiting：刻意為「即時」狀態快照（目前進行中 / 等待中），
+      不受 `date` 區間限制，反映當下佇列狀況。
+    """
     sessions_today: int = 0
     completed: int = 0
     red_flags: int = 0
     pending_reviews: int = 0
+    # 即時狀態快照，不受 date 區間限制（見 class docstring）
     in_progress: int = 0
     waiting: int = 0
+    # 區間內已完成場次的平均時長（秒）；無資料為 None
     average_duration_seconds: Optional[float] = None
     timestamp: datetime
 

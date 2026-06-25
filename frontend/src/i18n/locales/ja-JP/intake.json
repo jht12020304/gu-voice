@@ -139,6 +139,9 @@
       "bph": "前立腺肥大症",
       "urinaryStones": "尿路結石",
       "cancer": "がん"
+    },
+    "feedback": {
+      "added": "「{{item}}」を追加しました"
     }
   }
 }

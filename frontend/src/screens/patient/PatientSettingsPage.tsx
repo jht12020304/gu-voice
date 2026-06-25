@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import toast from 'react-hot-toast';
 import { useAuthStore } from '../../stores/authStore';
 import { User, Bell, Shield, KeyRound, Globe, ChevronRight } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import Modal from '../../components/common/Modal';
+import * as authApi from '../../services/api/auth';
 
 export default function PatientSettingsPage() {
   const { t } = useTranslation('common');
@@ -24,17 +27,79 @@ export default function PatientSettingsPage() {
   });
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [isError, setIsError] = useState(false);
+
+  // 更改密碼 Modal 狀態
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordError, setPasswordError] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const openPasswordModal = () => {
+    setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    setPasswordError('');
+    setShowPasswordModal(true);
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordError('');
+    const { currentPassword, newPassword, confirmPassword } = passwordForm;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError(t('patient.settings.passwordRequired', '請填寫所有欄位'));
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordError(t('patient.settings.passwordTooShort', '新密碼至少需 8 個字元'));
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError(t('patient.settings.passwordMismatch', '兩次輸入的新密碼不一致'));
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      await authApi.changePassword(currentPassword, newPassword);
+      setShowPasswordModal(false);
+      toast.success(t('patient.settings.passwordChanged', '密碼已更新'));
+    } catch {
+      setPasswordError(t('patient.settings.passwordChangeFailed', '密碼更新失敗，請確認目前密碼是否正確'));
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
 
   const handleSaveProfile = async () => {
     setIsSaving(true);
     setMessage('');
-    await updateProfile({
-      email: profile.email,
-      phone: profile.phone,
-      preferredLanguage: language,
-    });
-    setIsSaving(false);
-    setMessage(t('patient.settings.savedMessage'));
+    setIsError(false);
+    // updateProfile 內部會吞掉例外並把錯誤寫進 store.error；先清掉舊狀態，
+    // 呼叫後再讀 store.error 判定成敗，避免失敗時無回饋。
+    useAuthStore.getState().clearError();
+    try {
+      await updateProfile({
+        email: profile.email,
+        phone: profile.phone,
+        preferredLanguage: language,
+      });
+      if (useAuthStore.getState().error) {
+        throw new Error('updateProfile failed');
+      }
+      setIsError(false);
+      setMessage(t('patient.settings.savedMessage'));
+    } catch {
+      setIsError(true);
+      // saveFailedMessage 尚未在 locale 檔；給 defaultValue 避免顯示原始 key，
+      // 翻譯補上後會自動採用 locale 字串。
+      setMessage(t('patient.settings.saveFailedMessage', '更新失敗，請稍後再試'));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -138,7 +203,11 @@ export default function PatientSettingsPage() {
                     {isSaving ? t('saving') : t('patient.settings.saveChanges')}
                   </button>
                 </div>
-                {message ? <p className="text-sm text-green-600">{message}</p> : null}
+                {message ? (
+                  <p className={`text-sm ${isError ? 'text-red-600' : 'text-green-600'}`} role={isError ? 'alert' : 'status'}>
+                    {message}
+                  </p>
+                ) : null}
               </div>
             )}
 
@@ -182,7 +251,11 @@ export default function PatientSettingsPage() {
                   <p className="text-sm text-surface-500 mb-6">{t('patient.settings.securitySubtitle')}</p>
                 </div>
 
-                <button className="w-full flex items-center justify-between p-4 border border-surface-200 rounded-xl hover:bg-surface-50 transition-colors text-left">
+                <button
+                  type="button"
+                  onClick={openPasswordModal}
+                  className="w-full flex items-center justify-between p-4 border border-surface-200 rounded-xl hover:bg-surface-50 transition-colors text-left"
+                >
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 bg-surface-100 rounded-full flex items-center justify-center">
                       <KeyRound className="h-5 w-5 text-surface-600" />
@@ -200,6 +273,81 @@ export default function PatientSettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* 更改密碼 Modal */}
+      <Modal
+        visible={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        title={t('patient.settings.changePassword')}
+        footer={
+          <>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl border border-surface-200 text-surface-700 font-medium hover:bg-surface-50 transition-colors"
+              onClick={() => setShowPasswordModal(false)}
+              disabled={isChangingPassword}
+            >
+              {t('cancel', '取消')}
+            </button>
+            <button
+              type="button"
+              className="px-6 py-2 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+              onClick={handleChangePassword}
+              disabled={isChangingPassword}
+            >
+              {isChangingPassword ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : null}
+              {isChangingPassword ? t('saving') : t('patient.settings.changePassword')}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {passwordError ? (
+            <p className="text-sm text-red-600" role="alert">{passwordError}</p>
+          ) : null}
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-2">
+              {t('patient.settings.currentPassword', '目前密碼')}
+            </label>
+            <input
+              type="password"
+              autoComplete="current-password"
+              className="w-full px-4 py-2 border border-surface-200 rounded-xl focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+              value={passwordForm.currentPassword}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-2">
+              {t('patient.settings.newPassword', '新密碼')}
+            </label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              className="w-full px-4 py-2 border border-surface-200 rounded-xl focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+              value={passwordForm.newPassword}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))}
+            />
+            <p className="text-xs text-surface-500 mt-1">
+              {t('patient.settings.passwordHint', '密碼至少需 8 個字元')}
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-2">
+              {t('patient.settings.confirmPassword', '確認新密碼')}
+            </label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              className="w-full px-4 py-2 border border-surface-200 rounded-xl focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+              value={passwordForm.confirmPassword}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

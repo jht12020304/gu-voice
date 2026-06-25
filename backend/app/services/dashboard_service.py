@@ -110,6 +110,69 @@ def _parse_month_range(month_value: Optional[str]) -> tuple[datetime, datetime, 
     )
 
 
+# 佇列預設只顯示「等待中 + 進行中」場次
+DEFAULT_QUEUE_STATUSES: tuple[SessionStatus, ...] = (
+    SessionStatus.WAITING,
+    SessionStatus.IN_PROGRESS,
+)
+
+
+def _parse_queue_status(status_value: Optional[str]) -> list[SessionStatus]:
+    """解析逗號分隔的 status 字串為 SessionStatus 清單。
+
+    - 空字串 / None → 預設（waiting + in_progress）。
+    - 去除空白、忽略重複；保留出現順序。
+    - 任一值非合法 SessionStatus → ValidationException。
+    """
+    if not status_value or not status_value.strip():
+        return list(DEFAULT_QUEUE_STATUSES)
+
+    parsed: list[SessionStatus] = []
+    for raw in status_value.split(","):
+        token = raw.strip()
+        if not token:
+            continue
+        try:
+            member = SessionStatus(token)
+        except ValueError as exc:
+            raise ValidationException(
+                "errors.invalid_status",
+                details={
+                    "field": "status",
+                    "value": token,
+                    "allowed": [s.value for s in SessionStatus],
+                },
+            ) from exc
+        if member not in parsed:
+            parsed.append(member)
+
+    return parsed or list(DEFAULT_QUEUE_STATUSES)
+
+
+def _parse_alert_severity(severity_value: Optional[str]) -> Optional[AlertSeverity]:
+    """驗證 severity 查詢參數並轉為 AlertSeverity。
+
+    - 空字串 / None → None（不篩選）。
+    - 非合法 AlertSeverity → ValidationException。
+    """
+    if severity_value is None:
+        return None
+    token = severity_value.strip()
+    if not token:
+        return None
+    try:
+        return AlertSeverity(token)
+    except ValueError as exc:
+        raise ValidationException(
+            "errors.invalid_severity",
+            details={
+                "field": "severity",
+                "value": token,
+                "allowed": [s.value for s in AlertSeverity],
+            },
+        ) from exc
+
+
 class DashboardService:
     """儀表板業務邏輯"""
 
@@ -165,7 +228,7 @@ class DashboardService:
             completed_query = completed_query.where(Session.doctor_id == effective_doctor_id)
         completed = (await db.execute(completed_query)).scalar() or 0
 
-        # 今日進行中
+        # 進行中（即時狀態快照，刻意不受 date 區間限制，反映當下佇列）
         in_progress_query = (
             select(func.count())
             .select_from(Session)
@@ -175,7 +238,7 @@ class DashboardService:
             in_progress_query = in_progress_query.where(Session.doctor_id == effective_doctor_id)
         in_progress = (await db.execute(in_progress_query)).scalar() or 0
 
-        # 今日等待中
+        # 等待中（即時狀態快照，刻意不受 date 區間限制，反映當下佇列）
         waiting_query = (
             select(func.count())
             .select_from(Session)
@@ -212,6 +275,27 @@ class DashboardService:
             pending_query = pending_query.where(Session.doctor_id == effective_doctor_id)
         pending_reviews = (await db.execute(pending_query)).scalar() or 0
 
+        # 平均場次時長（秒）：當日「已完成」場次的 ended/started 差
+        # 優先用 completed_at − started_at；缺值時退回 duration_seconds。
+        duration_expr = func.coalesce(
+            func.extract("epoch", Session.completed_at - Session.started_at),
+            Session.duration_seconds,
+        )
+        duration_query = (
+            select(func.avg(duration_expr))
+            .select_from(Session)
+            .where(Session.created_at >= day_start)
+            .where(Session.created_at < day_end)
+            .where(Session.status == SessionStatus.COMPLETED)
+            .where(duration_expr.isnot(None))
+        )
+        if effective_doctor_id:
+            duration_query = duration_query.where(Session.doctor_id == effective_doctor_id)
+        avg_duration_raw = (await db.execute(duration_query)).scalar()
+        average_duration_seconds = (
+            round(float(avg_duration_raw), 1) if avg_duration_raw is not None else None
+        )
+
         stats = {
             "sessions_today": sessions_today,
             "completed": completed,
@@ -219,6 +303,7 @@ class DashboardService:
             "pending_reviews": pending_reviews,
             "in_progress": in_progress,
             "waiting": waiting,
+            "average_duration_seconds": average_duration_seconds,
             "timestamp": now.isoformat(),
         }
 
@@ -236,21 +321,21 @@ class DashboardService:
         db: AsyncSession,
         current_user: Any = None,
         doctor_id: Optional[UUID] = None,
+        status: Optional[str] = None,
         **kwargs,
     ) -> QueueResponse:
         """
-        取得等候佇列（waiting + in_progress 場次，依建立時間排序）
+        取得等候佇列（依建立時間排序）
+
+        status：逗號分隔的場次狀態（如 "waiting,in_progress"），用於篩選佇列。
+        未提供時預設為 waiting + in_progress。含無效狀態值時擲出 ValidationException。
         """
         effective_doctor_id = _resolve_doctor_scope(current_user, doctor_id)
+        status_filters = _parse_queue_status(status)
         query = (
             select(Session, Patient.name.label("patient_name"))
             .join(Patient, Session.patient_id == Patient.id)
-            .where(
-                Session.status.in_([
-                    SessionStatus.WAITING,
-                    SessionStatus.IN_PROGRESS,
-                ])
-            )
+            .where(Session.status.in_(status_filters))
             .order_by(Session.created_at.asc())
         )
         if effective_doctor_id:
@@ -295,18 +380,21 @@ class DashboardService:
         limit: int = 10,
         **kwargs,
     ) -> RecentAlertsResponse:
-        """取得近期紅旗警示"""
+        """取得近期「未確認」紅旗警示（acknowledged_by 為 NULL）"""
         effective_doctor_id = _resolve_doctor_scope(current_user, doctor_id)
+        severity_filter = _parse_alert_severity(severity)
         query = (
             select(RedFlagAlert, Patient.name.label("patient_name"))
             .join(Session, RedFlagAlert.session_id == Session.id)
             .join(Patient, Session.patient_id == Patient.id)
+            # 只回未確認警示，與「近期未確認警示」語意一致
+            .where(RedFlagAlert.acknowledged_by.is_(None))
             .order_by(RedFlagAlert.created_at.desc())
         )
         if effective_doctor_id:
             query = query.where(Session.doctor_id == effective_doctor_id)
-        if severity:
-            query = query.where(RedFlagAlert.severity == severity)
+        if severity_filter is not None:
+            query = query.where(RedFlagAlert.severity == severity_filter)
 
         result = await db.execute(query.limit(limit))
         rows = result.all()

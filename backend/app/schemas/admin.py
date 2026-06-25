@@ -26,6 +26,7 @@ class AdminUserCreate(BaseModel):
 class AdminUserUpdate(BaseModel):
     """管理員更新使用者"""
     name: Optional[str] = Field(None, max_length=100)
+    email: Optional[EmailStr] = None
     role: Optional[UserRole] = None
     phone: Optional[str] = Field(None, max_length=20)
     department: Optional[str] = Field(None, max_length=100)
@@ -83,7 +84,8 @@ class SystemHealthResponse(BaseModel):
     status: str = "ok"
     database: str = "ok"
     redis: str = "ok"
-    version: str = "1.0.0"
+    openai: str = "ok"
+    version: str
     timestamp: datetime
 
 

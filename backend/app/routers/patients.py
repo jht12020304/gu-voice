@@ -67,9 +67,13 @@ async def list_patients(
     sort_by: str = Query("created_at"),
     sort_order: str = Query("desc"),
 ) -> PatientListResponse:
-    """取得病患列表，支援以姓名、病歷號碼搜尋，以及多條件篩選。"""
+    """取得病患列表，支援以姓名、病歷號碼搜尋，以及多條件篩選。
+
+    醫師僅能看見自己名下的病患（doctor scoping），管理員可見全部。
+    """
     return await patient_service.list_patients(
         db,
+        current_user=current_user,
         cursor=cursor,
         limit=limit,
         search=search,
@@ -95,7 +99,11 @@ async def get_patient(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> PatientDetail:
-    """取得指定病患的完整資料。病患僅可查看自己的資料。"""
+    """取得指定病患的完整資料。
+
+    存取規則（同 _authorize_patient_access）：管理員不限；醫師僅限自己名下病患；
+    病患角色一律拒絕（病患資料僅供醫師 / 管理員存取）。
+    """
     return await patient_service.get_patient(
         db,
         patient_id=patient_id,
@@ -115,7 +123,11 @@ async def update_patient(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> PatientDetail:
-    """更新指定病患的資料。病患僅可更新自己的資料。"""
+    """更新指定病患的資料。
+
+    存取規則（同 _authorize_patient_access）：管理員不限；醫師僅限自己名下病患；
+    病患角色一律拒絕。
+    """
     return await patient_service.update_patient(
         db,
         patient_id=patient_id,
@@ -135,11 +147,15 @@ async def delete_patient(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> None:
-    """軟刪除指定病患（設定 is_active 為 False）。"""
+    """軟刪除指定病患（設定 is_deleted 為 True、deleted_at 為現在）。
+
+    醫療記錄不可硬刪，保留 session 等關聯與審計軌跡。
+    """
     await patient_service.soft_delete_patient(
         db,
         patient_id=patient_id,
         deleted_by=current_user.id,
+        current_user=current_user,
     )
 
 
@@ -159,7 +175,11 @@ async def get_patient_sessions(
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> SessionListResponse:
-    """取得指定病患的所有問診場次記錄。病患僅可查看自己的場次。"""
+    """取得指定病患的所有問診場次記錄。
+
+    存取規則（同 _authorize_patient_access）：管理員不限；醫師僅限自己名下病患；
+    病患角色一律拒絕。支援以 status、date_from、date_to 篩選。
+    """
     return await patient_service.get_patient_sessions(
         db,
         patient_id=patient_id,

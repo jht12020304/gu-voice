@@ -2,14 +2,19 @@
 自定義例外類別 + FastAPI 例外處理器註冊
 """
 
+import logging
 from enum import Enum
 from typing import Any, Optional
 
+import sentry_sdk
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.utils.i18n_messages import get_message, is_message_key
 from app.utils.language import resolve_language
+
+logger = logging.getLogger(__name__)
 
 
 # ── 錯誤碼列舉 ─────────────────────────────────────────
@@ -316,10 +321,52 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        """請求驗證失敗（pydantic / FastAPI 422）統一走應用錯誤殼。
+
+        FastAPI 預設回 `{"detail": [...]}`，與本專案統一的
+        `{"error": {code, message, request_id, timestamp}}` 不一致；此 handler 將其
+        映射為 VALIDATION_ERROR，並把原始 errors 放進 details.errors 方便前端定位欄位。
+        """
+        request_id = getattr(request.state, "request_id", "unknown")
+        language = _resolve_request_language(request)
+        localized_message = get_message("errors.validation_failed", language)
+        # exc.errors() 可能含 ValueError 等不可序列化物件；用 jsonable_encoder 安全轉換。
+        from fastapi.encoders import jsonable_encoder
+
+        return JSONResponse(
+            status_code=_ERROR_STATUS_MAP[ErrorCode.VALIDATION_ERROR],
+            headers=_cors_headers(request),
+            content={
+                "error": {
+                    "code": ErrorCode.VALIDATION_ERROR.value,
+                    "message": localized_message,
+                    "details": {"errors": jsonable_encoder(exc.errors())},
+                    "request_id": request_id,
+                    "timestamp": __import__("datetime").datetime.now(
+                        __import__("datetime").timezone.utc
+                    ).isoformat(),
+                },
+            },
+        )
+
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         request_id = getattr(request.state, "request_id", "unknown")
         language = _resolve_request_language(request)
+        # 完整例外（含 traceback）只記在伺服器端與 Sentry，絕不回傳給 client。
+        # str(exc) 可能含 DB 連線字串 / 檔案路徑 / 內部結構，外洩即資安事故。
+        logger.exception(
+            "unhandled exception | request_id=%s path=%s",
+            request_id,
+            request.url.path,
+        )
+        # FastApiIntegration 不會自動捕捉已被本 handler 攔下的例外，故顯式上報；
+        # before_send=redact_sensitive 會在送出前過濾 PII。
+        sentry_sdk.capture_exception(exc)
         return JSONResponse(
             status_code=500,
             headers=_cors_headers(request),
@@ -327,7 +374,8 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "error": {
                     "code": ErrorCode.INTERNAL_ERROR.value,
                     "message": get_message("errors.internal_error", language),
-                    "details": str(exc),
+                    # 對外只回 request_id，讓使用者回報時可對應伺服器 log，不洩漏內部細節。
+                    "details": {"request_id": request_id},
                     "request_id": request_id,
                     "timestamp": __import__("datetime").datetime.now(
                         __import__("datetime").timezone.utc

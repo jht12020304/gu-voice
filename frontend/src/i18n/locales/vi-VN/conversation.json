@@ -25,6 +25,23 @@
   "redFlag": {
     "more": "+{{count}} cảnh báo khác"
   },
+  "supervisor": {
+    "hintLabel": "Sắp hỏi tiếp",
+    "missingLabel": "Còn cần tìm hiểu:",
+    "degraded": "Hướng dẫn trực tiếp tạm thời không khả dụng, nhưng phiên khám của quý vị vẫn tiếp tục bình thường.",
+    "hpi": {
+      "onset": "Thời điểm khởi phát",
+      "location": "Vị trí",
+      "duration": "Thời gian kéo dài",
+      "characteristics": "Tính chất",
+      "severity": "Mức độ nghiêm trọng",
+      "aggravating_factors": "Yếu tố làm nặng thêm",
+      "relieving_factors": "Yếu tố làm giảm",
+      "associated_symptoms": "Triệu chứng kèm theo",
+      "timing": "Quy luật thời gian",
+      "context": "Bối cảnh"
+    }
+  },
   "error": {
     "loadFailed": "Không thể tải hội thoại",
     "sessionInterrupted": "Phiên khám bị gián đoạn, vui lòng bắt đầu lại",
@@ -37,5 +54,9 @@
   },
   "mockMessages": {
     "systemStart": "Bắt đầu phiên khám — Lý do khám: {{complaint}}"
+  },
+  "connection": {
+    "reconnecting": "Mất kết nối, đang kết nối lại…",
+    "retry": "Thử lại"
   }
 }

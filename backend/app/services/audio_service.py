@@ -59,7 +59,9 @@ class AudioService:
 
             supabase = create_client(
                 settings.SUPABASE_URL if hasattr(settings, "SUPABASE_URL") else "",
-                settings.SUPABASE_KEY if hasattr(settings, "SUPABASE_KEY") else "",
+                settings.SUPABASE_SERVICE_ROLE_KEY
+                if hasattr(settings, "SUPABASE_SERVICE_ROLE_KEY")
+                else "",
             )
 
             supabase.storage.from_(AUDIO_BUCKET).upload(
@@ -104,7 +106,9 @@ class AudioService:
 
             supabase = create_client(
                 settings.SUPABASE_URL if hasattr(settings, "SUPABASE_URL") else "",
-                settings.SUPABASE_KEY if hasattr(settings, "SUPABASE_KEY") else "",
+                settings.SUPABASE_SERVICE_ROLE_KEY
+                if hasattr(settings, "SUPABASE_SERVICE_ROLE_KEY")
+                else "",
             )
 
             result = supabase.storage.from_(AUDIO_BUCKET).create_signed_url(

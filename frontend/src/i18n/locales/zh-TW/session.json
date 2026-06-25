@@ -77,7 +77,30 @@
       "viewReport": "查看 SOAP 報告",
       "enterConversation": "進入對話",
       "conversationsTitle": "對話紀錄",
-      "conversationsEmpty": "尚無對話紀錄"
+      "conversationsEmpty": "尚無對話紀錄",
+      "actionsTitle": "場次操作",
+      "actionsHint": "可指派場次給自己、變更狀態或產生報告",
+      "assignedToMe": "此場次已指派給您",
+      "assignToMe": "指派給我",
+      "assigning": "指派中...",
+      "assignSuccess": "已將場次指派給您",
+      "assignError": "指派醫師失敗，請稍後再試",
+      "markCompleted": "標記完成",
+      "markCompletedTitle": "標記場次完成",
+      "markCompletedConfirm": "確認將此場次標記為完成？完成後可產生 SOAP 報告。",
+      "cancelSession": "取消場次",
+      "cancelSessionTitle": "取消場次",
+      "cancelSessionConfirm": "確認取消此場次？此操作無法復原。",
+      "statusCompletedSuccess": "場次已標記為完成",
+      "statusCancelledSuccess": "場次已取消",
+      "statusUpdateError": "更新場次狀態失敗，請稍後再試",
+      "generateReport": "產生報告",
+      "generatingReport": "生成報告中...",
+      "generateReportSuccess": "報告已生成",
+      "generateReportError": "報告生成失敗，請稍後再試",
+      "confirm": "確認",
+      "cancelAction": "取消",
+      "processing": "處理中..."
     }
   }
 }

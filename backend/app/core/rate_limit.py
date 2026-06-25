@@ -31,6 +31,9 @@ RL_LOGIN_IP_PREFIX = "gu:rl:login_ip:"
 RL_LOGIN_FAIL_PREFIX = "gu:rl:login_fail:"
 RL_LOGIN_LOCKED_PREFIX = "gu:rl:login_locked:"
 RL_LLM_USER_PREFIX = "gu:rl:llm_user:"
+RL_PWRESET_IP_PREFIX = "gu:rl:pwreset_ip:"
+RL_REGISTER_IP_PREFIX = "gu:rl:register_ip:"
+RL_REFRESH_IP_PREFIX = "gu:rl:refresh_ip:"
 
 
 # ── 預設 policy 參數 ───────────────────────────────────────
@@ -41,6 +44,12 @@ LOGIN_LOCKOUT_SECONDS = 600  # 鎖 10 分鐘
 LOGIN_FAIL_WINDOW = 600      # 失敗計數視窗（跟鎖定長度一致）
 LLM_USER_LIMIT = 20          # 20 次
 LLM_USER_WINDOW = 60         # 每 60 秒
+# 註冊端點 per-IP：建立帳號成本高、易被當成 enumeration / spam 管道，故較嚴。
+REGISTER_IP_LIMIT = 5        # 5 次
+REGISTER_IP_WINDOW = 3600    # 每 1 小時
+# Refresh token 端點 per-IP：正常使用頻率低，但不該被無限換發；介於登入與註冊之間。
+REFRESH_IP_LIMIT = 30        # 30 次
+REFRESH_IP_WINDOW = 900      # 每 15 分鐘
 
 
 # ──────────────────────────────────────────────────────────
@@ -120,6 +129,90 @@ async def enforce_login_ip_rate_limit(redis: Any, ip: str) -> None:
         raise RateLimitExceededException(
             message="errors.login_ip_rate_limited",
             details={"retry_after": retry_after, "scope": "ip"},
+            message_kwargs={"retry_after": retry_after},
+        )
+
+
+# ──────────────────────────────────────────────────────────
+# Policy 1a：Register per-IP（註冊端點）
+# ──────────────────────────────────────────────────────────
+
+async def enforce_register_ip_rate_limit(redis: Any, ip: str) -> None:
+    """註冊端點的 per-IP sliding window（預設 `REGISTER_IP_LIMIT/REGISTER_IP_WINDOW`）。
+
+    超過上限即抛 RateLimitExceededException（HTTP 429，retry_after 放 details）。
+    """
+    if not ip:
+        # 沒 IP 資訊（測試、健康檢查）就不擋，與 login IP policy 一致
+        return
+    key = f"{RL_REGISTER_IP_PREFIX}{ip}"
+    allowed, retry_after = await SlidingWindowLimiter.check(
+        redis, key, REGISTER_IP_LIMIT, REGISTER_IP_WINDOW
+    )
+    if not allowed:
+        logger.warning("register IP rate limit hit ip=%s retry_after=%d", ip, retry_after)
+        raise RateLimitExceededException(
+            message="errors.login_ip_rate_limited",
+            details={"retry_after": retry_after, "scope": "register_ip"},
+            message_kwargs={"retry_after": retry_after},
+        )
+
+
+# ──────────────────────────────────────────────────────────
+# Policy 1c：Refresh token per-IP（換發 access token 端點）
+# ──────────────────────────────────────────────────────────
+
+async def enforce_refresh_ip_rate_limit(redis: Any, ip: str) -> None:
+    """Refresh token 端點的 per-IP sliding window（預設 `REFRESH_IP_LIMIT/REFRESH_IP_WINDOW`）。
+
+    超過上限即抛 RateLimitExceededException（HTTP 429，retry_after 放 details）。
+    """
+    if not ip:
+        # 沒 IP 資訊（測試、健康檢查）就不擋，與 login IP policy 一致
+        return
+    key = f"{RL_REFRESH_IP_PREFIX}{ip}"
+    allowed, retry_after = await SlidingWindowLimiter.check(
+        redis, key, REFRESH_IP_LIMIT, REFRESH_IP_WINDOW
+    )
+    if not allowed:
+        logger.warning("refresh IP rate limit hit ip=%s retry_after=%d", ip, retry_after)
+        raise RateLimitExceededException(
+            message="errors.login_ip_rate_limited",
+            details={"retry_after": retry_after, "scope": "refresh_ip"},
+            message_kwargs={"retry_after": retry_after},
+        )
+
+
+# ──────────────────────────────────────────────────────────
+# Policy 1b：Password reset per-IP（忘記 / 重設密碼端點）
+# ──────────────────────────────────────────────────────────
+
+async def enforce_password_reset_ip_rate_limit(redis: Any, ip: str) -> None:
+    """忘記 / 重設密碼端點的 per-IP sliding window。
+
+    比登入保守（預設 5 次 / 15 分鐘，見 settings.PASSWORD_RESET_IP_*）：
+    這兩個端點會寄信 / 改密碼，成本高且容易被當帳號 enumeration / 暴力管道，
+    超過上限即抛 RateLimitExceededException（HTTP 429，retry_after 放 details）。
+    """
+    if not ip:
+        # 沒 IP 資訊（測試、健康檢查）就不擋，與 login IP policy 一致
+        return
+    from app.core.config import settings
+
+    key = f"{RL_PWRESET_IP_PREFIX}{ip}"
+    allowed, retry_after = await SlidingWindowLimiter.check(
+        redis,
+        key,
+        settings.PASSWORD_RESET_IP_LIMIT,
+        settings.PASSWORD_RESET_IP_WINDOW,
+    )
+    if not allowed:
+        logger.warning(
+            "password reset IP rate limit hit ip=%s retry_after=%d", ip, retry_after
+        )
+        raise RateLimitExceededException(
+            message="errors.login_ip_rate_limited",
+            details={"retry_after": retry_after, "scope": "password_reset_ip"},
             message_kwargs={"retry_after": retry_after},
         )
 

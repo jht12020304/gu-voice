@@ -7,12 +7,66 @@ SOAP 報告生成 Celery 任務
 
 import logging
 
+from celery import Task
+
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
 
 
+def _run_async(coro):
+    """在同步 Celery worker context 內安全執行 async coroutine。
+
+    與 generate_soap_report 的執行策略一致：優先沿用既有 event loop，
+    若已在運行則改用 asyncio.run 新建一個 loop。
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            raise RuntimeError("event loop already running")
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
+
+
+class _SOAPReportTask(Task):
+    """
+    自訂 Celery Task 基底，提供 on_failure 安全網。
+
+    當任務在重試耗盡後仍最終失敗（或 task body 以非預期方式拋出），
+    Celery 會呼叫 on_failure；此處將對應 SOAPReport 標記為 FAILED，
+    確保報告不會永遠卡在 'generating' 狀態。
+    """
+
+    def on_failure(self, exc, task_id, args, kwargs, einfo):  # noqa: D401
+        session_id = None
+        if args:
+            session_id = args[0]
+        elif kwargs:
+            session_id = kwargs.get("session_id")
+        if not session_id:
+            logger.error(
+                "SOAP 報告任務最終失敗但無法解析 session_id，無法標記 FAILED: %s",
+                exc,
+            )
+            return
+        try:
+            _run_async(_mark_report_failed(str(session_id)))
+            logger.error(
+                "SOAP 報告任務最終失敗，已將場次 %s 報告標記為 FAILED: %s",
+                session_id,
+                exc,
+            )
+        except Exception:  # noqa: BLE001 — on_failure 內不可再向上拋
+            logger.exception(
+                "SOAP 報告任務 on_failure 標記 FAILED 失敗: session=%s", session_id
+            )
+
+
 @celery_app.task(
+    base=_SOAPReportTask,
     name="app.tasks.report_queue.generate_soap_report",
     bind=True,
     max_retries=2,
@@ -29,15 +83,21 @@ def generate_soap_report(self, session_id: str) -> dict:
     Returns:
         包含報告 ID 與狀態的字典
     """
-    import asyncio
+    return _run_async(_async_generate(session_id))
 
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            raise RuntimeError("event loop already running")
-        return loop.run_until_complete(_async_generate(session_id))
-    except RuntimeError:
-        return asyncio.run(_async_generate(session_id))
+
+async def _mark_report_failed(session_id: str) -> None:
+    """獨立交易：把指定場次的 SOAPReport 標記為 FAILED 並 commit。
+
+    供 on_failure 安全網使用——task body 內已有 except 路徑會處理多數情況，
+    此函式為「最終失敗」時的兜底，獨立開一個 session 以免沿用已 rollback 的交易。
+    """
+    from app.core.database import async_session_factory
+    from app.models.enums import ReportStatus
+
+    async with async_session_factory() as db:
+        await _update_report_status(db, session_id, ReportStatus.FAILED)
+        await db.commit()
 
 
 async def _async_generate(session_id: str) -> dict:
@@ -125,6 +185,29 @@ async def _async_generate(session_id: str) -> dict:
             # 正規化後的 snake_case slug（與 `icd10_symptom_map.SYMPTOM_TO_ICD10` 的 key 相容）。
             symptom_id = _resolve_symptom_id(session_obj)
 
+            # 取出本場次即時偵測並持久化的紅旗，注入 SOAP 生成（安全關鍵：
+            # 避免 LLM 自逐字稿重新推導時把 critical 急症 under-triage）。
+            from app.models.red_flag_alert import RedFlagAlert
+
+            rf_rows = (
+                await db.execute(
+                    select(RedFlagAlert).where(RedFlagAlert.session_id == session_id)
+                )
+            ).scalars().all()
+            red_flags = [
+                {
+                    "severity": (
+                        rf.severity.value
+                        if hasattr(rf.severity, "value")
+                        else str(rf.severity)
+                    ),
+                    "canonical_id": getattr(rf, "canonical_id", None),
+                    "trigger_reason": rf.trigger_reason or "",
+                    "suggested_actions": rf.suggested_actions or [],
+                }
+                for rf in rf_rows
+            ]
+
             language = session_obj.language
             generator = SOAPGenerator(settings)
             soap_data = await generator.generate(
@@ -133,6 +216,7 @@ async def _async_generate(session_id: str) -> dict:
                 chief_complaint=chief_complaint_text,
                 language=language,
                 symptom_id=symptom_id,
+                red_flags=red_flags,
             )
 
             raw_transcript = "\n".join(
@@ -183,6 +267,30 @@ async def _async_generate(session_id: str) -> dict:
                 session_id,
                 language,
             )
+
+            # H-8：報告真正完成（已 commit）才是 report_generated 的正確語意完成點。
+            # 本任務在 Celery worker 行程，與持有 dashboard WS 連線的 API 行程不同，
+            # 故走 Redis publish（由 API 行程的 subscriber 收到後本地 fan-out）。
+            # payload 一律 camelCase 以對齊前端 ``ReportGeneratedPayload``。
+            # publish 失敗已於 helper 內 swallow + log；此處再包一層確保絕不影響任務回傳。
+            try:
+                patient_name = ""
+                patient = session_obj.patient
+                if patient is not None:
+                    patient_name = getattr(patient, "name", "") or ""
+                await _publish_report_generated(
+                    report_id=str(report.id),
+                    session_id=session_id,
+                    patient_name=patient_name,
+                    status="generated",
+                )
+            except Exception as exc:  # noqa: BLE001 — 推播失敗不可影響任務結果
+                logger.warning(
+                    "場次 %s report_generated 推播失敗（非致命） | error=%s",
+                    session_id,
+                    exc,
+                )
+
             return {
                 "session_id": session_id,
                 "status": "generated",
@@ -194,6 +302,31 @@ async def _async_generate(session_id: str) -> dict:
             await _update_report_status(db, session_id, ReportStatus.FAILED)
             await db.commit()
             raise
+
+
+async def _publish_report_generated(
+    report_id: str,
+    session_id: str,
+    patient_name: str,
+    status: str,
+) -> None:
+    """把 ``report_generated`` 事件 publish 到 Redis 儀表板頻道（跨行程）。
+
+    在 Celery worker 行程觸發，無法用 in-memory 廣播觸及 API 行程的 WS 連線，
+    故走 ``ConnectionManager.publish_dashboard_event``（內部已對 Redis 故障做韌性處理）。
+    payload 鍵名為 camelCase 以對齊前端 ``ReportGeneratedPayload``。
+    """
+    from app.websocket.connection_manager import publish_dashboard_event
+
+    await publish_dashboard_event(
+        "report_generated",
+        {
+            "reportId": report_id,
+            "sessionId": session_id,
+            "patientName": patient_name or "",
+            "status": status,
+        },
+    )
 
 
 def _resolve_symptom_id(session_obj) -> str | None:

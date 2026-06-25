@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, require_role
-from app.core.exceptions import AppException
 from app.core.language_middleware import get_request_language
+from app.models.enums import UserRole
 from app.schemas.complaint import (
     ComplaintCreate,
     ComplaintDetail,
@@ -32,7 +32,7 @@ complaint_service = ComplaintService()
     response_model=ComplaintListResponse,
     status_code=status.HTTP_200_OK,
     summary="取得主訴列表",
-    dependencies=[Depends(require_role("doctor", "admin"))],
+    dependencies=[Depends(require_role("doctor", "admin", "patient"))],
 )
 async def list_complaints(
     request: Request,
@@ -51,7 +51,16 @@ async def list_complaints(
 
     回應的 `name / description / category` 依 middleware 解析的語言輸出；
     同時帶 `*_by_lang` 原始 JSONB 供前端切換語言時零延遲使用。
+
+    病患（patient）角色被允許讀取此列表以開始問診，但查詢被限縮為
+    *啟用中的系統預設主訴*（is_active=True 且 is_default=True），
+    避免病患看到醫師的私有自訂主訴。醫師 / 管理員行為不變。
     """
+    # 病患僅能看到啟用中的系統預設主訴；不洩漏醫師私有自訂主訴。
+    if current_user.role == UserRole.PATIENT:
+        is_active = True
+        is_default = True
+
     language = get_request_language(request)
     return await complaint_service.list_complaints(
         db,
@@ -112,6 +121,7 @@ async def reorder_complaints(
     response_model=ComplaintDetail,
     status_code=status.HTTP_200_OK,
     summary="取得單一主訴",
+    dependencies=[Depends(require_role("doctor", "admin"))],
 )
 async def get_complaint(
     complaint_id: UUID,
@@ -132,6 +142,7 @@ async def get_complaint(
     response_model=ComplaintDetail,
     status_code=status.HTTP_200_OK,
     summary="更新主訴",
+    dependencies=[Depends(require_role("doctor", "admin"))],
 )
 async def update_complaint(
     complaint_id: UUID,
@@ -157,6 +168,7 @@ async def update_complaint(
     "/{complaint_id}",
     status_code=status.HTTP_200_OK,
     summary="刪除主訴",
+    dependencies=[Depends(require_role("doctor", "admin"))],
 )
 async def delete_complaint(
     complaint_id: UUID,

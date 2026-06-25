@@ -9,12 +9,13 @@
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import Text, or_, select, update
+from sqlalchemy import Text, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import ForbiddenException, NotFoundException
 from app.models.chief_complaint import ChiefComplaint
+from app.models.enums import UserRole
 from app.utils.complaint_fallback_i18n import (
     fallback_translate_category,
     fallback_translate_description,
@@ -92,6 +93,14 @@ def _serialize_complaint(complaint: ChiefComplaint, language: Optional[str]) -> 
         "description_by_lang": complaint.description_by_lang,
         "category_by_lang": complaint.category_by_lang or None,
     }
+
+
+def _is_admin(current_user: Any) -> bool:
+    """判斷 current_user 是否為 admin（容忍 enum / str / 缺欄位）。"""
+    role = getattr(current_user, "role", None)
+    if role is None:
+        return False
+    return role == UserRole.ADMIN or role == UserRole.ADMIN.value
 
 
 class ComplaintService:
@@ -263,37 +272,71 @@ class ComplaintService:
         is_active: bool = True,
         language: Optional[str] = None,
     ) -> dict[str, Any]:
-        """列出主訴，回傳依 language resolve 過的 localized 欄位。"""
-        query = select(ChiefComplaint)
+        """列出主訴，回傳依 language resolve 過的 localized 欄位。
 
-        if category:
-            query = query.where(ChiefComplaint.category == category)
-        if is_default is not None:
-            query = query.where(ChiefComplaint.is_default == is_default)
-        if search:
-            # search 跨 legacy name + name_by_lang（JSONB 轉 text 再 ilike，
-            # 避免因為 seed 只寫入 _by_lang 時查不到）
-            query = query.where(
-                or_(
-                    ChiefComplaint.name.ilike(f"%{search}%"),
-                    ChiefComplaint.name_by_lang.cast(Text).ilike(f"%{search}%"),
+        Keyset cursor 分頁：以 (display_order, id) 為穩定排序鍵。`cursor` 為上一頁
+        最後一筆的 complaint id，往後撈嚴格大於該錨點的資料；多撈一筆判斷 has_more。
+        total_count 以相同篩選條件單獨 count，反映符合條件的全部筆數（非僅本頁）。
+        """
+
+        def _apply_filters(stmt):
+            if category:
+                stmt = stmt.where(ChiefComplaint.category == category)
+            if is_default is not None:
+                stmt = stmt.where(ChiefComplaint.is_default == is_default)
+            if search:
+                # search 跨 legacy name + name_by_lang（JSONB 轉 text 再 ilike，
+                # 避免因為 seed 只寫入 _by_lang 時查不到）
+                stmt = stmt.where(
+                    or_(
+                        ChiefComplaint.name.ilike(f"%{search}%"),
+                        ChiefComplaint.name_by_lang.cast(Text).ilike(f"%{search}%"),
+                    )
                 )
+            if is_active is not None:
+                stmt = stmt.where(ChiefComplaint.is_active == is_active)
+            return stmt
+
+        query = _apply_filters(select(ChiefComplaint))
+
+        # Keyset 分頁：取得游標錨點之後的資料
+        if cursor:
+            anchor_result = await db.execute(
+                select(ChiefComplaint).where(ChiefComplaint.id == cursor)
             )
-        if is_active is not None:
-            query = query.where(ChiefComplaint.is_active == is_active)
+            anchor = anchor_result.scalar_one_or_none()
+            if anchor is not None:
+                query = query.where(
+                    (ChiefComplaint.display_order > anchor.display_order)
+                    | (
+                        (ChiefComplaint.display_order == anchor.display_order)
+                        & (ChiefComplaint.id > anchor.id)
+                    )
+                )
 
-        query = query.order_by(ChiefComplaint.display_order).limit(limit)
+        query = query.order_by(ChiefComplaint.display_order, ChiefComplaint.id)
 
-        result = await db.execute(query)
+        # 多取一筆用於判斷是否有下一頁
+        result = await db.execute(query.limit(limit + 1))
         items = result.scalars().all()
+
+        has_more = len(items) > limit
+        if has_more:
+            items = items[:limit]
+
+        # 符合篩選條件的總筆數（套用相同 where 條件，不含 cursor / limit）
+        total_result = await db.execute(
+            _apply_filters(select(func.count()).select_from(ChiefComplaint))
+        )
+        total_count = total_result.scalar() or 0
 
         return {
             "data": [_serialize_complaint(c, language) for c in items],
             "pagination": {
-                "next_cursor": None,
-                "has_more": False,
+                "next_cursor": str(items[-1].id) if has_more and items else None,
+                "has_more": has_more,
                 "limit": limit,
-                "total_count": len(items),
+                "total_count": total_count,
             },
         }
 
@@ -312,7 +355,9 @@ class ComplaintService:
         db: AsyncSession,
         items: list[Any],
     ) -> dict[str, Any]:
-        item_dicts = [{"id": item.id, "display_order": item.display_order} for item in items]
+        item_dicts = [
+            {"id": item["id"], "display_order": item["display_order"]} for item in items
+        ]
         await self.reorder(db, item_dicts)
         return {"success": True, "reordered_count": len(items)}
 
@@ -338,6 +383,7 @@ class ComplaintService:
         current_user: Any,
         language: Optional[str] = None,
     ) -> dict[str, Any]:
+        await self._guard_default_complaint(db, complaint_id, current_user)
         complaint = await self.update(db, complaint_id, data.model_dump(exclude_unset=True))
         return _serialize_complaint(complaint, language)
 
@@ -347,5 +393,27 @@ class ComplaintService:
         complaint_id: UUID,
         current_user: Any,
     ) -> None:
+        await self._guard_default_complaint(db, complaint_id, current_user)
         return await self.delete(db, complaint_id)
+
+    @staticmethod
+    async def _guard_default_complaint(
+        db: AsyncSession,
+        complaint_id: UUID,
+        current_user: Any,
+    ) -> None:
+        """系統預設主訴（is_default=True）僅 admin 可改 / 刪。
+
+        非 admin 嘗試異動預設主訴 → ForbiddenException。
+        不存在的主訴交由後續 update / delete 統一拋 NotFoundException，
+        以保留既有錯誤語意。
+        """
+        if _is_admin(current_user):
+            return
+        result = await db.execute(
+            select(ChiefComplaint.is_default).where(ChiefComplaint.id == complaint_id)
+        )
+        is_default = result.scalar_one_or_none()
+        if is_default:
+            raise ForbiddenException("errors.complaint_default_forbidden")
 

@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { useEffect } from 'react';
+import { Toaster } from 'react-hot-toast';
 import RootNavigator from './navigation/RootNavigator';
 import { useAuthStore } from './stores/authStore';
 import { useSettingsStore } from './stores/settingsStore';
@@ -21,5 +22,10 @@ export default function App() {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
-  return <RootNavigator />;
+  return (
+    <>
+      <RootNavigator />
+      <Toaster position="top-center" />
+    </>
+  );
 }

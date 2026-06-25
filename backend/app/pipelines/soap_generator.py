@@ -19,6 +19,23 @@ from app.utils.language_detect import matches_expected_language
 
 logger = logging.getLogger(__name__)
 
+# ── 紅旗 → SOAP 緊急度的安全底線（safety floor）─────────────
+# RedFlagDetector 在對話即時偵測到的 critical/high 紅旗會持久化到
+# red_flag_alerts；但 SOAP 由 LLM 自逐字稿「重新推導」，曾發生
+# critical(urosepsis) 卻只給 plan.urgency=24h 的 under-triage。
+# 這兩個常數供 _enforce_red_flag_urgency 做 deterministic「只升不降」升級。
+_SEVERITY_URGENCY_FLOOR: dict[str, str] = {
+    "critical": Urgency.ER_NOW.value,    # er_now
+    "high": Urgency.WITHIN_24H.value,    # 24h
+    "medium": Urgency.THIS_WEEK.value,   # this_week
+}
+_URGENCY_RANK: dict[str, int] = {
+    Urgency.ROUTINE.value: 0,
+    Urgency.THIS_WEEK.value: 1,
+    Urgency.WITHIN_24H.value: 2,
+    Urgency.ER_NOW.value: 3,
+}
+
 # ── SOAP 生成系統提示詞 ──────────────────────────────────
 _SOAP_SYSTEM_PROMPT = """你是資深泌尿科門診臨床文件助理，任務是根據問診對話內容產出一份嚴謹、可供醫師快速審閱的 SOAP 初稿。
 
@@ -232,6 +249,7 @@ class SOAPGenerator:
         chief_complaint: str,
         language: str | None = None,
         symptom_id: str | None = None,
+        red_flags: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """
         根據對話記錄生成 SOAP 報告
@@ -280,6 +298,7 @@ class SOAPGenerator:
 
         patient_text = "\n".join(patient_parts) if patient_parts else "(not provided)"
         transcript_text = self._format_transcript(transcript)
+        red_flag_text = self._format_red_flags(red_flags)
 
         # user_message 用中性英文標題，輸出語言由 system prompt 的語言規則決定。
         user_message = f"""## Patient Basic Information
@@ -287,7 +306,7 @@ class SOAPGenerator:
 
 ## Chief Complaint
 {chief_complaint}
-
+{red_flag_text}
 ## Consultation Transcript
 {transcript_text}
 
@@ -327,6 +346,12 @@ Please produce the full SOAP report based on the information above."""
 
             # 驗證並補齊必要欄位（含 urgency enum fallback）
             soap_report = self._validate_and_fill(soap_report, chief_complaint)
+
+            # 安全硬規則：偵測層的 critical/high 紅旗強制反映到緊急度（只升不降），
+            # 修補 LLM 自逐字稿重新推導時的 under-triage（如 urosepsis→僅 24h）。
+            soap_report = self._enforce_red_flag_urgency(
+                soap_report, red_flags, language
+            )
 
             # ICD-10 驗證層（M3）：白名單過濾 + symptom 對映
             raw_codes = soap_report.get("icd10_codes") or []
@@ -381,6 +406,103 @@ Please produce the full SOAP report based on the information above."""
                 message="errors.soap_generation_unavailable",
                 details={"error": str(exc)},
             )
+
+    @staticmethod
+    def _format_red_flags(red_flags: list[dict[str, Any]] | None) -> str:
+        """把偵測層回報的紅旗格式化為 prompt 區塊（給 LLM 參考，中性英文標題）。"""
+        if not red_flags:
+            return ""
+        lines: list[str] = []
+        for rf in red_flags:
+            sev = rf.get("severity")
+            sev = (sev.value if hasattr(sev, "value") else str(sev or "")).lower()
+            cid = rf.get("canonical_id") or rf.get("name") or "red_flag"
+            reason = rf.get("trigger_reason") or rf.get("description") or ""
+            actions = rf.get("suggested_actions") or []
+            if isinstance(actions, list):
+                actions = "; ".join(str(a) for a in actions)
+            lines.append(f"- [{sev}] {cid}: {reason} (suggested: {actions})")
+        body = "\n".join(lines)
+        return (
+            "\n## ⚠️ Detected Red Flags (real-time triage — MUST reflect in output)\n"
+            "These red flags were already detected during the consultation. You MUST:\n"
+            "1. State them at the START of clinical_impression.\n"
+            "2. Set plan.urgency to match the highest severity "
+            "(critical → er_now, high → at least 24h, medium → at least this_week).\n"
+            f"{body}\n"
+        )
+
+    @staticmethod
+    def _enforce_red_flag_urgency(
+        report: dict[str, Any],
+        red_flags: list[dict[str, Any]] | None,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        安全硬規則：把偵測層回報的紅旗嚴重度強制反映到 SOAP 緊急度（只升不降）。
+
+        背景：RedFlagDetector 即時偵測到的 critical/high 紅旗已持久化到
+        red_flag_alerts，但 SOAP 由 LLM 自逐字稿重新推導，曾發生 critical
+        (urosepsis) 卻只給 plan.urgency=24h 的 under-triage。此處以
+        deterministic 後處理保證 monotonic escalation：
+          critical → 至少 er_now、high → 至少 24h、medium → 至少 this_week。
+        並把 recommended_tests 各項 urgency 一併提升至同一 floor（消除
+        「整體緊急但某檢查仍緩」的矛盾），且在 clinical_impression 開頭補紅旗
+        標註（若 LLM 未標）。無紅旗則完全不動，故不影響非紅旗案。
+        """
+        if not red_flags:
+            return report
+
+        def _sev(rf: dict[str, Any]) -> str:
+            s = rf.get("severity")
+            return (s.value if hasattr(s, "value") else str(s or "")).lower()
+
+        floors = [
+            _SEVERITY_URGENCY_FLOOR[s]
+            for s in (_sev(rf) for rf in red_flags)
+            if s in _SEVERITY_URGENCY_FLOOR
+        ]
+        if not floors:
+            return report
+
+        floor = max(floors, key=lambda u: _URGENCY_RANK[u])
+        floor_rank = _URGENCY_RANK[floor]
+
+        plan = report.setdefault("plan", {})
+        current = SOAPGenerator._coerce_urgency(
+            plan.get("urgency"), context="plan.urgency"
+        )
+        if _URGENCY_RANK[current] < floor_rank:
+            logger.warning(
+                "Red-flag urgency escalation | plan.urgency %s -> %s (%d red flag(s))",
+                current, floor, len(floors),
+            )
+            plan["urgency"] = floor
+
+        # recommended_tests 各項不得低於 floor（消除整體急但檢查緩的矛盾）
+        tests = plan.get("recommended_tests")
+        if isinstance(tests, list):
+            for t in tests:
+                if isinstance(t, dict):
+                    tu = SOAPGenerator._coerce_urgency(
+                        t.get("urgency"), context="recommended_tests.item"
+                    )
+                    if _URGENCY_RANK[tu] < floor_rank:
+                        t["urgency"] = floor
+
+        # clinical_impression 開頭補紅旗標註（deterministic，避免 LLM 漏標）
+        assess = report.setdefault("assessment", {})
+        impression = str(assess.get("clinical_impression") or "")
+        if "⚠" not in impression:
+            canon = list(dict.fromkeys(
+                (rf.get("canonical_id") or rf.get("name") or "") for rf in red_flags
+            ))
+            canon = [c for c in canon if c]
+            prefix = get_message("soap.red_flag_impression_prefix", language)
+            tag = f"⚠️ {prefix}" + (f" [{', '.join(canon)}]" if canon else "")
+            assess["clinical_impression"] = (tag + " " + impression).strip()
+
+        return report
 
     @staticmethod
     def _coerce_urgency(value: Any, *, context: str = "urgency") -> str:

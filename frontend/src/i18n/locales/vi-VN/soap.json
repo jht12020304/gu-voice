@@ -133,5 +133,21 @@
     "abdomen": "Bụng",
     "costovertebral": "Góc sườn cột sống",
     "genitourinary": "Tiết niệu sinh dục"
+  },
+  "export": {
+    "button": "Xuất PDF",
+    "loading": "Đang xuất...",
+    "success": "Đã bắt đầu tải PDF",
+    "error": "Xuất PDF thất bại. Vui lòng thử lại sau."
+  },
+  "regenerate": {
+    "button": "Tạo lại",
+    "loading": "Đang tạo lại...",
+    "title": "Tạo lại báo cáo",
+    "description": "Tạo lại sẽ chạy lại phân tích AI trên bản ghi mới nhất và ghi đè báo cáo SOAP hiện có. Hành động này không thể hoàn tác. Bạn có chắc muốn tiếp tục?",
+    "cancel": "Hủy",
+    "confirm": "Xác nhận tạo lại",
+    "success": "Đã tạo lại báo cáo",
+    "error": "Tạo lại báo cáo thất bại. Vui lòng thử lại sau."
   }
 }

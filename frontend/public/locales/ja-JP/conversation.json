@@ -25,6 +25,23 @@
   "redFlag": {
     "more": "他 {{count}} 件の警告"
   },
+  "supervisor": {
+    "hintLabel": "次にお伺いすること",
+    "missingLabel": "これから確認する項目：",
+    "degraded": "リアルタイムのガイドは一時的にご利用いただけませんが、問診は通常どおり続行します。",
+    "hpi": {
+      "onset": "発症時期",
+      "location": "部位",
+      "duration": "持続時間",
+      "characteristics": "性状",
+      "severity": "重症度",
+      "aggravating_factors": "増悪因子",
+      "relieving_factors": "軽快因子",
+      "associated_symptoms": "随伴症状",
+      "timing": "時間的パターン",
+      "context": "状況"
+    }
+  },
   "error": {
     "loadFailed": "会話を読み込めませんでした",
     "sessionInterrupted": "問診が中断されました。もう一度お試しください",
@@ -37,5 +54,9 @@
   },
   "mockMessages": {
     "systemStart": "問診を開始しました — 主訴：{{complaint}}"
+  },
+  "connection": {
+    "reconnecting": "接続が切断されました。再接続しています…",
+    "retry": "再試行"
   }
 }

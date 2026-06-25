@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 import type { User } from '../types';
 import * as authApi from '../services/api/auth';
+import { refreshAccessToken } from '../services/api/client';
 import i18n, { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../i18n';
 
 /**
@@ -53,12 +54,13 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await authApi.login(email, password);
+      // M-22：access token 維持 localStorage（既有處理）；refresh token 不再持久化到
+      // localStorage，改由後端以 httpOnly cookie 下發、瀏覽器自動保管（防 XSS 竊取）。
       localStorage.setItem('access_token', response.accessToken);
-      localStorage.setItem('refresh_token', response.refreshToken);
       set({
         user: response.user,
         accessToken: response.accessToken,
-        refreshToken: response.refreshToken,
+        refreshToken: null,
         isAuthenticated: true,
         isLoading: false,
       });
@@ -74,12 +76,15 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
 
   logout: async () => {
     try {
-      const rt = get().refreshToken || localStorage.getItem('refresh_token') || undefined;
-      await authApi.logout(rt);
+      // M-22：refresh token 由後端 httpOnly cookie 管理，前端不再傳；呼叫後端 /auth/logout
+      // 由它清除 cookie（含黑名單 access/refresh）。CSRF header 與 cookie 由 apiClient
+      // 攔截器 + withCredentials 自動帶上。
+      await authApi.logout();
     } catch {
       // 忽略登出 API 錯誤
     } finally {
       localStorage.removeItem('access_token');
+      // M-22：清掉升級前舊 session 殘留的 legacy refresh_token key（現已不寫入）；無殘留時 no-op。
       localStorage.removeItem('refresh_token');
       set({
         user: null,
@@ -92,19 +97,21 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
   },
 
   refreshSession: async () => {
-    const token = get().refreshToken || localStorage.getItem('refresh_token');
-    if (!token) return;
-
+    // M-22：refresh token 改由 httpOnly cookie 持有，前端讀不到，故不再以 localStorage
+    // 的 refresh_token 當作有無 session 的判斷；是否有有效 refresh cookie 交由後端裁定
+    // （無 cookie 時 /auth/refresh 會 401，下方 catch 走 logout）。
+    //
+    // M-20：收斂到 client.ts 的單一共享 refresh 入口。後端有 refresh token rotation +
+    // reuse detection（舊 token 只能用一次），若 authStore 自行打 POST /auth/refresh，
+    // 會和 response 攔截器 401 自動重試的那套並發、共用同一顆舊 refresh token，被
+    // reuse detection 判定重放而把使用者踢登出。改呼叫 refreshAccessToken() 共用
+    // in-flight promise；它已寫回 localStorage 的新 access token（refresh token 由後端
+    // 以 Set-Cookie 旋轉），這裡再同步回 store state。
     try {
-      const response = await authApi.refreshToken(token);
-      localStorage.setItem('access_token', response.accessToken);
-      localStorage.setItem('refresh_token', response.refreshToken);
-      set({
-        accessToken: response.accessToken,
-        refreshToken: response.refreshToken,
-      });
+      const accessToken = await refreshAccessToken();
+      set({ accessToken });
     } catch {
-      get().logout();
+      await get().logout();
     }
   },
 
@@ -161,8 +168,10 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
     }
     // === END MOCK ===
 
+    // M-22：只看 access token；refresh token 已改由 httpOnly cookie 管理，前端讀不到，
+    // 不再從 localStorage 還原。getMe 若因 access token 過期回 401，client.ts 攔截器會
+    // 走 cookie-based refresh 自動續期。
     const accessToken = localStorage.getItem('access_token');
-    const refreshToken = localStorage.getItem('refresh_token');
     if (!accessToken) {
       set({ isLoading: false });
       return;
@@ -174,13 +183,14 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
       set({
         user,
         accessToken,
-        refreshToken,
+        refreshToken: null,
         isAuthenticated: true,
         isLoading: false,
       });
       applyPreferredLanguage(user.preferredLanguage);
     } catch {
       localStorage.removeItem('access_token');
+      // 清掉升級前殘留的 legacy refresh_token key（現已不寫入）；無殘留時 no-op。
       localStorage.removeItem('refresh_token');
       set({ isLoading: false });
     }

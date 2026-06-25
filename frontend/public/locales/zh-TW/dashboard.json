@@ -16,7 +16,8 @@
       "complaintTemplates": "主訴模板管理",
       "systemHealth": "系統狀態",
       "auditLogs": "稽核日誌",
-      "settings": "設定"
+      "settings": "設定",
+      "sessions": "問診紀錄"
     }
   },
   "alert": {
@@ -28,7 +29,36 @@
     "suggestedActions": "建議 {{count}} 項處置",
     "viewDetail": "查看詳情",
     "acknowledge": "確認處理",
-    "acknowledgedBadge": "✓ 已確認"
+    "acknowledgedBadge": "✓ 已確認",
+    "detail": {
+      "loadError": "無法載入警示詳情",
+      "acknowledgeSuccess": "已標示為已處理",
+      "acknowledgeError": "確認警示失敗",
+      "loading": "載入警示詳情...",
+      "notFound": "找不到警示資料",
+      "unknownPatient": "未知病患",
+      "title": "警示詳情",
+      "acknowledgedBadge": "已處理",
+      "triggerKeywords": "觸發關鍵字",
+      "noKeywords": "此警示沒有關鍵字資料",
+      "llmAnalysis": "LLM 語意分析",
+      "noLlmAnalysis": "無額外語意分析內容",
+      "suggestedActions": "建議行動",
+      "noSuggestedActions": "無建議行動資料",
+      "trackingTitle": "事件追蹤與病患",
+      "affectedPatient": "影響病患",
+      "occurredAt": "發生時間",
+      "sessionIdLabel": "對應 Session ID",
+      "acknowledgedHeading": "已標示處理",
+      "actionTakenLabel": "已採取的處置",
+      "noActionRecorded": "未記錄處置內容",
+      "actionTakenPlaceholder": "例如：已安排立即就醫並通報主治",
+      "notesLabel": "備註（選填）",
+      "notesPlaceholder": "其他補充說明",
+      "acknowledging": "處理中...",
+      "acknowledgeButton": "標示為已處理",
+      "goToSession": "前往場次詳情"
+    }
   },
   "transcript": {
     "title": "問診對話逐字稿",

@@ -139,6 +139,9 @@
       "bph": "전립선 비대증",
       "urinaryStones": "요로결석",
       "cancer": "암"
+    },
+    "feedback": {
+      "added": "\"{{item}}\"을(를) 추가했습니다"
     }
   }
 }

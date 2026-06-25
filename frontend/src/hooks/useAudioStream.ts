@@ -10,6 +10,37 @@ import { audioStreamService } from '../services/audioStream';
 import { useConversationStore } from '../stores/conversationStore';
 import { conversationWS } from '../services/websocket';
 
+/**
+ * L-19：回報 MediaRecorder 實際輸出的容器格式，而非硬填 'wav'。
+ *
+ * 與 audioStream service 的 `pickSupportedMimeType` 候選順序保持一致：
+ * Safari/iOS 用 audio/mp4，Chrome/Firefox 偏好 audio/webm。回報真實 MIME 主字串
+ * （去掉 `;codecs=...`），讓 audio_chunk.format 與實際容器相符。
+ *
+ * 後端不信任此欄位（以 magic bytes 嗅測實際容器），此處僅為避免送出與實際不符的
+ * 誤導值；無法判定時退回 ''（空字串＝未知，勝過謊報 'wav'）。
+ */
+function detectRecorderFormat(): string {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const candidates = [
+    'audio/mp4',
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/wav',
+  ];
+  for (const mime of candidates) {
+    try {
+      if (MediaRecorder.isTypeSupported(mime)) {
+        // 去掉 codecs 參數，只回報容器 MIME（如 audio/webm）
+        return mime.split(';')[0];
+      }
+    } catch {
+      // 某些瀏覽器在不支援時會 throw，忽略
+    }
+  }
+  return '';
+}
+
 export function useAudioStream(enabled: boolean) {
   const { t } = useTranslation(['conversation', 'common']);
   const {
@@ -32,6 +63,8 @@ export function useAudioStream(enabled: boolean) {
     }
 
     let cancelled = false;
+    // L-19：本次錄音實際使用的容器格式（webm/mp4…），回報給後端取代硬填 'wav'。
+    const recorderFormat = detectRecorderFormat();
 
     (async () => {
       try {
@@ -53,7 +86,7 @@ export function useAudioStream(enabled: boolean) {
               audioData: '',
               chunkIndex: -1,
               isFinal: true,
-              format: 'wav',
+              format: recorderFormat,
               sampleRate: 16000,
             });
             // 送出後即暫停 VAD，等待 AI 回應（由外部 unmuteVAD 恢復）
@@ -64,7 +97,7 @@ export function useAudioStream(enabled: boolean) {
               audioData: chunk,
               chunkIndex,
               isFinal: false,
-              format: 'wav',
+              format: recorderFormat,
               sampleRate: 16000,
             });
           },

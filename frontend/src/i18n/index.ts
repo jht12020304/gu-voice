@@ -39,6 +39,8 @@ export const ALL_NAMESPACES = [
   'soap',
   'dashboard',
   'session',
+  'admin',
+  'auth',
 ] as const;
 
 void i18next

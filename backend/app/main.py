@@ -84,8 +84,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     init_sentry()  # 早期初始化：讓 lifespan 後續錯誤也能被捕獲
     initialize_firebase()
     await init_redis()
+
+    # H-8：啟動跨行程儀表板事件 subscriber（背景 task）。
+    # report 完成點在 Celery worker 行程，無法用 in-memory 廣播觸及本 API 行程持有
+    # 的 dashboard WS 連線；改由各行程 publish 到 Redis 頻道，本 task 收到後做本地
+    # fan-out。韌性：僅在有 Redis 設定時啟動；建立失敗只 log，絕不讓 app 啟動失敗。
+    dashboard_subscriber_task: asyncio.Task[None] | None = None
+    if getattr(settings, "REDIS_URL_CACHE", None):
+        try:
+            from app.websocket.dashboard_handler import dashboard_event_subscriber
+
+            dashboard_subscriber_task = asyncio.create_task(
+                dashboard_event_subscriber()
+            )
+            logger.info("已啟動儀表板事件 subscriber 背景 task")
+        except Exception as exc:  # noqa: BLE001 — 啟動失敗不可中斷 app
+            logger.warning("啟動儀表板事件 subscriber 失敗（非致命） | error=%s", str(exc))
+
     yield
-    # 關閉
+
+    # 關閉：先取消 subscriber task，再關閉 Redis / DB
+    if dashboard_subscriber_task is not None:
+        dashboard_subscriber_task.cancel()
+        try:
+            await dashboard_subscriber_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
     await close_redis()
     await engine.dispose()
 
@@ -120,6 +144,8 @@ app.add_middleware(
         "Origin",
         "X-Requested-With",
         "X-Request-ID",
+        # M-22：double-submit CSRF token header（/auth/refresh、/auth/logout 需帶）
+        "X-CSRF-Token",
     ],
     expose_headers=["X-Request-ID"],
     max_age=600,  # 10 分鐘 preflight cache，減少 OPTIONS 來回

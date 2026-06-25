@@ -12,14 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as aioredis
 
 from app.core.dependencies import get_current_user, get_db, get_redis
-from app.core.exceptions import AppException
 from app.schemas.notification import (
     FCMTokenCreate,
     FCMTokenResponse,
     MarkAllReadResponse,
     MarkReadResponse,
-    MessageResponse,
     NotificationListResponse,
+    NotificationPreferenceResponse,
+    NotificationPreferenceUpdate,
     UnreadCountResponse,
 )
 from app.services.notification_service import NotificationService
@@ -73,6 +73,7 @@ async def mark_all_read(
 
 @router.get(
     "/unread-count",
+    response_model=UnreadCountResponse,
     status_code=status.HTTP_200_OK,
     summary="取得未讀通知數量",
 )
@@ -80,14 +81,50 @@ async def get_unread_count(
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
     current_user=Depends(get_current_user),
-) -> dict:
+) -> UnreadCountResponse:
     """取得目前使用者的未讀通知數量。"""
     count = await notification_service.get_unread_count(
         db,
         redis,
         user_id=current_user.id,
     )
-    return {"count": count}
+    return UnreadCountResponse(count=count)
+
+
+@router.get(
+    "/preferences",
+    response_model=NotificationPreferenceResponse,
+    status_code=status.HTTP_200_OK,
+    summary="取得通知偏好",
+)
+async def get_notification_preferences(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> NotificationPreferenceResponse:
+    """取得目前使用者的通知偏好（GDPR opt-out）；若不存在則建立預設全開設定。"""
+    return await notification_service.get_or_create_preferences(
+        db,
+        user_id=current_user.id,
+    )
+
+
+@router.put(
+    "/preferences",
+    response_model=NotificationPreferenceResponse,
+    status_code=status.HTTP_200_OK,
+    summary="更新通知偏好",
+)
+async def update_notification_preferences(
+    payload: NotificationPreferenceUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> NotificationPreferenceResponse:
+    """更新目前使用者的通知偏好。red_flag 為病安關鍵，無法被關閉。"""
+    return await notification_service.update_preferences(
+        db,
+        user_id=current_user.id,
+        update=payload,
+    )
 
 
 @router.post(
@@ -105,7 +142,7 @@ async def register_fcm_token(
     return await notification_service.register_fcm_token(
         db,
         user_id=current_user.id,
-        token=payload.token,
+        token=payload.device_token,
         platform=payload.platform,
         device_name=payload.device_name,
     )

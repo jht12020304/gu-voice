@@ -16,7 +16,8 @@
       "complaintTemplates": "Complaint templates",
       "systemHealth": "System health",
       "auditLogs": "Audit logs",
-      "settings": "Settings"
+      "settings": "Settings",
+      "sessions": "Consultation Records"
     }
   },
   "alert": {
@@ -28,7 +29,36 @@
     "suggestedActions": "{{count}} suggested actions",
     "viewDetail": "View detail",
     "acknowledge": "Acknowledge",
-    "acknowledgedBadge": "✓ Acknowledged"
+    "acknowledgedBadge": "✓ Acknowledged",
+    "detail": {
+      "loadError": "Failed to load alert details",
+      "acknowledgeSuccess": "Marked as acknowledged",
+      "acknowledgeError": "Failed to acknowledge alert",
+      "loading": "Loading alert details...",
+      "notFound": "Alert not found",
+      "unknownPatient": "Unknown patient",
+      "title": "Alert Details",
+      "acknowledgedBadge": "Acknowledged",
+      "triggerKeywords": "Trigger Keywords",
+      "noKeywords": "No keyword data for this alert",
+      "llmAnalysis": "LLM Semantic Analysis",
+      "noLlmAnalysis": "No additional semantic analysis",
+      "suggestedActions": "Suggested Actions",
+      "noSuggestedActions": "No suggested actions",
+      "trackingTitle": "Event Tracking & Patient",
+      "affectedPatient": "Affected Patient",
+      "occurredAt": "Occurred At",
+      "sessionIdLabel": "Related Session ID",
+      "acknowledgedHeading": "Acknowledged",
+      "actionTakenLabel": "Action Taken",
+      "noActionRecorded": "No action recorded",
+      "actionTakenPlaceholder": "e.g. Arranged immediate care and notified the attending physician",
+      "notesLabel": "Notes (optional)",
+      "notesPlaceholder": "Additional notes",
+      "acknowledging": "Processing...",
+      "acknowledgeButton": "Mark as Acknowledged",
+      "goToSession": "Go to Session Details"
+    }
   },
   "transcript": {
     "title": "Consultation transcript",

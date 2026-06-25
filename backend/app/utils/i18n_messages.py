@@ -71,6 +71,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-TW": "權限不足",
         "en-US": "Permission denied",
     },
+    "errors.complaint_default_forbidden": {
+        "zh-TW": "系統預設主訴僅限管理員修改或刪除",
+        "en-US": "Only an administrator may modify or delete a system default chief complaint",
+        "ja-JP": "システム既定の主訴は管理者のみが変更・削除できます",
+        "ko-KR": "시스템 기본 주 증상은 관리자만 수정하거나 삭제할 수 있습니다",
+    },
     "errors.account_disabled": {
         "zh-TW": "帳號已停用",
         "en-US": "Account has been disabled",
@@ -102,6 +108,18 @@ MESSAGES: dict[str, dict[str, str]] = {
     "errors.session_unknown_role_access": {
         "zh-TW": "未知角色，拒絕存取",
         "en-US": "Unknown role; access denied",
+    },
+    "errors.patient_access_no_principal": {
+        "zh-TW": "缺少認證主體，無法判定病患存取權限",
+        "en-US": "Missing authenticated principal; cannot authorize patient access",
+    },
+    "errors.patient_forbidden_other_doctor": {
+        "zh-TW": "此病患已由其他醫師負責",
+        "en-US": "This patient is assigned to another doctor",
+    },
+    "errors.patient_forbidden_role": {
+        "zh-TW": "您沒有權限存取此病患",
+        "en-US": "You do not have permission to access this patient",
     },
     "errors.assign_doctor_conflict": {
         "zh-TW": "此場次已由其他醫師負責，無法重新指派",
@@ -183,6 +201,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-TW": "使用者不存在",
         "en-US": "User not found",
     },
+    "errors.cannot_toggle_self": {
+        "zh-TW": "無法變更自己的帳號啟用狀態",
+        "en-US": "You cannot change the active status of your own account",
+    },
     "errors.not_found": {
         "zh-TW": "資源不存在",
         "en-US": "Resource not found",
@@ -190,6 +212,24 @@ MESSAGES: dict[str, dict[str, str]] = {
     "errors.validation_failed": {
         "zh-TW": "請求參數驗證失敗",
         "en-US": "Request validation failed",
+    },
+    "errors.invalid_date_format": {
+        "zh-TW": "日期格式無效，必須為 ISO-8601",
+        "en-US": "Invalid date format; must be ISO-8601",
+        "ja-JP": "日付の形式が無効です。ISO-8601 形式である必要があります",
+        "ko-KR": "날짜 형식이 잘못되었습니다. ISO-8601 형식이어야 합니다",
+    },
+    "errors.invalid_severity": {
+        "zh-TW": "警示嚴重度數值無效",
+        "en-US": "Invalid alert severity value",
+        "ja-JP": "アラートの重大度の値が無効です",
+        "ko-KR": "경보 심각도 값이 잘못되었습니다",
+    },
+    "errors.invalid_status": {
+        "zh-TW": "狀態數值無效",
+        "en-US": "Invalid status value",
+        "ja-JP": "ステータスの値が無効です",
+        "ko-KR": "상태 값이 잘못되었습니다",
     },
     "errors.conflict": {
         "zh-TW": "資源衝突",
@@ -432,6 +472,12 @@ MESSAGES: dict[str, dict[str, str]] = {
     # ── SOAP Plan urgency（TODO-M13 enum 化 4 級）────
     # UI 渲染 Plan 的 urgency 時依 locale 取此字串，再與 boilerplate 組合。
     # 新增 urgency 必須同時更新 `Urgency` enum 與此表（測試有守護）。
+    "soap.red_flag_impression_prefix": {
+        "zh-TW": "偵測到紅旗徵象，需優先緊急評估。",
+        "en-US": "Red flag detected — requires urgent priority evaluation.",
+        "ja-JP": "レッドフラグを検出しました。緊急の優先評価が必要です。",
+        "ko-KR": "위험 징후가 감지되었습니다. 긴급 우선 평가가 필요합니다.",
+    },
     "soap.urgency.er_now": {
         "zh-TW": "若有以下情況請立即就醫：請立刻前往急診。",
         "en-US": "Seek emergency care immediately if the following applies: proceed to the ER now.",

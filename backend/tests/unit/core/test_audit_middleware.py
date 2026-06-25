@@ -46,7 +46,7 @@ def test_match_session_delete_extracts_uuid():
 
 def test_match_red_flag_acknowledge():
     aid = str(uuid.uuid4())
-    out = mw._match_audit_rule("POST", f"/api/v1/red-flag-alerts/{aid}/acknowledge")
+    out = mw._match_audit_rule("POST", f"/api/v1/alerts/{aid}/acknowledge")
     assert out is not None
     assert out[0] == AuditAction.ACKNOWLEDGE
     assert out[2] == aid
@@ -54,9 +54,10 @@ def test_match_red_flag_acknowledge():
 
 def test_match_soap_review():
     rid = str(uuid.uuid4())
-    out = mw._match_audit_rule("PUT", f"/api/v1/soap-reports/{rid}")
+    out = mw._match_audit_rule("PUT", f"/api/v1/reports/{rid}/review")
     assert out is not None
     assert out[0] == AuditAction.REVIEW
+    assert out[2] == rid
 
 
 def test_health_never_matches():

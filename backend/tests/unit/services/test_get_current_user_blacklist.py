@@ -79,6 +79,11 @@ def _make_user(user_id: uuid.UUID) -> SimpleNamespace:
     )
 
 
+def _make_request() -> SimpleNamespace:
+    """最小 Request stub：只需 `state`，供 get_current_user 寫入 request.state.user。"""
+    return SimpleNamespace(state=SimpleNamespace())
+
+
 @pytest.fixture(autouse=True)
 def _swap_redis(monkeypatch):
     """把 app.cache.redis_client._redis_pool 換成 in-memory stub。"""
@@ -103,7 +108,7 @@ def test_blacklisted_access_token_is_rejected(_swap_redis):
 
     db = _FakeDB(_make_user(user_id))
     with pytest.raises(UnauthorizedException) as exc:
-        _run(get_current_user(authorization=f"Bearer {token}", db=db))
+        _run(get_current_user(_make_request(), authorization=f"Bearer {token}", db=db))
     assert exc.value.message == "errors.token_revoked"
 
 
@@ -112,5 +117,5 @@ def test_non_blacklisted_access_token_passes(_swap_redis):
     token = create_access_token(str(user_id), "patient")
 
     db = _FakeDB(_make_user(user_id))
-    user = _run(get_current_user(authorization=f"Bearer {token}", db=db))
+    user = _run(get_current_user(_make_request(), authorization=f"Bearer {token}", db=db))
     assert user.id == user_id
