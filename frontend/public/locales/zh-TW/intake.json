@@ -139,6 +139,9 @@
       "bph": "攝護腺肥大",
       "urinaryStones": "泌尿道結石",
       "cancer": "癌症"
+    },
+    "feedback": {
+      "added": "已新增「{{item}}」"
     }
   }
 }

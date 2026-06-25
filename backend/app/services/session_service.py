@@ -5,6 +5,7 @@
 - 醫師指派
 """
 
+import logging
 from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
@@ -19,6 +20,7 @@ from app.core.exceptions import (
     InvalidStatusTransitionException,
     NotFoundException,
     SessionNotFoundException,
+    ValidationException,
 )
 from app.models.conversation import Conversation
 from app.models.enums import AuditAction, SessionStatus, UserRole
@@ -28,6 +30,49 @@ from app.models.session import Session
 from app.models.user import User
 from app.utils.datetime_utils import utc_now
 from app.utils.language import resolve_language
+
+logger = logging.getLogger(__name__)
+
+
+async def _broadcast_session_created(db: AsyncSession, session: Session) -> None:
+    """H-8：場次建立後向儀表板推播 session_created + 最新 queue/stats。
+
+    在同一 FastAPI 進程內透過 in-memory ConnectionManager 廣播；無 dashboard
+    連線時 ``broadcast_queue_and_stats`` 會自行 short-circuit（不查 DB），
+    故對單元測試無副作用。本函式吞掉所有例外，絕不影響場次建立主流程。
+
+    注意：report_generated 的真正完成點在 Celery worker（另一進程），目前
+    無 Redis pub/sub 橋接，故不在此處比照接線，詳見 report_service 的 TODO。
+    """
+    try:
+        from app.cache.redis_client import get_redis
+        from app.websocket.connection_manager import manager
+        from app.websocket.dashboard_handler import broadcast_queue_and_stats
+
+        if manager.dashboard_connection_count == 0:
+            return  # 無儀表板連線，免去後續查詢與廣播
+
+        patient = getattr(session, "patient", None)
+        patient_name = getattr(patient, "name", "") if patient else ""
+        await manager.broadcast_session_created(
+            session_id=str(session.id),
+            patient_name=patient_name or "",
+            chief_complaint=getattr(session, "chief_complaint_text", "") or "",
+            status=(
+                session.status.value
+                if hasattr(session.status, "value")
+                else str(session.status)
+            ),
+        )
+        # 順帶刷新 queue/stats（沿用 conversation_handler 既有的全域廣播語意）
+        redis = await get_redis()
+        await broadcast_queue_and_stats(db, redis)
+    except Exception as exc:  # pragma: no cover - 推播失敗非致命
+        logger.warning(
+            "場次建立後推播儀表板事件失敗（非致命） | session=%s, error=%s",
+            getattr(session, "id", None),
+            str(exc),
+        )
 
 
 def _get_user_role(current_user: Any) -> Optional[UserRole]:
@@ -96,6 +141,96 @@ async def _authorize_session_access(
         details={"session_id": str(session.id), "role": str(role)},
     )
 
+
+def _parse_date_filter(value: Optional[str], field: str) -> Optional[datetime]:
+    """
+    解析 date_from / date_to 查詢字串為 datetime。
+
+    - None / 空字串 → None（不套用篩選）
+    - 無法解析 → ValidationException（422），訊息使用 ISO-8601 日期格式錯誤鍵。
+    """
+    if value is None or value == "":
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        raise ValidationException(
+            "errors.invalid_date_format",
+            details={"field": field, "value": value},
+        )
+
+
+def _parse_cursor(cursor: Optional[str]) -> Optional[UUID]:
+    """
+    將 cursor 解析為 UUID。
+
+    cursor 為「上一頁最後一筆的 id」（UUID 字串）。無法解析為合法 UUID 時
+    保守視為「無 cursor」（回傳 None），避免把無效字串直接餵進 SQL，
+    同時維持既有「cursor 查不到對應 record 即從頭分頁」的向後相容行為。
+    """
+    if not cursor:
+        return None
+    try:
+        return UUID(str(cursor))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+# ── 排序白名單 ───────────────────────────────────────────
+# 僅允許白名單欄位排序，避免任意欄位字串造成 500 或資訊外洩。
+# 注意：cursor 分頁的 keyset 條件以 created_at + id 為基準，故所有排序
+# 都以 (主要欄位, id) 作為 tiebreaker，維持分頁穩定。
+_SORTABLE_COLUMNS: dict[str, Any] = {
+    "created_at": Session.created_at,
+    "updated_at": Session.updated_at,
+    "started_at": Session.started_at,
+    "completed_at": Session.completed_at,
+    "status": Session.status,
+}
+
+
+def _resolve_sort(sort_by: Optional[str], sort_order: Optional[str]) -> tuple[Any, bool]:
+    """
+    解析白名單排序欄位與方向。
+
+    Returns:
+        (column, descending)；sort_by 不在白名單退回 created_at，
+        sort_order 非 asc 一律視為 desc（向後相容預設）。
+    """
+    column = _SORTABLE_COLUMNS.get(sort_by or "", Session.created_at)
+    descending = (sort_order or "desc").lower() != "asc"
+    return column, descending
+
+
+def _apply_sort(query: Any, column: Any, descending: bool) -> Any:
+    """套用排序，並一律附加 Session.id 作為 tiebreaker 確保分頁穩定。"""
+    if descending:
+        return query.order_by(column.desc(), Session.id.desc())
+    return query.order_by(column.asc(), Session.id.asc())
+
+
+def _apply_cursor_keyset(
+    query: Any, cursor_record: Any, column: Any, descending: bool
+) -> Any:
+    """
+    依排序方向套用 keyset 分頁條件，使 cursor 與 sort 一致。
+
+    descending → 取「排在 cursor 之後」= column < cursor_value，tie 時 id < cursor_id。
+    ascending  → column > cursor_value，tie 時 id > cursor_id。
+    """
+    cursor_value = getattr(cursor_record, column.key)
+    cursor_id = cursor_record.id
+    if descending:
+        return query.where(
+            (column < cursor_value)
+            | ((column == cursor_value) & (Session.id < cursor_id))
+        )
+    return query.where(
+        (column > cursor_value)
+        | ((column == cursor_value) & (Session.id > cursor_id))
+    )
+
+
 # ── 合法狀態轉移表 ───────────────────────────────────────
 VALID_TRANSITIONS: dict[SessionStatus, list[SessionStatus]] = {
     SessionStatus.WAITING: [
@@ -155,26 +290,29 @@ class SessionService:
         patient_id: Optional[UUID] = None,
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
+        sort_by: Optional[str] = None,
+        sort_order: Optional[str] = None,
     ) -> dict[str, Any]:
         """
         取得場次列表（Cursor-based 分頁 + 多條件篩選）
 
         Args:
-            cursor: 分頁游標
+            cursor: 分頁游標（UUID 或字串；非合法 UUID 視為無 cursor）
             limit: 每頁筆數
             status: 篩選狀態
             doctor_id: 篩選醫師
             patient_id: 篩選病患
             date_from: 起始日期
             date_to: 結束日期
+            sort_by: 排序欄位（白名單外退回 created_at）
+            sort_order: 排序方向（asc / desc，預設 desc）
         """
         limit = min(limit, 100)
+        _cursor = _parse_cursor(cursor) if not isinstance(cursor, UUID) else cursor
+        _sort_column, _sort_desc = _resolve_sort(sort_by, sort_order)
 
-        query = (
-            select(Session)
-            .options(selectinload(Session.patient))
-            .order_by(Session.created_at.desc(), Session.id.desc())
-        )
+        query = select(Session).options(selectinload(Session.patient))
+        query = _apply_sort(query, _sort_column, _sort_desc)
 
         # 條件篩選
         if status:
@@ -188,19 +326,15 @@ class SessionService:
         if date_to:
             query = query.where(Session.created_at <= date_to)
 
-        # Cursor 分頁
-        if cursor:
+        # Cursor 分頁 — keyset 條件依排序方向套用
+        if _cursor is not None:
             result = await db.execute(
-                select(Session).where(Session.id == cursor)
+                select(Session).where(Session.id == _cursor)
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:
-                query = query.where(
-                    (Session.created_at < cursor_record.created_at)
-                    | (
-                        (Session.created_at == cursor_record.created_at)
-                        & (Session.id < cursor_record.id)
-                    )
+                query = _apply_cursor_keyset(
+                    query, cursor_record, _sort_column, _sort_desc
                 )
 
         result = await db.execute(query.limit(limit + 1))
@@ -348,6 +482,8 @@ class SessionService:
 
         from_lang = session.language
         now = utc_now()
+        # L-3：保留變更前狀態，供 SessionStatusResponse.previous_status 回傳。
+        previous_status = session.status
         session.status = SessionStatus.CANCELLED
         session.completed_at = now
         session.updated_at = now
@@ -376,6 +512,7 @@ class SessionService:
         )
 
         await db.flush()
+        session.previous_status = previous_status
         return session
 
     @staticmethod
@@ -402,9 +539,11 @@ class SessionService:
             .order_by(Conversation.sequence_number.asc())
         )
 
-        if cursor:
+        # cursor 為上一頁最後一筆 Conversation.id（UUID）；非合法 UUID 視為無 cursor。
+        _cursor = _parse_cursor(cursor)
+        if _cursor is not None:
             result = await db.execute(
-                select(Conversation).where(Conversation.id == cursor)
+                select(Conversation).where(Conversation.id == _cursor)
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:
@@ -585,7 +724,11 @@ class SessionService:
             )
             .where(Session.id == session.id)
         )
-        return result.scalar_one()
+        created = result.scalar_one()
+        # H-8：場次建立成功（已 commit）後，向儀表板推播 session_created
+        # 與最新 queue/stats。helper 不可拋例外，不影響回傳。
+        await _broadcast_session_created(db, created)
+        return created
 
     async def list_sessions(
         self,
@@ -610,16 +753,15 @@ class SessionService:
         傳入的 doctor_id / patient_id 過濾條件會與角色限制做 AND;
         禁止一般使用者靠手動傳參數跳脫自身範圍(下方會強制覆寫)。
         """
-        from datetime import datetime
-
         if current_user is None:
             raise ForbiddenException("errors.session_list_no_principal")
 
         role = _get_user_role(current_user)
         user_id = getattr(current_user, "id", None)
 
-        _date_from = datetime.fromisoformat(date_from) if date_from else None
-        _date_to = datetime.fromisoformat(date_to) if date_to else None
+        _date_from = _parse_date_filter(date_from, "date_from")
+        _date_to = _parse_date_filter(date_to, "date_to")
+        _cursor = _parse_cursor(cursor)
 
         _status: Optional[SessionStatus] = None
         if status is not None:
@@ -630,6 +772,7 @@ class SessionService:
 
         _patient_id = patient_id
         _doctor_id = doctor_id
+        _sort_column, _sort_desc = _resolve_sort(sort_by, sort_order)
 
         if role == UserRole.PATIENT:
             # 以 subquery 將 patient_id 限縮為 current_user 名下所有 Patient.id
@@ -642,8 +785,8 @@ class SessionService:
                 select(Session)
                 .options(selectinload(Session.patient))
                 .where(Session.patient_id.in_(owned_patient_ids_subq))
-                .order_by(Session.created_at.desc(), Session.id.desc())
             )
+            query = _apply_sort(query, _sort_column, _sort_desc)
             if _patient_id is not None:
                 query = query.where(Session.patient_id == _patient_id)
             if _status:
@@ -653,19 +796,15 @@ class SessionService:
             if _date_to:
                 query = query.where(Session.created_at <= _date_to)
 
-            # Cursor 分頁 — 沿用 get_list 的邏輯
-            if cursor:
+            # Cursor 分頁 — keyset 條件依排序方向套用，與 sort 保持一致
+            if _cursor is not None:
                 cursor_row = await db.execute(
-                    select(Session).where(Session.id == cursor)
+                    select(Session).where(Session.id == _cursor)
                 )
                 cursor_record = cursor_row.scalar_one_or_none()
                 if cursor_record:
-                    query = query.where(
-                        (Session.created_at < cursor_record.created_at)
-                        | (
-                            (Session.created_at == cursor_record.created_at)
-                            & (Session.id < cursor_record.id)
-                        )
+                    query = _apply_cursor_keyset(
+                        query, cursor_record, _sort_column, _sort_desc
                     )
 
             effective_limit = min(limit, 100)
@@ -706,8 +845,8 @@ class SessionService:
                 .where(
                     (Session.doctor_id == user_id) | (Session.doctor_id.is_(None))
                 )
-                .order_by(Session.created_at.desc(), Session.id.desc())
             )
+            query = _apply_sort(query, _sort_column, _sort_desc)
             if _status:
                 query = query.where(Session.status == _status)
             if _patient_id is not None:
@@ -717,18 +856,14 @@ class SessionService:
             if _date_to:
                 query = query.where(Session.created_at <= _date_to)
 
-            if cursor:
+            if _cursor is not None:
                 cursor_row = await db.execute(
-                    select(Session).where(Session.id == cursor)
+                    select(Session).where(Session.id == _cursor)
                 )
                 cursor_record = cursor_row.scalar_one_or_none()
                 if cursor_record:
-                    query = query.where(
-                        (Session.created_at < cursor_record.created_at)
-                        | (
-                            (Session.created_at == cursor_record.created_at)
-                            & (Session.id < cursor_record.id)
-                        )
+                    query = _apply_cursor_keyset(
+                        query, cursor_record, _sort_column, _sort_desc
                     )
 
             result = await db.execute(query.limit(effective_limit + 1))
@@ -762,7 +897,16 @@ class SessionService:
 
         if role == UserRole.ADMIN:
             return await SessionService.get_list(
-                db, cursor, limit, _status, _doctor_id, _patient_id, _date_from, _date_to
+                db,
+                _cursor,
+                limit,
+                _status,
+                _doctor_id,
+                _patient_id,
+                _date_from,
+                _date_to,
+                sort_by=sort_by,
+                sort_order=sort_order,
             )
 
         # 未知角色
@@ -775,6 +919,12 @@ class SessionService:
         await _authorize_session_access(db, session, current_user)
         return session
 
+    # 病患不得自行觸發的紅旗 / 終止類狀態 — 僅醫師 / admin 可設定，
+    # 避免病患透過 REST 端點偽造 aborted_red_flag 觸發紅旗流程。
+    _PRIVILEGED_STATUSES: frozenset[SessionStatus] = frozenset(
+        {SessionStatus.ABORTED_RED_FLAG}
+    )
+
     async def update_status(
         self,
         db: AsyncSession,
@@ -785,7 +935,25 @@ class SessionService:
     ) -> Session:
         session = await SessionService.get_by_id(db, session_id)
         await _authorize_session_access(db, session, current_user)
-        return await SessionService.update_status_static(db, session_id, new_status, reason)
+
+        # 角色限制：紅旗 / 終止類狀態僅限 doctor / admin 變更，
+        # 病患不得自行把場次改成 aborted_red_flag 等紅旗狀態。
+        if new_status in self._PRIVILEGED_STATUSES:
+            role = _get_user_role(current_user)
+            if role not in (UserRole.DOCTOR, UserRole.ADMIN):
+                raise ForbiddenException(
+                    "errors.session_forbidden_patient",
+                    details={
+                        "session_id": str(session.id),
+                        "requested_status": new_status.value,
+                    },
+                )
+
+        previous_status = session.status
+        updated = await SessionService.update_status_static(db, session_id, new_status, reason)
+        # L-3：REST 路徑回傳變更前狀態（供 SessionStatusResponse.previous_status）。
+        updated.previous_status = previous_status
+        return updated
 
     async def get_conversations(
         self,

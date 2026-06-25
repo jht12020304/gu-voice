@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import { useAlertStore } from '../../stores/alertStore';
+import { useRedFlagAlerts } from '../../hooks/useRedFlagAlerts';
 import AlertItem from '../../components/dashboard/AlertItem';
 import EmptyState from '../../components/common/EmptyState';
 import ErrorState from '../../components/common/ErrorState';
@@ -133,6 +134,10 @@ export default function AlertListPage() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sessionMeta, setSessionMeta] = useState<Record<string, AlertSessionMeta>>({});
+
+  // H-8 / M-17：訂閱儀表板 WS（new_red_flag / red_flag_acknowledged / initial_state /
+  // stats_updated），收到後即時更新 alertStore，讓本頁與側欄徽章免重整即時刷新。
+  useRedFlagAlerts();
 
   useEffect(() => {
     fetchAlerts(true);

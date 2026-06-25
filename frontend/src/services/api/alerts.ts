@@ -8,6 +8,17 @@ import type { AlertAcknowledgeRequest, AlertListParams } from '../../types/api';
 
 const BASE = '/alerts';
 
+/**
+ * 確認警示請求 payload。
+ * 後端 `AlertAcknowledgeRequest` 同時接受 `acknowledge_notes`（備註）與
+ * `action_taken`（醫師實際處置，稽核軌跡，會持久化到 red_flag_alerts.action_taken）。
+ * client 攔截器會把 camelCase 自動轉成 snake_case，故此處用 camelCase 欄位即可。
+ */
+export interface AcknowledgeAlertPayload extends AlertAcknowledgeRequest {
+  /** 醫師對此警示採取的實際處置 */
+  actionTaken?: string;
+}
+
 /** 取得警示列表 */
 export async function getAlerts(params?: AlertListParams): Promise<PaginatedResponse<RedFlagAlert>> {
   const { data } = await apiClient.get<PaginatedResponse<RedFlagAlert>>(BASE, { params });
@@ -23,7 +34,7 @@ export async function getAlert(id: string): Promise<RedFlagAlert> {
 /** 確認警示 */
 export async function acknowledgeAlert(
   id: string,
-  payload?: AlertAcknowledgeRequest,
+  payload?: AcknowledgeAlertPayload,
 ): Promise<RedFlagAlert> {
   const { data } = await apiClient.post<RedFlagAlert>(`${BASE}/${id}/acknowledge`, payload ?? {});
   return data;

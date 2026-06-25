@@ -6,6 +6,19 @@ import { create } from 'zustand';
 import type { ChiefComplaint } from '../types';
 import * as complaintsApi from '../services/api/complaints';
 import type { ComplaintCreateRequest, ComplaintUpdateRequest } from '../types/api';
+import i18n from '../i18n';
+
+/**
+ * 取後端錯誤訊息（已是使用者目前語言，後端 LanguageMiddleware 依 Accept-Language 回對應語系），
+ * 取不到時退回 i18n fallback key。避免 catch{} 直接吞錯只丟死的中文字串。
+ */
+function resolveErrorMessage(error: unknown, fallbackKey: string, fallbackText: string): string {
+  const backendMessage = (
+    error as { response?: { data?: { error?: { message?: string } } } }
+  )?.response?.data?.error?.message;
+  if (backendMessage) return backendMessage;
+  return i18n.t(fallbackKey, { defaultValue: fallbackText });
+}
 
 interface ComplaintState {
   complaints: ChiefComplaint[];
@@ -51,8 +64,11 @@ export const useComplaintStore = create<ComplaintState & ComplaintActions>((set,
         groupedComplaints: groupByCategory(sorted),
         isLoading: false,
       });
-    } catch {
-      set({ isLoading: false, error: '無法載入主訴列表' });
+    } catch (error) {
+      set({
+        isLoading: false,
+        error: resolveErrorMessage(error, 'admin:complaints.loadFailed', '無法載入主訴列表'),
+      });
     }
   },
 
@@ -61,8 +77,11 @@ export const useComplaintStore = create<ComplaintState & ComplaintActions>((set,
     try {
       await complaintsApi.createComplaint(data);
       await get().fetchComplaints();
-    } catch {
-      set({ isLoading: false, error: '新增主訴失敗' });
+    } catch (error) {
+      set({
+        isLoading: false,
+        error: resolveErrorMessage(error, 'admin:complaints.saveFailed', '新增主訴失敗'),
+      });
     }
   },
 
@@ -71,24 +90,35 @@ export const useComplaintStore = create<ComplaintState & ComplaintActions>((set,
     try {
       await complaintsApi.updateComplaint(id, data);
       await get().fetchComplaints();
-    } catch {
-      set({ isLoading: false, error: '更新主訴失敗' });
+    } catch (error) {
+      set({
+        isLoading: false,
+        error: resolveErrorMessage(error, 'admin:complaints.saveFailed', '更新主訴失敗'),
+      });
     }
   },
 
   reorder: async (items) => {
+    // L-9：先樂觀更新本地排序（即時回饋），失敗時回滾。
+    // 快照舊狀態，API 失敗時還原，避免 UI 停在後端未落地的排序而資料不一致。
+    const previous = get().complaints;
+    set((state) => {
+      const orderMap = new Map(items.map((i) => [i.id, i.displayOrder]));
+      const updated = state.complaints
+        .map((c) => (orderMap.has(c.id) ? { ...c, displayOrder: orderMap.get(c.id)! } : c))
+        .sort((a, b) => a.displayOrder - b.displayOrder);
+      return { complaints: updated, groupedComplaints: groupByCategory(updated), error: null };
+    });
+
     try {
       await complaintsApi.reorderComplaints({ items });
-      // 樂觀更新本地排序
-      set((state) => {
-        const orderMap = new Map(items.map((i) => [i.id, i.displayOrder]));
-        const updated = state.complaints
-          .map((c) => (orderMap.has(c.id) ? { ...c, displayOrder: orderMap.get(c.id)! } : c))
-          .sort((a, b) => a.displayOrder - b.displayOrder);
-        return { complaints: updated, groupedComplaints: groupByCategory(updated) };
+    } catch (error) {
+      // 回滾樂觀更新並顯示後端訊息
+      set({
+        complaints: previous,
+        groupedComplaints: groupByCategory(previous),
+        error: resolveErrorMessage(error, 'admin:complaints.saveFailed', '排序失敗'),
       });
-    } catch {
-      set({ error: '排序失敗' });
     }
   },
 

@@ -43,11 +43,17 @@ async def list_audit_logs(
     resource_id: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     ip_address: str | None = None,
 ) -> AuditLogListResponse:
     """
     取得系統稽核日誌，記錄所有使用者操作。僅限管理員存取。
     支援依操作者、操作類型、資源類型、日期範圍、IP 位址篩選。
+
+    日期範圍同時接受 `date_from`/`date_to` 與前端使用的
+    `start_date`/`end_date`（向後相容別名）。同時提供時以
+    `date_from`/`date_to` 優先。
     """
     return await audit_log_service.list_audit_logs(
         db,
@@ -57,8 +63,8 @@ async def list_audit_logs(
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
-        date_from=date_from,
-        date_to=date_to,
+        date_from=date_from if date_from is not None else start_date,
+        date_to=date_to if date_to is not None else end_date,
         ip_address=ip_address,
     )
 
@@ -70,7 +76,7 @@ async def list_audit_logs(
     summary="取得稽核日誌詳情",
 )
 async def get_audit_log(
-    log_id: UUID,
+    log_id: int,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> AuditLogDetail:

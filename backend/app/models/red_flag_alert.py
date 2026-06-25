@@ -56,6 +56,8 @@ class RedFlagAlert(Base):
         DateTime(timezone=True), nullable=True
     )
     acknowledge_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 醫師 acknowledge 此 alert 時記錄的實際處置（稽核軌跡；router payload.action_taken）。
+    action_taken: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # 生成此 alert 時 session 所用語言（BCP-47）。title / description 可能為該語言。
     language: Mapped[str] = mapped_column(
         String(10), server_default=text("'zh-TW'"), nullable=False

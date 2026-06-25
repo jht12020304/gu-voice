@@ -57,6 +57,28 @@ export async function assignDoctor(id: string, doctorId: string): Promise<Sessio
   return data;
 }
 
+/** 場次重連恢復回應（對應後端 POST /sessions/{id}/reconnect） */
+export interface SessionReconnectResponse {
+  sessionId: string;
+  status: string;
+  /** Redis 內的對話歷史（role + content 等原始 entry） */
+  conversationHistory: Array<{ role: string; content: string; [key: string]: unknown }>;
+  /** 歷史最後一則的索引；無歷史為 -1 */
+  lastMessageIndex: number;
+  /** 歷史的 sha256 checksum（== resumeToken），供 WebSocket 重連比對連續性 */
+  checksum: string;
+  resumeToken: string;
+}
+
+/**
+ * 場次重連：重新整理／斷線後呼叫，取回 Redis 內的對話歷史與 checksum，
+ * 供前端帶著 resumeToken 重建 WebSocket 連線時比對連續性。
+ */
+export async function reconnectSession(sessionId: string): Promise<SessionReconnectResponse> {
+  const { data } = await apiClient.post<SessionReconnectResponse>(`${BASE}/${sessionId}/reconnect`);
+  return data;
+}
+
 /**
  * M16：對話中切語言 → 結束當前 session，同時把使用者偏好語言更新為 toLanguage。
  * 後端會寫 audit_log (action=language_switch_end_session)。

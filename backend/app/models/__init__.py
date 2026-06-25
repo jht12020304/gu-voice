@@ -23,6 +23,7 @@ from app.models.enums import (
 )
 from app.models.fcm_device import FCMDevice
 from app.models.notification import Notification
+from app.models.notification_preference import NotificationPreference
 from app.models.patient import Patient
 from app.models.red_flag_alert import RedFlagAlert
 from app.models.red_flag_rule import RedFlagRule
@@ -43,6 +44,7 @@ __all__ = [
     "RedFlagAlert",
     "RedFlagRule",
     "Notification",
+    "NotificationPreference",
     "AuditLog",
     "FCMDevice",
     # Enums

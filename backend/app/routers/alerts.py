@@ -7,10 +7,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.red_flag_alert import RedFlagAlert as RedFlagAlertModel
 
 from app.core.dependencies import get_current_user, get_db, require_role
 from app.core.exceptions import AppException
@@ -65,6 +62,7 @@ async def list_alerts(
         patient_id=patient_id,
         date_from=date_from,
         date_to=date_to,
+        current_user=current_user,
     )
 
 
@@ -108,7 +106,7 @@ async def create_rule(
     current_user=Depends(get_current_user),
 ) -> RedFlagRuleDetail:
     """新增紅旗警示觸發規則。僅限管理員。"""
-    return await alert_service.create_rule(
+    return await alert_service.create_rule_entry(
         db,
         data=payload,
         created_by=current_user.id,
@@ -125,13 +123,9 @@ async def get_unacknowledged_count(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> dict:
-    """取得未確認紅旗警示的數量。"""
-    result = await db.execute(
-        select(func.count())
-        .select_from(RedFlagAlertModel)
-        .where(RedFlagAlertModel.acknowledged_by.is_(None))
-    )
-    return {"count": result.scalar() or 0}
+    """取得未確認紅旗警示的數量（依角色範圍限縮：醫師僅計自己負責場次）。"""
+    count = await alert_service.get_unacknowledged_count(db, current_user=current_user)
+    return {"count": count}
 
 
 @router.get(
@@ -146,8 +140,10 @@ async def get_alert(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> AlertDetail:
-    """取得指定紅旗警示的完整詳細資料。"""
-    return await alert_service.get_alert(db, alert_id=alert_id)
+    """取得指定紅旗警示的完整詳細資料（醫師僅能取得自己負責場次的警示）。"""
+    return await alert_service.get_alert(
+        db, alert_id=alert_id, current_user=current_user
+    )
 
 
 @router.post(
@@ -189,7 +185,7 @@ async def update_rule(
     current_user=Depends(get_current_user),
 ) -> RedFlagRuleDetail:
     """更新指定紅旗規則。僅限管理員。"""
-    return await alert_service.update_rule(
+    return await alert_service.update_rule_entry(
         db,
         rule_id=rule_id,
         data=payload,
@@ -207,5 +203,5 @@ async def delete_rule(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> None:
-    """刪除指定紅旗規則（硬刪除）。僅限管理員。"""
+    """刪除指定紅旗規則（軟刪除：設為非啟用 is_active=False）。僅限管理員。"""
     await alert_service.delete_rule(db, rule_id=rule_id)

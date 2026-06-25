@@ -133,5 +133,21 @@
     "abdomen": "腹部",
     "costovertebral": "肋脊角",
     "genitourinary": "泌尿生殖"
+  },
+  "export": {
+    "button": "匯出 PDF",
+    "loading": "匯出中...",
+    "success": "PDF 已開始下載",
+    "error": "PDF 匯出失敗，請稍後再試"
+  },
+  "regenerate": {
+    "button": "重新產生",
+    "loading": "重新產生中...",
+    "title": "重新產生報告",
+    "description": "重新產生會以最新逐字稿重新執行 AI 分析，並覆蓋現有 SOAP 報告內容，此動作無法復原。確定要繼續嗎？",
+    "cancel": "取消",
+    "confirm": "確認重新產生",
+    "success": "報告已重新產生",
+    "error": "報告重新產生失敗，請稍後再試"
   }
 }

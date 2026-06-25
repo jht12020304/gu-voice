@@ -139,6 +139,9 @@
       "bph": "BPH",
       "urinaryStones": "Urinary stones",
       "cancer": "Cancer"
+    },
+    "feedback": {
+      "added": "Added \"{{item}}\""
     }
   }
 }

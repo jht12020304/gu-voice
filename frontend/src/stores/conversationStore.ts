@@ -22,6 +22,18 @@ export interface ChatMessage {
   ttsAudioChunks?: string[];
 }
 
+/** CONV-2：Supervisor 動態問診指導（對應後端 supervisor.py 輸出） */
+export interface SupervisorGuidance {
+  /** 下一步發問建議（單一具體指令） */
+  nextFocus: string;
+  /** 尚未問到的 HPI 維度 id（snake_case，由後端 HPI_FIELD_IDS 定義） */
+  missingHpi: string[];
+  /** HPI 十欄整體完整度 0-100 */
+  hpiCompletionPercentage: number;
+  /** 後端 supervisor 逾時／不可用時回退指導 */
+  fallback?: boolean;
+}
+
 /** 紅旗事件 */
 export interface RedFlagEvent {
   id: string;
@@ -44,6 +56,12 @@ interface ConversationState {
   audioLevel: number;
   waveformData: number[];
   activeRedFlags: RedFlagEvent[];
+  /** CONV-2：最近一次 Supervisor 指導（由後端 supervisor_guidance WS 事件推送） */
+  supervisorGuidance: SupervisorGuidance | null;
+  /** CONV-2：缺失 HPI 維度（supervisorGuidance.missingHpi 的快捷讀取） */
+  missingHpi: string[];
+  /** CONV-2：後端 supervisor 降級（逾時／不可用）旗標，由 supervisor_degraded WS 事件設定 */
+  supervisorDegraded: boolean;
   error: string | null;
 }
 
@@ -61,12 +79,46 @@ interface ConversationActions {
   setWaveformData: (data: number[]) => void;
   addRedFlag: (event: RedFlagEvent) => void;
   acknowledgeRedFlag: (flagId: string) => void;
+  /** CONV-2：設定／清除最近一次 Supervisor 指導 */
+  setSupervisorGuidance: (guidance: SupervisorGuidance | null) => void;
+  /** CONV-2：設定 supervisor 降級旗標 */
+  setSupervisorDegraded: (degraded: boolean) => void;
   setError: (error: string | null) => void;
   resetSession: () => void;
   /** Fix 16：標記某則訊息有 TTS 合成失敗 */
   markMessageTtsFailed: (messageId: string) => void;
   /** Fix 18：把一段 TTS base64 附加到指定訊息的 ttsAudioChunks 快取中 */
   appendTtsAudioChunk: (messageId: string, audioB64: string) => void;
+}
+
+/**
+ * CONV-2：後端 supervisor_guidance WS 事件的原始 payload（snake_case，對齊
+ * supervisor.py 輸出 / conversation_handler 寫入 Redis 的欄位）。
+ */
+export interface SupervisorGuidancePayload {
+  next_focus?: string;
+  missing_hpi?: string[];
+  hpi_completion_percentage?: number;
+  fallback?: boolean;
+}
+
+/**
+ * CONV-2：把後端 snake_case payload 正規化成前端 camelCase 的 SupervisorGuidance。
+ * 純函式、無副作用，便於單元測試。
+ */
+export function normalizeSupervisorGuidance(
+  payload: SupervisorGuidancePayload | null | undefined,
+): SupervisorGuidance | null {
+  if (!payload) return null;
+  return {
+    nextFocus: payload.next_focus ?? '',
+    missingHpi: Array.isArray(payload.missing_hpi) ? payload.missing_hpi : [],
+    hpiCompletionPercentage:
+      typeof payload.hpi_completion_percentage === 'number'
+        ? payload.hpi_completion_percentage
+        : 0,
+    fallback: payload.fallback ?? false,
+  };
 }
 
 /** 將後端 Conversation 轉為前端 ChatMessage */
@@ -95,6 +147,9 @@ export const useConversationStore = create<ConversationState & ConversationActio
   audioLevel: 0,
   waveformData: [],
   activeRedFlags: [],
+  supervisorGuidance: null,
+  missingHpi: [],
+  supervisorDegraded: false,
   error: null,
 
   // ---- Actions ----
@@ -142,6 +197,16 @@ export const useConversationStore = create<ConversationState & ConversationActio
       ),
     })),
 
+  setSupervisorGuidance: (guidance) =>
+    set({
+      supervisorGuidance: guidance,
+      missingHpi: guidance?.missingHpi ?? [],
+      // 收到一份非 fallback 的正常指導 → 視為已恢復，清除降級旗標。
+      supervisorDegraded: guidance?.fallback ?? false,
+    }),
+
+  setSupervisorDegraded: (degraded) => set({ supervisorDegraded: degraded }),
+
   setError: (error) => set({ error }),
 
   markMessageTtsFailed: (messageId) =>
@@ -172,6 +237,9 @@ export const useConversationStore = create<ConversationState & ConversationActio
       audioLevel: 0,
       waveformData: [],
       activeRedFlags: [],
+      supervisorGuidance: null,
+      missingHpi: [],
+      supervisorDegraded: false,
       error: null,
     }),
 }));

@@ -18,12 +18,13 @@ export interface AudioChunkPayload {
   audioData: string; // base64
   chunkIndex: number;
   isFinal: boolean;
-  format: 'wav';
+  /**
+   * L-19：MediaRecorder 實際輸出的 MIME（webm/mp4 等）。
+   * 後端不信任此欄位（以 magic bytes 嗅探實際容器格式），此處僅回報真實 MIME
+   * 供除錯／記錄；切勿再硬填 'wav'，避免與實際容器不符造成誤導。
+   */
+  format: string;
   sampleRate: number;
-}
-
-export interface TextMessagePayload {
-  text: string;
 }
 
 export interface ControlPayload {
@@ -34,7 +35,7 @@ export interface PingPayload {
   // 空物件
 }
 
-export type ClientMessageType = 'audio_chunk' | 'text_message' | 'control' | 'ping';
+export type ClientMessageType = 'audio_chunk' | 'control' | 'ping';
 
 // =============================================================================
 // Server -> Client 訊息
@@ -48,12 +49,6 @@ export interface ConnectionAckPayload {
     sampleRate: number;
     maxChunkSizeBytes: number;
   };
-}
-
-export interface STTPartialPayload {
-  text: string;
-  confidence: number;
-  isFinal: false;
 }
 
 export interface STTFinalPayload {
@@ -75,12 +70,6 @@ export interface AIResponseChunkPayload {
   audioB64?: string;
   /** Fix 16（Option B）：後端在同一個 chunk payload 中標記 TTS 合成失敗 */
   ttsFailed?: boolean;
-}
-
-/** Fix 16（Option A）：獨立 tts_failed 事件 */
-export interface TtsFailedPayload {
-  messageId: string;
-  reason?: string;
 }
 
 export interface AIResponseEndPayload {
@@ -128,12 +117,10 @@ export interface PongPayload {
 
 export type ServerMessageType =
   | 'connection_ack'
-  | 'stt_partial'
   | 'stt_final'
   | 'ai_response_start'
   | 'ai_response_chunk'
   | 'ai_response_end'
-  | 'tts_failed'
   | 'red_flag_alert'
   | 'session_status'
   | 'error'
@@ -197,7 +184,43 @@ export interface StatsUpdatedPayload {
   pendingReviews: number;
 }
 
+/**
+ * M-17：連線時後端送出的初始快照（dashboard_handler `_build_initial_state`）。
+ *
+ * 注意：與 `queue_updated` / `stats_updated`（camelCase）不同，此事件的 payload 為
+ * **snake_case** 線格式（後端直接序列化 `_get_queue_status` / `_get_dashboard_stats`），
+ * 因此這裡如實標註 snake_case 欄位，消費端負責轉成 camelCase 後再 patch 狀態。
+ */
+export interface InitialStatePayload {
+  queue: {
+    total_waiting: number;
+    total_in_progress: number;
+    queue: Array<{
+      session_id: string;
+      status: string;
+      chief_complaint: string;
+      created_at: string | null;
+    }>;
+  };
+  active_alerts: Array<{
+    alert_id: string;
+    session_id: string | null;
+    severity: 'critical' | 'high' | 'medium';
+    title: string;
+    description: string;
+    created_at: string | null;
+  }>;
+  stats: {
+    sessions_today: number;
+    completed: number;
+    red_flags: number;
+    pending_reviews: number;
+  };
+  connected_at: string;
+}
+
 export type DashboardEventType =
+  | 'initial_state'
   | 'session_created'
   | 'session_status_changed'
   | 'new_red_flag'

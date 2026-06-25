@@ -4,22 +4,32 @@
 
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { validateEmail } from '../../utils/validation';
+import { useTranslation } from 'react-i18next';
 import { useCurrentLng } from '../../i18n/paths';
 import * as authApi from '../../services/api/auth';
 
 export default function ForgotPasswordPage() {
+  const { t } = useTranslation('common');
   const lng = useCurrentLng();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSent, setIsSent] = useState(false);
   const [error, setError] = useState('');
 
+  // 與 utils/validation.validateEmail 一致的格式檢查，回傳已 i18n 的訊息或 null。
+  const validateEmailField = (value: string): string | null => {
+    if (!value) return t('auth:email.required', '請輸入電子郵件');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      return t('auth:email.invalid', '電子郵件格式不正確');
+    }
+    return null;
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
 
-    const emailError = validateEmail(email);
+    const emailError = validateEmailField(email);
     if (emailError) {
       setError(emailError);
       return;
@@ -30,7 +40,7 @@ export default function ForgotPasswordPage() {
       await authApi.forgotPassword(email);
       setIsSent(true);
     } catch {
-      setError('發送重設連結失敗，請稍後再試');
+      setError(t('auth:forgot.failed', '發送重設連結失敗，請稍後再試'));
     } finally {
       setIsLoading(false);
     }
@@ -46,9 +56,11 @@ export default function ForgotPasswordPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
             </svg>
           </div>
-          <h1 className="mt-4 text-h1 text-ink-heading dark:text-white">忘記密碼</h1>
+          <h1 className="mt-4 text-h1 text-ink-heading dark:text-white">
+            {t('auth:forgot.title', '忘記密碼')}
+          </h1>
           <p className="mt-1 text-body text-ink-secondary">
-            輸入您的電子郵件，我們將寄送重設密碼連結
+            {t('auth:forgot.subtitle', '輸入您的電子郵件，我們將寄送重設密碼連結')}
           </p>
         </div>
 
@@ -67,16 +79,19 @@ export default function ForgotPasswordPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h2 className="text-h3 text-ink-heading dark:text-white">已寄送重設連結</h2>
+              <h2 className="text-h3 text-ink-heading dark:text-white">
+                {t('auth:forgot.sentTitle', '已寄送重設連結')}
+              </h2>
               <p className="mt-2 text-body text-ink-secondary">
-                請檢查 <span className="font-medium text-ink-heading dark:text-white">{email}</span> 的收件匣，
-                並依照信件中的指示重設密碼。
+                {t('auth:forgot.sentPrefix', '請檢查 ')}
+                <span className="font-medium text-ink-heading dark:text-white">{email}</span>
+                {t('auth:forgot.sentSuffix', ' 的收件匣，並依照信件中的指示重設密碼。')}
               </p>
               <Link
                 to={`/${lng}/login`}
                 className="mt-6 inline-block text-caption font-medium text-primary-600 hover:text-primary-700 transition-colors"
               >
-                返回登入
+                {t('auth:backToLogin', '返回登入')}
               </Link>
             </div>
           ) : (
@@ -90,7 +105,7 @@ export default function ForgotPasswordPage() {
 
               <div>
                 <label htmlFor="email" className="block text-caption font-medium text-ink-body dark:text-dark-border">
-                  電子郵件
+                  {t('auth:forgot.emailLabel', '電子郵件')}
                 </label>
                 <input
                   id="email"
@@ -111,13 +126,13 @@ export default function ForgotPasswordPage() {
                 {isLoading ? (
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
                 ) : (
-                  '發送重設連結'
+                  t('auth:forgot.submit', '發送重設連結')
                 )}
               </button>
 
               <div className="text-center">
                 <Link to={`/${lng}/login`} className="text-caption text-primary-600 hover:text-primary-700 font-medium transition-colors">
-                  返回登入
+                  {t('auth:backToLogin', '返回登入')}
                 </Link>
               </div>
             </form>

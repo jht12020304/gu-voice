@@ -133,5 +133,21 @@
     "abdomen": "Abdomen",
     "costovertebral": "Costovertebral angle",
     "genitourinary": "Genitourinary"
+  },
+  "export": {
+    "button": "Export PDF",
+    "loading": "Exporting...",
+    "success": "PDF download started",
+    "error": "Failed to export PDF. Please try again later."
+  },
+  "regenerate": {
+    "button": "Regenerate",
+    "loading": "Regenerating...",
+    "title": "Regenerate Report",
+    "description": "Regenerating will re-run the AI analysis on the latest transcript and overwrite the existing SOAP report. This action cannot be undone. Are you sure you want to continue?",
+    "cancel": "Cancel",
+    "confirm": "Confirm Regenerate",
+    "success": "Report regenerated",
+    "error": "Failed to regenerate report. Please try again later."
   }
 }

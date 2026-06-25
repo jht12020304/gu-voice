@@ -25,6 +25,23 @@
   "redFlag": {
     "more": "+{{count}}건의 다른 경고"
   },
+  "supervisor": {
+    "hintLabel": "다음에 여쭤볼 내용",
+    "missingLabel": "아직 확인할 항목:",
+    "degraded": "실시간 안내를 일시적으로 사용할 수 없지만, 문진은 평소와 같이 계속됩니다.",
+    "hpi": {
+      "onset": "발생 시점",
+      "location": "부위",
+      "duration": "지속 시간",
+      "characteristics": "양상",
+      "severity": "중증도",
+      "aggravating_factors": "악화 요인",
+      "relieving_factors": "완화 요인",
+      "associated_symptoms": "동반 증상",
+      "timing": "시간적 양상",
+      "context": "상황"
+    }
+  },
   "error": {
     "loadFailed": "대화를 불러올 수 없습니다",
     "sessionInterrupted": "문진이 중단되었습니다. 다시 시작해 주세요",
@@ -37,5 +54,9 @@
   },
   "mockMessages": {
     "systemStart": "문진 시작 — 주호소: {{complaint}}"
+  },
+  "connection": {
+    "reconnecting": "연결이 끊어졌습니다. 다시 연결하는 중…",
+    "retry": "다시 시도"
   }
 }

@@ -22,11 +22,6 @@ export async function getUsers(params?: UserListParams): Promise<PaginatedRespon
   return data;
 }
 
-export async function getUser(id: string): Promise<User> {
-  const { data } = await apiClient.get<User>(`${USERS_BASE}/${id}`);
-  return data;
-}
-
 export async function createUser(payload: UserCreateRequest): Promise<User> {
   const { data } = await apiClient.post<User>(USERS_BASE, payload);
   return data;
@@ -37,8 +32,15 @@ export async function updateUser(id: string, payload: UserUpdateRequest): Promis
   return data;
 }
 
-export async function toggleUserActive(id: string): Promise<User> {
-  const { data } = await apiClient.put<User>(`${USERS_BASE}/${id}/toggle-active`);
+/** 切換啟用狀態回應（對齊後端 ToggleActiveResponse，非完整 User） */
+export interface ToggleActiveResponse {
+  id: string;
+  isActive: boolean;
+  message: string;
+}
+
+export async function toggleUserActive(id: string): Promise<ToggleActiveResponse> {
+  const { data } = await apiClient.put<ToggleActiveResponse>(`${USERS_BASE}/${id}/toggle-active`);
   return data;
 }
 
@@ -80,14 +82,18 @@ export async function getAuditLogs(params?: AuditLogListParams): Promise<Paginat
 
 // ---- 系統健康 ----
 
+/**
+ * 系統健康狀態回應（對齊後端 SystemHealthResponse）。
+ * 後端回傳：status / database / redis / openai / version / timestamp。
+ * database/redis/openai/version/timestamp 保留 optional 以維持畫面相容（避免破壞既有 fallback）。
+ */
 export interface SystemHealthResponse {
   status: string;
   database?: string;
   redis?: string;
+  openai?: string;
   version?: string;
   timestamp?: string;
-  services?: Record<string, { status: string; latency?: number }>;
-  uptime?: number;
 }
 
 export async function getSystemHealth(): Promise<SystemHealthResponse> {

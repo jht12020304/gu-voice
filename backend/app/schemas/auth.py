@@ -17,12 +17,23 @@ class LoginRequest(BaseModel):
 
 
 class UserInfo(BaseModel):
-    """登入回應中的使用者資訊"""
+    """使用者資訊。
+
+    同時用於登入 / 註冊回應（僅含基本欄位）與 /me 完整個人資料；
+    完整欄位（phone/department/license_number/is_active/last_login_at/created_at）
+    皆為 Optional，登入回應未帶時即為 None。
+    """
     id: UUID
     email: str
     name: str
     role: UserRole
     preferred_language: Optional[str] = None
+    phone: Optional[str] = None
+    department: Optional[str] = None
+    license_number: Optional[str] = None
+    is_active: Optional[bool] = None
+    last_login_at: Optional[str] = None
+    created_at: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -145,6 +156,7 @@ UserResponse = UserInfo
 class UpdateProfileRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     phone: Optional[str] = Field(None, max_length=20)
+    department: Optional[str] = Field(None, max_length=100)
     preferred_language: Optional[str] = Field(None, max_length=10)
 
     @field_validator("preferred_language")

@@ -77,7 +77,30 @@
       "viewReport": "SOAP 보고서 보기",
       "enterConversation": "대화 열기",
       "conversationsTitle": "대화 기록",
-      "conversationsEmpty": "대화 기록이 없습니다"
+      "conversationsEmpty": "대화 기록이 없습니다",
+      "actionsTitle": "세션 작업",
+      "actionsHint": "세션을 본인에게 배정하거나 상태를 변경하거나 보고서를 생성할 수 있습니다",
+      "assignedToMe": "이 세션은 본인에게 배정되어 있습니다",
+      "assignToMe": "나에게 배정",
+      "assigning": "배정 중...",
+      "assignSuccess": "세션을 본인에게 배정했습니다",
+      "assignError": "의사 배정에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+      "markCompleted": "완료로 표시",
+      "markCompletedTitle": "세션을 완료로 표시",
+      "markCompletedConfirm": "이 세션을 완료로 표시하시겠습니까? 완료 후 SOAP 보고서를 생성할 수 있습니다.",
+      "cancelSession": "세션 취소",
+      "cancelSessionTitle": "세션 취소",
+      "cancelSessionConfirm": "이 세션을 취소하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
+      "statusCompletedSuccess": "세션을 완료로 표시했습니다",
+      "statusCancelledSuccess": "세션을 취소했습니다",
+      "statusUpdateError": "세션 상태 업데이트에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+      "generateReport": "보고서 생성",
+      "generatingReport": "보고서 생성 중...",
+      "generateReportSuccess": "보고서를 생성했습니다",
+      "generateReportError": "보고서 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+      "confirm": "확인",
+      "cancelAction": "취소",
+      "processing": "처리 중..."
     }
   }
 }

@@ -20,14 +20,31 @@ function getLangFromUrl(): string | undefined {
 
 // ---- 深度 key 轉換工具 ----
 
-/** snake_case -> camelCase */
+/**
+ * snake_case -> camelCase
+ * 只在 `_` 後接小寫字母時轉大寫；數字段位（如 icd10_codes、audio_b64）保持原樣，
+ * 後端 snake_case 是權威來源，故此方向對所有現有欄位皆 round-trip safe。
+ */
 function snakeToCamelKey(key: string): string {
   return key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
 }
 
-/** camelCase -> snake_case */
+/**
+ * camelCase -> snake_case
+ *
+ * 舊版用 `/[A-Z]/g` 對每個大寫字母前都插底線，對「連續大寫縮寫」會炸開：
+ *   httpURL -> http_u_r_l、userID -> user_i_d（後端無法對應）。
+ * 改用 word-boundary 規則：
+ *   1. 縮寫與後接的 Capitalized 詞之間斷詞：HTMLParser -> HTML_Parser
+ *   2. 小寫/數字與大寫之間斷詞：userId -> user_Id、icd10Codes -> icd10_Codes
+ * 不在「數字邊界」硬插底線，故 icd10_codes / audio_b64 / spo2 等現有欄位
+ * 仍精確還原為原本的 wire key（行為不變），同時 httpURL -> http_url、userID -> user_id。
+ */
 function camelToSnakeKey(key: string): string {
-  return key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+  return key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase();
 }
 
 /** 遞迴轉換物件的所有 key */
@@ -54,24 +71,66 @@ export function camelToSnake<T>(data: unknown): T {
   return deepConvertKeys(data, camelToSnakeKey) as T;
 }
 
+// ---- Cookie 工具 ----
+
+// M-22：refresh token 改由後端以 httpOnly cookie 下發，前端讀不到（也不該讀）。
+// 但 CSRF 防護採 double-submit：後端另下發一顆「非 httpOnly」的 csrf cookie，前端讀出
+// 它的值放進 X-CSRF-Token header，後端比對 cookie 值 vs header 值是否一致。此函式只用來
+// 讀那顆「非 httpOnly」的 csrf cookie；httpOnly 的 refresh token 在這裡天生讀不到。
+function readCookie(name: string): string | undefined {
+  if (typeof document === 'undefined' || !document.cookie) return undefined;
+  const prefix = `${name}=`;
+  for (const part of document.cookie.split(';')) {
+    const c = part.trim();
+    if (c.startsWith(prefix)) {
+      return decodeURIComponent(c.slice(prefix.length));
+    }
+  }
+  return undefined;
+}
+
+// 後端下發的 CSRF cookie 名稱（必須與後端 settings.CSRF_COOKIE_NAME 一致，
+// 否則讀不到 csrf cookie → X-CSRF-Token 為空 → 每次 refresh/logout 都 403）。
+const CSRF_COOKIE_NAME = 'gu_csrf_token';
+const CSRF_HEADER_NAME = 'X-CSRF-Token';
+
 // ---- Axios 實例 ----
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1',
   timeout: 30000,
+  // M-22：帶上 / 接收後端的 httpOnly cookie（refresh token、csrf token）。
+  // 後端 CORS 已 allow_credentials=true 並明確列舉 origin（非 '*'），符合瀏覽器在
+  // credentials 模式下的要求。
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// ---- Request 攔截器：附加 Token + camelCase -> snake_case ----
+// ---- Request 攔截器：附加 Token + CSRF + camelCase -> snake_case ----
+
+// M-22：refresh token 已改由後端 httpOnly cookie 持有（前端不再讀寫 localStorage 的
+// refresh_token）。access token 維持既有 localStorage + Bearer header 處理。針對會改變狀態
+// 的請求附上 X-CSRF-Token（double-submit）：值讀自非 httpOnly 的 csrf cookie，由瀏覽器
+// 透過 withCredentials 一併送出的 cookie 供後端比對。
+const _CSRF_SAFE_METHODS = new Set(['get', 'head', 'options']);
 
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // 從 localStorage 取得 token（避免循環依賴 authStore）
+    // 從 localStorage 取得 access token（避免循環依賴 authStore）
     const token = localStorage.getItem('access_token');
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    // CSRF：non-safe method 才需要；header 值讀自非 httpOnly 的 csrf cookie。
+    // cookie 不存在（後端尚未下發 / 安全方法）就不帶，後端對沒有 cookie 的情境本就放行。
+    if (config.headers && !_CSRF_SAFE_METHODS.has((config.method || 'get').toLowerCase())) {
+      const csrf = readCookie(CSRF_COOKIE_NAME);
+      if (csrf && !config.headers[CSRF_HEADER_NAME]) {
+        config.headers[CSRF_HEADER_NAME] = csrf;
+      }
     }
 
     // 附帶目前語言給後端 LanguageMiddleware 解析；使用 BCP-47（如 zh-TW / en-US）。
@@ -108,29 +167,49 @@ let refreshPromise: Promise<string> | null = null;
 
 function clearAuthAndRedirect(): void {
   localStorage.removeItem('access_token');
+  // M-22：refresh token 已不存 localStorage（改由後端 httpOnly cookie 管理，前端清不到
+  // 也不該清），由後端 /auth/logout 或 cookie 過期負責失效。此處保留移除是為了清掉
+  // 升級前舊 session 殘留的 legacy key，無殘留時為 no-op。
   localStorage.removeItem('refresh_token');
   if (typeof window !== 'undefined') {
     window.location.href = '/login';
   }
 }
 
-async function refreshAccessToken(): Promise<string> {
+/**
+ * 單一共享 refresh 入口（M-20 / M-22）。
+ *
+ * 整個 tab 內所有 refresh（response 攔截器的 401 自動重試 + authStore.refreshSession
+ * 的主動續期）都必須走這支，靠 module-level `refreshPromise` 去重。後端做了 refresh
+ * token rotation + reuse detection，舊 token 只能用一次；若 authStore 另開一套並發
+ * POST /auth/refresh，會被 reuse detection 判定為重放而把使用者整個踢登出。故對外
+ * export，讓 authStore 收斂到這個唯一入口。
+ *
+ * M-22：refresh token 不再由前端持有 / 於 body 送出，改由瀏覽器自動帶上後端下發的
+ * httpOnly cookie（withCredentials: true）。同時帶 X-CSRF-Token（double-submit，值讀自
+ * 非 httpOnly 的 csrf cookie）。成功時把新 access token 寫回 localStorage 並回傳；新的
+ * refresh token 由後端以 Set-Cookie 旋轉，前端不經手。
+ */
+export async function refreshAccessToken(): Promise<string> {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
-    const refreshToken = localStorage.getItem('refresh_token');
-    if (!refreshToken) {
-      throw new Error('No refresh token available');
-    }
     const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
     // 使用裸 axios（非 apiClient）避免走入本檔的 request/response 攔截器，
     // 否則 refresh 失敗又會進入 401 分支造成遞迴。
-    const { data } = await axios.post<{ access_token: string; refresh_token: string }>(
+    // L-22：裸 axios 不繼承 apiClient 的 timeout，明確帶 30s 避免 refresh 永遠 hang
+    // 把共享 refreshPromise 卡死、後續所有 401 重試一起被阻塞。
+    // M-22：裸 axios 也不繼承 apiClient 的 withCredentials，這裡明確帶上，否則
+    // httpOnly 的 refresh cookie 不會被送出、refresh 永遠失敗。CSRF header 手動補（裸
+    // axios 不走 request 攔截器）。
+    const csrf = readCookie(CSRF_COOKIE_NAME);
+    const headers = csrf ? { [CSRF_HEADER_NAME]: csrf } : undefined;
+    const { data } = await axios.post<{ access_token: string }>(
       `${baseURL}/auth/refresh`,
-      { refresh_token: refreshToken },
+      {},
+      { timeout: 30000, withCredentials: true, headers },
     );
     localStorage.setItem('access_token', data.access_token);
-    localStorage.setItem('refresh_token', data.refresh_token);
     return data.access_token;
   })().finally(() => {
     refreshPromise = null;

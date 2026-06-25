@@ -9,6 +9,8 @@
 - 統計數據更新
 """
 
+import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -19,7 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.websocket.auth import authenticate_websocket
-from app.websocket.connection_manager import manager
+from app.websocket.connection_manager import (
+    DASHBOARD_EVENTS_CHANNEL,
+    manager,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +131,22 @@ async def dashboard_websocket(
             str(exc),
             exc_info=True,
         )
+        # L-20：比照對話端，發生未預期錯誤時送出 canonical error code 給前端，
+        # 讓前端能以 `t(code, {ns:'ws'})` 渲染並提示使用者，而非靜默斷線。
+        try:
+            await websocket.send_json(
+                manager._create_envelope(
+                    msg_type="error",
+                    payload={
+                        "code": "errors.ws.internal_error",
+                        "params": {},
+                        "severity": "critical",
+                    },
+                )
+            )
+        except Exception:
+            # 連線可能已斷開，無法再送 error，忽略
+            pass
 
     finally:
         await manager.disconnect_dashboard(websocket)
@@ -134,6 +155,154 @@ async def dashboard_websocket(
             user_id,
             manager.dashboard_connection_count,
         )
+
+
+# ── 跨行程儀表板事件 subscriber（H-8） ───────────────────
+
+async def dashboard_event_subscriber() -> None:
+    """訂閱 Redis 儀表板事件頻道，收到後對本行程的 dashboard WS 連線 fan-out。
+
+    由 main.py lifespan 以背景 task 啟動（僅在有 Redis 設定時）。任何行程
+    （含 Celery worker）publish 到 ``DASHBOARD_EVENTS_CHANNEL`` 的事件，都會在
+    這裡被各 API 行程收到並本地廣播，解決跨行程 in-memory 廣播觸及不到的問題。
+
+    韌性：本協程不可讓 app 啟動 / 關閉失敗。Redis 不可用時記 warning 後直接
+    返回；被 ``cancel()`` 時乾淨退出。連線中斷會嘗試重連，並做退避避免忙迴圈。
+    """
+    import redis.asyncio as aioredis
+
+    from app.core.config import settings
+
+    backoff = 1.0
+    while True:
+        client = None
+        pubsub = None
+        try:
+            client = aioredis.from_url(
+                settings.REDIS_URL_CACHE,
+                decode_responses=True,
+            )
+            pubsub = client.pubsub()
+            await pubsub.subscribe(DASHBOARD_EVENTS_CHANNEL)
+            logger.info(
+                "儀表板事件 subscriber 已訂閱 | channel=%s",
+                DASHBOARD_EVENTS_CHANNEL,
+            )
+            backoff = 1.0  # 連上即重置退避
+            async for raw in pubsub.listen():
+                if raw is None or raw.get("type") != "message":
+                    continue
+                await _dispatch_dashboard_event(raw.get("data"))
+        except asyncio.CancelledError:
+            # app 關閉：乾淨退出，不再重連
+            logger.info("儀表板事件 subscriber 已取消，停止訂閱")
+            raise
+        except Exception as exc:  # noqa: BLE001 — 訂閱迴圈不可讓 app 崩潰
+            logger.warning(
+                "儀表板事件 subscriber 連線中斷，將重試 | error=%s", str(exc)
+            )
+        finally:
+            if pubsub is not None:
+                try:
+                    await pubsub.aclose()
+                except Exception:
+                    pass
+            if client is not None:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
+        # 走到這裡代表 listen 迴圈結束或拋例外（非 cancel）；退避後重連
+        try:
+            await asyncio.sleep(backoff)
+        except asyncio.CancelledError:
+            raise
+        backoff = min(backoff * 2, 30.0)
+
+
+async def _dispatch_dashboard_event(data: Any) -> None:
+    """解析頻道訊息並對本行程連線本地 fan-out（單筆訊息失敗不可中斷迴圈）。"""
+    if not data:
+        return
+    try:
+        envelope = json.loads(data)
+    except (ValueError, TypeError) as exc:
+        logger.warning("儀表板事件 payload 非合法 JSON，略過 | error=%s", str(exc))
+        return
+    event_type = envelope.get("type")
+    if not event_type:
+        return
+    payload = envelope.get("payload") or {}
+    try:
+        await manager.local_broadcast_dashboard_event(event_type, payload)
+    except Exception as exc:  # noqa: BLE001 — 本地送出失敗不可中斷 subscriber
+        logger.warning(
+            "本地 fan-out 儀表板事件失敗（非致命） | event=%s, error=%s",
+            event_type,
+            str(exc),
+        )
+
+
+# ── 結構化事件推播 helper（H-8） ─────────────────────────
+
+async def broadcast_queue_and_stats(
+    db: AsyncSession,
+    redis: Redis,
+) -> None:
+    """重新計算並向所有儀表板連線推播 queue_updated + stats_updated 事件。
+
+    可被外部（如 conversation_handler 在場次狀態變更時）import 呼叫。
+
+    注意：`broadcast_dashboard` 為「廣播給所有連線」，無法逐醫師分流；
+    因此這裡計算的是全域（admin 視角，doctor_id=None）的排隊與統計，
+    與既有 `new_red_flag` / `session_status_changed` 的廣播語意一致。
+    本函式不可拋例外，避免阻塞呼叫端的主流程。
+    """
+    if manager.dashboard_connection_count == 0:
+        return
+    try:
+        queue_data = await _get_queue_status(db, redis, doctor_id=None)
+        await manager.broadcast_queue_updated(
+            total_waiting=queue_data.get("total_waiting", 0),
+            total_in_progress=queue_data.get("total_in_progress", 0),
+            queue=_to_camel_queue_items(queue_data.get("queue", [])),
+        )
+    except Exception as exc:
+        logger.warning("推播 queue_updated 失敗（非致命） | error=%s", str(exc))
+
+    try:
+        stats = await _get_dashboard_stats(db, redis, doctor_id=None)
+        await manager.broadcast_stats_updated(
+            sessions_today=stats.get("sessions_today", 0),
+            completed=stats.get("completed", 0),
+            red_flags=stats.get("red_flags", 0),
+            pending_reviews=stats.get("pending_reviews", 0),
+        )
+    except Exception as exc:
+        logger.warning("推播 stats_updated 失敗（非致命） | error=%s", str(exc))
+
+
+def _to_camel_queue_items(
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """把 `_get_queue_status` 的 snake_case 排隊明細轉為前端 camelCase。
+
+    對齊 `QueueUpdatedPayload.queue`（sessionId / patientName /
+    chiefComplaint / status / waitingSeconds）。`_get_queue_status` 不含
+    patientName / waitingSeconds，缺值以保守預設（""/0）填入。
+    """
+    camel_items: list[dict[str, Any]] = []
+    for item in items:
+        camel_items.append(
+            {
+                "sessionId": item.get("session_id", ""),
+                "patientName": item.get("patient_name", ""),
+                "chiefComplaint": item.get("chief_complaint", ""),
+                "status": item.get("status", ""),
+                "waitingSeconds": item.get("waiting_seconds", 0),
+            }
+        )
+    return camel_items
 
 
 # ── 輔助函式 ─────────────────────────────────────────────
@@ -162,7 +331,7 @@ async def _build_initial_state(
     import json
 
     # 嘗試從 Redis 快取載入
-    queue_data = await _get_queue_status(db, redis)
+    queue_data = await _get_queue_status(db, redis, doctor_id)
     active_alerts = await _get_active_alerts(db, redis, doctor_id)
     stats = await _get_dashboard_stats(db, redis, doctor_id)
 
@@ -175,7 +344,7 @@ async def _build_initial_state(
 
 
 async def _get_queue_status(
-    db: AsyncSession, redis: Redis
+    db: AsyncSession, redis: Redis, doctor_id: str | None = None
 ) -> dict[str, Any]:
     """
     取得目前病患排隊狀態
@@ -183,6 +352,7 @@ async def _get_queue_status(
     Args:
         db: 資料庫 session
         redis: Redis 客戶端
+        doctor_id: 醫師 ID；非 None 時僅統計該醫師負責的場次（admin 傳 None 看全部）
 
     Returns:
         排隊狀態字典
@@ -191,7 +361,7 @@ async def _get_queue_status(
         from app.models.session import Session
         from sqlalchemy import func, select
 
-        # 統計等待中與進行中的場次
+        # 統計等待中與進行中的場次（醫師範圍：僅自己負責的場次）
         waiting_stmt = (
             select(func.count())
             .select_from(Session)
@@ -202,6 +372,9 @@ async def _get_queue_status(
             .select_from(Session)
             .where(Session.status == "in_progress")
         )
+        if doctor_id:
+            waiting_stmt = waiting_stmt.where(Session.doctor_id == doctor_id)
+            in_progress_stmt = in_progress_stmt.where(Session.doctor_id == doctor_id)
 
         waiting_result = await db.execute(waiting_stmt)
         in_progress_result = await db.execute(in_progress_stmt)
@@ -216,6 +389,8 @@ async def _get_queue_status(
             .order_by(Session.created_at.asc())
             .limit(50)
         )
+        if doctor_id:
+            queue_stmt = queue_stmt.where(Session.doctor_id == doctor_id)
         queue_result = await db.execute(queue_stmt)
         queue_sessions = queue_result.scalars().all()
 
@@ -265,6 +440,7 @@ async def _get_active_alerts(
     """
     try:
         from app.models.red_flag_alert import RedFlagAlert
+        from app.models.session import Session
         from sqlalchemy import select
 
         stmt = (
@@ -273,6 +449,13 @@ async def _get_active_alerts(
             .order_by(RedFlagAlert.created_at.desc())
             .limit(50)
         )
+        # 醫師範圍：僅顯示自己負責場次的警示（admin 傳 None 看全部）
+        if doctor_id:
+            stmt = stmt.where(
+                RedFlagAlert.session_id.in_(
+                    select(Session.id).where(Session.doctor_id == doctor_id)
+                )
+            )
         result = await db.execute(stmt)
         alerts = result.scalars().all()
 
@@ -332,6 +515,13 @@ async def _get_dashboard_stats(
 
         today = date.today()
 
+        # 醫師範圍：以 session.doctor_id 過濾自己負責的場次 / 警示（admin 看全部）
+        doctor_session_subq = None
+        if doctor_id:
+            doctor_session_subq = select(Session.id).where(
+                Session.doctor_id == doctor_id
+            )
+
         # 今日場次數
         sessions_today_stmt = (
             select(func.count())
@@ -359,6 +549,18 @@ async def _get_dashboard_stats(
             .select_from(RedFlagAlert)
             .where(RedFlagAlert.acknowledged_at.is_(None))
         )
+
+        if doctor_id:
+            sessions_today_stmt = sessions_today_stmt.where(
+                Session.doctor_id == doctor_id
+            )
+            completed_stmt = completed_stmt.where(Session.doctor_id == doctor_id)
+            red_flags_stmt = red_flags_stmt.where(
+                RedFlagAlert.session_id.in_(doctor_session_subq)
+            )
+            pending_stmt = pending_stmt.where(
+                RedFlagAlert.session_id.in_(doctor_session_subq)
+            )
 
         sessions_today = (await db.execute(sessions_today_stmt)).scalar() or 0
         completed = (await db.execute(completed_stmt)).scalar() or 0

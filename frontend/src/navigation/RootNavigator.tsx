@@ -15,6 +15,7 @@ import { detectInitialLanguage, useCurrentLng } from '../i18n/paths';
 const LoginPage = lazyWithRetry(() => import('../screens/auth/LoginPage'), 'LoginPage');
 const RegisterPage = lazyWithRetry(() => import('../screens/auth/RegisterPage'), 'RegisterPage');
 const ForgotPasswordPage = lazyWithRetry(() => import('../screens/auth/ForgotPasswordPage'), 'ForgotPasswordPage');
+const ResetPasswordPage = lazyWithRetry(() => import('../screens/auth/ResetPasswordPage'), 'ResetPasswordPage');
 const DashboardPage = lazyWithRetry(() => import('../screens/doctor/DashboardPage'), 'DashboardPage');
 const PatientListPage = lazyWithRetry(() => import('../screens/doctor/PatientListPage'), 'PatientListPage');
 const SessionDetailPage = lazyWithRetry(() => import('../screens/doctor/SessionDetailPage'), 'SessionDetailPage');
@@ -129,6 +130,7 @@ export default function RootNavigator() {
             <Route path="login" element={<LoginPage />} />
             <Route path="register" element={<RegisterPage />} />
             <Route path="forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="reset-password" element={<ResetPasswordPage />} />
 
             {/* 受保護路由 */}
             <Route element={<ProtectedRoute />}>

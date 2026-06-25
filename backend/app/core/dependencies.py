@@ -12,7 +12,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 import redis.asyncio as aioredis
-from fastapi import Depends, Header, Query
+from fastapi import Depends, Header, Query, Request
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,12 +72,16 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 # ── JWT 認證 ───────────────────────────────────────────
 async def get_current_user(
+    request: Request,
     authorization: str = Header(..., alias="Authorization"),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """
     從 Bearer token 取得目前登入使用者。
     驗證流程：解析 token → 查詢使用者 → 確認帳號啟用。
+
+    `request` 由 FastAPI 自動注入（不影響呼叫端 `Depends(get_current_user)` 介面）；
+    成功取得 user 後寫入 `request.state.user`，供 AuditLoggingMiddleware 取 user_id。
     """
     if not authorization.startswith("Bearer "):
         raise UnauthorizedException(message="errors.invalid_auth_header")
@@ -108,6 +112,10 @@ async def get_current_user(
 
     if not user.is_active:
         raise ForbiddenException(message="errors.account_disabled")
+
+    # 供 AuditLoggingMiddleware._extract_user_id 取用（middleware 在 endpoint 之後執行，
+    # request.state 仍存活，故能讀到此處設定的 user）。
+    request.state.user = user
 
     return user
 

@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, require_role
-from app.core.exceptions import AppException
 from app.schemas.dashboard import (
     DashboardStatsResponse,
     MonthlySummaryResponse,
@@ -44,6 +43,14 @@ async def get_stats(
     """
     取得指定日期的統計摘要資料，用於儀表板首頁。
     預設為今日。醫師角色自動帶入自己的 ID，管理員可指定。
+
+    語意說明：
+    - sessions_today / completed / red_flags / pending_reviews
+      依 `date` 區間（當日 UTC）統計。
+    - average_duration_seconds 為該區間內「已完成」場次的平均時長
+      （ended/completed 與 started 之差），無資料時為 null。
+    - in_progress / waiting 為「即時」狀態快照（目前進行中 / 等待中），
+      刻意不受 `date` 區間限制，反映當下佇列狀況。
     """
     return await dashboard_service.get_stats(
         db,

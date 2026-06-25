@@ -88,6 +88,7 @@ class ComplaintReorderRequest(BaseModel):
 class ReorderResponse(BaseModel):
     """排序結果回應"""
     success: bool = True
+    reordered_count: int = 0
     message: str = "排序更新完成"
 
 

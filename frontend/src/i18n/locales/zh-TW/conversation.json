@@ -25,6 +25,23 @@
   "redFlag": {
     "more": "+{{count}} 項其他警示"
   },
+  "supervisor": {
+    "hintLabel": "接下來會問",
+    "missingLabel": "尚待了解：",
+    "degraded": "即時引導暫時無法使用，但您的問診仍照常進行。",
+    "hpi": {
+      "onset": "發生時間",
+      "location": "部位",
+      "duration": "持續時間",
+      "characteristics": "性質",
+      "severity": "嚴重程度",
+      "aggravating_factors": "加重因素",
+      "relieving_factors": "緩解因素",
+      "associated_symptoms": "伴隨症狀",
+      "timing": "時間規律",
+      "context": "情境"
+    }
+  },
   "error": {
     "loadFailed": "無法載入對話",
     "sessionInterrupted": "問診中斷，請重新開始",
@@ -37,5 +54,9 @@
   },
   "mockMessages": {
     "systemStart": "問診開始 — 主訴: {{complaint}}"
+  },
+  "connection": {
+    "reconnecting": "連線中斷，重新連線中…",
+    "retry": "重試"
   }
 }

@@ -77,7 +77,30 @@
       "viewReport": "SOAP レポートを表示",
       "enterConversation": "会話に入る",
       "conversationsTitle": "会話記録",
-      "conversationsEmpty": "会話記録はまだありません"
+      "conversationsEmpty": "会話記録はまだありません",
+      "actionsTitle": "セッション操作",
+      "actionsHint": "セッションを自分に割り当て、ステータスを変更、またはレポートを生成できます",
+      "assignedToMe": "このセッションはあなたに割り当てられています",
+      "assignToMe": "自分に割り当てる",
+      "assigning": "割り当て中...",
+      "assignSuccess": "セッションをあなたに割り当てました",
+      "assignError": "医師の割り当てに失敗しました。後でもう一度お試しください。",
+      "markCompleted": "完了にする",
+      "markCompletedTitle": "セッションを完了にする",
+      "markCompletedConfirm": "このセッションを完了にしますか？完了後にSOAPレポートを生成できます。",
+      "cancelSession": "セッションをキャンセル",
+      "cancelSessionTitle": "セッションをキャンセル",
+      "cancelSessionConfirm": "このセッションをキャンセルしますか？この操作は取り消せません。",
+      "statusCompletedSuccess": "セッションを完了にしました",
+      "statusCancelledSuccess": "セッションをキャンセルしました",
+      "statusUpdateError": "セッションのステータス更新に失敗しました。後でもう一度お試しください。",
+      "generateReport": "レポートを生成",
+      "generatingReport": "レポートを生成中...",
+      "generateReportSuccess": "レポートを生成しました",
+      "generateReportError": "レポートの生成に失敗しました。後でもう一度お試しください。",
+      "confirm": "確認",
+      "cancelAction": "キャンセル",
+      "processing": "処理中..."
     }
   }
 }

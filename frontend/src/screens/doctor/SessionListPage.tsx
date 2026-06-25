@@ -2,9 +2,10 @@
 // 問診場次列表頁
 // =============================================================================
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
+import { useDashboardWebSocket } from '../../hooks/useWebSocket';
 import StatusBadge from '../../components/medical/StatusBadge';
 import SearchBar from '../../components/form/SearchBar';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -29,6 +30,7 @@ const mockSessions: Session[] = [
 export default function SessionListPage() {
   const navigate = useLocalizedNavigate();
   const { t } = useTranslation('session');
+  const { on, off } = useDashboardWebSocket();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
@@ -44,28 +46,71 @@ export default function SessionListPage() {
     [t]
   );
 
-  useEffect(() => {
+  // 重新載入問診場次列表（供初次載入與儀表板 WS 事件即時刷新共用）。
+  // 篩選 / 搜尋為前端過濾，這裡固定抓取最新 50 筆即可。
+  const reloadSessions = useCallback(async () => {
     if (IS_MOCK) {
-      let filtered = mockSessions;
-      if (statusFilter) filtered = filtered.filter((s) => s.status === statusFilter);
-      if (searchQuery) filtered = filtered.filter((s) => s.patient?.name.includes(searchQuery) || s.chiefComplaintText?.includes(searchQuery));
-      setSessions(filtered);
+      setSessions(mockSessions);
       setIsLoading(false);
       return;
     }
-
-    async function load() {
-      try {
-        const response = await sessionsApi.getSessions({ limit: 50 });
-        setSessions(response.data);
-      } catch {
-        // 靜默
-      } finally {
-        setIsLoading(false);
-      }
+    try {
+      const response = await sessionsApi.getSessions({ limit: 50 });
+      setSessions(response.data);
+    } catch {
+      // 靜默
+    } finally {
+      setIsLoading(false);
     }
-    load();
-  }, [statusFilter, searchQuery]);
+  }, []);
+
+  useEffect(() => {
+    reloadSessions();
+  }, [reloadSessions]);
+
+  // H-8 / M-17：訂閱儀表板即時事件，影響佇列的事件（新場次 / 場次狀態變更 /
+  // 佇列更新 / 報告產生 / 連線初始快照）一律觸發重新載入，讓問診紀錄頁的佇列即時更新。
+  // 用 ref 包裝最新 reloadSessions，避免每次 render 重新註冊 WS 監聽。
+  const reloadRef = useRef(reloadSessions);
+  reloadRef.current = reloadSessions;
+
+  useEffect(() => {
+    if (IS_MOCK) return;
+    const handleRefresh = () => {
+      void reloadRef.current();
+    };
+    on('initial_state', handleRefresh);
+    on('queue_updated', handleRefresh);
+    on('session_created', handleRefresh);
+    on('session_status_changed', handleRefresh);
+    on('report_generated', handleRefresh);
+
+    return () => {
+      off('initial_state');
+      off('queue_updated');
+      off('session_created');
+      off('session_status_changed');
+      off('report_generated');
+    };
+  }, [on, off]);
+
+  // 狀態 / 搜尋為前端過濾（資料一律抓最新 50 筆後在前端篩選），
+  // 與既有 mock 行為一致，且讓 WS 即時刷新後仍套用目前篩選條件。
+  const visibleSessions = useMemo(() => {
+    let filtered = sessions;
+    if (statusFilter) {
+      filtered = filtered.filter((s) => s.status === statusFilter);
+    }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter((s) => {
+        const name = (s.patientName ?? s.patient?.name ?? '').toLowerCase();
+        const complaint = (s.chiefComplaintText ?? '').toLowerCase();
+        return name.includes(q) || complaint.includes(q);
+      });
+    }
+    return filtered;
+  }, [sessions, statusFilter, searchQuery]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -96,11 +141,11 @@ export default function SessionListPage() {
       {/* 列表 */}
       {isLoading ? (
         <LoadingSpinner fullPage />
-      ) : sessions.length === 0 ? (
+      ) : visibleSessions.length === 0 ? (
         <EmptyState title={t('doctor.list.emptyTitle')} message={t('doctor.list.emptyMessage')} />
       ) : (
         <div className="space-y-2">
-          {sessions.map((session) => (
+          {visibleSessions.map((session) => (
             <div
               key={session.id}
               className={`card card-interactive flex items-center gap-4 ${

@@ -133,5 +133,21 @@
     "abdomen": "腹部",
     "costovertebral": "肋骨脊柱角",
     "genitourinary": "泌尿生殖器"
+  },
+  "export": {
+    "button": "PDFを書き出す",
+    "loading": "書き出し中...",
+    "success": "PDFのダウンロードを開始しました",
+    "error": "PDFの書き出しに失敗しました。後でもう一度お試しください。"
+  },
+  "regenerate": {
+    "button": "再生成",
+    "loading": "再生成中...",
+    "title": "レポートを再生成",
+    "description": "再生成すると、最新の文字起こしでAI分析を再実行し、既存のSOAPレポートを上書きします。この操作は取り消せません。続行しますか？",
+    "cancel": "キャンセル",
+    "confirm": "再生成を確認",
+    "success": "レポートを再生成しました",
+    "error": "レポートの再生成に失敗しました。後でもう一度お試しください。"
   }
 }

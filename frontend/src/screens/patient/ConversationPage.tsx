@@ -9,7 +9,12 @@ import { useLocalizedNavigate } from '../../i18n/paths';
 import ChatBubble from '../../components/chat/ChatBubble';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import StatusBadge from '../../components/medical/StatusBadge';
-import { useConversationStore, conversationToMessage } from '../../stores/conversationStore';
+import {
+  useConversationStore,
+  conversationToMessage,
+  normalizeSupervisorGuidance,
+} from '../../stores/conversationStore';
+import type { SupervisorGuidancePayload } from '../../stores/conversationStore';
 import { useConversationWebSocket } from '../../hooks/useWebSocket';
 import { useAudioStream } from '../../hooks/useAudioStream';
 import * as sessionsApi from '../../services/api/sessions';
@@ -17,14 +22,12 @@ import { formatDuration } from '../../utils/format';
 import type { SessionStatus } from '../../types/enums';
 import type { Session } from '../../types';
 import type {
-  STTPartialPayload,
   STTFinalPayload,
   AIResponseStartPayload,
   AIResponseChunkPayload,
   AIResponseEndPayload,
   RedFlagAlertPayload,
   SessionStatusPayload,
-  TtsFailedPayload,
 } from '../../types/websocket';
 
 /** Fix 20：首次進入對話頁的 onboarding 提示 localStorage 鍵 */
@@ -68,6 +71,8 @@ export default function ConversationPage() {
     recordingDuration,
     waveformData,
     activeRedFlags,
+    supervisorGuidance,
+    supervisorDegraded,
     error,
     setCurrentSession,
     addConversation,
@@ -78,18 +83,31 @@ export default function ConversationPage() {
     finalizeAIResponse,
     addRedFlag,
     acknowledgeRedFlag,
+    setSupervisorGuidance,
+    setSupervisorDegraded,
     setError,
     resetSession,
     markMessageTtsFailed,
     appendTtsAudioChunk,
   } = useConversationStore();
 
-  const { on, off, send } = useConversationWebSocket(sessionId ?? null);
+  const { on, off, send, retry, connectionState } = useConversationWebSocket(sessionId ?? null);
+
+  // 是否曾經連線成功 — 用來區分「初次連線中（不警示）」與「斷線後重連中（要警示）」。
+  const hasConnectedRef = useRef(false);
+  if (connectionState === 'open') hasConnectedRef.current = true;
 
   // 根據 session 狀態自動啟動 VAD（in_progress / waiting 時才開麥克風）
   const isSessionActiveForMic =
     currentSession?.status === 'in_progress' || currentSession?.status === 'waiting';
   const { muteVAD, unmuteVAD, enableBargeIn } = useAudioStream(isSessionActiveForMic);
+
+  // 連線中斷／重連中 → 顯示非警示性持續橫幅（病患不會對著死連線講話）。
+  // 條件：曾經連上過（排除初次載入中），且場次仍進行中（排除結束導向時的 disconnect）。
+  const isConnectionDown =
+    hasConnectedRef.current &&
+    isSessionActiveForMic &&
+    (connectionState === 'reconnecting' || connectionState === 'closed');
 
   /** 立即停止目前正在播放的 TTS（用於使用者打斷 AI） */
   const stopActiveTTS = useCallback(() => {
@@ -328,13 +346,7 @@ export default function ConversationPage() {
 
   // WebSocket 事件處理
   useEffect(() => {
-    // STT 中間結果
-    on('stt_partial', (payload) => {
-      const data = payload as STTPartialPayload;
-      updateSTTPartial(data.text);
-    });
-
-    // STT 最終結果
+    // STT 最終結果（後端僅送 stt_final，無 stt_partial）
     on('stt_final', (payload) => {
       const data = payload as STTFinalPayload;
       updateSTTPartial('');
@@ -387,12 +399,6 @@ export default function ConversationPage() {
       }
     });
 
-    // Fix 16 Option A：獨立的 tts_failed 事件
-    on('tts_failed', (payload) => {
-      const data = payload as TtsFailedPayload;
-      markMessageTtsFailedHelper(data.messageId);
-    });
-
     // AI 回應結束（音訊已透過 ai_response_chunk 逐句送達，此處僅最終化文字）
     on('ai_response_end', (payload) => {
       const data = payload as AIResponseEndPayload;
@@ -421,6 +427,17 @@ export default function ConversationPage() {
         suggestedActions: data.suggestedActions,
         isAcknowledged: false,
       });
+    });
+
+    // CONV-2：Supervisor 動態問診指導（後端 snake_case payload → 前端 camelCase）
+    on('supervisor_guidance', (payload) => {
+      const data = payload as SupervisorGuidancePayload;
+      setSupervisorGuidance(normalizeSupervisorGuidance(data));
+    });
+
+    // CONV-2：Supervisor 降級（逾時／不可用）→ 設旗標，UI 顯示非警示性提示
+    on('supervisor_degraded', () => {
+      setSupervisorDegraded(true);
     });
 
     // WebSocket 連線確認 → 更新場次狀態為進行中
@@ -470,32 +487,27 @@ export default function ConversationPage() {
       unmuteVAD();
     });
 
-    // WebSocket 連線狀態
+    // WebSocket 連線狀態：透過頂部非警示性「重連中」橫幅呈現（見下方 isConnectionDown），
+    // 不再灌入 error（保留給真正的對話／場次錯誤）。此處僅控制斷線期間暫停收音。
     on('_disconnected', () => {
-      setError(t('conversation:error.disconnected'));
-      muteVAD(); // 斷線期間暫停收音
-    });
-    on('_reconnecting', () => {
-      setError(t('conversation:error.disconnected'));
+      muteVAD(); // 斷線期間暫停收音，避免對著死連線講話
     });
     on('_connected', () => {
-      setError(null);
-      unmuteVAD();
+      unmuteVAD(); // 重連成功 → 恢復收音
     });
 
     return () => {
       off('connection_ack');
-      off('stt_partial');
       off('stt_final');
       off('ai_response_start');
       off('ai_response_chunk');
       off('ai_response_end');
-      off('tts_failed');
       off('red_flag_alert');
+      off('supervisor_guidance');
+      off('supervisor_degraded');
       off('session_status');
       off('error');
       off('_disconnected');
-      off('_reconnecting');
       off('_connected');
     };
   }, [sessionId, currentSession]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -657,10 +669,85 @@ export default function ConversationPage() {
         </div>
       )}
 
+      {/* 連線中斷／重連中橫幅（非警示性，持續顯示直到重連成功；附手動重試） */}
+      {isConnectionDown && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center justify-between gap-3 border-b border-amber-300 bg-amber-50 px-4 py-2 text-small text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className="h-3.5 w-3.5 flex-shrink-0 animate-spin rounded-full border-2 border-amber-400 border-t-transparent dark:border-amber-500 dark:border-t-transparent"
+              aria-hidden="true"
+            />
+            <span className="truncate">
+              {t('conversation:connection.reconnecting', '連線中斷，重新連線中…')}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={retry}
+            className="flex-shrink-0 rounded-btn bg-amber-100 px-3 py-1 text-caption font-medium text-amber-900 hover:bg-amber-200 transition-colors dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/60"
+          >
+            {t('conversation:connection.retry', '重試')}
+          </button>
+        </div>
+      )}
+
       {/* 錯誤訊息 */}
       {error && (
         <div className="border-b border-alert-critical-border bg-alert-critical-bg px-4 py-2 text-body text-alert-critical-text">
           {error}
+        </div>
+      )}
+
+      {/* CONV-2：Supervisor 降級提示（非警示性，僅告知問診仍照常進行） */}
+      {supervisorDegraded && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 border-b border-edge bg-surface-secondary px-4 py-2 text-small text-ink-secondary dark:bg-dark-card dark:border-dark-border dark:text-slate-300"
+        >
+          <svg className="h-4 w-4 flex-shrink-0 text-ink-placeholder" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>{t('conversation:supervisor.degraded')}</span>
+        </div>
+      )}
+
+      {/* CONV-2：Supervisor 動態問診指導（輕量提示，僅在有正常指導時顯示） */}
+      {supervisorGuidance && !supervisorGuidance.fallback && supervisorGuidance.nextFocus && (
+        <div className="flex flex-col gap-1.5 border-b border-edge bg-primary-50/60 px-4 py-2 dark:bg-primary-950/30 dark:border-dark-border">
+          <div className="flex items-start gap-2">
+            <svg className="h-4 w-4 flex-shrink-0 mt-0.5 text-primary-500 dark:text-primary-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+            <p className="text-small text-ink-secondary dark:text-slate-300">
+              <span className="font-medium text-ink-heading dark:text-slate-100">
+                {t('conversation:supervisor.hintLabel')}
+              </span>
+              <span className="mx-1">·</span>
+              {supervisorGuidance.nextFocus}
+            </p>
+          </div>
+          {supervisorGuidance.missingHpi.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pl-6">
+              <span className="text-tiny text-ink-placeholder dark:text-slate-400">
+                {t('conversation:supervisor.missingLabel')}
+              </span>
+              {supervisorGuidance.missingHpi.map((dim) => (
+                <span
+                  key={dim}
+                  className="rounded-full bg-white/70 px-2 py-0.5 text-tiny text-ink-secondary dark:bg-black/20 dark:text-slate-300"
+                >
+                  {t(`conversation:supervisor.hpi.${dim}`, {
+                    defaultValue: dim,
+                  })}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

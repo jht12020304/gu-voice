@@ -11,14 +11,11 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, require_role
-from app.core.exceptions import AppException
 from app.schemas.report import (
     GenerateReportRequest,
-    GenerateReportResponse,
     ReportDetail,
     ReportListResponse,
     ReviewReportRequest,
-    ReviewReportResponse,
     SOAPReportRevisionListResponse,
     SOAPReportRevisionResponse,
 )
@@ -92,7 +89,7 @@ async def get_report(
 
 @router.post(
     "/api/v1/sessions/{session_id}/reports/generate",
-    response_model=GenerateReportResponse,
+    response_model=ReportDetail,
     status_code=status.HTTP_202_ACCEPTED,
     summary="觸發 SOAP 報告生成",
     dependencies=[Depends(require_role("doctor", "admin"))],
@@ -102,10 +99,13 @@ async def generate_report(
     payload: GenerateReportRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
-) -> GenerateReportResponse:
+) -> ReportDetail:
     """
     依指定場次的對話記錄，觸發 AI 生成 SOAP 格式報告。
     場次必須處於 completed 狀態。生成為非同步作業。
+
+    回傳剛建立／重置的 SOAPReport（status=generating），前端 reportStore
+    以完整 SOAPReport 結構消費。
     """
     regenerate = payload.regenerate if payload else False
     additional_notes = payload.additional_notes if payload else None
@@ -122,7 +122,7 @@ async def generate_report(
 
 @router.put(
     "/api/v1/reports/{report_id}/review",
-    response_model=ReviewReportResponse,
+    response_model=ReportDetail,
     status_code=status.HTTP_200_OK,
     summary="審閱報告",
     dependencies=[Depends(require_role("doctor", "admin"))],
@@ -132,8 +132,11 @@ async def review_report(
     payload: ReviewReportRequest,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
-) -> ReviewReportResponse:
-    """醫師審閱 SOAP 報告，可核准 (approved) 或標記需修訂 (revision_needed)。"""
+) -> ReportDetail:
+    """醫師審閱 SOAP 報告，可核准 (approved) 或標記需修訂 (revision_needed)。
+
+    回傳審閱後的完整 SOAPReport，前端 reportStore 以完整 SOAPReport 結構消費。
+    """
     return await report_service.review_report(
         db,
         report_id=report_id,
@@ -141,6 +144,7 @@ async def review_report(
         review_notes=payload.review_notes,
         soap_overrides=payload.soap_overrides,
         reviewed_by=current_user.id,
+        current_user=current_user,
     )
 
 
@@ -199,6 +203,7 @@ async def export_report_pdf(
         report_id=report_id,
         include_transcript=include_transcript,
         language=language,
+        current_user=current_user,
     )
     return StreamingResponse(
         content=iter([pdf_bytes]),
