@@ -5,6 +5,7 @@
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -22,7 +23,17 @@ _connect_args: dict = {}
 # `*.supabase.co` —— 早期判斷只比 "supabase.co" 會漏掉 pooler，導致在 Railway
 # 生產環境上 DuplicatePreparedStatementError。這裡改比對較寬：只要 host 含
 # "supabase" 或 "pooler"（任何透過 PgBouncer 連上 Postgres 的情境）都算。
-_db_host = (settings.DB_HOST or "").lower()
+#
+# 關鍵修正：偵測必須看「實際連線用的 host」。當以完整 DATABASE_URL 注入時
+# （Railway / Supabase 雲端常態），settings.DB_HOST 仍是預設 "localhost"，
+# 只看它會誤判 _is_supabase=False 而讓整套 PgBouncer mitigation 失效。改為
+# 優先從 ASYNC_DATABASE_URL 解析 host，再 fallback 至 DB_HOST 元件。
+_async_url = settings.ASYNC_DATABASE_URL
+try:
+    _url_host = (urlparse(_async_url).hostname or "").lower()
+except Exception:
+    _url_host = ""
+_db_host = _url_host or (settings.DB_HOST or "").lower()
 _is_supabase = ("supabase" in _db_host) or ("pooler" in _db_host)
 
 if _is_supabase:
@@ -45,7 +56,7 @@ if _is_supabase:
 # SQLAlchemy asyncpg dialect 自己還有一層 prepared statement cache，
 # 這個是 *dialect* 參數，只能透過 URL query string 注入
 # （不是 create_async_engine kwarg，也不是 connect_args）
-_async_url = settings.ASYNC_DATABASE_URL
+# 注意：_async_url 已於檔案上方定義（供 host 偵測用），此處只在需要時附加 query。
 if _is_supabase:
     sep = "&" if "?" in _async_url else "?"
     _async_url = f"{_async_url}{sep}prepared_statement_cache_size=0"

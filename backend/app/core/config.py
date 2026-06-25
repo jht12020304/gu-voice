@@ -8,12 +8,13 @@
   Railway env vars 常以字面 `\\n` 傳入 PEM，這裡會自動還原成真換行。
 """
 
+import json
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
-from typing import Optional
+from typing import Annotated, Optional
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 def _to_sync_db_url(url: str) -> str:
@@ -242,7 +243,9 @@ class Settings(BaseSettings):
     # 預設採全量上線；需緊急降級時覆寫 env 為 False / 0 / "zh-TW,en-US"。
     MULTILANG_GLOBAL_ENABLED: bool = True
     MULTILANG_ROLLOUT_PERCENT: int = 100  # 0-100，user_id md5 % 100 決定 bucket
-    MULTILANG_DISABLED_LANGUAGES: list[str] = []  # 緊急 kill-switch（逗號分隔）
+    # NoDecode：阻止 pydantic-settings 在 source 層對 env 值做 json.loads，
+    # 改由下方 field_validator(mode="before") 接手解析逗號分隔字串。
+    MULTILANG_DISABLED_LANGUAGES: Annotated[list[str], NoDecode] = []  # 緊急 kill-switch（逗號分隔）
 
     # TODO-M8：紅旗 semantic-only 比率閾值。
     # 一個 session 的紅旗命中若 semantic_only / total > threshold → report 將
@@ -320,7 +323,10 @@ class Settings(BaseSettings):
     REFRESH_COOKIE_PATH: str = "/api/v1/auth"
 
     # ── CORS ────────────────────────────────────────────
-    CORS_ORIGINS: list[str] = [
+    # NoDecode：見 MULTILANG_DISABLED_LANGUAGES 說明。Railway 常以逗號分隔字串
+    # 注入（如 "https://a.com,https://b.com"），若交給 source 層 json.loads 會
+    # 直接 SettingsError 導致容器啟動即崩潰，故跳過解碼改由 validator 處理。
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = [
         "http://localhost:3000",
         "http://localhost:5173",
     ]
@@ -328,9 +334,12 @@ class Settings(BaseSettings):
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: object) -> list[str]:
-        """支援逗號分隔字串或 JSON 陣列"""
+        """支援逗號分隔字串或 JSON 陣列；兩種格式皆不會讓啟動崩潰。"""
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
+            s = v.strip()
+            if s.startswith("["):  # 容忍 JSON 陣列格式
+                return json.loads(s)
+            return [origin.strip() for origin in s.split(",") if origin.strip()]
         return v  # type: ignore[return-value]
 
     @field_validator("MULTILANG_DISABLED_LANGUAGES", mode="before")
