@@ -3282,6 +3282,13 @@ log_pooler_errors = 1
 stats_period = 60
 ```
 
+> **Pool mode 與 asyncpg prepared statement 注意事項：**
+> 上述自管 PgBouncer 採 `pool_mode = transaction`。在 transaction mode 下，asyncpg 的 prepared statement（含 JSONB codec 型別 introspection 自動產生的）會跨 backend 失效，造成特定端點 500，錯誤訊息為 `prepared statement "__asyncpg_stmt_*__" does not exist`。自管環境的緩解方式為於應用層停用 statement cache（asyncpg `statement_cache_size=0` 或 SQLAlchemy 對應設定）。
+>
+> **託管 pooler（Supabase，正式環境實際採用）：**
+> 常駐後端容器（Railway）請改用 **session-mode pooler（port 5432）**，**勿用 transaction-mode（port 6543）**；session-mode 每個 client 連線對應專屬 backend，prepared statement 可持久。代價是 session pooler 連線數有限，故正式環境連線池要調小：`DB_POOL_SIZE=5` / `DB_MAX_OVERFLOW=5`（覆寫 11.2 表中自管情境的 20/20）。
+> - 偵測邏輯（`app/core/database.py`）以 `ASYNC_DATABASE_URL` 解析出的 host 判斷是否為 Supabase pooler；切勿只看 `DB_HOST`——以完整 `DATABASE_URL`/`ASYNC_DATABASE_URL` 注入時 `DB_HOST` 仍會是預設 `localhost`，會導致此 mitigation 全失效。
+
 #### 9.2.4 Redis 連線池建議
 
 | 階段 | `REDIS_MAX_CONNECTIONS` | 說明 |
@@ -3788,8 +3795,13 @@ celery -A app.worker.app worker --loglevel=debug --autoreload
 | `WS_MAX_CONNECTIONS` | int | `500` | 否 | 單一 gateway 最大 WebSocket 連線數 |
 | `WS_HEARTBEAT_INTERVAL` | int | `30` | 否 | WebSocket heartbeat 間隔（秒） |
 | `WS_MESSAGE_MAX_SIZE` | int | `1048576` | 否 | WebSocket 單一訊息最大大小（bytes, 預設 1MB） |
-| `CORS_ORIGINS` | string | `*` | 是 (prod) | 允許的 CORS origins，逗號分隔 |
+| `CORS_ORIGINS` | string | `*` | 是 (prod) | 允許的 CORS origins，支援逗號分隔或 JSON 陣列（見下方注意事項） |
 | `TRUSTED_HOSTS` | string | `*` | 是 (prod) | 信任的 hosts，逗號分隔 |
+
+> **CORS_ORIGINS / 清單型環境變數格式 (pydantic-settings v2 gotcha)：**
+> pydantic-settings v2 對 `list[str]` 欄位會在 source 層先執行 `json.loads()`。若直接以**逗號分隔字串**注入（如 `https://a.com,https://b.com`），未經處理會丟出 `SettingsError`，導致容器一啟動就 crash、healthcheck 永遠失敗（在 Railway / K8s 上會顯示為服務 offline）。
+> - 現行 code（`app/core/config.py`）已對 `CORS_ORIGINS` 與 `MULTILANG_DISABLED_LANGUAGES` 加上 `Annotated[list[str], NoDecode]`，讓 `field_validator` 接到原始字串，**同時容忍「逗號分隔」與「JSON 陣列」兩種格式**。
+> - 若部署的是**舊版 code**（無此修正），`CORS_ORIGINS` 必須是**合法 JSON 陣列**（如 `["https://a.com","https://b.com"]`），否則容器啟動即失敗。
 
 #### Database Config (資料庫設定)
 

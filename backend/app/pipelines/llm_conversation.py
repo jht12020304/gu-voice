@@ -188,6 +188,7 @@ class LLMConversationEngine:
         system_prompt: str,
         supervisor_guidance: dict[str, Any] | None = None,
         language: str | None = None,
+        conclude: bool = False,
     ) -> list[dict[str, str]]:
         """
         將對話歷史格式化為 OpenAI Chat Completions API 的訊息格式
@@ -197,6 +198,8 @@ class LLMConversationEngine:
             system_prompt: 系統提示詞
             supervisor_guidance: 來自 Supervisor 的動態指導
             language: 場次語言（BCP-47），用來選擇 Supervisor 指導段的區段標題。
+            conclude: 本輪是否要收尾（HPI 達標或回合硬上限）。True 時附加收尾指示，
+                      讓 LLM 講結束語、不再發問；之後 handler 會自動完成場次。
 
         Returns:
             格式化後的訊息列表
@@ -210,6 +213,10 @@ class LLMConversationEngine:
                     "llm.supervisor_guidance_section", language
                 )
                 final_system_prompt += f"\n\n{section_title}\n{next_focus}"
+
+        # 收尾指示放在最後（覆蓋前面 Supervisor 的 next_focus），確保本輪不再發問。
+        if conclude:
+            final_system_prompt += _i18n_get("llm.conversation_wrap_up_rule", language)
 
         messages: list[dict[str, str]] = [
             {"role": "system", "content": final_system_prompt}

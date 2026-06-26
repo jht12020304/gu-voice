@@ -101,7 +101,11 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
 
   const handleSelect = (lng: SupportedLanguage) => {
     setOpen(false);
-    if (lng === language) return;
+    // 同語言點擊仍修一次 URL：防止 URL 與目前 UI 語言 drift（syncUrlLng 內含 path 比對，已同步則 no-op）。
+    if (lng === language) {
+      syncUrlLng(lng);
+      return;
+    }
 
     // M16：進行中場次需先 end session
     if (currentSession && isActiveSessionStatus(currentSession.status)) {

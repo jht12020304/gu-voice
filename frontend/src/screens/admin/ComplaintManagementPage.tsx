@@ -10,7 +10,7 @@ import * as complaintsApi from '../../services/api/complaints';
 import type { ChiefComplaint } from '../../types';
 
 export default function ComplaintManagementPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [searchTerm, setSearchTerm] = useState('');
   const [complaints, setComplaints] = useState<ChiefComplaint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -42,9 +42,12 @@ export default function ComplaintManagementPage() {
     }
   };
 
+  // 依 i18n.resolvedLanguage 重抓：主訴 name / category / description 由後端依 Accept-Language 在地化，
+  // 切換 UI 語言時須 refetch，否則表格停留在 mount 當下的語言。
   useEffect(() => {
     loadComplaints();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [i18n.resolvedLanguage]);
 
   const filteredComplaints = useMemo(() => {
     if (!searchTerm.trim()) return complaints;

@@ -131,8 +131,39 @@
 ### 3.5.3 絕對紅線（不可違反）
 - ❌ **禁止** 在對話進行到一半「偷偷」把 STT/TTS 換語言 — 轉錄會錯亂，醫療風險
 - ❌ **禁止** 歷史 SOAP 報告隨 UI 切換自動翻譯 — 病歷不可竄改（M15）
+- ❌ **禁止** 後端在地化資料（症狀卡 chief_complaints / 紅旗標題）與介面語言不一致 — 例如「繁中介面卻顯示英文症狀卡」（2026-06-26 實測 bug），見 3.5.4 不變式
 - ✅ **必須** 切換按鈕在 4 秒內完成 UI 文字置換（可感知即時）
 - ✅ **必須** 已登入使用者切換 → 同步寫 `user.preferred_language`（跨裝置一致）
+
+### 3.5.4 語言一致性不變式（實作守則 — 2026-06-26 補）
+
+> 背景：實測發現「繁中介面卻顯示英文症狀卡」的 bug。根因是語言有三個來源會 desync
+> （URL `/:lng/` 前綴、i18n/localStorage、`user.preferred_language`），而後端在地化資料的
+> `Accept-Language` 讀 **URL**、UI 文字讀 **i18n**。下列不變式確保兩者永遠一致：
+
+1. **URL `/:lng/*` 是語言的唯一權威。** i18n 一律是 URL 的下游：`LanguageLayout` 的 effect 只做
+   URL → `i18n.changeLanguage`，且 i18n 永遠在 URL 之後才變。
+2. **任何改變語言的路徑都必須改 URL，禁止只寫 i18n。**
+   - `user.preferred_language` 在登入 / 還原 session 後，由 `LanguageLayout` 以 **one-shot 導向 URL**
+     方式套用（`navigate(buildSwitchedPath(..., preferred))`），再由 (1) 同步 i18n。
+     ❌ 不可在 `authStore` 直接 `i18n.changeLanguage(preferred)`（URL 會留在舊語系 → desync）。
+   - one-shot guard 須在「已導到目標語系」後才落定，避免與登入後其他 redirect 競爭而提前消耗。
+   - 落定後不再校正，確保手動切換不被偏好硬拉回（`persistPreference` 寫入可能 silently fail）。
+3. **`client.ts` 的 `Accept-Language` 刻意 URL-first（`getLangFromUrl() || i18n…`），不可改成 i18n-first。**
+   深連 / 硬重整非預設語系 URL 時，i18n 在 namespace 載入空窗會短暫落後 URL；改 i18n-first 會讓
+   不 refetch 的頁面（如 AlertListPage）永久顯示「正確 UI 語言 + 錯誤語言資料」的反向 bug。
+   在 (1)(2) 成立下，fetch 當下 `getLangFromUrl()` 永遠 === i18n。
+4. **渲染「後端依 Accept-Language 在地化」資料的頁面，必須在 `i18n.resolvedLanguage` 變動時 refetch。**
+   - request-localized（每次依 header 解析）：chief_complaints（`GET /complaints`）、紅旗
+     title/triggerReason/suggestedActions（`GET /alerts`）、dashboard 月份 / 分類 label。
+   - 範式：`useEffect(() => { fetch(); }, [..., i18n.resolvedLanguage])`（見 `SelectComplaintPage`）。
+     ⚠️ 別依賴 react-i18next「`t` identity 在 languageChanged 會變」的隱性 side effect 當觸發，用顯式 `resolvedLanguage` 依賴。
+   - generation-time-fixed 資料（SOAP 報告、Notification title/body）不適用：內容生成時即固定，切語言不重譯（呼應 M15 病歷不可竄改）。
+
+**已修檔案（2026-06-26）**：`stores/authStore.ts`（移除直寫 i18n 的 applyPreferredLanguage）、
+`components/layout/LanguageLayout.tsx`（偏好走 URL 的 one-shot redirect）、
+`components/common/LanguageSwitcher.tsx`（同語言點擊仍修 URL）、
+`screens/doctor/AlertListPage.tsx` 與 `screens/admin/ComplaintManagementPage.tsx`（補 `resolvedLanguage` refetch 依賴）。
 
 ---
 

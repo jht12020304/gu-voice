@@ -8,12 +8,13 @@
   Railway env vars 常以字面 `\\n` 傳入 PEM，這裡會自動還原成真換行。
 """
 
+import json
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
-from typing import Optional
+from typing import Annotated, Optional
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 def _to_sync_db_url(url: str) -> str:
@@ -242,7 +243,9 @@ class Settings(BaseSettings):
     # 預設採全量上線；需緊急降級時覆寫 env 為 False / 0 / "zh-TW,en-US"。
     MULTILANG_GLOBAL_ENABLED: bool = True
     MULTILANG_ROLLOUT_PERCENT: int = 100  # 0-100，user_id md5 % 100 決定 bucket
-    MULTILANG_DISABLED_LANGUAGES: list[str] = []  # 緊急 kill-switch（逗號分隔）
+    # NoDecode：阻止 pydantic-settings 在 source 層對 env 值做 json.loads，
+    # 改由下方 field_validator(mode="before") 接手解析逗號分隔字串。
+    MULTILANG_DISABLED_LANGUAGES: Annotated[list[str], NoDecode] = []  # 緊急 kill-switch（逗號分隔）
 
     # TODO-M8：紅旗 semantic-only 比率閾值。
     # 一個 session 的紅旗命中若 semantic_only / total > threshold → report 將
@@ -267,6 +270,17 @@ class Settings(BaseSettings):
     SESSION_IDLE_CHECK_INTERVAL_SECONDS: int = 30           # 閒置檢查間隔
     AUDIO_MAX_DURATION_SECONDS: int = 600                   # 10 分鐘單段音訊上限
     AUDIO_SAMPLE_RATE_HZ: int = 16000                       # 16kHz mono（與前端一致）
+
+    # ── 問診自動結束（避免無止盡發問，病患等不到結果） ───
+    # 兩條獨立的收尾路徑，皆受 ENABLED 總開關控制（出事可一鍵關回純手動）：
+    #   1) 軟門檻：Supervisor 判定 HPI 完整度 >= THRESHOLD 且已問滿最低題數 → 收尾。
+    #   2) 硬上限 backstop：病患回合數 >= HARD_CAP 即強制收尾，「不依賴」Supervisor
+    #      （Supervisor 逾時/降級寫 fallback hpi=0 時軟門檻永不觸發，硬上限才是保命線，
+    #      也正是「測到第 15 題還沒結果」的真正修補）。
+    HPI_COMPLETION_TERMINATION_ENABLED: bool = True         # 自動結束總開關
+    HPI_COMPLETION_TERMINATION_THRESHOLD: int = 85          # 0-100；HPI 完整度達此值即可收尾
+    MIN_PATIENT_TURNS_BEFORE_AUTO_END: int = 4              # 軟門檻最低回合，防 Supervisor 過早判定
+    MAX_PATIENT_TURNS_HARD_CAP: int = 15                    # 病患回合硬上限，無論 Supervisor 狀態都收尾
 
     # ── TTS (OpenAI TTS) ─────────────────────────────────
     OPENAI_TTS_MODEL: str = "tts-1"      # tts-1（快速）或 tts-1-hd（高品質）
@@ -320,7 +334,10 @@ class Settings(BaseSettings):
     REFRESH_COOKIE_PATH: str = "/api/v1/auth"
 
     # ── CORS ────────────────────────────────────────────
-    CORS_ORIGINS: list[str] = [
+    # NoDecode：見 MULTILANG_DISABLED_LANGUAGES 說明。Railway 常以逗號分隔字串
+    # 注入（如 "https://a.com,https://b.com"），若交給 source 層 json.loads 會
+    # 直接 SettingsError 導致容器啟動即崩潰，故跳過解碼改由 validator 處理。
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = [
         "http://localhost:3000",
         "http://localhost:5173",
     ]
@@ -328,9 +345,12 @@ class Settings(BaseSettings):
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: object) -> list[str]:
-        """支援逗號分隔字串或 JSON 陣列"""
+        """支援逗號分隔字串或 JSON 陣列；兩種格式皆不會讓啟動崩潰。"""
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
+            s = v.strip()
+            if s.startswith("["):  # 容忍 JSON 陣列格式
+                return json.loads(s)
+            return [origin.strip() for origin in s.split(",") if origin.strip()]
         return v  # type: ignore[return-value]
 
     @field_validator("MULTILANG_DISABLED_LANGUAGES", mode="before")

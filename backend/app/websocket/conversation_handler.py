@@ -245,6 +245,51 @@ def _split_completed_sentences(buffer: str) -> tuple[list[str], str]:
     return completed, remainder
 
 
+def _coerce_hpi_pct(value: Any) -> float | None:
+    """把 Supervisor 的 hpi_completion_percentage 強制轉成數值。
+
+    LLM 走 json_object 時偶爾把百分比輸出成字串（"85"）；不轉型會讓軟門檻永遠不
+    觸發、只剩硬上限收尾，等於默默廢掉自動結束的核心。bool 是 int 子類，需排除。
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except (ValueError, AttributeError):
+            return None
+    return None
+
+
+def _should_auto_conclude(
+    supervisor_guidance: Any,
+    patient_turns: int,
+    settings: Settings,
+) -> bool:
+    """是否該自動結束問診（純函式，便於單元測試）。
+
+    兩條獨立路徑、皆受 ENABLED 總開關控制：
+      - 軟門檻：Supervisor HPI 完整度 >= THRESHOLD 且病患回合 >= MIN（且該指導非
+        fallback 佔位 — 降級時 hpi 不可信）。
+      - 硬上限：病患回合 >= HARD_CAP，不依賴 Supervisor（降級時的保命線）。
+    紅旗/drain/compare-and-set 等 turn-state 守衛留在呼叫端，不在此函式。
+    """
+    if not getattr(settings, "HPI_COMPLETION_TERMINATION_ENABLED", True):
+        return False
+    hpi_pct: float | None = None
+    if isinstance(supervisor_guidance, dict) and not supervisor_guidance.get("fallback"):
+        hpi_pct = _coerce_hpi_pct(supervisor_guidance.get("hpi_completion_percentage"))
+    soft_ready = (
+        hpi_pct is not None
+        and hpi_pct >= getattr(settings, "HPI_COMPLETION_TERMINATION_THRESHOLD", 85)
+        and patient_turns >= getattr(settings, "MIN_PATIENT_TURNS_BEFORE_AUTO_END", 4)
+    )
+    hard_ready = patient_turns >= getattr(settings, "MAX_PATIENT_TURNS_HARD_CAP", 15)
+    return bool(soft_ready or hard_ready)
+
+
 async def conversation_websocket(
     websocket: WebSocket,
     session_id: str,
@@ -576,7 +621,7 @@ async def conversation_websocket(
 
             # ── 音訊片段處理 ───────────────────────────
             if msg_type == "audio_chunk":
-                await _handle_audio_chunk(
+                ended = await _handle_audio_chunk(
                     session_id=session_id,
                     payload=msg_payload,
                     audio_buffer=audio_buffer,
@@ -593,6 +638,10 @@ async def conversation_websocket(
                     db=db,
                     settings=settings,
                 )
+                # 本輪 HPI 達標 / 回合達上限 → 場次已自動結束，結束主迴圈走 finally 清理
+                # （取消閒置看門狗、斷線、存歷史），與 end_session 控制指令同路徑。
+                if ended:
+                    break
                 continue
 
             # ── 未知訊息類型 ───────────────────────────
@@ -781,7 +830,7 @@ async def _handle_audio_chunk(
     redis: Redis,
     db: AsyncSession,
     settings: Settings,
-) -> None:
+) -> bool:
     """
     處理音訊片段：累積 base64 chunks → 收到 isFinal=true 時呼叫 Whisper → LLM → TTS
 
@@ -818,7 +867,7 @@ async def _handle_audio_chunk(
                 params={},
                 severity="error",
             )
-            return
+            return False
 
         # 時長 / 大小上限檢查（DoS hardening）
         if audio_buffer_total_bytes[0] > max_total_bytes:
@@ -836,17 +885,17 @@ async def _handle_audio_chunk(
                 params={"maxSeconds": int(max_seconds)},
                 severity="warning",
             )
-            return
+            return False
 
     # 尚未收到結束標記，繼續等待
     if not is_final:
-        return
+        return False
 
     # 收到 isFinal=true：準備轉錄
     if not audio_buffer:
         logger.debug("音訊緩衝區為空，略過 STT | session=%s", session_id)
         audio_buffer_total_bytes[0] = 0
-        return
+        return False
 
     # 合併所有片段
     complete_audio = b"".join(audio_buffer)
@@ -867,7 +916,7 @@ async def _handle_audio_chunk(
             params={},
             severity="error",
         )
-        return
+        return False
 
     # ── LLM per-user rate limit（P2 #14）──────────────────
     # 到這裡代表「一輪對話」即將啟動（STT → LLM → TTS）。每輪算一次配額。
@@ -890,7 +939,7 @@ async def _handle_audio_chunk(
             },
             severity="warning",
         )
-        return
+        return False
 
     logger.info(
         "開始 STT 轉錄 | session=%s, total_bytes=%d",
@@ -936,11 +985,11 @@ async def _handle_audio_chunk(
             params={},
             severity="error",
         )
-        return
+        return False
 
-    # 若有最終辨識結果，進入 LLM 處理
+    # 若有最終辨識結果，進入 LLM 處理；回傳是否本輪後場次已自動結束。
     if final_text:
-        await _handle_text_message(
+        return await _handle_text_message(
             session_id=session_id,
             text=final_text,
             llm_engine=llm_engine,
@@ -954,6 +1003,8 @@ async def _handle_audio_chunk(
             db=db,
             settings=settings,
         )
+
+    return False
 
 
 # ── Supervisor 指導 WS 推播（CONV-2 / CONV-3） ───────────
@@ -1057,9 +1108,12 @@ async def _handle_text_message(
     redis: Redis,
     db: AsyncSession,
     settings: Settings,
-) -> None:
+) -> bool:
     """
     處理文字訊息：加入歷史 → LLM 回應 → TTS → 紅旗偵測
+
+    Returns:
+        bool: True 表示本輪後場次已自動結束（呼叫端應結束主迴圈）；否則 False。
 
     Args:
         session_id: 場次 ID
@@ -1102,12 +1156,26 @@ async def _handle_text_message(
     except Exception as exc:
         logger.warning("讀取 Supervisor 指導失敗 | session=%s, error=%s", session_id, str(exc))
 
+    # ── 是否本輪收尾（自動結束問診，避免無止盡發問）──────────────
+    # 用「上一輪」Supervisor 寫進 Redis 的 hpi_completion_percentage（同步讀取、
+    # 不和本輪 fire-and-forget 的 Supervisor 任務競態）。本輪剛收到的病患輸入仍會
+    # 完整跑完 LLM 與紅旗偵測後，才在函式尾端真正結束（見尾端結束區塊）。
+    #   - 軟門檻：HPI 完整度達標 + 已問滿最低題數（且該指導非 fallback 佔位）。
+    #   - 硬上限：病患回合數達上限即收尾，不依賴 Supervisor（降級時的保命線）。
+    # patient_turns 此時已含剛 append 的本輪病患訊息；硬上限(15) 遠小於歷史摘要門檻
+    # (CONVERSATION_HISTORY_MAX_TURNS=50)，故由 conversation_history 計數準確。
+    patient_turns = sum(
+        1 for e in conversation_history if e.get("role") in ("patient", "user")
+    )
+    should_conclude = _should_auto_conclude(supervisor_guidance, patient_turns, settings)
+
     # 格式化訊息並呼叫 LLM
     messages = llm_engine.format_messages(
         conversation_history,
         system_prompt,
         supervisor_guidance,
         language=session_context.get("language"),
+        conclude=should_conclude,
     )
 
     # 發送 AI 回應開始
@@ -1178,7 +1246,7 @@ async def _handle_text_message(
         for _tts_task in pending_tts_tasks:
             if not _tts_task.done():
                 _tts_task.cancel()
-        return
+        return False
 
     # 加入 AI 回應到對話歷史
     conversation_history.append(
@@ -1261,6 +1329,9 @@ async def _handle_text_message(
     RED_FLAG_WAIT_TIMEOUT = 3.5
     red_flag_alerts: list[dict[str, Any]] = []
     red_flag_timed_out = False
+    # 是否仍有「遲到紅旗」背景 drain 在跑；若有，本輪不可自動結束（會 break 主迴圈、
+    # 關閉 WS db），必須讓場次多撐一輪，確保急症紅旗能被持久化（醫療安全）。
+    red_flag_drain_in_flight = False
     try:
         red_flag_alerts = await asyncio.wait_for(
             asyncio.shield(red_flag_task), timeout=RED_FLAG_WAIT_TIMEOUT
@@ -1290,17 +1361,26 @@ async def _handle_text_message(
         if str(a.get("severity", "")).lower() not in ("critical", "high")
     ]
 
-    async def _persist_and_emit_alert(alert: dict[str, Any]) -> str | None:
+    async def _persist_and_emit_alert(
+        alert: dict[str, Any],
+        *,
+        persist_db: AsyncSession | None = None,
+    ) -> str | None:
         """儲存單一紅旗警示至資料庫，並發送 WS 通知前端與儀表板。
 
         儲存失敗時不可偽造 alert_id 給前端（否則醫師會誤以為警示已存在）。
         改為送出真正的 error 事件、以 ERROR level 記錄，並回傳 None 中止本次 emit。
+
+        persist_db：寫入用的 DB session。預設用 WS 的 db；但「遲到紅旗」背景 drain
+        在主迴圈已結束（自動結束/閒置/end_session）時 WS db 已關閉，必須傳入自有的
+        獨立 session 才能持久化，否則急症紅旗會被靜默丟棄（under-triage）。
         """
+        target_db = persist_db if persist_db is not None else db
         try:
             from app.services.alert_service import AlertService
             from app.models.enums import AlertSeverity, AlertType
             from uuid import UUID as _UUID
-            _db_alert = await AlertService.create(db, {
+            _db_alert = await AlertService.create(target_db, {
                 "session_id": _UUID(session_id),
                 "conversation_id": patient_conv_id or uuid.uuid4(),
                 "alert_type": AlertType(alert.get("alert_type", "semantic")),
@@ -1317,7 +1397,7 @@ async def _handle_text_message(
                 "confidence": alert.get("confidence", "rule_hit"),
                 "language": session_context.get("language"),
             })
-            await db.commit()
+            await target_db.commit()
             alert_id = str(_db_alert.id)
         except Exception as _e:
             logger.error(
@@ -1328,7 +1408,7 @@ async def _handle_text_message(
                 exc_info=True,
             )
             try:
-                await db.rollback()
+                await target_db.rollback()
             except Exception:
                 pass
             # 送出真正的 error 事件，讓前端知道偵測到的警示「未能持久化」，
@@ -1464,7 +1544,9 @@ async def _handle_text_message(
                     str(exc),
                 )
         else:
-            # 仍未完成：於背景等待並於完成後處理（避免阻塞當前 turn）
+            # 仍未完成：於背景等待並於完成後處理（避免阻塞當前 turn）。
+            red_flag_drain_in_flight = True
+
             async def _drain_late_red_flags() -> None:
                 try:
                     late_alerts = await red_flag_task
@@ -1475,15 +1557,37 @@ async def _handle_text_message(
                         str(exc),
                     )
                     return
-                for alert in late_alerts or []:
-                    try:
-                        await _persist_and_emit_alert(alert)
-                    except Exception as exc:
-                        logger.warning(
-                            "背景紅旗警示發送失敗 | session=%s, error=%s",
-                            session_id,
-                            str(exc),
-                        )
+                if not late_alerts:
+                    return
+                # 用「自有」DB session：主迴圈此刻可能已結束（自動結束/閒置/end_session），
+                # WS 的 db 已被 get_db 關閉；沿用會讓遲到的急症紅旗 insert 失敗而靜默丟棄。
+                from app.core.database import get_db_session
+                try:
+                    async with get_db_session() as drain_db:
+                        for alert in late_alerts:
+                            try:
+                                await _persist_and_emit_alert(alert, persist_db=drain_db)
+                            except Exception as exc:
+                                logger.warning(
+                                    "背景紅旗警示發送失敗 | session=%s, error=%s",
+                                    session_id,
+                                    str(exc),
+                                )
+                        # 遲到的 critical 仍需把場次升級為 aborted_red_flag（compare-and-set
+                        # 只在仍 in_progress 時生效，不會覆寫已是 completed/aborted 的終態）。
+                        if any(
+                            str(a.get("severity", "")).lower() == "critical"
+                            for a in late_alerts
+                        ):
+                            await _update_session_status(
+                                drain_db, redis, session_id, "aborted_red_flag", "in_progress"
+                            )
+                except Exception as exc:
+                    logger.error(
+                        "背景紅旗 drain 失敗 | session=%s, error=%s",
+                        session_id,
+                        str(exc),
+                    )
 
             asyncio.create_task(_drain_late_red_flags())
 
@@ -1536,6 +1640,70 @@ async def _handle_text_message(
                 )
             )
 
+    # ── 自動結束問診（HPI 達標或回合硬上限）──────────────────────
+    # 醫療安全多重保護，本區塊刻意放在「紅旗 gate 之後、critical-abort 區塊之後」：
+    #   (i) 本輪病患輸入一定先被紅旗篩檢；
+    #   (ii) 本輪若偵測到 critical/high 紅旗 → 不在「剛冒出嚴重症狀的這一輪」自動收尾，
+    #        讓對話多撐一輪由 AI 處理（critical 另已走 abort）；
+    #   (iii) 仍有遲到紅旗 drain 在背景跑時不結束，避免 break 主迴圈關閉 WS db 導致
+    #        急症紅旗無法持久化（drain 雖已改用自有 session，這裡多一層保險）；
+    #   (iv) 真正改狀態用 compare-and-set：只有「確實從 in_progress → completed」成功
+    #        才送 completed/推 SOAP，避免把已 aborted_red_flag 的終態降級成 completed。
+    serious_red_flag_this_turn = bool(red_flag_alerts) and any(
+        str(a.get("severity", "")).lower() in ("critical", "high")
+        for a in red_flag_alerts
+    )
+    if should_conclude and not serious_red_flag_this_turn and not red_flag_drain_in_flight:
+        transitioned = await _update_session_status(
+            db, redis, session_id, "completed", "in_progress"
+        )
+        if transitioned:
+            logger.info(
+                "HPI 完整度達門檻或回合達上限，自動結束場次 | session=%s, turns=%s, guidance_hpi=%s",
+                session_id,
+                patient_turns,
+                supervisor_guidance.get("hpi_completion_percentage")
+                if isinstance(supervisor_guidance, dict)
+                else None,
+            )
+            # 必須用 send_to_session 送原始 payload：send_localized_to_session 不帶 status，
+            # 而前端 on('session_status') 只在 status==='completed' 時導向 thank-you 頁。
+            await manager.send_to_session(
+                session_id,
+                {
+                    "type": "session_status",
+                    "payload": {
+                        "status": "completed",
+                        "code": "events.session.completed_hpi",
+                        "params": {},
+                        "severity": "info",
+                    },
+                },
+            )
+            await manager.broadcast_localized_dashboard(
+                msg_type="session_status_changed",
+                code="events.session.completed_normal",
+                params={},
+                severity="info",
+                extra={
+                    "sessionId": session_id,
+                    "status": "completed",
+                    "previousStatus": "in_progress",
+                },
+            )
+            await _broadcast_dashboard_queue_and_stats(db, redis)
+            asyncio.create_task(
+                _generate_soap_report_async(
+                    session_id=session_id,
+                    conversation_history=conversation_history,
+                    session_context=session_context,
+                    settings=settings,
+                )
+            )
+            return True
+
+    return False
+
 
 # ── 輔助函式 ─────────────────────────────────────────────
 
@@ -1553,6 +1721,9 @@ async def _generate_soap_report_async(
     from datetime import datetime, timezone
     from uuid import UUID
 
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+
     from app.core.database import get_db_session
     from app.models.enums import ReportStatus, ReviewStatus
     from app.models.soap_report import SOAPReport
@@ -1561,6 +1732,17 @@ async def _generate_soap_report_async(
     logger.info("開始生成 SOAP 報告 | session=%s", session_id)
 
     try:
+        # 冪等保護（早期檢查）：一場場次只能有一份 SOAP。多個結束路徑可能同時觸發本函式
+        # （end_session 控制指令 / 閒置逾時 / critical 紅旗中止 / HPI 自動結束），
+        # 早期就先查一次，重複時直接 return，連昂貴的 LLM 生成都不跑。
+        async with get_db_session() as _check_db:
+            _existing = await _check_db.execute(
+                select(SOAPReport.id).where(SOAPReport.session_id == UUID(session_id))
+            )
+            if _existing.scalar_one_or_none() is not None:
+                logger.info("SOAP 已存在，跳過重複生成（早期檢查） | session=%s", session_id)
+                return
+
         generator = SOAPGenerator(settings)
         soap_data = await generator.generate(
             transcript=conversation_history,
@@ -1580,6 +1762,14 @@ async def _generate_soap_report_async(
 
         # 建立 SOAPReport 記錄（使用獨立 session，不依賴 WebSocket 的 db）
         async with get_db_session() as db:
+            # 冪等保護（race 關閉）：兩個結束路徑可能在早期檢查與此處之間都通過，
+            # 故在 insert 前於同一 session 內再查一次，避免重複報告。
+            _dup = await db.execute(
+                select(SOAPReport.id).where(SOAPReport.session_id == UUID(session_id))
+            )
+            if _dup.scalar_one_or_none() is not None:
+                logger.info("SOAP 已存在，跳過重複生成（insert 前） | session=%s", session_id)
+                return
             report = SOAPReport(
                 session_id=UUID(session_id),
                 status=ReportStatus.GENERATED,
@@ -1603,6 +1793,11 @@ async def _generate_soap_report_async(
             soap_data.get("confidence_score", 0),
         )
 
+    except IntegrityError:
+        # soap_reports.session_id 有 UNIQUE 約束：兩個結束路徑同時 insert 時，
+        # 其中一個會撞約束。這不是錯誤，是冪等保護生效（DB 層保證單一報告），
+        # 以 INFO 記錄即可，避免誤導性的 ERROR + stacktrace。
+        logger.info("SOAP 已存在（UNIQUE 撞擊，冪等略過） | session=%s", session_id)
     except Exception as exc:
         logger.error(
             "SOAP 報告生成失敗 | session=%s, error=%s",
@@ -1747,16 +1942,23 @@ async def _update_session_status(
     session_id: str,
     new_status: str,
     previous_status: str,
-) -> None:
+) -> bool:
     """
-    更新場次狀態（資料庫 + Redis 快取）
+    更新場次狀態（資料庫 + Redis 快取），採 compare-and-set。
+
+    僅當 DB 目前狀態 == previous_status 時才會轉移；否則視為 no-op 不覆寫。
+    這保護「aborted_red_flag（紅旗中止）」等終態不會被後續的自動結束/閒置等
+    路徑悄悄降級成 completed（會抹掉醫師端的分流訊號）。
 
     Args:
         db: 資料庫 session
         redis: Redis 客戶端
         session_id: 場次 ID
         new_status: 新狀態
-        previous_status: 前一狀態
+        previous_status: 前一狀態（compare-and-set 的條件）
+
+    Returns:
+        bool: True 表示確實發生狀態轉移；False 表示目前狀態不符（no-op）或失敗。
     """
     try:
         from app.models.session import Session
@@ -1765,10 +1967,21 @@ async def _update_session_status(
         stmt = (
             update(Session)
             .where(Session.id == session_id)
+            .where(Session.status == previous_status)
             .values(status=new_status)
         )
-        await db.execute(stmt)
+        result = await db.execute(stmt)
         await db.commit()
+
+        if not result.rowcount:
+            # 目前狀態 != previous_status → 不轉移、不動 Redis（避免快取與 DB 不一致）。
+            logger.info(
+                "場次狀態未轉移（目前非 %s，略過 → %s） | session=%s",
+                previous_status,
+                new_status,
+                session_id,
+            )
+            return False
 
         # 更新 Redis 快取
         state_key = _SESSION_STATE_KEY.format(session_id=session_id)
@@ -1781,6 +1994,7 @@ async def _update_session_status(
             previous_status,
             new_status,
         )
+        return True
 
     except Exception as exc:
         logger.error(
@@ -1789,6 +2003,7 @@ async def _update_session_status(
             str(exc),
             exc_info=True,
         )
+        return False
 
 
 async def _load_conversation_history(

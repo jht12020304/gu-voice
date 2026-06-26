@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import { useAlertStore } from '../../stores/alertStore';
 import { useRedFlagAlerts } from '../../hooks/useRedFlagAlerts';
@@ -119,6 +120,7 @@ function AlertListSkeleton() {
 
 export default function AlertListPage() {
   const navigate = useLocalizedNavigate();
+  const { i18n } = useTranslation();
   const {
     alerts,
     isLoading,
@@ -139,10 +141,11 @@ export default function AlertListPage() {
   // stats_updated），收到後即時更新 alertStore，讓本頁與側欄徽章免重整即時刷新。
   useRedFlagAlerts();
 
+  // 切換 UI 語言時 refetch：紅旗 title / triggerReason / suggestedActions 由後端依 Accept-Language 在地化。
   useEffect(() => {
     fetchAlerts(true);
     fetchUnacknowledgedCount();
-  }, [fetchAlerts, fetchUnacknowledgedCount]);
+  }, [fetchAlerts, fetchUnacknowledgedCount, i18n.resolvedLanguage]);
 
   useEffect(() => {
     if (alerts.length === 0) return;

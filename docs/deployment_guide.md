@@ -8,26 +8,42 @@
 
 | 服務 | 網址 |
 |------|------|
-| **前端** (Vercel) | `https://gu-voice-jht12020304y-7696s-projects.vercel.app` |
-| **後端 API** (Railway) | `https://gu-voice-api-production.up.railway.app` |
-| **健康檢查** | `https://gu-voice-api-production.up.railway.app/api/v1/health` |
-| **Supabase 資料庫** | `https://udydlelmkusyjmegtviq.supabase.co` |
+| **前端** (Vercel) | `https://project-9w0vq.vercel.app` |
+| **後端 API** (Railway) | `https://gu-voice-app-production.up.railway.app` |
+| **健康檢查** | `https://gu-voice-app-production.up.railway.app/api/v1/health` |
+| **Supabase 資料庫** | `https://udydlelmkusyjmegtviq.supabase.co`（DB 連線 host：`aws-1-ap-southeast-1.pooler.supabase.com`） |
 
 ---
 
 ## 一、部署流程（最重要）
 
-**只要 push 到 GitHub，前端和後端會自動部署。**
+> ⚠️ **前端與後端的部署方式不同：**
+> - **前端（Vercel）會在 push 到 `main` 時自動部署。**
+> - **後端（Railway）未連接 GitHub source，`git push` 不會觸發後端部署**，必須用 `railway up` 手動上傳 Docker image（見下方）。
+
+### 前端（Vercel，push 即自動部署）
 
 ```bash
-# 修改程式碼後
+# 修改前端程式碼後
 git add <修改的檔案>
 git commit -m "描述你做了什麼"
 git push origin main
 ```
 
-- **Vercel** 自動抓 `frontend/` 目錄重新 build 並部署
-- **Railway** 自動重新 build Docker image 並部署
+- **Vercel** 自動抓 `frontend/` 目錄重新 build 並部署。
+
+### 後端（Railway，手動 `railway up`）
+
+Railway service `gu-voice-app` 採 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`），但**沒有連 GitHub source**，所以 push 不會自動部署後端。改了後端程式碼後要手動上傳 image：
+
+```bash
+# 在含 Dockerfile 的後端目錄執行
+railway up            # 上傳 build context、觸發 build，並串流 log
+railway up --detach   # headless／非 TTY 環境用：觸發 build 後不等 log 串流
+```
+
+- Docker layer 有快取：`requirements.txt` 沒變時只重建 app code 的 COPY 層。
+- 只改環境變數（不改程式碼）時**不需重新 build**：Railway 會用既有 image 觸發 redeploy（約 1 分鐘）。
 
 > ⚠️ 特別注意：如果修改了 `backend/scripts/start.sh`，每次編輯後都必須重新設定執行權限，否則 Railway 部署會失敗：
 > ```bash
@@ -46,18 +62,18 @@ git push origin main
 **方法一：Raiway Dashboard（推薦）**
 
 1. 登入 [railway.app](https://railway.app)
-2. 選擇專案 `gu-voice-backend`
-3. 點擊服務 `gu-voice-api`
+2. 選擇專案 `gu-voice-api`
+3. 點擊服務 `gu-voice-app`
 4. 上方 tab 選 **Variables**
 5. 找到要改的變數，直接點擊修改
-6. 儲存後 Railway 自動觸發重新部署
+6. 儲存後 Railway 會用**既有 image 觸發 redeploy**（約 1 分鐘，免重新 build）
 
 **方法二：Railway CLI（Terminal）**
 
 ```bash
 # 先確認連結到正確的專案（第一次使用才需要）
-railway link --project gu-voice-backend
-railway service gu-voice-api
+railway link --project gu-voice-api
+railway service gu-voice-app
 
 # 查看所有環境變數
 railway variables list
@@ -66,7 +82,7 @@ railway variables list
 railway variables set 變數名稱='新的值'
 
 # 例如更新 CORS
-railway variables set CORS_ORIGINS='["https://gu-voice-jht12020304y-7696s-projects.vercel.app","http://localhost:3000"]'
+railway variables set CORS_ORIGINS='["https://project-9w0vq.vercel.app","http://localhost:3000"]'
 ```
 
 ### 重要環境變數說明
@@ -79,6 +95,15 @@ railway variables set CORS_ORIGINS='["https://gu-voice-jht12020304y-7696s-projec
 | `JWT_SECRET_KEY` | JWT 簽名密鑰 | 改了會讓所有人的 token 失效（需重新登入） |
 | `REDIS_URL` | Redis 連線（快取/BlackList） | 改了 logout/token 黑名單會失效 |
 | `LOG_LEVEL` | 日誌等級 | 設定為 `INFO`（大寫）即可，腳本會自動轉小寫 |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | DB 連線池大小 | 用 session-mode pooler 時連線數有限，設 `5` / `5` |
+
+> ⚠️ **Gotcha 1：`CORS_ORIGINS` 的格式**
+> pydantic-settings v2 對 `list[str]` 欄位會在 source 層先 `json.loads()`。目前 code（`app/core/config.py`）已對 `CORS_ORIGINS` 與 `MULTILANG_DISABLED_LANGUAGES` 加上 `Annotated[list[str], NoDecode]`，讓 `field_validator` 接到原始字串、**「逗號分隔字串」與「JSON 陣列」兩種格式都能接受**。
+> 但若部署的是**舊 code**，把 `CORS_ORIGINS` 注入逗號分隔字串（如 `https://a.com,https://b.com`）會 `SettingsError` → 容器一啟動就 crash → healthcheck 永遠失敗 → Railway 顯示 offline。保險起見統一用合法 **JSON 陣列**。
+
+> ⚠️ **Gotcha 2：Supabase pooler 模式（務必用 session-mode，port 5432）**
+> 常駐的 Railway 容器要用 **session-mode pooler（port `5432`）**，不要用 transaction-mode（`6543`）。6543 的 PgBouncer 會讓 asyncpg 的 JSONB codec 型別 introspection 用的 prepared statement 跨 backend 失效，造成特定端點 500（錯誤訊息：`prepared statement "__asyncpg_stmt_*__" does not exist`）。session-mode 每個 client 連線對應專屬 backend，prepared statement 才會持久。
+> code（`app/core/database.py`）已修：`_is_supabase` 改從 `ASYNC_DATABASE_URL` 解析 host 來偵測；先前只看 `settings.DB_HOST`，但以完整 `DATABASE_URL` 注入時 `DB_HOST` 仍是預設 `localhost` → mitigation 全失效。
 
 ### 查看後端 Log
 
@@ -105,12 +130,14 @@ railway logs
 
 | 變數 | 目前值 | 用途 |
 |------|--------|------|
-| `VITE_API_BASE_URL` | `https://gu-voice-api-production.up.railway.app/api/v1` | 前端呼叫後端 API 的網址 |
-| `VITE_WS_BASE_URL` | `wss://gu-voice-api-production.up.railway.app/api/v1/ws` | WebSocket 連線網址 |
+| `VITE_API_BASE_URL` | `https://gu-voice-app-production.up.railway.app/api/v1` | 前端呼叫後端 API 的網址 |
+| `VITE_WS_BASE_URL` | `wss://gu-voice-app-production.up.railway.app/api/v1/ws` | WebSocket 連線網址 |
 | `VITE_SUPABASE_URL` | `https://udydlelmkusyjmegtviq.supabase.co` | Supabase 連線 |
 | `VITE_SUPABASE_ANON_KEY` | `eyJhbGci...` | Supabase 公開金鑰 |
 
 > ⚠️ 如果 Railway 的 API 網址改了，記得同步更新 `VITE_API_BASE_URL` 和 `VITE_WS_BASE_URL`。
+>
+> ℹ️ `VITE_API_BASE_URL` / `VITE_WS_BASE_URL` 以 **Vercel dashboard 的環境變數**為準，會**覆寫 repo 內的 `frontend/.env.production`**；要改正式環境請在 Vercel dashboard 改，並 Redeploy。
 
 ### Deployment Protection（重要）
 
@@ -171,7 +198,7 @@ DELETE FROM users WHERE email = 'test_probe_delete@gu-voice.com';
 
 修復：
 ```bash
-railway variables set CORS_ORIGINS='["https://gu-voice-jht12020304y-7696s-projects.vercel.app","http://localhost:3000","http://localhost:5173"]'
+railway variables set CORS_ORIGINS='["https://project-9w0vq.vercel.app","http://localhost:3000","http://localhost:5173"]'
 ```
 
 ---
