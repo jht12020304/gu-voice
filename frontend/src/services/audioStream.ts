@@ -1,7 +1,26 @@
 // =============================================================================
 // 音訊錄製服務（VAD 自動切段）
 // 開啟麥克風後持續監聽，依能量偵測語音開始/結束，自動分段發送
+//
+// #1 pre-roll 擷取（VITE_VAD_PREROLL，預設關）：
+//   現行做法是「偵測到說話才現場建 MediaRecorder」，句首 ~minSpeechMs + recorder 啟動 +
+//   第一個 250ms chunk 會被吃掉（病患回報「前幾秒收不到」）。flag ON 時改走連續 PCM
+//   擷取：用 ScriptProcessor tap 持續把 PCM 寫進 ring buffer，開口瞬間回頭取 pre-roll，
+//   整段（pre-roll + 現場）編成單一 WAV 送出，繞過 MediaRecorder/WebM 分段問題。
+//   ⚠️ 此路徑需「真實麥克風 + Whisper」驗收（取樣率/變調、STT 準確度、iOS 相容），
+//      預設關閉；OFF 時與今日行為 byte-identical。任何 pre-roll 失敗都會 fallback 回
+//      MediaRecorder 路徑，確保不會因未驗證的程式碼弄壞生產問診。
 // =============================================================================
+
+import { PcmRingBuffer } from './pcmRingBuffer';
+import { encodeWav, arrayBufferToBase64 } from './wavEncoder';
+
+/** build-time feature flag（對齊既有 VITE_ENABLE_MOCK 慣例）；預設關。 */
+const PREROLL_ENABLED = import.meta.env.VITE_VAD_PREROLL === 'true';
+/** pre-roll 取多長（秒）— 補回句首被吃掉的部分。 */
+const PREROLL_SECONDS = 0.4;
+/** ring buffer 保留長度（秒）— 略大於 pre-roll 即可。 */
+const PREROLL_RING_SECONDS = 1.0;
 
 export interface AudioStreamCallbacks {
   /** 收到音訊片段 (base64 encoded)，段內每 250ms 觸發一次 */
@@ -73,6 +92,15 @@ class AudioStreamService {
   private animationFrame: number | null = null;
   private durationInterval: ReturnType<typeof setInterval> | null = null;
 
+  // #1 pre-roll 擷取狀態（僅 PREROLL_ENABLED 時使用）
+  private pcmRing: PcmRingBuffer | null = null;
+  private scriptNode: ScriptProcessorNode | null = null;
+  private silentSink: GainNode | null = null;
+  private liveFrames: Float32Array[] = [];
+  private prerollSampleRate = 16000;
+  /** 本段是否正以 pre-roll PCM 路徑擷取（決定 endSegment 要不要編 WAV 送出）。 */
+  private capturingPcm = false;
+
   private callbacks: AudioStreamCallbacks = {};
 
   // VAD 狀態
@@ -140,6 +168,43 @@ class AudioStreamService {
       this.analyser.fftSize = 512;
       source.connect(this.analyser);
 
+      // #1 pre-roll：flag ON 時掛一個連續 PCM tap，持續把樣本寫進 ring buffer。
+      // 用「實際的」audioContext.sampleRate（getUserMedia 的 16000 只是 hint，實機常為
+      // 44100/48000）；WAV header 也用這個值，避免 Whisper 聽到變調/變速。
+      // 任何建立失敗都吞掉並維持 pcmRing=null → beginSegment 會自動走 MediaRecorder fallback。
+      if (PREROLL_ENABLED) {
+        try {
+          this.prerollSampleRate = this.audioContext.sampleRate || 16000;
+          this.pcmRing = new PcmRingBuffer(
+            Math.max(1, Math.floor(this.prerollSampleRate * PREROLL_RING_SECONDS)),
+          );
+          // ScriptProcessor 已 deprecated 但相容性最廣（含 iOS）；本路徑本就在 flag 後、
+          // 需真機驗證，未來可換 AudioWorklet。connect 到 0 增益 sink 才會觸發 onaudioprocess，
+          // 同時避免把麥克風 routed 回喇叭造成回授。
+          this.scriptNode = this.audioContext.createScriptProcessor(4096, 1, 1);
+          this.silentSink = this.audioContext.createGain();
+          this.silentSink.gain.value = 0;
+          this.scriptNode.onaudioprocess = (ev: AudioProcessingEvent) => {
+            const input = ev.inputBuffer.getChannelData(0);
+            // 必須複製：inputBuffer 會被引擎重複使用，直接存參考會被後續覆寫。
+            const copy = new Float32Array(input.length);
+            copy.set(input);
+            this.pcmRing?.write(copy);
+            if (this.capturingPcm) this.liveFrames.push(copy);
+          };
+          source.connect(this.scriptNode);
+          this.scriptNode.connect(this.silentSink);
+          this.silentSink.connect(this.audioContext.destination);
+        } catch (err) {
+          // pre-roll 不可用 → 清掉、走 fallback，不影響主流程
+          this.pcmRing = null;
+          this.scriptNode = null;
+          this.silentSink = null;
+          // eslint-disable-next-line no-console
+          console.warn('[Voice] pre-roll tap 建立失敗，改用 MediaRecorder 路徑:', err);
+        }
+      }
+
       this.vadEnabled = true;
       this.vadMuteMode = 'none';
       this.isSpeaking = false;
@@ -189,6 +254,10 @@ class AudioStreamService {
       this.isSpeaking = false;
       this.speechStartCandidateAt = 0;
       this.lastAboveThresholdAt = performance.now();
+      // 此分支刻意不呼叫 endSegment；若正在 pre-roll 擷取，務必一併收掉，否則
+      // capturingPcm 會殘留 true、liveFrames 無限累積（PCM 路徑的孤兒洩漏）。
+      this.capturingPcm = false;
+      this.liveFrames = [];
     }
   }
 
@@ -278,6 +347,25 @@ class AudioStreamService {
     this.activeSegmentId = this.nextSegmentId++;
     const thisSegmentId = this.activeSegmentId;
 
+    // #1 pre-roll 路徑（flag ON 且 tap 健康）：用 ring 裡開口「前」的 PCM 當 pre-roll，
+    // 之後 onaudioprocess 會持續把現場 PCM 推進 liveFrames；endSegment 才編成單一 WAV 送出。
+    // 不建立 MediaRecorder，故無句首截斷、無 WebM 分段污染。失敗則落到下方 MediaRecorder。
+    if (PREROLL_ENABLED && this.pcmRing) {
+      const prerollSamples = Math.floor(this.prerollSampleRate * PREROLL_SECONDS);
+      const preroll = this.pcmRing.readLast(prerollSamples);
+      this.liveFrames = preroll.length > 0 ? [preroll] : [];
+      this.capturingPcm = true;
+
+      if (this.durationInterval) clearInterval(this.durationInterval);
+      this.durationInterval = setInterval(() => {
+        const seconds = (Date.now() - this.segmentStartTime) / 1000;
+        this.callbacks.onDurationUpdate?.(seconds);
+      }, 100);
+
+      this.callbacks.onSpeechStart?.();
+      return;
+    }
+
     // Safari / iOS 不支援 audio/webm，僅支援 audio/mp4；依序挑第一個可用的 MIME。
     // 若所有候選都不支援，fallback 為 undefined，讓瀏覽器自選格式。
     const mimeType = pickSupportedMimeType();
@@ -330,6 +418,31 @@ class AudioStreamService {
       this.durationInterval = null;
     }
     this.callbacks.onDurationUpdate?.(0);
+
+    // #1 pre-roll 路徑：把 pre-roll + 現場 PCM 編成單一 WAV，當作這段唯一的 chunk 送出，
+    // 隨後 onSpeechEnd 會送 isFinal=true。任何編碼/送出錯誤都吞掉、仍照常 onSpeechEnd
+    // （後端收到空音訊 → 回空 STT → 前端 re-arm VAD，不會卡住）。
+    if (this.capturingPcm) {
+      this.capturingPcm = false;
+      const frames = this.liveFrames;
+      this.liveFrames = [];
+      // notify=false 代表 closeMic/teardown：此時不會再送 isFinal，送了 WAV chunk 也只會
+      // 滯留在後端 buffer（連線即將關閉），故僅在 notify 時才編碼送出。
+      if (notify) {
+        try {
+          const totalSamples = frames.reduce((n, f) => n + f.length, 0);
+          if (totalSamples > 0) {
+            const wav = encodeWav(frames, this.prerollSampleRate);
+            this.callbacks.onChunk?.(arrayBufferToBase64(wav), 0);
+          }
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn('[Voice] pre-roll WAV 編碼/送出失敗，本段以空音訊收尾:', err);
+        }
+        this.callbacks.onSpeechEnd?.();
+      }
+      return;
+    }
 
     const mr = this.mediaRecorder;
     this.mediaRecorder = null;
@@ -388,6 +501,28 @@ class AudioStreamService {
       }
     }
     this.mediaRecorder = null;
+
+    // #1 pre-roll tap 拆除（順序：先斷 handler 再 disconnect，避免殘留 onaudioprocess）
+    if (this.scriptNode) {
+      this.scriptNode.onaudioprocess = null;
+      try {
+        this.scriptNode.disconnect();
+      } catch {
+        // ignore
+      }
+      this.scriptNode = null;
+    }
+    if (this.silentSink) {
+      try {
+        this.silentSink.disconnect();
+      } catch {
+        // ignore
+      }
+      this.silentSink = null;
+    }
+    this.pcmRing = null;
+    this.liveFrames = [];
+    this.capturingPcm = false;
 
     if (this.audioContext) {
       this.audioContext.close().catch(() => {});
