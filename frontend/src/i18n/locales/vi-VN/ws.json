@@ -29,6 +29,7 @@
       "idle_timeout": "Hết thời gian chờ ({{minutes}} phút không hoạt động), phiên đã tự động kết thúc",
       "ended_by_user": "Bệnh nhân hoặc trợ lý đã kết thúc phiên",
       "completed_normal": "Phiên kết thúc bình thường",
+      "completed_hpi": "Đã thu thập đủ thông tin; phiên đã tự động kết thúc.",
       "aborted_red_flag": "Phát hiện triệu chứng cờ đỏ nguy kịch, phiên đã dừng, vui lòng đi khám ngay",
       "aborted_red_flag_dashboard": "Phát hiện triệu chứng cờ đỏ critical, phiên đã dừng",
       "red_flag_triggered": "Phát hiện cảnh báo cờ đỏ: {{title}}"

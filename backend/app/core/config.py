@@ -271,6 +271,17 @@ class Settings(BaseSettings):
     AUDIO_MAX_DURATION_SECONDS: int = 600                   # 10 分鐘單段音訊上限
     AUDIO_SAMPLE_RATE_HZ: int = 16000                       # 16kHz mono（與前端一致）
 
+    # ── 問診自動結束（避免無止盡發問，病患等不到結果） ───
+    # 兩條獨立的收尾路徑，皆受 ENABLED 總開關控制（出事可一鍵關回純手動）：
+    #   1) 軟門檻：Supervisor 判定 HPI 完整度 >= THRESHOLD 且已問滿最低題數 → 收尾。
+    #   2) 硬上限 backstop：病患回合數 >= HARD_CAP 即強制收尾，「不依賴」Supervisor
+    #      （Supervisor 逾時/降級寫 fallback hpi=0 時軟門檻永不觸發，硬上限才是保命線，
+    #      也正是「測到第 15 題還沒結果」的真正修補）。
+    HPI_COMPLETION_TERMINATION_ENABLED: bool = True         # 自動結束總開關
+    HPI_COMPLETION_TERMINATION_THRESHOLD: int = 85          # 0-100；HPI 完整度達此值即可收尾
+    MIN_PATIENT_TURNS_BEFORE_AUTO_END: int = 4              # 軟門檻最低回合，防 Supervisor 過早判定
+    MAX_PATIENT_TURNS_HARD_CAP: int = 15                    # 病患回合硬上限，無論 Supervisor 狀態都收尾
+
     # ── TTS (OpenAI TTS) ─────────────────────────────────
     OPENAI_TTS_MODEL: str = "tts-1"      # tts-1（快速）或 tts-1-hd（高品質）
     OPENAI_TTS_VOICE: str = "nova"       # alloy / echo / fable / onyx / nova / shimmer

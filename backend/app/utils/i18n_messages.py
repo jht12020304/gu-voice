@@ -427,6 +427,50 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ko-KR": "## 👨‍⚕️ 선임 지도 전문의의 실시간 지도(최우선)",
         "vi-VN": "## 👨‍⚕️ Hướng dẫn thời gian thực từ bác sĩ giám sát cấp cao (ưu tiên cao nhất)",
     },
+    # 問診自動收尾指示（本輪限定，僅在 should_conclude 時由 format_messages 附加到 system prompt）。
+    # 目的：HPI 完整度達標或達回合硬上限時，讓 LLM 講一句溫暖的結束語、不再發問，
+    # 之後 handler 會自動把場次標為 completed 並觸發 SOAP。仍保留「先前若有緊急徵象要再提醒就醫」。
+    "llm.conversation_wrap_up_rule": {
+        "zh-TW": (
+            "\n\n## 結束問診（本輪硬性指示）\n"
+            "- 你已收集到足夠病史，本輪請收尾：簡短感謝病患，說明醫師將檢視並後續跟進。\n"
+            "- 本輪不要再提出任何新問題。\n"
+            "- 若先前對話出現需緊急就醫的徵象，請再次提醒病患儘速就醫。\n"
+            "- 保持 1-2 句、口語化。"
+        ),
+        "en-US": (
+            "\n\n## Wrap up the interview (strict, this turn only)\n"
+            "- You have collected enough history. Close the conversation: briefly thank "
+            "the patient and say a physician will review and follow up.\n"
+            "- Do NOT ask any new question this turn.\n"
+            "- If earlier symptoms warranted urgent care, remind the patient to seek care promptly.\n"
+            "- Keep it to 1-2 conversational sentences."
+        ),
+        "ja-JP": (
+            "\n\n## 問診の締めくくり（本ターンのみ・必須）\n"
+            "- 十分な病歴が得られました。本ターンは締めくくり、患者へ簡潔に感謝し、"
+            "医師が確認しフォローする旨を伝えてください。\n"
+            "- 本ターンでは新しい質問をしないでください。\n"
+            "- 緊急受診が必要な兆候があれば、速やかな受診を再度促してください。\n"
+            "- 1〜2文の会話調で。"
+        ),
+        "ko-KR": (
+            "\n\n## 문진 마무리(이번 턴 한정·필수)\n"
+            "- 충분한 병력을 수집했습니다. 이번 턴은 마무리로, 환자에게 간단히 감사하고 "
+            "의사가 검토 후 후속 조치할 것임을 안내하세요.\n"
+            "- 이번 턴에는 새 질문을 하지 마세요.\n"
+            "- 이전 대화에 응급 진료가 필요한 징후가 있었다면 신속한 진료를 다시 권고하세요.\n"
+            "- 1~2문장 구어체로."
+        ),
+        "vi-VN": (
+            "\n\n## Kết thúc buổi hỏi bệnh (bắt buộc, chỉ lượt này)\n"
+            "- Đã thu thập đủ tiền sử. Lượt này hãy kết thúc: cảm ơn ngắn gọn và nói "
+            "bác sĩ sẽ xem xét và theo dõi tiếp.\n"
+            "- KHÔNG đặt thêm câu hỏi mới ở lượt này.\n"
+            "- Nếu trước đó có dấu hiệu cần cấp cứu, nhắc bệnh nhân đi khám sớm.\n"
+            "- Giữ 1-2 câu, giọng trò chuyện."
+        ),
+    },
     # 問診 system prompt 尾段的強制輸出語言區段，配合 conversation_language_rule 使用。
     "llm.conversation_output_language_rule": {
         "zh-TW": (

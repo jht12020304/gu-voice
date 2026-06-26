@@ -29,6 +29,7 @@
       "idle_timeout": "アイドルタイムアウト（{{minutes}} 分間操作なし）のため、セッションを自動終了しました",
       "ended_by_user": "患者またはアシスタントがセッションを終了しました",
       "completed_normal": "セッションは正常に終了しました",
+      "completed_hpi": "十分な情報が得られたため、セッションは自動終了しました。",
       "aborted_red_flag": "危急なレッドフラグ症状を検出したためセッションを中止しました。直ちに受診してください",
       "aborted_red_flag_dashboard": "critical レッドフラグ症状を検出したため、セッションを中止しました",
       "red_flag_triggered": "レッドフラグ警告を検出しました：{{title}}"
