@@ -29,6 +29,7 @@
       "idle_timeout": "閒置逾時（{{minutes}} 分鐘無活動），場次自動結束",
       "ended_by_user": "病患或助手結束場次",
       "completed_normal": "場次正常結束",
+      "completed_hpi": "本次問診資訊已足夠，場次自動結束",
       "aborted_red_flag": "偵測到危急紅旗症狀，場次已中止，請立即就醫",
       "aborted_red_flag_dashboard": "偵測到 critical 紅旗症狀，場次已中止",
       "red_flag_triggered": "偵測到紅旗警示：{{title}}"

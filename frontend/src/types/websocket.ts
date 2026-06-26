@@ -35,7 +35,7 @@ export interface PingPayload {
   // 空物件
 }
 
-export type ClientMessageType = 'audio_chunk' | 'control' | 'ping';
+export type ClientMessageType = 'audio_chunk' | 'text_message' | 'control' | 'ping';
 
 // =============================================================================
 // Server -> Client 訊息

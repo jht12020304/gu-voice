@@ -20,7 +20,17 @@
   "tts": {
     "failed": "音声合成に失敗しました",
     "replayAria": "AI 音声を再生",
-    "replayTitle": "クリックで音声を再生"
+    "replayTitle": "クリックで音声を再生",
+    "muteLabel": "AI 音声をミュート",
+    "unmuteLabel": "AI 音声をオン",
+    "speedLabel": "速度 {{rate}}x",
+    "play": "再生",
+    "playAria": "この AI 返答を再生"
+  },
+  "input": {
+    "textPlaceholder": "聞き取れない場合は入力もできます",
+    "send": "送信",
+    "sendOffline": "接続が切れています。メッセージは未送信です。再接続後にもう一度お試しください。"
   },
   "redFlag": {
     "more": "他 {{count}} 件の警告"

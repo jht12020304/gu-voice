@@ -22,9 +22,11 @@ interface ChatBubbleProps {
   showTimestamp?: boolean;
   /** Fix 18：使用者點擊 AI 氣泡觸發重播 */
   onReplay?: (messageId: string) => void;
+  /** #6：AI 語音已靜音 → 把重播提升為明顯的「播放」鍵（隨選播放） */
+  voiceOff?: boolean;
 }
 
-export default function ChatBubble({ message, showTimestamp = true, onReplay }: ChatBubbleProps) {
+export default function ChatBubble({ message, showTimestamp = true, onReplay, voiceOff = false }: ChatBubbleProps) {
   const { t } = useTranslation(['conversation', 'common']);
   const { content, sender, timestamp, isStreaming, sttConfidence, hasTtsFailure, canReplay } = message;
 
@@ -104,6 +106,21 @@ export default function ChatBubble({ message, showTimestamp = true, onReplay }: 
             </span>
           )}
         </div>
+
+        {/* #6：AI 語音靜音時，把重播提升為明顯的「播放」鍵（隨選播放本則 AI 回覆） */}
+        {replayable && voiceOff && (
+          <button
+            type="button"
+            onClick={() => onReplay!(message.id)}
+            className="mt-1 inline-flex items-center gap-1 rounded-pill bg-chat-ai-bg px-2.5 py-1 text-tiny font-medium text-chat-ai transition-colors hover:brightness-95 dark:bg-orange-950 dark:text-orange-300"
+            aria-label={t('conversation:tts.playAria')}
+          >
+            <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            {t('conversation:tts.play')}
+          </button>
+        )}
 
         {/* Fix 16：TTS 合成失敗的輕量內嵌提示 */}
         {hasTtsFailure && (

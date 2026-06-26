@@ -85,8 +85,13 @@ class AudioStreamService {
 
   private readonly vadConfig: VADConfig = {
     threshold: 0.035,
-    minSpeechMs: 110,
-    silenceEndMs: 1200,
+    // 110→90：略縮「確認開始說話」窗口以減少句首被吃（#1 暫時緩解）。不取更低的 70，
+    // 因為太低會讓雜訊/AGC 突波更常開出空段落，徒增空 STT 與佔用 LLM 配額；真正解是
+    // pre-roll 連續擷取（Pass 2，需真實麥克風驗 STT）。空 STT 已由前端 re-arm VAD 防鎖死。
+    minSpeechMs: 90,
+    // 1200→2000：放寬「停頓視為講完」的容忍，避免長輩/思考時的自然停頓被誤判結束、
+    // AI 搶話（#5）。代價是每輪句末多約 0.8s 延遲；真正解是停頓寬限視窗（Pass 2）。
+    silenceEndMs: 2000,
   };
 
   /** Barge-in 模式下使用的門檻（約為一般門檻的 1.7×），避免把 TTS 聲音當成使用者輸入 */

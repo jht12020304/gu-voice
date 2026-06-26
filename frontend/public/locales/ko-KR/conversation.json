@@ -20,7 +20,17 @@
   "tts": {
     "failed": "음성 합성에 실패했습니다",
     "replayAria": "AI 음성 다시 재생",
-    "replayTitle": "클릭하여 음성을 다시 재생합니다"
+    "replayTitle": "클릭하여 음성을 다시 재생합니다",
+    "muteLabel": "AI 음성 음소거",
+    "unmuteLabel": "AI 음성 켜기",
+    "speedLabel": "속도 {{rate}}x",
+    "play": "재생",
+    "playAria": "이 AI 응답 재생"
+  },
+  "input": {
+    "textPlaceholder": "잘 안 들리면 직접 입력할 수도 있습니다",
+    "send": "보내기",
+    "sendOffline": "연결이 끊겨 메시지가 전송되지 않았습니다. 재연결 후 다시 시도하세요."
   },
   "redFlag": {
     "more": "+{{count}}건의 다른 경고"

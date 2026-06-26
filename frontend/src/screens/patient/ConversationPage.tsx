@@ -15,6 +15,7 @@ import {
   normalizeSupervisorGuidance,
 } from '../../stores/conversationStore';
 import type { SupervisorGuidancePayload } from '../../stores/conversationStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useConversationWebSocket } from '../../hooks/useWebSocket';
 import { useAudioStream } from '../../hooks/useAudioStream';
 import * as sessionsApi from '../../services/api/sessions';
@@ -34,6 +35,9 @@ import type {
 const ONBOARDING_KEY = 'urosense:onboarding:voice:v1';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
+
+/** #6 AI 語音語速循環選項（前端 playbackRate 倍率） */
+const SPEED_PRESETS = [1.0, 1.25, 1.5];
 
 const mockConvSession: Session = {
   id: 's1', patientId: 'p1', doctorId: 'mock-doctor-001', chiefComplaintId: 'cc1',
@@ -60,6 +64,9 @@ export default function ConversationPage() {
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
   // 句級 TTS 佇列：每個 ai_response_chunk 帶來的音訊依序排入此鏈，前一句播完才播下一句
   const ttsChainRef = useRef<Promise<void>>(Promise.resolve());
+  // TTS 世代：clearTTSQueue（靜音/打斷）會 +1；已排入但尚未播的句子比對 epoch 不符即跳過，
+  // 避免「在句子間隙靜音時，下一句仍照播」（光重設 ttsChainRef 擋不掉已 chain 的 callback）。
+  const ttsEpochRef = useRef(0);
 
   const {
     currentSession,
@@ -159,6 +166,8 @@ export default function ConversationPage() {
         }
         const source = ctx.createBufferSource();
         source.buffer = audioBuf;
+        // #6 語速：前端 playbackRate（純前端、即時，會略升音高，已限 ≤1.5）
+        source.playbackRate.value = useSettingsStore.getState().ttsSpeed;
         source.connect(ctx.destination);
         source.onended = () => {
           activeSourceRef.current = null;
@@ -184,7 +193,10 @@ export default function ConversationPage() {
   const enqueueTTSAudioB64 = useCallback(
     (audioB64: string): void => {
       if (!audioB64) return;
+      const epoch = ttsEpochRef.current;
       const step = async (): Promise<void> => {
+        // 已被 clearTTSQueue 取消（靜音 / barge-in）→ 跳過這句，不要在靜音後又播出來。
+        if (ttsEpochRef.current !== epoch) return;
         try {
           const binaryStr = atob(audioB64);
           const len = binaryStr.length;
@@ -201,11 +213,15 @@ export default function ConversationPage() {
           }
 
           const audioBuf = await ctx.decodeAudioData(bytes.buffer);
+          // decode 是 async，期間可能剛好被靜音 / 打斷 → 再檢查一次 epoch 才播。
+          if (ttsEpochRef.current !== epoch) return;
           // 等待前一句的 source 徹底播完（ttsChainRef 已經保證了順序，但保險起見
           // 若仍有殘留 activeSource，串到其 onended 之後）
           await new Promise<void>((resolve) => {
             const source = ctx.createBufferSource();
             source.buffer = audioBuf;
+            // #6 語速：套用使用者設定的播放倍率（replay 也吃同一設定）
+            source.playbackRate.value = useSettingsStore.getState().ttsSpeed;
             source.connect(ctx.destination);
             source.onended = () => {
               if (activeSourceRef.current === source) {
@@ -232,10 +248,60 @@ export default function ConversationPage() {
     [],
   );
 
-  /** 清空句級 TTS 播放佇列（用於使用者打斷 AI） */
+  /** 清空句級 TTS 播放佇列（用於使用者打斷 AI / 靜音）。bump epoch 讓已排入但尚未播的句子失效。 */
   const clearTTSQueue = useCallback(() => {
+    ttsEpochRef.current += 1;
     ttsChainRef.current = Promise.resolve();
   }, []);
+
+  // ── #6 AI 語音（TTS）控制：靜音 / 語速 / 打字輸入 ──────────────
+  const ttsMuted = useSettingsStore((s) => s.ttsMuted);
+  const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
+  const toggleTtsMuted = useSettingsStore((s) => s.toggleTtsMuted);
+  const setTtsSpeed = useSettingsStore((s) => s.setTtsSpeed);
+
+  const cycleSpeed = useCallback(() => {
+    const idx = SPEED_PRESETS.findIndex((p) => Math.abs(p - ttsSpeed) < 0.01);
+    const next = SPEED_PRESETS[(idx + 1) % SPEED_PRESETS.length] ?? 1.0;
+    setTtsSpeed(next);
+  }, [ttsSpeed, setTtsSpeed]);
+
+  // 切到「靜音」時：立即停掉正在播的句子 + 清空佇列，並確保 VAD 不會卡住（醫療安全：
+  // 病患必須能繼續說話）。切回「出聲」不需處理，下一句 AI 回覆自然會播。
+  const handleToggleMute = useCallback(() => {
+    const willMute = !ttsMuted;
+    toggleTtsMuted();
+    if (willMute) {
+      stopActiveTTS();
+      clearTTSQueue();
+      unmuteVAD();
+    }
+  }, [ttsMuted, toggleTtsMuted, stopActiveTTS, clearTTSQueue, unmuteVAD]);
+
+  // 打字輸入：語音收不到時的備援。樂觀在本地顯示病患氣泡，再送後端 text_message
+  // （後端會走與語音同一條 _handle_text_message：紅旗篩檢 / LLM / auto-conclude 都照跑）。
+  const [textDraft, setTextDraft] = useState('');
+  const handleSendText = useCallback(() => {
+    const text = textDraft.trim();
+    if (!text || !sessionId) return;
+    // 醫療安全：連線中斷時，send() 會靜默丟棄（只 console.warn）。若仍樂觀顯示氣泡 + 清空草稿，
+    // 病患會誤以為已送出，但後端從未收到 → 該症狀陳述不會經紅旗篩檢、也無法重送。
+    // 故未連線時：保留草稿、不顯示假氣泡、不送出（送出鍵也會在未連線時 disabled）。
+    if (connectionState !== 'open') {
+      setError(t('conversation:input.sendOffline'));
+      return;
+    }
+    setError(null);
+    addConversation({
+      id: crypto.randomUUID(),
+      sessionId,
+      sender: 'patient',
+      content: text,
+      timestamp: new Date().toISOString(),
+    });
+    send('text_message', { text });
+    setTextDraft('');
+  }, [textDraft, sessionId, addConversation, send, connectionState, setError, t]);
 
   /**
    * Fix 18：重播某則 AI 訊息的快取 TTS 音訊。
@@ -350,6 +416,13 @@ export default function ConversationPage() {
     on('stt_final', (payload) => {
       const data = payload as STTFinalPayload;
       updateSTTPartial('');
+      // 醫療安全：Whisper 沒聽出字（空辨識）時後端不會回 ai_response，而 onSpeechEnd 已把
+      // VAD hard-mute；若不在這裡重新解鎖，病患就無法再用語音開口（minSpeechMs 調低後更易遇到）。
+      // 空結果時 re-arm VAD 並略過空氣泡；有字才照常顯示並等 AI 回覆（回覆結束會自然 unmute）。
+      if (!data.text || !data.text.trim()) {
+        unmuteVAD();
+        return;
+      }
       addConversation({
         id: data.messageId,
         sessionId: sessionId!,
@@ -364,9 +437,13 @@ export default function ConversationPage() {
     on('ai_response_start', (payload) => {
       const data = payload as AIResponseStartPayload;
       setAIResponding(true);
-      // AI 準備說話 → 進入 barge-in 模式：VAD 仍開著，但用較高門檻，
-      // 使用者大聲講話即可打斷 AI（見下方 isRecording + isAIResponding 的 effect）。
-      enableBargeIn();
+      // 靜音模式下沒有 TTS 可被打斷，改用正常門檻（0.035）開 VAD，讓病患能立刻接話；
+      // 出聲模式才進 barge-in（較高門檻，避免把 AI 自己的聲音當成使用者輸入）。
+      if (useSettingsStore.getState().ttsMuted) {
+        unmuteVAD();
+      } else {
+        enableBargeIn();
+      }
       addConversation({
         id: data.messageId,
         sessionId: sessionId!,
@@ -392,10 +469,13 @@ export default function ConversationPage() {
       if (data.ttsFailed) {
         markMessageTtsFailedHelper(data.messageId);
       }
-      // Fix 18：若此句有音訊，快取到訊息上 + 排入 TTS 佇列依序播放
+      // Fix 18：音訊一律快取到訊息上（讓「播放鍵」/replay 在靜音模式仍可用），
+      // 但只有「非靜音」時才自動排入佇列播放（#6 靜音＝只擋自動播放，不影響文字/紅旗）。
       if (data.audioB64) {
         appendTtsAudioChunk(data.messageId, data.audioB64);
-        enqueueTTSAudioB64(data.audioB64);
+        if (!useSettingsStore.getState().ttsMuted) {
+          enqueueTTSAudioB64(data.audioB64);
+        }
       }
     });
 
@@ -403,13 +483,14 @@ export default function ConversationPage() {
     on('ai_response_end', (payload) => {
       const data = payload as AIResponseEndPayload;
       finalizeAIResponse(data.messageId, data.fullText);
-      // 向後相容：若後端仍送來整段 ttsAudioUrl（舊流程），才用舊的 playTTSAudio
-      if (data.ttsAudioUrl) {
+      // 醫療安全：靜音時不可走 playTTSAudio，必須讓流程落到下方 ttsChain 的 unmuteVAD()，
+      // 否則 VAD 會卡在 mute、病患無法再開口。出聲且有舊式 ttsAudioUrl 才用 playTTSAudio。
+      if (data.ttsAudioUrl && !useSettingsStore.getState().ttsMuted) {
         playTTSAudio(data.ttsAudioUrl);
         return;
       }
       // 句級流程：在佇列尾端附加一個「播完所有句子 → 恢復正常 VAD 門檻」步驟。
-      // 若沒有任何句子有音訊（如全部 TTS 失敗），這個步驟會立即執行。
+      // 靜音時佇列沒有音訊步驟，這個 unmuteVAD 會立即執行（病患永遠能繼續說話）。
       ttsChainRef.current = ttsChainRef.current.then(() => {
         unmuteVAD();
       });
@@ -606,12 +687,53 @@ export default function ConversationPage() {
             {currentSession && <StatusBadge status={currentSession.status as SessionStatus} size="sm" />}
           </div>
         </div>
-        <button
-          className="rounded-btn px-3 py-1.5 text-caption font-medium text-alert-critical hover:bg-alert-critical-bg transition-colors"
-          onClick={handleEndSession}
-        >
-          {t('conversation:endSession')}
-        </button>
+        <div className="flex items-center gap-1">
+          {/* #6 靜音切換 */}
+          <button
+            type="button"
+            onClick={handleToggleMute}
+            aria-pressed={ttsMuted}
+            title={ttsMuted ? t('conversation:tts.unmuteLabel') : t('conversation:tts.muteLabel')}
+            aria-label={ttsMuted ? t('conversation:tts.unmuteLabel') : t('conversation:tts.muteLabel')}
+            className={`rounded-card p-2 transition-colors ${
+              ttsMuted
+                ? 'text-alert-critical hover:bg-alert-critical-bg'
+                : 'text-ink-placeholder hover:bg-surface-tertiary hover:text-ink-secondary'
+            }`}
+          >
+            {ttsMuted ? (
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 9l4 4m0-4l-4 4" />
+              </svg>
+            ) : (
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728" />
+              </svg>
+            )}
+          </button>
+          {/* #6 語速循環（靜音時淡化但仍可調，下次出聲生效） */}
+          <button
+            type="button"
+            onClick={cycleSpeed}
+            title={t('conversation:tts.speedLabel', { rate: ttsSpeed })}
+            aria-label={t('conversation:tts.speedLabel', { rate: ttsSpeed })}
+            className={`rounded-card px-2 py-1.5 text-caption font-semibold tabular-nums transition-colors ${
+              ttsMuted
+                ? 'text-ink-placeholder/50'
+                : 'text-ink-secondary hover:bg-surface-tertiary'
+            }`}
+          >
+            {ttsSpeed}x
+          </button>
+          <button
+            className="rounded-btn px-3 py-1.5 text-caption font-medium text-alert-critical hover:bg-alert-critical-bg transition-colors"
+            onClick={handleEndSession}
+          >
+            {t('conversation:endSession')}
+          </button>
+        </div>
       </header>
 
       {/* 紅旗警示橫幅（最多 3 張疊起，依嚴重度排序） */}
@@ -771,6 +893,7 @@ export default function ConversationPage() {
               hasTtsFailure: msg.hasTtsFailure,
               canReplay: (msg.ttsAudioChunks?.length ?? 0) > 0,
             }}
+            voiceOff={ttsMuted}
             onReplay={replayMessageAudio}
           />
         ))}
@@ -891,6 +1014,34 @@ export default function ConversationPage() {
                 ? t('conversation:status.listening', { duration: formatDuration(recordingDuration) })
                 : t('conversation:status.idle')}
         </p>
+
+        {/* 打字輸入備援：語音收不到時可直接打字（送後端 text_message，仍走紅旗篩檢） */}
+        {isSessionActive && (
+          <form
+            className="mt-3 flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSendText();
+            }}
+          >
+            <input
+              type="text"
+              value={textDraft}
+              onChange={(e) => setTextDraft(e.target.value)}
+              maxLength={2000}
+              placeholder={t('conversation:input.textPlaceholder')}
+              aria-label={t('conversation:input.textPlaceholder')}
+              className="input-base h-11 flex-1"
+            />
+            <button
+              type="submit"
+              disabled={!textDraft.trim() || connectionState !== 'open'}
+              className="btn-primary h-11 shrink-0 px-4 text-body disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t('conversation:input.send')}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
