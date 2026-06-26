@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_SENTRY_DSN: string;
   readonly VITE_APP_ENV: string;
   readonly VITE_ENABLE_MOCK: string;
+  // #1 pre-roll 連續擷取 feature flag（預設關；需真實麥克風驗 STT 後才逐平台開啟）
+  readonly VITE_VAD_PREROLL: string;
 }
 
 interface ImportMeta {
