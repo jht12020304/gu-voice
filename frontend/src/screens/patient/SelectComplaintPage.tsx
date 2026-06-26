@@ -7,9 +7,18 @@
 //   回傳已 resolve 的字串，前端直接顯示不再 key map
 // - 類別顯示：用 `selectComplaint.categories.*`，若後端 category 不在已知
 //   清單則原樣顯示（未來可自 JSONB 直接讀 category_by_lang 以取消此映射）
+//
+// 主訴複選（2026-06-26）：
+// - 可複選多個症狀以協助醫師 narrow down 鑑別診斷。
+// - 後端 chief_complaint_id 仍是單一必填 FK → 取「第一個選的」當 primary；
+//   其餘選項名稱（+ 補充說明）合併進 chief_complaint_text（後端 String(200)）。
+//   LLM / Supervisor / SOAP / 紅旗偵測吃的都是這段文字，故無需 DB migration。
+// - 醫療安全：合併文字以「code point」為單位嚴格 <=200，且選取時即用 NAME_BUDGET
+//   擋住名稱總長，確保症狀名稱永不被中途截斷（否則醫師端/SOAP/紅旗會漏掉次要主訴）。
 // =============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import { useComplaintStore } from '../../stores/complaintStore';
@@ -17,6 +26,15 @@ import LoadingSpinner from '../../components/common/LoadingSpinner';
 import type { ChiefComplaint } from '../../types';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
+
+// ── 複選 / 字數上限常量 ──
+const MAX_SELECT = 5;        // 最多可選主訴數
+const TEXT_MAX = 200;        // == 後端 SessionCreate.chief_complaint_text max_length / models String(200)
+const NAME_BUDGET = 160;     // 名稱優先但硬性低於 TEXT_MAX，保留約 40 cp 給「（補充）」，名稱永不被中途切斷
+
+// 以 code point 計數 / 截斷（對齊 Python len()，避免 UTF-16 落單 surrogate 導致 DB insert 失敗）
+const cp = (s: string): string[] => Array.from(s);
+const clampCp = (s: string, n: number): string => cp(s).slice(0, n).join('');
 
 // Mock 僅供本機開發；name/nameEn/description 均以 zh-TW 起步，
 // 切英文時仍看到中文屬可接受的已知限制（真實環境走 API 的多語 resolver）。
@@ -85,7 +103,8 @@ export default function SelectComplaintPage() {
   const navigate = useLocalizedNavigate();
   const { t, i18n } = useTranslation('intake');
   const { complaints, isLoading: storeLoading, fetchComplaints } = useComplaintStore();
-  const [selected, setSelected] = useState<ChiefComplaint | null>(null);
+  // selected 以「選取順序」保存；selected[0] = primary（送後端的單一 FK）
+  const [selected, setSelected] = useState<ChiefComplaint[]>([]);
   const [customText, setCustomText] = useState('');
 
   const displayComplaints = IS_MOCK ? mockComplaints : complaints;
@@ -100,6 +119,61 @@ export default function SelectComplaintPage() {
 
   const grouped = useMemo(() => groupByCategory(displayComplaints), [displayComplaints]);
 
+  // ── 複選衍生值 ──
+  // 分隔符與括號依語系：CJK 用「、」與全形括號，其餘用半形。nameSeparator 帶 inline
+  // defaultValue → 即使某語系 intake.json 漏 key 也不會洩漏原始 key 字串。
+  const isCJK = !!(
+    i18n.resolvedLanguage?.startsWith('zh') || i18n.resolvedLanguage?.startsWith('ja')
+  );
+  const sep = t('selectComplaint.nameSeparator', { defaultValue: isCJK ? '、' : ', ' });
+  const open = isCJK ? '（' : ' (';
+  const close = isCJK ? '）' : ')';
+  const wrapperLen = cp(open).length + cp(close).length;
+
+  const joinedNames = selected.map((c) => c.name).join(sep);
+  // 顯示與儲存共用同一份「已 clamp 名稱」，確保病患確認的 complaintName 與後端
+  // 實際存的 complaintText 名稱部分完全一致（避免病患看到完整、醫師看到截斷）。
+  const safeNames = clampCp(joinedNames, TEXT_MAX);
+  const customMaxLen = Math.max(0, TEXT_MAX - cp(safeNames).length - wrapperLen);
+
+  const selIdx = (id: string) => selected.findIndex((x) => x.id === id);
+
+  /** 切換選取；以雙重上限保護：MAX_SELECT 數量上限 + NAME_BUDGET 名稱總長上限。
+   *  名稱總長保護是讓「名稱被中途截斷」不可能發生的關鍵（醫療安全）。 */
+  function toggleComplaint(c: ChiefComplaint) {
+    setSelected((prev) => {
+      if (prev.some((x) => x.id === c.id)) {
+        return prev.filter((x) => x.id !== c.id); // 取消選取
+      }
+      if (prev.length >= MAX_SELECT) {
+        toast.error(t('selectComplaint.maxReached', { max: MAX_SELECT }));
+        return prev;
+      }
+      const next = [...prev, c];
+      // 第一個選項一律允許（避免遇到病態的 200 字 admin 名稱時整頁卡死）；
+      // 之後若加入會讓名稱總長超過 NAME_BUDGET 就擋下，名稱因此永遠不需中途切。
+      if (prev.length >= 1 && cp(next.map((x) => x.name).join(sep)).length > NAME_BUDGET) {
+        toast.error(t('selectComplaint.nameLimitReached'));
+        return prev;
+      }
+      return next;
+    });
+  }
+
+  /** 組出送後端的 chief_complaint_text：<=200 code points，名稱優先且不被中途切，
+   *  只在必要時截斷「補充說明」尾段（code-point 安全）。 */
+  function buildComplaintText(names: string, custom: string): string {
+    const trimmed = custom.trim();
+    if (!trimmed) return clampCp(names, TEXT_MAX);
+    const full = `${names}${open}${trimmed}${close}`;
+    if (cp(full).length <= TEXT_MAX) return full;
+    const room = TEXT_MAX - cp(names).length - wrapperLen;
+    if (room <= 0) return clampCp(names, TEXT_MAX); // 僅在名稱已塞滿上限（病態單一名稱）時
+    return `${names}${open}${clampCp(trimmed, room)}${close}`; // 只截補充文字尾段
+  }
+
+  const grouped_entries = Object.entries(grouped);
+
   // groupByCategory 已用 categoryBucket() 正規化過，傳進來的 bucket 可能是 i18n key
   // （urinarySymptoms / pain / ...）或原 category 字串（admin 自訂類別）。
   const localizedCategory = (bucket: string) => {
@@ -109,11 +183,12 @@ export default function SelectComplaintPage() {
   };
 
   const handleStart = () => {
-    if (!selected) return;
+    if (selected.length === 0) return;
+    const text = buildComplaintText(safeNames, customText); // <=200 cp，名稱不被中途切
     const params = new URLSearchParams({
-      complaintId: selected.id,
-      complaintName: selected.name,
-      complaintText: customText || selected.name,
+      complaintId: selected[0].id,   // 單一必填 FK = primary / 第一個選的
+      complaintName: safeNames,      // MedicalInfo header + 摘要顯示；== text 的名稱部分
+      complaintText: text,           // AI / Supervisor / SOAP / 紅旗偵測實際吃的內容
     });
     navigate(`/patient/medical-info?${params.toString()}`);
   };
@@ -140,12 +215,20 @@ export default function SelectComplaintPage() {
           <p className="mt-0.5 text-body text-ink-muted dark:text-white/50">
             {t('selectComplaint.subtitle')}
           </p>
+          <p className="mt-1 text-small text-primary-600 dark:text-primary-300">
+            {t('selectComplaint.multiHint')}
+            {selected.length > 0 && (
+              <span className="ml-2 text-ink-muted dark:text-white/40">
+                {t('selectComplaint.selectedCount', { count: selected.length, max: MAX_SELECT })}
+              </span>
+            )}
+          </p>
         </div>
       </div>
 
       {/* 分類症狀 */}
       <div className="space-y-8">
-        {Object.entries(grouped).map(([category, items]) => (
+        {grouped_entries.map(([category, items]) => (
           <div key={category}>
             {/* 分類標題 — 純文字，無圖示 */}
             <h2 className="mb-3 text-tiny font-medium uppercase tracking-widest text-ink-muted dark:text-white/40">
@@ -154,17 +237,33 @@ export default function SelectComplaintPage() {
 
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {items.map((complaint) => {
-                const isSelected = selected?.id === complaint.id;
+                const idx = selIdx(complaint.id);
+                const isSelected = idx >= 0;
                 return (
                   <button
                     key={complaint.id}
-                    className={`rounded-card border px-4 py-4 text-left transition-all ${
+                    aria-pressed={isSelected}
+                    className={`relative rounded-card border px-4 py-4 text-left transition-all ${
+                      isSelected ? 'pr-12' : ''
+                    } ${
                       isSelected
                         ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-500/20 dark:border-primary-400 dark:bg-primary-950 dark:ring-primary-400/20'
                         : 'border-edge bg-white hover:border-edge-hover hover:shadow-card dark:border-dark-border dark:bg-dark-card dark:hover:border-dark-border'
                     }`}
-                    onClick={() => setSelected(complaint)}
+                    onClick={() => toggleComplaint(complaint)}
                   >
+                    {isSelected && (
+                      <span className="absolute right-2 top-2 flex items-center gap-1">
+                        {idx === 0 && (
+                          <span className="rounded-full bg-primary-600 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white">
+                            {t('selectComplaint.primaryBadge')}
+                          </span>
+                        )}
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary-600 text-[11px] font-semibold text-white">
+                          {idx + 1}
+                        </span>
+                      </span>
+                    )}
                     <p className={`text-body font-semibold leading-snug ${
                       isSelected ? 'text-primary-700 dark:text-primary-300' : 'text-ink-heading dark:text-white'
                     }`}>
@@ -191,15 +290,22 @@ export default function SelectComplaintPage() {
       </div>
 
       {/* 補充說明 */}
-      {selected && (
+      {selected.length > 0 && (
         <div className="mt-8 animate-fade-in">
-          <label className="mb-1.5 block text-small font-medium text-ink-secondary dark:text-white/60">
-            {t('selectComplaint.customLabel')}
+          <label className="mb-1.5 flex items-center justify-between text-small font-medium text-ink-secondary dark:text-white/60">
+            <span>{t('selectComplaint.customLabel')}</span>
+            <span className="text-tiny tabular-nums text-ink-placeholder dark:text-white/30">
+              {t('selectComplaint.combinedCounter', {
+                count: cp(buildComplaintText(safeNames, customText)).length,
+                max: TEXT_MAX,
+              })}
+            </span>
           </label>
           <textarea
             value={customText}
             onChange={(e) => setCustomText(e.target.value)}
-            placeholder={t('selectComplaint.customPlaceholder', { name: selected.name })}
+            maxLength={customMaxLen}
+            placeholder={t('selectComplaint.customPlaceholder', { name: safeNames })}
             className="input-base min-h-[80px] resize-y"
             rows={3}
           />
@@ -210,10 +316,12 @@ export default function SelectComplaintPage() {
       <div className="sticky bottom-0 mt-8 border-t border-edge bg-surface-secondary/80 py-4 backdrop-blur-sm dark:border-dark-border dark:bg-dark-bg/80">
         <button
           className="btn-primary w-full py-3 text-body"
-          disabled={!selected}
+          disabled={selected.length === 0}
           onClick={handleStart}
         >
-          {t('selectComplaint.cta')}
+          {selected.length > 0
+            ? t('selectComplaint.ctaCount', { count: selected.length })
+            : t('selectComplaint.cta')}
         </button>
       </div>
     </div>
