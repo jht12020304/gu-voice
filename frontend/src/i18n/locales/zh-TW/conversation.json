@@ -20,7 +20,17 @@
   "tts": {
     "failed": "語音合成失敗",
     "replayAria": "重新播放 AI 語音",
-    "replayTitle": "點擊重新播放語音"
+    "replayTitle": "點擊重新播放語音",
+    "muteLabel": "靜音 AI 語音",
+    "unmuteLabel": "開啟 AI 語音",
+    "speedLabel": "語速 {{rate}}x",
+    "play": "播放",
+    "playAria": "播放這則 AI 回覆的語音"
+  },
+  "input": {
+    "textPlaceholder": "聽不清楚？也可以直接打字",
+    "send": "送出",
+    "sendOffline": "連線中斷，訊息尚未送出，請待重新連線後再送"
   },
   "redFlag": {
     "more": "+{{count}} 項其他警示"

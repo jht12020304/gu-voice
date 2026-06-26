@@ -644,6 +644,52 @@ async def conversation_websocket(
                     break
                 continue
 
+            # ── 文字訊息（打字輸入備援，語音收不到時用）──────────────
+            # 不走 STT，直接進 _handle_text_message：紅旗篩檢 / LLM / TTS / auto-conclude
+            # 與語音同一條路徑，醫療安全一致。每則文字一樣計一次 LLM 配額。
+            if msg_type == "text_message":
+                text_in = (msg_payload.get("text") or "").strip()
+                if not text_in:
+                    continue
+                # 長度上限，防濫用（與前端 maxLength=2000 對齊；後端為權威）
+                if len(text_in) > 2000:
+                    text_in = text_in[:2000]
+                try:
+                    await enforce_llm_per_user_rate_limit(
+                        redis, session_context.get("user_id")
+                    )
+                except RateLimitExceededException as rle:
+                    logger.warning(
+                        "LLM rate limit 擋住一則文字訊息 | session=%s user=%s",
+                        session_id,
+                        session_context.get("user_id"),
+                    )
+                    await manager.send_localized_to_session(
+                        session_id,
+                        msg_type="error",
+                        code="errors.ws.rate_limit_exceeded",
+                        params={"retryAfter": (rle.details or {}).get("retry_after")},
+                        severity="warning",
+                    )
+                    continue
+                ended = await _handle_text_message(
+                    session_id=session_id,
+                    text=text_in,
+                    llm_engine=llm_engine,
+                    tts_pipeline=tts_pipeline,
+                    red_flag_detector=red_flag_detector,
+                    supervisor_engine=supervisor_engine,
+                    system_prompt=system_prompt,
+                    conversation_history=conversation_history,
+                    session_context=session_context,
+                    redis=redis,
+                    db=db,
+                    settings=settings,
+                )
+                if ended:
+                    break
+                continue
+
             # ── 未知訊息類型 ───────────────────────────
             logger.warning(
                 "收到未知訊息類型 | session=%s, type=%s",

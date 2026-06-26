@@ -20,7 +20,17 @@
   "tts": {
     "failed": "Voice synthesis failed",
     "replayAria": "Replay AI voice",
-    "replayTitle": "Click to replay voice"
+    "replayTitle": "Click to replay voice",
+    "muteLabel": "Mute AI voice",
+    "unmuteLabel": "Unmute AI voice",
+    "speedLabel": "Speed {{rate}}x",
+    "play": "Play",
+    "playAria": "Play this AI reply"
+  },
+  "input": {
+    "textPlaceholder": "Can't hear well? You can type instead",
+    "send": "Send",
+    "sendOffline": "Disconnected — your message wasn't sent. Please retry once reconnected."
   },
   "redFlag": {
     "more": "+{{count}} more alerts"

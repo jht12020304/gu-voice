@@ -20,7 +20,17 @@
   "tts": {
     "failed": "Tổng hợp giọng nói thất bại",
     "replayAria": "Phát lại giọng nói AI",
-    "replayTitle": "Nhấn để phát lại giọng nói"
+    "replayTitle": "Nhấn để phát lại giọng nói",
+    "muteLabel": "Tắt giọng nói AI",
+    "unmuteLabel": "Bật giọng nói AI",
+    "speedLabel": "Tốc độ {{rate}}x",
+    "play": "Phát",
+    "playAria": "Phát câu trả lời này của AI"
+  },
+  "input": {
+    "textPlaceholder": "Không nghe rõ? Bạn có thể gõ chữ",
+    "send": "Gửi",
+    "sendOffline": "Mất kết nối — tin nhắn chưa được gửi. Vui lòng thử lại sau khi kết nối lại."
   },
   "redFlag": {
     "more": "+{{count}} cảnh báo khác"
