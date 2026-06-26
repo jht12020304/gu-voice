@@ -19,6 +19,8 @@ env/
 .env.local
 .env.*.local
 backend/.env
+# Timestamped .env backups (含 live DB 密碼 / Supabase keys，禁止入庫)
+.env*.bak*
 
 # Logs
 *.log
@@ -49,6 +51,8 @@ sentry/
 stripe/
 supabase/
 vercel/
+# Vercel 環境匯出檔（含 secrets，禁止入庫）
+vercel_*.yml
 
 # Python test cache
 .pytest_cache/
