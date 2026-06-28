@@ -337,6 +337,53 @@
 
 ---
 
+## E — 真 OpenAI E2E 稽核發現（2026-06-28）
+
+> 來源：[`e2e_realopenai_audit_2026-06-28.md`](./e2e_realopenai_audit_2026-06-28.md)（8 情境真 OpenAI E2E + 對抗式驗證，已對 DB 核實）。
+> 依賴排序：A 群（紅旗/結束流程，同一 `conversation_handler.py` 區塊，需協調）→ B 群（SOAP/ICD）。先就 E7 臨床決策再實作 A3/severity。
+
+### [ ] E1. 🔴 D1 — 硬上限被紅旗 deferral 打穿，持續 high 紅旗（肉眼血尿）問診永不結束
+
+- **檔案**：`backend/app/websocket/conversation_handler.py:1702`（閘門）、`:1698-1701`、`:1649-1652`、`:289-290`
+- **A1 [D5]**：空回應守衛（包 try/except 的單次 retry → 在地化 fallback 直接 `_spawn_tts_task`，因 `_SENTENCE_BOUNDARY_CHARS` CJK-only）
+- **A2**：`hard_cap_reached` 抽成獨立旗標；閘門改純函式 `_should_conclude_now(...)`，硬上限不被 `soft_defer` 否決
+- **A3**：硬上限對 late drain 做有界 inline 解析（late-critical 先 abort 再 conclude）+ `MAX_HARD_CAP_DRAIN_DEFERS` 絕對 backstop
+- **驗收**：重跑 `hematuria_coop_en` → ~15 輪 `completed` 出 1 份 SOAP（現況 18 輪卡 `in_progress` 無 SOAP）；`test_auto_conclude` 加 `_should_conclude_now` 案例
+
+### [ ] E2. 🔴 D2 — `sessions.red_flag`/`red_flag_reason` 從不被對話紅旗或 aborted_red_flag 更新
+
+- **檔案**：模組級 `_update_session_status`（`conversation_handler.py:1985`，`.values` @`:2017`）；abort 呼叫 `:1656`、`:1628`
+- **A4**：轉 `aborted_red_flag` 時 `.values(..., red_flag=True, red_flag_reason=<critical title>)`；WHERE 不動（終態保護不變）。語意維持「＝因紅旗中止」
+- **驗收**：重跑 `torsion_critical_zh` → DB `red_flag=true, red_flag_reason IS NOT NULL`；新增 `test_update_session_status`
+
+### [ ] E3. 🔴 D3 — 紅旗非冪等（同一紅旗每輪重複送，肉眼血尿 18×）
+
+- **檔案**：`_persist_and_emit_alert`（`conversation_handler.py:1410-1503`）；`red_flag_detector.py` canonical_id
+- **A5**：加跨輪去重（Redis hash `session:{id}:emitted_red_flags`，record-on-success，**升級放行** high→critical）；不可過濾 abort 用的 `red_flag_alerts`
+- **驗收**：重跑 `hematuria_coop_en` → `red_flag_alerts` 僅 1 筆（原 18）；single + escalation 單元測試
+
+### [ ] E4. 🟡 D4 — `soap_reports.language` 恆 zh-TW
+
+- **檔案**：`conversation_handler.py:1819-1832` SOAPReport 建構子
+- **B3**：補 `language=session_context.get('language') or settings.DEFAULT_LANGUAGE`（`or DEFAULT` 承重，避免 NULL→IntegrityError 靜默掉 SOAP）、`icd10_verified=...`（依賴 B2）
+- **驗收**：en/ja 場次 `soap.language` 正確；歷史回填見 E7 決策
+
+### [ ] E5. 🟡 D5 — 空 AI 回應 turn（空泡泡）
+
+- 併入 A1（見 E1）。新增 `test_empty_response_fallback`（retry-raises 仍送 `ai_response_end`、en-US ASCII-`?` 至少 1 個非空 chunk）
+
+### [ ] E6. 🟢 D6 — ICD-10 缺漏（ED 應 N52.9、PSA 應 R97.20）
+
+- **B1**：`icd10_validator` 白名單加 `N52`/`R97` + `icd10_symptom_map` 加 ED/PSA（同一 commit）
+- **B2**：抽共用 `resolve_symptom_id`（讀 `name_en`）；`_generate_soap_report_async` `selectinload(chief_complaint)` 把 `symptom_id` 傳進 `generate()`（無此步 verified 永遠 False）
+- **驗收**：ED/PSA `icd10_codes` 非空 + `icd10_verified=true`
+
+### [ ] E7. 待產品/臨床拍板（先決定再實作 A3/severity）
+
+- 持續 high 是否升級成 `aborted_red_flag`？／偵測器卡死強制收尾 vs 通知 ops？／`session.red_flag` 語意確認／R97 粗粒度／D4 歷史回填。詳見稽核 §四
+
+---
+
 ## 追蹤約定
 
 - PR 描述附上 TODO 編號（例如 `Fixes TODO #3`）

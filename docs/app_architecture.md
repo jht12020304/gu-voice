@@ -104,6 +104,12 @@
   `_update_session_status` 採 **compare-and-set**（只在仍 `in_progress` 才轉 `completed`），
   避免把 `aborted_red_flag` 降級；`_generate_soap_report_async` 雙重存在性檢查 +
   `soap_reports.session_id` UNIQUE → 任何結束路徑都不會重複報告。
+- **⚠️ 已知缺陷 D1（2026-06-28 真 OpenAI E2E 揪出，待修）**：上述「critical/high 紅旗當輪不收尾」的
+  deferral 對「每輪都再觸發 high 紅旗」的主訴（**肉眼血尿**最典型）會變成**永久延後**——high 不 abort、
+  硬上限也被否決 → 問診**永不結束、無 SOAP**（重現了 #3「問不停」）。硬上限**並非**真正的保命線。
+  另：`session.red_flag` 從不被對話紅旗/abort 更新（D2）、紅旗每輪重複送（D3）、`soap.language` 恆 zh-TW（D4）。
+  根因定位、系統性修法（A 群硬上限獨立 + drain 有界解析；B 群 SOAP language/symptom_id）、驗證與待拍板臨床決策
+  見 [`e2e_realopenai_audit_2026-06-28.md`](./e2e_realopenai_audit_2026-06-28.md)。
 
 ---
 
