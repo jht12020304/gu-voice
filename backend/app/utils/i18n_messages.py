@@ -422,6 +422,38 @@ MESSAGES: dict[str, dict[str, str]] = {
             "tại chỗ để bác sĩ xử lý sớm (giọng tự nhiên, trấn an, không sao chép mẫu cố định)."
         ),
     },
+    # #5：語音辨識只支援「場次語言」。病患問能否改台語/客語/方言/其他語言時，AI 不得宣稱聽得懂
+    # （whisper-1 無法可靠辨識台語等），要親切說明並請對方改用場次語言或點文字輸入框打字。
+    "llm.conversation_unsupported_speech_rule": {
+        "zh-TW": (
+            "語音辨識目前僅聽得懂本場次語言。若病患詢問能否改用台語、客語或其他方言／語言，"
+            "請親切說明語音目前只能聽懂本場次語言，並請對方改用該語言說、或點畫面上的文字輸入框打字；"
+            "切勿宣稱你聽得懂台語或其他方言／語言。"
+        ),
+        "en-US": (
+            "Speech recognition currently understands only this session's language. If the "
+            "patient asks to speak a dialect or another language, kindly explain that voice "
+            "input only understands this session's language, and ask them to speak in it or "
+            "use the on-screen text box; never claim you can understand a dialect or another language."
+        ),
+        "ja-JP": (
+            "音声認識は現在この問診の言語しか聞き取れません。患者が方言や他の言語に切り替えたいと"
+            "尋ねた場合は、音声は現在この言語しか理解できないと丁寧に説明し、その言語で話すか画面の"
+            "テキスト入力欄に入力するよう促してください。方言や他の言語を聞き取れると主張しないでください。"
+        ),
+        "ko-KR": (
+            "음성 인식은 현재 이 문진의 언어만 이해할 수 있습니다. 환자가 방언이나 다른 언어로 "
+            "바꿔도 되는지 물으면, 음성은 현재 이 언어만 알아들을 수 있다고 친절히 설명하고 그 "
+            "언어로 말하거나 화면의 텍스트 입력창에 입력하도록 안내하세요. 방언이나 다른 언어를 "
+            "알아들을 수 있다고 주장하지 마세요."
+        ),
+        "vi-VN": (
+            "Nhận dạng giọng nói hiện chỉ hiểu ngôn ngữ của buổi hỏi bệnh này. Nếu bệnh nhân "
+            "hỏi có thể dùng phương ngữ hoặc ngôn ngữ khác không, hãy nhẹ nhàng giải thích rằng "
+            "giọng nói chỉ hiểu ngôn ngữ hiện tại, và mời họ nói bằng ngôn ngữ đó hoặc gõ vào ô "
+            "nhập văn bản trên màn hình; tuyệt đối không tuyên bố bạn hiểu được phương ngữ hay ngôn ngữ khác."
+        ),
+    },
     # Conversation handler format_messages 注入 Supervisor 指導時的區段標題。
     # 放 system prompt 內部不直接給病患看，但避免中文標題被 LLM 誤當輸出語言的訊號。
     "llm.supervisor_guidance_section": {
@@ -430,6 +462,15 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ja-JP": "## 👨‍⚕️ 上級指導医からのリアルタイム指導（最優先）",
         "ko-KR": "## 👨‍⚕️ 선임 지도 전문의의 실시간 지도(최우선)",
         "vi-VN": "## 👨‍⚕️ Hướng dẫn thời gian thực từ bác sĩ giám sát cấp cao (ưu tiên cao nhất)",
+    },
+    # #2：附在上面 Supervisor 指導之後的「別重問」護欄。Supervisor 指導為上一輪結果，
+    # 常仍指向 AI 剛問過的題目；此句要 LLM 先看對話紀錄，已答過就不重問、直接接下一個面向。
+    "llm.supervisor_guidance_no_repeat": {
+        "zh-TW": "（注意：若上述指導所問的內容病患在前面對話已明確回答過，請勿重複提問，直接接續尚未釐清的下一個面向。）",
+        "en-US": "(Note: if the patient has already clearly answered what the guidance above asks, do NOT re-ask it — move on to the next unclarified aspect.)",
+        "ja-JP": "（注意：上記の指導が尋ねる内容を患者がすでに明確に回答している場合は、繰り返し質問せず、まだ明らかでない次の面に進んでください。）",
+        "ko-KR": "(참고: 위 지도가 묻는 내용을 환자가 앞선 대화에서 이미 명확히 답했다면 다시 묻지 말고, 아직 확인되지 않은 다음 측면으로 넘어가세요.)",
+        "vi-VN": "(Lưu ý: nếu bệnh nhân đã trả lời rõ nội dung mà hướng dẫn trên hỏi, đừng hỏi lại — hãy chuyển sang khía cạnh tiếp theo chưa được làm rõ.)",
     },
     # 問診自動收尾指示（本輪限定，僅在 should_conclude 時由 format_messages 附加到 system prompt）。
     # 目的：HPI 完整度達標或達回合硬上限時，讓 LLM 講一句溫暖的結束語、不再發問，
