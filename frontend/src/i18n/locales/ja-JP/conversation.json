@@ -8,6 +8,7 @@
   "status": {
     "notStarted": "問診はまだ開始されていません",
     "aiResponding": "AI が応答中です...",
+    "transcribing": "お話を文字起こししています…",
     "listening": "お話を伺っています {{duration}}",
     "idle": "そのままお話しください。自動で聞き取ります",
     "thinking": "AI が考え中です...",

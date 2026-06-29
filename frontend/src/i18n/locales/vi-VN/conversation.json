@@ -8,6 +8,7 @@
   "status": {
     "notStarted": "Phiên khám chưa bắt đầu",
     "aiResponding": "AI đang trả lời...",
+    "transcribing": "Đang nhận dạng lời quý vị nói…",
     "listening": "Đang lắng nghe quý vị {{duration}}",
     "idle": "Hãy nói trực tiếp, tôi sẽ tự động ghi lại",
     "thinking": "AI đang suy nghĩ...",

@@ -8,6 +8,7 @@
   "status": {
     "notStarted": "問診尚未開始",
     "aiResponding": "AI 回應中...",
+    "transcribing": "正在辨識你說的話…",
     "listening": "正在聆聽你說話 {{duration}}",
     "idle": "請直接開始說話，我會自動聽取",
     "thinking": "AI 正在思考...",

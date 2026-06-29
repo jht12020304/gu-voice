@@ -219,6 +219,9 @@ class Settings(BaseSettings):
     # ── STT (OpenAI Whisper) ─────────────────────────────
     OPENAI_STT_MODEL: str = "whisper-1"
     OPENAI_STT_LANGUAGE: str = "zh"      # ISO-639-1，zh = 中文（繁/簡皆可）
+    # #3：STT 專用逾時。預設 client 為 60s，病患一口氣講很長 → 大檔 Whisper 轉錄常 >60s
+    # 撞逾時又 tenacity 重試（~2x）造成「當機約一分鐘」。STT 拉長到 120s 避免誤判逾時重試。
+    OPENAI_STT_TIMEOUT_SECONDS: float = 120.0
 
     # ── Multi-language (i18n) ────────────────────────────
     # 見 docs/i18n_plan.md；SupportedLanguage enum (app/models/enums.py) 為 locale 清單的單一來源；

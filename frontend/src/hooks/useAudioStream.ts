@@ -49,6 +49,7 @@ export function useAudioStream(enabled: boolean) {
     setRecordingDuration,
     setWaveformData,
     updateSTTPartial,
+    setSttProcessing,
     setError,
   } = useConversationStore();
 
@@ -81,6 +82,9 @@ export function useAudioStream(enabled: boolean) {
           onSpeechEnd: () => {
             setRecording(false);
             updateSTTPartial('');
+            // #3：進入「正在辨識」狀態（長語音轉錄期間顯示提示，避免看起來像當機）。
+            // 由 ConversationPage 在 stt_final / ai_response_start / error / 重連時清除。
+            setSttProcessing(true);
             // 通知後端這段錄音結束，觸發 STT + LLM
             conversationWS.send('audio_chunk', {
               audioData: '',
@@ -131,7 +135,7 @@ export function useAudioStream(enabled: boolean) {
       cancelled = true;
       audioStreamService.closeMic();
     };
-  }, [enabled, setRecording, setRecordingDuration, setWaveformData, updateSTTPartial, setError, t]);
+  }, [enabled, setRecording, setRecordingDuration, setWaveformData, updateSTTPartial, setSttProcessing, setError, t]);
 
   /** 完全停止 VAD 偵測（如斷線時） */
   const muteVAD = useCallback(() => {

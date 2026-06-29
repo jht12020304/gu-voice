@@ -18,6 +18,13 @@ import { encodeWav, arrayBufferToBase64 } from './wavEncoder';
 
 /** build-time feature flag（對齊既有 VITE_ENABLE_MOCK 慣例）；預設開，設 'false' 退關。 */
 const PREROLL_ENABLED = import.meta.env.VITE_VAD_PREROLL !== 'false';
+/**
+ * #4：關閉瀏覽器自動增益控制（AGC）。預設關（保持現行 AGC 開）。
+ * 病患回報「講一句很不標準/很大聲的話後，接下來幾句辨識變差」——推測是 AGC 跨段把增益壓低、
+ * 恢復慢，污染後續擷取。設 VITE_VAD_DISABLE_AGC=true 可在實機 A/B 驗證是否為 AGC 所致；
+ * 確認有效並重新校準 VAD 門檻後再考慮預設開。
+ */
+const DISABLE_AGC = import.meta.env.VITE_VAD_DISABLE_AGC === 'true';
 /** pre-roll 取多長（秒）— 補回句首被吃掉的部分。 */
 const PREROLL_SECONDS = 0.4;
 /** ring buffer 保留長度（秒）— 略大於 pre-roll 即可。 */
@@ -149,7 +156,8 @@ class AudioStreamService {
           channelCount: 1,
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true,
+          // #4：AGC 跨段自適應疑似污染後續辨識；可用 VITE_VAD_DISABLE_AGC=true 關閉驗證。
+          autoGainControl: !DISABLE_AGC,
         },
       });
 
@@ -413,6 +421,9 @@ class AudioStreamService {
     this.speechStartCandidateAt = 0;
     // 使 activeSegmentId 失效：在這之後 resolve 的 sendChunk 會看到 id 不符而被丟棄
     this.activeSegmentId = 0;
+    // #4 防禦：清空 pre-roll ring，避免「上一句的尾巴」殘留被下一段的 0.4s pre-roll 取到而污染。
+    // 本段的 pre-roll 已在 beginSegment 讀進 liveFrames，清空不影響本段，只影響後續。
+    this.pcmRing?.clear();
 
     if (this.durationInterval) {
       clearInterval(this.durationInterval);
