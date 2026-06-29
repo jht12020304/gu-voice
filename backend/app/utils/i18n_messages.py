@@ -392,30 +392,34 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ko-KR": "정중한 한국어로 환자와 소통하세요",
         "vi-VN": "Giao tiếp với bệnh nhân bằng tiếng Việt trang trọng",
     },
-    # 問診 prompt 中「偵測到紅旗時要提醒就醫」的規則；以前硬寫中文警示語
-    # 導致英文場次也會照抄「請不要等待」。改成指令形式，讓 LLM 用當下輸出語言組句。
+    # 問診 prompt 中「偵測到紅旗時要提醒」的規則。情境＝院內候診（平板/Kiosk）：病患已在現場，
+    # 故不講含糊的「盡速就醫」（病患會困惑是去門診還是等醫師），改為明確指示「立即告知現場
+    # 櫃台/醫護人員」，以便儘快安排醫師處理。指令形式讓 LLM 用當下輸出語言組句。
     "llm.conversation_red_flag_alert_rule": {
         "zh-TW": (
-            "若偵測紅旗，請在該次回覆結尾以繁體中文加上一句提醒病患儘速就醫的警示"
-            "（語氣自然，不要照抄固定範本）。"
+            "若偵測紅旗，請在該次回覆結尾以繁體中文加上一句，提醒病患立即告知現場的櫃台"
+            "或醫護人員，以便儘快安排醫師處理（語氣自然、沉穩不驚嚇病患，不要照抄固定範本）。"
         ),
         "en-US": (
-            "If a red-flag symptom is detected, append a short warning at the end "
-            "of your reply, in US English, urging the patient to seek medical "
-            "attention as soon as possible (natural phrasing; do not copy a fixed template)."
+            "If a red-flag symptom is detected, append one short sentence in US English "
+            "at the end of your reply, telling the patient to notify the front desk or "
+            "on-site clinical staff right away so a physician can attend to them quickly "
+            "(natural, calm, non-alarming phrasing; do not copy a fixed template)."
         ),
         "ja-JP": (
-            "レッドフラッグ症状を検知した場合は、返答の末尾に自然な日本語で"
-            "速やかに受診するよう促す一文を添えてください（定型文を丸写ししないこと）。"
+            "レッドフラッグ症状を検知した場合は、返答の末尾に自然で落ち着いた日本語で、"
+            "受付または現場の医療スタッフにすぐ伝えるよう促す一文を添えてください"
+            "（患者を驚かせない言い回し、定型文を丸写ししないこと）。"
         ),
         "ko-KR": (
-            "레드 플래그 증상이 감지되면, 답변 끝에 자연스러운 한국어로 신속한 진료를 "
-            "권유하는 문장을 덧붙이세요(정형 문장을 그대로 베끼지 마세요)."
+            "레드 플래그 증상이 감지되면, 답변 끝에 자연스럽고 차분한 한국어로 접수처나 "
+            "현장 의료진에게 즉시 알리도록 안내하는 문장을 덧붙이세요"
+            "(환자를 놀라게 하지 않는 표현, 정형 문장을 그대로 베끼지 마세요)."
         ),
         "vi-VN": (
-            "Nếu phát hiện triệu chứng cờ đỏ, hãy bổ sung ở cuối câu trả lời một câu "
-            "bằng tiếng Việt nhắc bệnh nhân đi khám càng sớm càng tốt "
-            "(giọng tự nhiên, không sao chép mẫu cố định)."
+            "Nếu phát hiện triệu chứng cờ đỏ, hãy thêm ở cuối câu trả lời một câu bằng "
+            "tiếng Việt, nhắc bệnh nhân báo ngay cho quầy tiếp nhận hoặc nhân viên y tế "
+            "tại chỗ để bác sĩ xử lý sớm (giọng tự nhiên, trấn an, không sao chép mẫu cố định)."
         ),
     },
     # Conversation handler format_messages 注入 Supervisor 指導時的區段標題。
@@ -430,44 +434,50 @@ MESSAGES: dict[str, dict[str, str]] = {
     # 問診自動收尾指示（本輪限定，僅在 should_conclude 時由 format_messages 附加到 system prompt）。
     # 目的：HPI 完整度達標或達回合硬上限時，讓 LLM 講一句溫暖的結束語、不再發問，
     # 之後 handler 會自動把場次標為 completed 並觸發 SOAP。仍保留「先前若有緊急徵象要再提醒就醫」。
+    # 情境＝院內候診（平板/Kiosk）：問診結束後病患在原處等醫師看診，故結束語請他「稍候、醫師
+    # 將很快看診」，而非含糊的「後續跟進」；紅旗時請他「立即告知現場櫃台/醫護」而非「盡速就醫」。
     "llm.conversation_wrap_up_rule": {
         "zh-TW": (
             "\n\n## 結束問診（本輪硬性指示）\n"
-            "- 你已收集到足夠病史，本輪請收尾：簡短感謝病患，說明醫師將檢視並後續跟進。\n"
+            "- 你已收集到足夠病史，本輪請收尾：簡短感謝病患，並請他在原處稍候，"
+            "醫師將很快依這些資訊為他看診。\n"
             "- 本輪不要再提出任何新問題。\n"
-            "- 若先前對話出現需緊急就醫的徵象，請再次提醒病患儘速就醫。\n"
+            "- 若先前對話出現需緊急處理的徵象，請提醒病患立即告知現場櫃台或醫護人員。\n"
             "- 保持 1-2 句、口語化。"
         ),
         "en-US": (
             "\n\n## Wrap up the interview (strict, this turn only)\n"
             "- You have collected enough history. Close the conversation: briefly thank "
-            "the patient and say a physician will review and follow up.\n"
+            "the patient and ask them to wait where they are; a physician will see them "
+            "shortly using this information.\n"
             "- Do NOT ask any new question this turn.\n"
-            "- If earlier symptoms warranted urgent care, remind the patient to seek care promptly.\n"
+            "- If earlier symptoms warranted urgent attention, tell the patient to notify "
+            "the front desk or on-site staff right away.\n"
             "- Keep it to 1-2 conversational sentences."
         ),
         "ja-JP": (
             "\n\n## 問診の締めくくり（本ターンのみ・必須）\n"
             "- 十分な病歴が得られました。本ターンは締めくくり、患者へ簡潔に感謝し、"
-            "医師が確認しフォローする旨を伝えてください。\n"
+            "その場でお待ちいただくよう伝えてください。医師がこの情報をもとに間もなく診察します。\n"
             "- 本ターンでは新しい質問をしないでください。\n"
-            "- 緊急受診が必要な兆候があれば、速やかな受診を再度促してください。\n"
+            "- 緊急の対応が必要な兆候があれば、受付または現場の医療スタッフにすぐ伝えるよう促してください。\n"
             "- 1〜2文の会話調で。"
         ),
         "ko-KR": (
             "\n\n## 문진 마무리(이번 턴 한정·필수)\n"
             "- 충분한 병력을 수집했습니다. 이번 턴은 마무리로, 환자에게 간단히 감사하고 "
-            "의사가 검토 후 후속 조치할 것임을 안내하세요.\n"
+            "그 자리에서 잠시 기다려 달라고 안내하세요. 의사가 이 정보를 바탕으로 곧 진료합니다.\n"
             "- 이번 턴에는 새 질문을 하지 마세요.\n"
-            "- 이전 대화에 응급 진료가 필요한 징후가 있었다면 신속한 진료를 다시 권고하세요.\n"
+            "- 긴급 대응이 필요한 징후가 있었다면 접수처나 현장 의료진에게 즉시 알리도록 안내하세요.\n"
             "- 1~2문장 구어체로."
         ),
         "vi-VN": (
             "\n\n## Kết thúc buổi hỏi bệnh (bắt buộc, chỉ lượt này)\n"
-            "- Đã thu thập đủ tiền sử. Lượt này hãy kết thúc: cảm ơn ngắn gọn và nói "
-            "bác sĩ sẽ xem xét và theo dõi tiếp.\n"
+            "- Đã thu thập đủ tiền sử. Lượt này hãy kết thúc: cảm ơn ngắn gọn và mời "
+            "bệnh nhân chờ tại chỗ; bác sĩ sẽ sớm thăm khám dựa trên thông tin này.\n"
             "- KHÔNG đặt thêm câu hỏi mới ở lượt này.\n"
-            "- Nếu trước đó có dấu hiệu cần cấp cứu, nhắc bệnh nhân đi khám sớm.\n"
+            "- Nếu trước đó có dấu hiệu cần xử lý khẩn cấp, hãy nhắc bệnh nhân báo ngay "
+            "cho quầy tiếp nhận hoặc nhân viên y tế tại chỗ.\n"
             "- Giữ 1-2 câu, giọng trò chuyện."
         ),
     },

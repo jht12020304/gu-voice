@@ -30,7 +30,7 @@
       "ended_by_user": "The session has been ended by the patient or assistant.",
       "completed_normal": "Session completed normally.",
       "completed_hpi": "Enough information has been collected; the session has ended automatically.",
-      "aborted_red_flag": "A critical red-flag symptom was detected; the session has been aborted. Please seek medical attention immediately.",
+      "aborted_red_flag": "A critical red-flag symptom was detected; the interview has been stopped. Please notify the front desk or on-site clinical staff right away.",
       "aborted_red_flag_dashboard": "Critical red-flag symptom detected; session aborted.",
       "red_flag_triggered": "Red-flag alert triggered: {{title}}"
     }
