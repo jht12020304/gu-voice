@@ -94,12 +94,13 @@
   永遠看得到。靜音時 `unmuteVAD()` 必須在**每條** `ai_response_end` 分支觸發，否則病患會被
   靜音鎖住、無法再開口。空 STT（Whisper 沒聽出字）時前端須 re-arm VAD（同上理由）。
 
-**問診自動結束**（`conversation_handler.py`，修 #3「問診不會結束」）
-- **軟門檻**：Supervisor HPI 完整度 ≥ `HPI_COMPLETION_TERMINATION_THRESHOLD`(85) 且病患回合
-  ≥ `MIN_PATIENT_TURNS_BEFORE_AUTO_END`(4)；**硬上限 backstop**：回合 ≥
-  `MAX_PATIENT_TURNS_HARD_CAP`(15) 強制收尾，**不依賴 Supervisor**（降級寫 fallback hpi=0 時
-  軟門檻永不觸發 → 硬上限才是「15 題等不到結果」的真正保命線）。總開關
-  `HPI_COMPLETION_TERMINATION_ENABLED`。
+**問診自動結束**（`conversation_handler.py`，修 #3「問診不會結束」；2026-06-29 調為「平衡 8-10 題」）
+- **軟門檻**：Supervisor HPI 完整度 ≥ `HPI_COMPLETION_TERMINATION_THRESHOLD`(80) 且病患回合
+  ≥ `MIN_PATIENT_TURNS_BEFORE_AUTO_END`(5)；**硬上限 backstop**：回合 ≥
+  `MAX_PATIENT_TURNS_HARD_CAP`(10) 強制收尾，**不依賴 Supervisor**（降級寫 fallback hpi=0 時
+  軟門檻永不觸發 → 硬上限才是「等不到結果」的真正保命線）。總開關
+  `HPI_COMPLETION_TERMINATION_ENABLED`。舊值 85/4/15 因軟門檻幾乎不觸發、benign 全撐到 15 題，
+  病患回報「AI 一直問、等不到自動結束」，故下調；`supervisor.py` 並補 hpi_completion 誠實評分準則。
 - **不變式（醫療安全）**：自動結束區塊放在**紅旗 gate 之後**且 critical/high 紅旗當輪不收尾；
   `_update_session_status` 採 **compare-and-set**（只在仍 `in_progress` 才轉 `completed`），
   避免把 `aborted_red_flag` 降級；`_generate_soap_report_async` 雙重存在性檢查 +

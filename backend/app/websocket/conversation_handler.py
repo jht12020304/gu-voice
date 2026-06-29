@@ -283,10 +283,10 @@ def _should_auto_conclude(
         hpi_pct = _coerce_hpi_pct(supervisor_guidance.get("hpi_completion_percentage"))
     soft_ready = (
         hpi_pct is not None
-        and hpi_pct >= getattr(settings, "HPI_COMPLETION_TERMINATION_THRESHOLD", 85)
-        and patient_turns >= getattr(settings, "MIN_PATIENT_TURNS_BEFORE_AUTO_END", 4)
+        and hpi_pct >= getattr(settings, "HPI_COMPLETION_TERMINATION_THRESHOLD", 80)
+        and patient_turns >= getattr(settings, "MIN_PATIENT_TURNS_BEFORE_AUTO_END", 5)
     )
-    hard_ready = patient_turns >= getattr(settings, "MAX_PATIENT_TURNS_HARD_CAP", 15)
+    hard_ready = patient_turns >= getattr(settings, "MAX_PATIENT_TURNS_HARD_CAP", 10)
     return bool(soft_ready or hard_ready)
 
 
