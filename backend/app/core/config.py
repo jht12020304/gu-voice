@@ -277,10 +277,13 @@ class Settings(BaseSettings):
     #   2) 硬上限 backstop：病患回合數 >= HARD_CAP 即強制收尾，「不依賴」Supervisor
     #      （Supervisor 逾時/降級寫 fallback hpi=0 時軟門檻永不觸發，硬上限才是保命線，
     #      也正是「測到第 15 題還沒結果」的真正修補）。
+    # 「平衡」收尾節奏（約 8-10 題）：病患回報舊值（軟門檻 85 幾乎不觸發、硬上限 15 太長，
+    # 等不到自動結束、覺得 AI 一直問）。下調為：軟門檻 80 讓問夠的對話約第 6-9 題即收尾，
+    # 硬上限 10 保證最遲第 10 題結束（benign 對話走 in_progress→completed compare-and-set）。
     HPI_COMPLETION_TERMINATION_ENABLED: bool = True         # 自動結束總開關
-    HPI_COMPLETION_TERMINATION_THRESHOLD: int = 85          # 0-100；HPI 完整度達此值即可收尾
-    MIN_PATIENT_TURNS_BEFORE_AUTO_END: int = 4              # 軟門檻最低回合，防 Supervisor 過早判定
-    MAX_PATIENT_TURNS_HARD_CAP: int = 15                    # 病患回合硬上限，無論 Supervisor 狀態都收尾
+    HPI_COMPLETION_TERMINATION_THRESHOLD: int = 80          # 0-100；HPI 完整度達此值即可收尾
+    MIN_PATIENT_TURNS_BEFORE_AUTO_END: int = 5              # 軟門檻最低回合，防 Supervisor 過早判定
+    MAX_PATIENT_TURNS_HARD_CAP: int = 10                    # 病患回合硬上限，無論 Supervisor 狀態都收尾
 
     # ── TTS (OpenAI TTS) ─────────────────────────────────
     OPENAI_TTS_MODEL: str = "tts-1"      # tts-1（快速）或 tts-1-hd（高品質）

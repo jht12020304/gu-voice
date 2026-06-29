@@ -94,3 +94,14 @@ def test_kill_switch_disables_both_paths():
     s = _settings(HPI_COMPLETION_TERMINATION_ENABLED=False)
     assert _should_auto_conclude({"hpi_completion_percentage": 99}, 20, s) is False
     assert _should_auto_conclude(None, 99, s) is False
+
+
+# ── 生產預設值（鎖定「平衡 8-10 題」，防意外 revert 回舊的 85/4/15）──────
+def test_production_defaults_are_balanced_8_to_10():
+    """上方測試都用 _settings() 覆寫值，不會抓到 config.py 預設被改回舊值。
+    這裡直接讀 Settings 宣告的預設，鎖定 2026-06-29 調整後的 80/5/10。"""
+    fields = Settings.model_fields
+    assert fields["HPI_COMPLETION_TERMINATION_THRESHOLD"].default == 80
+    assert fields["MIN_PATIENT_TURNS_BEFORE_AUTO_END"].default == 5
+    assert fields["MAX_PATIENT_TURNS_HARD_CAP"].default == 10
+    assert fields["HPI_COMPLETION_TERMINATION_ENABLED"].default is True

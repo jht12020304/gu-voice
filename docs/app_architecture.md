@@ -32,6 +32,12 @@
 - 預設常見泌尿科主訴清單（血尿、頻尿、排尿困難、腰痛、尿失禁、陰囊腫痛、PSA 異常等）
 - 支援醫師自訂新增主訴
 - 選擇後進入語音對話流程
+- **主訴可複選（2026-06-26）**：協助 narrow down 鑑別診斷。後端 `chief_complaint_id` 仍是
+  單一必填 FK → 取「第一個選的」當 primary，其餘選項名稱（+ 補充說明）合併進
+  `chief_complaint_text`（後端 `String(200)`，LLM/Supervisor/SOAP/紅旗偵測實際吃的內容），
+  故**無需 DB migration**。前端以 code-point 為單位嚴格 ≤200 字、選取時 `NAME_BUDGET`
+  擋名稱總長，確保症狀名稱**永不被中途截斷**（否則醫師端/SOAP/紅旗會漏掉次要主訴 →
+  under-triage）。實作見 `frontend/src/screens/patient/SelectComplaintPage.tsx`。
 
 ---
 
@@ -65,6 +71,46 @@
 - **LLM 對話引擎**：根據主訴 + 歷史對話脈絡，生成結構化追問
 - **TTS（Text-to-Speech）**：將 LLM 回覆轉為語音播出
 - **紅旗即時偵測**：每輪對話同步偵測急性症狀關鍵字與語意
+
+#### 2.2.1 實作補充與不變式（2026-06-26 — 病患語音 UX）
+
+**語音輸入擷取**（`frontend/src/services/audioStream.ts`）
+- 能量式 VAD（RMS）自動切段：`minSpeechMs`=90（確認開始說話）、`silenceEndMs`=2000
+  （停頓視為講完）、barge-in 門檻 0.06（AI 說話時可大聲打斷）。
+- **#1 句首截斷的真正解 = pre-roll 連續擷取**，藏在 build-time flag `VITE_VAD_PREROLL`
+  **後、預設關**：ON 時用 ScriptProcessor tap 持續把 PCM 寫進 ring buffer，開口瞬間回頭取
+  ~0.4s pre-roll，整段（pre-roll + 現場）編成**單一 WAV**送出（繞過 MediaRecorder/WebM 分段；
+  後端 magic-byte 嗅測接受 WAV）。WAV header 須用**實際** `audioContext.sampleRate`（非
+  getUserMedia 的 16000 hint）否則 Whisper 會變調。**OFF 時與原行為 byte-identical**；任何
+  tap/編碼失敗都 fallback 回 per-utterance MediaRecorder。**啟用前須真實麥克風驗 STT**（句首
+  是否補回、解碼品質、iOS ScriptProcessor 相容、低階機 payload/記憶體）。
+- **打字輸入備援**：WS 新增 `text_message`（後端 `conversation_handler` 主迴圈），不走 STT 但
+  與語音走同一條 `_handle_text_message`（紅旗篩檢 / LLM / auto-conclude 一視同仁）。斷線時前端
+  不假裝送出（保留草稿、按鈕 disabled），避免症狀陳述跳過紅旗篩檢被丟棄。
+
+**AI 語音輸出控制**（`ConversationPage.tsx` + `settingsStore`）
+- 靜音 / 語速（前端 `playbackRate` 1.0/1.25/1.5，不改後端）/ 每則訊息播放鍵，偏好持久化。
+- **不變式（醫療安全）**：靜音只擋「自動播放」；AI 文字與紅旗 banner 與 TTS 音訊**完全解耦**，
+  永遠看得到。靜音時 `unmuteVAD()` 必須在**每條** `ai_response_end` 分支觸發，否則病患會被
+  靜音鎖住、無法再開口。空 STT（Whisper 沒聽出字）時前端須 re-arm VAD（同上理由）。
+
+**問診自動結束**（`conversation_handler.py`，修 #3「問診不會結束」；2026-06-29 調為「平衡 8-10 題」）
+- **軟門檻**：Supervisor HPI 完整度 ≥ `HPI_COMPLETION_TERMINATION_THRESHOLD`(80) 且病患回合
+  ≥ `MIN_PATIENT_TURNS_BEFORE_AUTO_END`(5)；**硬上限 backstop**：回合 ≥
+  `MAX_PATIENT_TURNS_HARD_CAP`(10) 強制收尾，**不依賴 Supervisor**（降級寫 fallback hpi=0 時
+  軟門檻永不觸發 → 硬上限才是「等不到結果」的真正保命線）。總開關
+  `HPI_COMPLETION_TERMINATION_ENABLED`。舊值 85/4/15 因軟門檻幾乎不觸發、benign 全撐到 15 題，
+  病患回報「AI 一直問、等不到自動結束」，故下調；`supervisor.py` 並補 hpi_completion 誠實評分準則。
+- **不變式（醫療安全）**：自動結束區塊放在**紅旗 gate 之後**且 critical/high 紅旗當輪不收尾；
+  `_update_session_status` 採 **compare-and-set**（只在仍 `in_progress` 才轉 `completed`），
+  避免把 `aborted_red_flag` 降級；`_generate_soap_report_async` 雙重存在性檢查 +
+  `soap_reports.session_id` UNIQUE → 任何結束路徑都不會重複報告。
+- **⚠️ 已知缺陷 D1（2026-06-28 真 OpenAI E2E 揪出，待修）**：上述「critical/high 紅旗當輪不收尾」的
+  deferral 對「每輪都再觸發 high 紅旗」的主訴（**肉眼血尿**最典型）會變成**永久延後**——high 不 abort、
+  硬上限也被否決 → 問診**永不結束、無 SOAP**（重現了 #3「問不停」）。硬上限**並非**真正的保命線。
+  另：`session.red_flag` 從不被對話紅旗/abort 更新（D2）、紅旗每輪重複送（D3）、`soap.language` 恆 zh-TW（D4）。
+  根因定位、系統性修法（A 群硬上限獨立 + drain 有界解析；B 群 SOAP language/symptom_id）、驗證與待拍板臨床決策
+  見 [`e2e_realopenai_audit_2026-06-28.md`](./e2e_realopenai_audit_2026-06-28.md)。
 
 ---
 
