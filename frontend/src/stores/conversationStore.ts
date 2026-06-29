@@ -50,6 +50,8 @@ interface ConversationState {
   conversations: ChatMessage[];
   isRecording: boolean;
   isAIResponding: boolean;
+  /** #3：送出 isFinal 後到收到 stt_final 前的「正在辨識」狀態，避免長語音看起來像當機。 */
+  sttProcessing: boolean;
   sttPartialText: string;
   aiStreamingText: string;
   recordingDuration: number;
@@ -74,6 +76,8 @@ interface ConversationActions {
   appendAIStreamingText: (chunk: string) => void;
   finalizeAIResponse: (messageId: string, fullText: string) => void;
   setRecording: (recording: boolean) => void;
+  /** #3：設定／清除「正在辨識」狀態。 */
+  setSttProcessing: (processing: boolean) => void;
   setRecordingDuration: (duration: number) => void;
   setAudioLevel: (level: number) => void;
   setWaveformData: (data: number[]) => void;
@@ -141,6 +145,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
   conversations: [],
   isRecording: false,
   isAIResponding: false,
+  sttProcessing: false,
   sttPartialText: '',
   aiStreamingText: '',
   recordingDuration: 0,
@@ -181,6 +186,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
     })),
 
   setRecording: (recording) => set({ isRecording: recording }),
+  setSttProcessing: (processing) => set({ sttProcessing: processing }),
   setRecordingDuration: (duration) => set({ recordingDuration: duration }),
   setAudioLevel: (level) => set({ audioLevel: level }),
   setWaveformData: (data) => set({ waveformData: data }),
@@ -231,6 +237,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
       conversations: [],
       isRecording: false,
       isAIResponding: false,
+      sttProcessing: false,
       sttPartialText: '',
       aiStreamingText: '',
       recordingDuration: 0,

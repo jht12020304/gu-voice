@@ -8,6 +8,7 @@
   "status": {
     "notStarted": "Consultation not started",
     "aiResponding": "AI is responding...",
+    "transcribing": "Transcribing what you said…",
     "listening": "Listening {{duration}}",
     "idle": "Start speaking — I'll listen automatically",
     "thinking": "AI is thinking...",

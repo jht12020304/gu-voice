@@ -8,6 +8,7 @@
   "status": {
     "notStarted": "문진이 아직 시작되지 않았습니다",
     "aiResponding": "AI가 응답하는 중...",
+    "transcribing": "말씀하신 내용을 인식하는 중…",
     "listening": "듣고 있어요 {{duration}}",
     "idle": "편하게 말씀해 주세요. 자동으로 듣고 있습니다",
     "thinking": "AI가 생각하는 중...",

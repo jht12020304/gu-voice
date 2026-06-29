@@ -129,6 +129,8 @@ class STTPipeline:
         self._client = get_openai_client()
         self._model = settings.OPENAI_STT_MODEL        # "whisper-1"
         self._language = settings.OPENAI_STT_LANGUAGE  # "zh"
+        # #3：STT 專用逾時（長語音轉錄 >60s 預設 client 逾時 → 不該誤判重試）
+        self._timeout = getattr(settings, "OPENAI_STT_TIMEOUT_SECONDS", 120.0)
 
         logger.info(
             "STTPipeline 初始化 (OpenAI Whisper) | model=%s, language=%s",
@@ -170,9 +172,11 @@ class STTPipeline:
             return f
 
         try:
+            # #3：用 with_options 覆寫成 STT 專用較長逾時（預設 client 為 60s，長語音會誤逾時重試）。
+            stt_client = self._client.with_options(timeout=self._timeout)
             with observe_stt_latency(lang):
                 response = await call_with_retry(
-                    lambda: self._client.audio.transcriptions.create(
+                    lambda: stt_client.audio.transcriptions.create(
                         model=self._model,
                         file=_make_file(),
                         language=lang,

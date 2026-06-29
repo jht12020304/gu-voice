@@ -73,6 +73,7 @@ export default function ConversationPage() {
     conversations,
     isRecording,
     isAIResponding,
+    sttProcessing,
     sttPartialText,
     aiStreamingText,
     recordingDuration,
@@ -85,6 +86,7 @@ export default function ConversationPage() {
     addConversation,
     setConversations,
     updateSTTPartial,
+    setSttProcessing,
     setAIResponding,
     appendAIStreamingText,
     finalizeAIResponse,
@@ -416,6 +418,7 @@ export default function ConversationPage() {
     on('stt_final', (payload) => {
       const data = payload as STTFinalPayload;
       updateSTTPartial('');
+      setSttProcessing(false); // #3：辨識結果已到，清除「正在辨識」提示
       // 醫療安全：Whisper 沒聽出字（空辨識）時後端不會回 ai_response，而 onSpeechEnd 已把
       // VAD hard-mute；若不在這裡重新解鎖，病患就無法再用語音開口（minSpeechMs 調低後更易遇到）。
       // 空結果時 re-arm VAD 並略過空氣泡；有字才照常顯示並等 AI 回覆（回覆結束會自然 unmute）。
@@ -436,6 +439,7 @@ export default function ConversationPage() {
     // AI 回應開始
     on('ai_response_start', (payload) => {
       const data = payload as AIResponseStartPayload;
+      setSttProcessing(false); // #3：AI 開始回應 → 切換到「AI 回應中」，清除辨識提示
       setAIResponding(true);
       // #1 AI 講話時鎖麥克風：出聲模式硬鎖 VAD 整個 AI 回合，杜絕病患聲音或喇叭→麥克風
       // 回授被當成下一個答案（病患回報「AI 講話時收到聲音會直接變成答案」）。回合結束由
@@ -566,6 +570,8 @@ export default function ConversationPage() {
       } else {
         setError(t('conversation:error.aiUnavailable'));
       }
+      // #3：錯誤路徑（rate limit / 音訊格式 / STT 失敗）後端不會送 stt_final，這裡清辨識提示
+      setSttProcessing(false);
       // 也解除 VAD mute，避免使用者卡在「等 AI 回應」的狀態
       unmuteVAD();
     });
@@ -574,6 +580,7 @@ export default function ConversationPage() {
     // 不再灌入 error（保留給真正的對話／場次錯誤）。此處僅控制斷線期間暫停收音。
     on('_disconnected', () => {
       muteVAD(); // 斷線期間暫停收音，避免對著死連線講話
+      setSttProcessing(false); // #3：斷線時清辨識提示，避免卡住
     });
     on('_connected', () => {
       unmuteVAD(); // 重連成功 → 恢復收音
@@ -1012,9 +1019,11 @@ export default function ConversationPage() {
             ? t('conversation:status.notStarted')
             : isAIResponding
               ? t('conversation:status.aiResponding')
-              : isRecording
-                ? t('conversation:status.listening', { duration: formatDuration(recordingDuration) })
-                : t('conversation:status.idle')}
+              : sttProcessing
+                ? t('conversation:status.transcribing')
+                : isRecording
+                  ? t('conversation:status.listening', { duration: formatDuration(recordingDuration) })
+                  : t('conversation:status.idle')}
         </p>
 
         {/* 打字輸入備援：語音收不到時可直接打字（送後端 text_message，仍走紅旗篩檢） */}
