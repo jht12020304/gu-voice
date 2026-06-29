@@ -85,6 +85,11 @@ class LLMConversationEngine:
         red_flag_alert_rule = _i18n_get(
             "llm.conversation_red_flag_alert_rule", language
         )
+        # #5：語音只支援場次語言；病患問能否改台語/客語/方言時，AI 不可宣稱聽得懂，
+        # 要請對方改用場次語言或改打字，避免「AI 說可以但其實聽不懂」的過度承諾。
+        unsupported_speech_rule = _i18n_get(
+            "llm.conversation_unsupported_speech_rule", language
+        )
         # 組合病患資訊摘要
         # 標籤與性別採英文內部碼（Name / Age / Gender / male / female），
         # 避免 zh-TW 標籤在 en-US session 被 LLM 照抄（「性別：male」）。
@@ -160,6 +165,8 @@ class LLMConversationEngine:
 - 不做診斷或治療建議，僅進行症狀收集
 - 每次回覆最多 2 句話，請保持簡潔明瞭
 - {red_flag_alert_rule}
+- {unsupported_speech_rule}
+- 不要重複詢問病患在本次對話中已明確回答過的問題；若已得到答案，請接續尚未釐清的下一個面向。
 
 {SINGLE_QUESTION_RULE}
 
@@ -206,13 +213,17 @@ class LLMConversationEngine:
         """
         final_system_prompt = system_prompt
 
-        if supervisor_guidance:
+        # #2：Supervisor 指導是「上一輪」結果（fire-and-forget，分析時還沒看到病患對該題的回答），
+        # next_focus 常仍指向 AI 剛問過的題目 → 偶發重複提問。對策：(a) 逾時 fallback 佔位不注入；
+        # (b) 注入指導時附「已答過就別重問」護欄。不改指導管線本身，純消費端 prompt。
+        if supervisor_guidance and not supervisor_guidance.get("fallback"):
             next_focus = supervisor_guidance.get("next_focus", "")
             if next_focus:
                 section_title = _i18n_get(
                     "llm.supervisor_guidance_section", language
                 )
-                final_system_prompt += f"\n\n{section_title}\n{next_focus}"
+                no_repeat = _i18n_get("llm.supervisor_guidance_no_repeat", language)
+                final_system_prompt += f"\n\n{section_title}\n{next_focus}\n{no_repeat}"
 
         # 收尾指示放在最後（覆蓋前面 Supervisor 的 next_focus），確保本輪不再發問。
         if conclude:
