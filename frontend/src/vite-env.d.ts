@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_ENABLE_MOCK: string;
   // #1 pre-roll 連續擷取 feature flag（預設關；需真實麥克風驗 STT 後才逐平台開啟）
   readonly VITE_VAD_PREROLL: string;
+  // #4 關閉 AGC feature flag（預設關＝AGC 開；設 'true' 在實機驗證 AGC 是否污染後續辨識）
+  readonly VITE_VAD_DISABLE_AGC: string;
 }
 
 interface ImportMeta {
