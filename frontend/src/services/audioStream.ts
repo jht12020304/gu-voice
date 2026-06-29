@@ -2,21 +2,22 @@
 // 音訊錄製服務（VAD 自動切段）
 // 開啟麥克風後持續監聽，依能量偵測語音開始/結束，自動分段發送
 //
-// #1 pre-roll 擷取（VITE_VAD_PREROLL，預設關）：
-//   現行做法是「偵測到說話才現場建 MediaRecorder」，句首 ~minSpeechMs + recorder 啟動 +
-//   第一個 250ms chunk 會被吃掉（病患回報「前幾秒收不到」）。flag ON 時改走連續 PCM
+// #1 pre-roll 擷取（VITE_VAD_PREROLL，預設開、可用 =false 退關）：
+//   原本做法是「偵測到說話才現場建 MediaRecorder」，句首 ~minSpeechMs + recorder 啟動 +
+//   第一個 250ms chunk 會被吃掉（病患回報「第一個字錄不到」）。ON 時改走連續 PCM
 //   擷取：用 ScriptProcessor tap 持續把 PCM 寫進 ring buffer，開口瞬間回頭取 pre-roll，
 //   整段（pre-roll + 現場）編成單一 WAV 送出，繞過 MediaRecorder/WebM 分段問題。
-//   ⚠️ 此路徑需「真實麥克風 + Whisper」驗收（取樣率/變調、STT 準確度、iOS 相容），
-//      預設關閉；OFF 時與今日行為 byte-identical。任何 pre-roll 失敗都會 fallback 回
-//      MediaRecorder 路徑，確保不會因未驗證的程式碼弄壞生產問診。
+//   WAV 以實際 audioContext 取樣率編碼（見 prerollSampleRate），不會變調。
+//   ⚠️ 改為預設開（真實麥克風測試確認句首截斷仍在）。任何 pre-roll 失敗都會 fallback 回
+//      MediaRecorder 路徑，確保不會弄壞生產問診；若特定裝置（如舊 iOS Safari）異常，
+//      可在該環境設 VITE_VAD_PREROLL=false 退回舊行為。
 // =============================================================================
 
 import { PcmRingBuffer } from './pcmRingBuffer';
 import { encodeWav, arrayBufferToBase64 } from './wavEncoder';
 
-/** build-time feature flag（對齊既有 VITE_ENABLE_MOCK 慣例）；預設關。 */
-const PREROLL_ENABLED = import.meta.env.VITE_VAD_PREROLL === 'true';
+/** build-time feature flag（對齊既有 VITE_ENABLE_MOCK 慣例）；預設開，設 'false' 退關。 */
+const PREROLL_ENABLED = import.meta.env.VITE_VAD_PREROLL !== 'false';
 /** pre-roll 取多長（秒）— 補回句首被吃掉的部分。 */
 const PREROLL_SECONDS = 0.4;
 /** ring buffer 保留長度（秒）— 略大於 pre-roll 即可。 */
