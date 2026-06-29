@@ -383,6 +383,8 @@ async def conversation_websocket(
             "session_id": session_id,
             "user_id": user_id,
             "chief_complaint": session_data.get("chief_complaint", ""),
+            # #6：場次語言的主訴顯示名稱（給開場問診語；LLM/SOAP 仍用原 chief_complaint 全文）。
+            "chief_complaint_display": session_data.get("chief_complaint_display"),
             "patient_info": session_data.get("patient_info", {}),
             "language": session_data.get("language"),
         }
@@ -770,7 +772,12 @@ async def _send_initial_greeting(
     message_id = str(uuid.uuid4())
 
     # 立即使用固定模板問診語，避免等待 LLM
-    chief_complaint = session_context.get("chief_complaint", "")
+    # #6：開場語優先用「場次語言」的主訴顯示名稱（英文場次顯示 Hematuria 而非「血尿」）；
+    # 解析不到才退回原 chief_complaint（病患原輸入，含多選/自訂備註）。
+    chief_complaint = (
+        session_context.get("chief_complaint_display")
+        or session_context.get("chief_complaint", "")
+    )
     from app.utils.i18n_messages import get_message as _i18n_get
     full_greeting = _i18n_get(
         "ws.initial_greeting",
@@ -1852,6 +1859,32 @@ async def _generate_soap_report_async(
             exc_info=True,
         )
 
+def _resolve_chief_complaint_display(session_obj: Any) -> str | None:
+    """#6：把場次主訴解析成「場次語言」的顯示名稱（給開場問診語用）。
+
+    英文場次卻顯示中文「血尿」的根因是開場語直接用 chief_complaint_text（建場當下凍結的
+    單一語言字串）。此處改從 ChiefComplaint.name_by_lang/fallback 字典按場次語言解析，
+    解析不到（無主訴記錄/字典缺項）才回 None，讓呼叫端 fallback 回原 text。
+    """
+    from app.core.config import settings as _settings
+    from app.services.complaint_service import _resolve_with_fallback
+    from app.utils.complaint_fallback_i18n import fallback_translate_name
+
+    cc = getattr(session_obj, "chief_complaint", None)
+    if cc is None:
+        return None
+    lang = getattr(session_obj, "language", None) or _settings.DEFAULT_LANGUAGE
+    try:
+        return _resolve_with_fallback(
+            getattr(cc, "name_by_lang", None),
+            lang,
+            getattr(cc, "name", None),
+            fallback_translate_name,
+        )
+    except Exception:
+        return None
+
+
 async def _validate_session(
     session_id: str, db: AsyncSession
 ) -> dict[str, Any] | None:
@@ -1873,7 +1906,11 @@ async def _validate_session(
 
         stmt = (
             select(Session)
-            .options(selectinload(Session.patient))
+            .options(
+                selectinload(Session.patient),
+                # #6：開場問診語要用「場次語言」的主訴名稱，需 eager-load 主訴記錄拿 name_by_lang。
+                selectinload(Session.chief_complaint),
+            )
             .where(Session.id == session_id)
         )
         result = await db.execute(stmt)
@@ -1967,6 +2004,9 @@ async def _validate_session(
             "id": str(session_obj.id),
             "status": session_obj.status,
             "chief_complaint": session_obj.chief_complaint_text or getattr(session_obj, "chief_complaint", ""),
+            # #6：主訴在「場次語言」下的顯示名稱（給開場問診語）。解析不到時為 None，
+            # 呼叫端 fallback 回 chief_complaint_text（保留病患原輸入，含多選/自訂備註）。
+            "chief_complaint_display": _resolve_chief_complaint_display(session_obj),
             "patient_info": patient_info,
             "language": getattr(session_obj, "language", None),
         }
