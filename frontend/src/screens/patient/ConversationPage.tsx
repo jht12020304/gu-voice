@@ -107,7 +107,7 @@ export default function ConversationPage() {
   // 根據 session 狀態自動啟動 VAD（in_progress / waiting 時才開麥克風）
   const isSessionActiveForMic =
     currentSession?.status === 'in_progress' || currentSession?.status === 'waiting';
-  const { muteVAD, unmuteVAD, enableBargeIn } = useAudioStream(isSessionActiveForMic);
+  const { muteVAD, unmuteVAD } = useAudioStream(isSessionActiveForMic);
 
   // 連線中斷／重連中 → 顯示非警示性持續橫幅（病患不會對著死連線講話）。
   // 條件：曾經連上過（排除初次載入中），且場次仍進行中（排除結束導向時的 disconnect）。
@@ -437,12 +437,14 @@ export default function ConversationPage() {
     on('ai_response_start', (payload) => {
       const data = payload as AIResponseStartPayload;
       setAIResponding(true);
-      // 靜音模式下沒有 TTS 可被打斷，改用正常門檻（0.035）開 VAD，讓病患能立刻接話；
-      // 出聲模式才進 barge-in（較高門檻，避免把 AI 自己的聲音當成使用者輸入）。
+      // #1 AI 講話時鎖麥克風：出聲模式硬鎖 VAD 整個 AI 回合，杜絕病患聲音或喇叭→麥克風
+      // 回授被當成下一個答案（病患回報「AI 講話時收到聲音會直接變成答案」）。回合結束由
+      // 下方 ai_response_end 的 ttsChain.then(unmuteVAD) 解鎖；空 STT/錯誤/重連也都會 re-arm
+      // （VAD 不可卡死不變式）。靜音模式沒有 TTS 可回授 → 用正常門檻開 VAD 讓病患能立刻接話。
       if (useSettingsStore.getState().ttsMuted) {
         unmuteVAD();
       } else {
-        enableBargeIn();
+        muteVAD();
       }
       addConversation({
         id: data.messageId,
