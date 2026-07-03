@@ -1,0 +1,12 @@
+# E2E 本機 override：主機 5432/6379 已被本機原生 postgres/redis 佔用，
+# 改映射 55432/56379。與 repo docker-compose.yml 疊加使用：
+#   docker compose -p gu_0410 \
+#     -f /Users/chun/Desktop/GU_0410/docker-compose.yml \
+#     -f compose.override.yml up -d postgres redis
+services:
+  postgres:
+    ports: !override
+      - "55432:5432"
+  redis:
+    ports: !override
+      - "56379:6379"
