@@ -32,6 +32,8 @@ def _env_only(monkeypatch, **kv: str) -> None:
         "DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD",
         "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB",
         "JWT_ALGORITHM", "JWT_SECRET_KEY",
+        "ACCESS_TOKEN_EXPIRE_MINUTES", "JWT_ACCESS_TOKEN_EXPIRE_MINUTES",
+        "REFRESH_TOKEN_EXPIRE_DAYS", "JWT_REFRESH_TOKEN_EXPIRE_DAYS",
         "LOG_LEVEL", "APP_LOG_LEVEL",
     ):
         monkeypatch.delenv(k, raising=False)
@@ -215,6 +217,54 @@ def test_hs256_ignores_pem_uses_secret(monkeypatch):
     s = _settings_without_dotenv(monkeypatch)
     assert s.JWT_PRIVATE_KEY == "s" * 40
     assert s.JWT_PUBLIC_KEY == "s" * 40
+
+
+# ──────────────────────────────────────────────────────
+# Token 效期：JWT_ 前綴 alias（防環境變數名靜默失效）
+# ──────────────────────────────────────────────────────
+# 歷史事故：.env / Railway 寫 JWT_ACCESS_TOKEN_EXPIRE_MINUTES，但欄位名無 JWT_
+# 前綴，extra="ignore" 靜默吞掉 → token 效期悄悄退回預設 15 分鐘（帳號一直跳掉
+# 的放大器）。AliasChoices 讓兩種名稱都生效；這層測試把契約焊死。
+
+def test_access_token_expire_accepts_jwt_prefixed_env(monkeypatch):
+    _env_only(
+        monkeypatch,
+        JWT_ACCESS_TOKEN_EXPIRE_MINUTES="30",
+        JWT_ALGORITHM="HS256",
+        JWT_SECRET_KEY="x" * 40,
+    )
+    s = _settings_without_dotenv(monkeypatch)
+    assert s.ACCESS_TOKEN_EXPIRE_MINUTES == 30
+
+
+def test_access_token_expire_unprefixed_wins(monkeypatch):
+    """同時設定時 canonical（無前綴）優先。"""
+    _env_only(
+        monkeypatch,
+        ACCESS_TOKEN_EXPIRE_MINUTES="20",
+        JWT_ACCESS_TOKEN_EXPIRE_MINUTES="99",
+        JWT_ALGORITHM="HS256",
+        JWT_SECRET_KEY="x" * 40,
+    )
+    s = _settings_without_dotenv(monkeypatch)
+    assert s.ACCESS_TOKEN_EXPIRE_MINUTES == 20
+
+
+def test_access_token_expire_default_is_15(monkeypatch):
+    _env_only(monkeypatch, JWT_ALGORITHM="HS256", JWT_SECRET_KEY="x" * 40)
+    s = _settings_without_dotenv(monkeypatch)
+    assert s.ACCESS_TOKEN_EXPIRE_MINUTES == 15
+
+
+def test_refresh_token_expire_accepts_jwt_prefixed_env(monkeypatch):
+    _env_only(
+        monkeypatch,
+        JWT_REFRESH_TOKEN_EXPIRE_DAYS="14",
+        JWT_ALGORITHM="HS256",
+        JWT_SECRET_KEY="x" * 40,
+    )
+    s = _settings_without_dotenv(monkeypatch)
+    assert s.REFRESH_TOKEN_EXPIRE_DAYS == 14
 
 
 # ──────────────────────────────────────────────────────

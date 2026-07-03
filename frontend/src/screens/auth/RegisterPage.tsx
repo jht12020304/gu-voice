@@ -61,8 +61,13 @@ export default function RegisterPage() {
         role: 'patient',
       });
 
-      // M-22：refresh token 改由後端以 httpOnly cookie 下發，前端不再持久化。
+      // 雙路徑 refresh（與 authStore.login 同契約）：後端 body 與 httpOnly cookie 同時
+      // 下發 refresh token；跨站部署（Vercel↔Railway，SameSite=lax cookie 送不出去）只有
+      // localStorage 這份能用，漏存會讓新註冊者在 access token 過期後被踢回登入頁。
       localStorage.setItem('access_token', response.accessToken);
+      if (response.refreshToken) {
+        localStorage.setItem('refresh_token', response.refreshToken);
+      }
       await hydrateFromStorage();
       navigate('/patient');
     } catch (err: unknown) {

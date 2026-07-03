@@ -94,6 +94,10 @@ function readCookie(name: string): string | undefined {
 const CSRF_COOKIE_NAME = 'gu_csrf_token';
 const CSRF_HEADER_NAME = 'X-CSRF-Token';
 
+// 跨站部署後備：refresh token 存 localStorage（Vercel ↔ Railway 跨站時 SameSite
+// cookie 不會送出，cookie 路徑不可用）。sentry.ts 已將 'refresh_token' 列入 redact。
+const REFRESH_TOKEN_STORAGE_KEY = 'refresh_token';
+
 // ---- Axios 實例 ----
 
 const apiClient: AxiosInstance = axios.create({
@@ -110,8 +114,9 @@ const apiClient: AxiosInstance = axios.create({
 
 // ---- Request 攔截器：附加 Token + CSRF + camelCase -> snake_case ----
 
-// M-22：refresh token 已改由後端 httpOnly cookie 持有（前端不再讀寫 localStorage 的
-// refresh_token）。access token 維持既有 localStorage + Bearer header 處理。針對會改變狀態
+// 雙路徑 refresh：refresh token 由後端 httpOnly cookie（同站）與 localStorage（跨站後備）
+// 並行持有；一般 API 請求不經手 refresh token，只有 refreshAccessToken() 會讀寫。
+// access token 維持既有 localStorage + Bearer header 處理。針對會改變狀態
 // 的請求附上 X-CSRF-Token（double-submit）：值讀自非 httpOnly 的 csrf cookie，由瀏覽器
 // 透過 withCredentials 一併送出的 cookie 供後端比對。
 const _CSRF_SAFE_METHODS = new Set(['get', 'head', 'options']);
@@ -167,10 +172,10 @@ let refreshPromise: Promise<string> | null = null;
 
 function clearAuthAndRedirect(): void {
   localStorage.removeItem('access_token');
-  // M-22：refresh token 已不存 localStorage（改由後端 httpOnly cookie 管理，前端清不到
-  // 也不該清），由後端 /auth/logout 或 cookie 過期負責失效。此處保留移除是為了清掉
-  // 升級前舊 session 殘留的 legacy key，無殘留時為 no-op。
-  localStorage.removeItem('refresh_token');
+  // 雙路徑 refresh：localStorage 的 refresh_token 是跨站後備 token 的正式儲存位置
+  // （httpOnly cookie 那份由後端 /auth/logout 或過期負責失效），401 / 會話失效時
+  // 必須一併清除，避免殘留已被 reuse-detection 判死的舊 token。
+  localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
   if (typeof window !== 'undefined') {
     window.location.href = '/login';
   }
@@ -185,10 +190,11 @@ function clearAuthAndRedirect(): void {
  * POST /auth/refresh，會被 reuse detection 判定為重放而把使用者整個踢登出。故對外
  * export，讓 authStore 收斂到這個唯一入口。
  *
- * M-22：refresh token 不再由前端持有 / 於 body 送出，改由瀏覽器自動帶上後端下發的
- * httpOnly cookie（withCredentials: true）。同時帶 X-CSRF-Token（double-submit，值讀自
- * 非 httpOnly 的 csrf cookie）。成功時把新 access token 寫回 localStorage 並回傳；新的
- * refresh token 由後端以 Set-Cookie 旋轉，前端不經手。
+ * 雙路徑 refresh：同站部署由瀏覽器自動帶上後端下發的 httpOnly refresh cookie
+ * （withCredentials: true）並附 X-CSRF-Token（double-submit，值讀自非 httpOnly 的
+ * csrf cookie）；跨站部署（Vercel ↔ Railway）SameSite cookie 不會送出，改把
+ * localStorage 的 refresh token 放進 body（後端 body 路徑免 CSRF）。成功時把新
+ * access token 寫回 localStorage + authStore，並旋轉 localStorage 的 refresh token。
  */
 export async function refreshAccessToken(): Promise<string> {
   if (refreshPromise) return refreshPromise;
@@ -200,16 +206,26 @@ export async function refreshAccessToken(): Promise<string> {
     // L-22：裸 axios 不繼承 apiClient 的 timeout，明確帶 30s 避免 refresh 永遠 hang
     // 把共享 refreshPromise 卡死、後續所有 401 重試一起被阻塞。
     // M-22：裸 axios 也不繼承 apiClient 的 withCredentials，這裡明確帶上，否則
-    // httpOnly 的 refresh cookie 不會被送出、refresh 永遠失敗。CSRF header 手動補（裸
-    // axios 不走 request 攔截器）。
+    // httpOnly 的 refresh cookie 不會被送出。CSRF header 手動補（裸 axios 不走
+    // request 攔截器）；body 的 key 也因此必須直接用 snake_case refresh_token。
     const csrf = readCookie(CSRF_COOKIE_NAME);
     const headers = csrf ? { [CSRF_HEADER_NAME]: csrf } : undefined;
-    const { data } = await axios.post<{ access_token: string }>(
+    const storedRefresh = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
+    const body = storedRefresh ? { refresh_token: storedRefresh } : {};
+    const { data } = await axios.post<{ access_token: string; refresh_token?: string }>(
       `${baseURL}/auth/refresh`,
-      {},
+      body,
       { timeout: 30000, withCredentials: true, headers },
     );
     localStorage.setItem('access_token', data.access_token);
+    if (data.refresh_token) {
+      // rotation：舊 refresh token 已被後端消耗，必須立刻換存新的
+      localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, data.refresh_token);
+    }
+    // 同步 authStore，讓 WS 重連 / UI 拿得到最新 token；動態 import 避免
+    // client.ts ↔ authStore 靜態循環依賴。
+    const { useAuthStore } = await import('../../stores/authStore');
+    useAuthStore.setState({ accessToken: data.access_token });
     return data.access_token;
   })().finally(() => {
     refreshPromise = null;

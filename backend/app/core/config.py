@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
 from typing import Annotated, Optional
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -151,8 +151,21 @@ class Settings(BaseSettings):
     JWT_PUBLIC_KEY_EXPLICIT: Optional[str] = Field(default=None, validation_alias="JWT_PUBLIC_KEY")
     JWT_PRIVATE_KEY_PATH: str = "keys/private.pem"
     JWT_PUBLIC_KEY_PATH: str = "keys/public.pem"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # .env / Railway 歷史上用過 JWT_ 前綴命名（JWT_ACCESS_TOKEN_EXPIRE_MINUTES），
+    # extra="ignore" 會靜默忽略未知名稱 → token 效期悄悄退回預設而無人察覺。
+    # AliasChoices 讓兩種名稱都生效；同時設定時無前綴（canonical）優先。
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
+        default=15,
+        validation_alias=AliasChoices(
+            "ACCESS_TOKEN_EXPIRE_MINUTES", "JWT_ACCESS_TOKEN_EXPIRE_MINUTES"
+        ),
+    )
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(
+        default=7,
+        validation_alias=AliasChoices(
+            "REFRESH_TOKEN_EXPIRE_DAYS", "JWT_REFRESH_TOKEN_EXPIRE_DAYS"
+        ),
+    )
 
     def _resolve_key(self, explicit: Optional[str], fallback_path: str) -> str:
         """
