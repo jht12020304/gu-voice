@@ -9,6 +9,7 @@
     "notStarted": "問診尚未開始",
     "aiResponding": "AI 回應中...",
     "transcribing": "正在辨識你說的話…",
+    "noSpeechDetected": "剛才沒有聽清楚，請再說一次",
     "listening": "正在聆聽你說話 {{duration}}",
     "idle": "請直接開始說話，我會自動聽取",
     "thinking": "AI 正在思考...",
@@ -27,6 +28,12 @@
     "speedLabel": "語速 {{rate}}x",
     "play": "播放",
     "playAria": "播放這則 AI 回覆的語音"
+  },
+  "voiceControl": {
+    "pause": "暫停收音",
+    "resume": "繼續收音",
+    "pausedBanner": "收音已暫停，現在說話不會被錄音。準備好後請點「繼續收音」。",
+    "finishSpeaking": "我說完了"
   },
   "input": {
     "textPlaceholder": "聽不清楚？也可以直接打字",

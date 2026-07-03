@@ -52,6 +52,8 @@ interface ConversationState {
   isAIResponding: boolean;
   /** #3：送出 isFinal 後到收到 stt_final 前的「正在辨識」狀態，避免長語音看起來像當機。 */
   sttProcessing: boolean;
+  /** #4：使用者手動暫停收音。與 AI 回合硬鎖、斷線 mute 分離；只有「繼續收音」鈕能解除。 */
+  userPaused: boolean;
   sttPartialText: string;
   aiStreamingText: string;
   recordingDuration: number;
@@ -78,6 +80,8 @@ interface ConversationActions {
   setRecording: (recording: boolean) => void;
   /** #3：設定／清除「正在辨識」狀態。 */
   setSttProcessing: (processing: boolean) => void;
+  /** #4：設定使用者手動暫停狀態。 */
+  setUserPaused: (paused: boolean) => void;
   setRecordingDuration: (duration: number) => void;
   setAudioLevel: (level: number) => void;
   setWaveformData: (data: number[]) => void;
@@ -125,6 +129,38 @@ export function normalizeSupervisorGuidance(
   };
 }
 
+/**
+ * #4：VAD「自動恢復收音」決策矩陣（純函式，無副作用，便於單元測試）。
+ * 醫療安全不變式：任何 mute 都必須有對應的 unmute 擁有者（見 ConversationPage 掛點對照），
+ * 使用者手動暫停優先於所有自動恢復路徑，且只有「繼續收音」鈕（user_resume）能解除。
+ */
+export type VadResumeTrigger =
+  | 'empty_stt'          // 空 stt_final（Whisper 沒聽出字）
+  | 'ai_start_tts_muted' // AI 回合開始且 TTS 靜音（無回授風險，立即開麥）
+  | 'ai_tts_done'        // 出聲模式 AI 回合的 TTS 全部播畢（鏈尾步驟 / 舊式 playTTSAudio 結束）
+  | 'ws_error'           // 後端 error 事件（rate limit / 音訊格式 / STT 失敗）
+  | 'reconnected'        // WS 斷線後重連成功
+  | 'tts_mute_toggle'    // 使用者切到 TTS 靜音（停播 + 清佇列後恢復收音）
+  | 'user_resume';       // 使用者點「繼續收音」
+
+export interface VadResumeContext {
+  /** 使用者手動暫停中 */
+  userPaused: boolean;
+  /** 出聲模式 AI 回合硬鎖尚未由 TTS 鏈解除（pendingAiUnmuteRef） */
+  aiTurnLocked: boolean;
+  /** WS 非 open（斷線/重連中，unmute 只會對著死連線收音） */
+  wsDown: boolean;
+}
+
+export function shouldUnmuteVAD(trigger: VadResumeTrigger, ctx: VadResumeContext): boolean {
+  // 重連成功：斷線 mute 的唯一解鎖者，只讓手動暫停擋下（暫停狀態由 _connected 重申給後端）
+  if (trigger === 'reconnected') return !ctx.userPaused;
+  // 手動繼續：不得在 AI 出聲期間解除硬鎖（回授不變式）；斷線時交給 reconnected 補償
+  if (trigger === 'user_resume') return !ctx.aiTurnLocked && !ctx.wsDown;
+  // 其餘所有自動恢復路徑：手動暫停優先；斷線時延後到 reconnected
+  return !ctx.userPaused && !ctx.wsDown;
+}
+
 /** 將後端 Conversation 轉為前端 ChatMessage */
 export function conversationToMessage(conv: Conversation): ChatMessage {
   return {
@@ -146,6 +182,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
   isRecording: false,
   isAIResponding: false,
   sttProcessing: false,
+  userPaused: false,
   sttPartialText: '',
   aiStreamingText: '',
   recordingDuration: 0,
@@ -187,6 +224,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
 
   setRecording: (recording) => set({ isRecording: recording }),
   setSttProcessing: (processing) => set({ sttProcessing: processing }),
+  setUserPaused: (paused) => set({ userPaused: paused }),
   setRecordingDuration: (duration) => set({ recordingDuration: duration }),
   setAudioLevel: (level) => set({ audioLevel: level }),
   setWaveformData: (data) => set({ waveformData: data }),
@@ -238,6 +276,7 @@ export const useConversationStore = create<ConversationState & ConversationActio
       isRecording: false,
       isAIResponding: false,
       sttProcessing: false,
+      userPaused: false,
       sttPartialText: '',
       aiStreamingText: '',
       recordingDuration: 0,

@@ -9,6 +9,7 @@
     "notStarted": "Phiên khám chưa bắt đầu",
     "aiResponding": "AI đang trả lời...",
     "transcribing": "Đang nhận dạng lời quý vị nói…",
+    "noSpeechDetected": "Hệ thống chưa nghe rõ, xin quý vị nói lại một lần nữa",
     "listening": "Đang lắng nghe quý vị {{duration}}",
     "idle": "Hãy nói trực tiếp, tôi sẽ tự động ghi lại",
     "thinking": "AI đang suy nghĩ...",
@@ -27,6 +28,12 @@
     "speedLabel": "Tốc độ {{rate}}x",
     "play": "Phát",
     "playAria": "Phát câu trả lời này của AI"
+  },
+  "voiceControl": {
+    "pause": "Tạm dừng thu âm",
+    "resume": "Tiếp tục thu âm",
+    "pausedBanner": "Đã tạm dừng thu âm — lời nói của quý vị lúc này sẽ không được ghi lại. Khi sẵn sàng, xin nhấn \"Tiếp tục thu âm\".",
+    "finishSpeaking": "Tôi đã nói xong"
   },
   "input": {
     "textPlaceholder": "Không nghe rõ? Bạn có thể gõ chữ",

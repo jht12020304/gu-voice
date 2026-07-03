@@ -9,6 +9,7 @@
     "notStarted": "問診はまだ開始されていません",
     "aiResponding": "AI が応答中です...",
     "transcribing": "お話を文字起こししています…",
+    "noSpeechDetected": "うまく聞き取れませんでした。もう一度お話しください",
     "listening": "お話を伺っています {{duration}}",
     "idle": "そのままお話しください。自動で聞き取ります",
     "thinking": "AI が考え中です...",
@@ -27,6 +28,12 @@
     "speedLabel": "速度 {{rate}}x",
     "play": "再生",
     "playAria": "この AI 返答を再生"
+  },
+  "voiceControl": {
+    "pause": "聞き取りを一時停止",
+    "resume": "聞き取りを再開",
+    "pausedBanner": "聞き取りを一時停止中です。今の発話は記録されません。準備ができたら「聞き取りを再開」を押してください。",
+    "finishSpeaking": "話し終わりました"
   },
   "input": {
     "textPlaceholder": "聞き取れない場合は入力もできます",
