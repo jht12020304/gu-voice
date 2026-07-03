@@ -301,6 +301,15 @@ class Settings(BaseSettings):
     MIN_PATIENT_TURNS_BEFORE_AUTO_END: int = 5              # 軟門檻最低回合，防 Supervisor 過早判定
     MAX_PATIENT_TURNS_HARD_CAP: int = 10                    # 病患回合硬上限，無論 Supervisor 狀態都收尾
 
+    # ── E2E 稽核修復 kill-switch（docs/e2e_realopenai_audit_2026-06-28.md §三；無 migration）─
+    # A1 [D5]：LLM 空回應時是否做單次重試（仍空則送 ws.ai_empty_retry_fallback 在地化訊息）。
+    LLM_EMPTY_RESPONSE_RETRY: bool = True
+    # A3 [D1]：硬上限收尾時，inline 等待遲到紅旗偵測結果的上限秒數（有界解析）。
+    HARD_CAP_DRAIN_AWAIT_SECONDS: float = 5.0
+    # A3 [D1]：紅旗偵測器真卡死時，硬上限收尾最多可被延後的輪數；超過即強制收尾出 SOAP
+    # （絕對保命線；接受極罕見 late-critical race — E7 決策 2）。
+    MAX_HARD_CAP_DRAIN_DEFERS: int = 2
+
     # ── TTS (OpenAI TTS) ─────────────────────────────────
     OPENAI_TTS_MODEL: str = "tts-1"      # tts-1（快速）或 tts-1-hd（高品質）
     OPENAI_TTS_VOICE: str = "nova"       # alloy / echo / fable / onyx / nova / shimmer

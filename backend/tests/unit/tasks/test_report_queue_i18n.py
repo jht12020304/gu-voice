@@ -44,7 +44,9 @@ def _fake_session(language: str = "zh-TW") -> SimpleNamespace:
             gender=SimpleNamespace(value="male"),
             date_of_birth=date(1990, 4, 18),
         ),
-        chief_complaint=SimpleNamespace(name="排尿困難"),
+        # B2：name_en 供 resolve_symptom_id 解析 → "dysuria"（同時守護共用函式搬移
+        # 後 Celery 路徑仍接得上：搬移斷線會讓 symptom_id 斷言直接紅）。
+        chief_complaint=SimpleNamespace(name="排尿困難", name_en="Dysuria"),
         conversations=[
             _fake_conversation(1, "assistant", "請描述症狀"),
             _fake_conversation(2, "patient", "小便困難兩天"),
@@ -62,6 +64,7 @@ def _fake_report() -> SimpleNamespace:
         raw_transcript=None,
         summary=None,
         icd10_codes=None,
+        icd10_verified=None,
         ai_confidence_score=None,
         language=None,
         status=ReportStatus.GENERATING,
@@ -210,9 +213,14 @@ def test_async_generate_passes_session_language_to_soap_generator(
     # transcript 的 role / content 結構正確
     assert captured["transcript"][0]["role"] == "assistant"
     assert captured["transcript"][1]["content"] == "小便困難兩天"
+    # B2：共用 resolve_symptom_id 搬移後 Celery 路徑仍接得上
+    # （chief_complaint.name_en="Dysuria" → slug "dysuria" 傳進 generate()）
+    assert captured["symptom_id"] == "dysuria"
     # Report language 與 session language 一致
     assert report_obj.language == language
     assert report_obj.status == ReportStatus.GENERATED
+    # B2/D6：validator 驗證旗標須寫回報告（fake generate 回 icd10_verified=True）
+    assert report_obj.icd10_verified is True
 
 
 def test_async_generate_no_conversations_marks_failed(monkeypatch):

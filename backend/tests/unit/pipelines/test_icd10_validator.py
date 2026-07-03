@@ -47,6 +47,12 @@ def test_symptom_map_values_are_within_whitelist():
             )
 
 
+def test_whitelist_contains_n52_and_r97():
+    """B1 [D6]：ED（N52）與 PSA 升高（R97）必須在白名單，否則會被 strip。"""
+    assert "N52" in UROLOGY_ICD10_WHITELIST
+    assert "R97" in UROLOGY_ICD10_WHITELIST
+
+
 # ── validate_icd10_codes 行為 ───────────────────────────────
 
 
@@ -158,9 +164,36 @@ def test_all_match_returns_true():
         ("prostate_issue", "N40"),
         ("pyelonephritis", "N10"),
         ("scrotal_pain", "N45"),
+        ("erectile_dysfunction", "N52"),
+        ("elevated_psa", "R97"),
     ],
 )
 def test_each_registered_symptom_accepts_its_core_code(symptom, good_code):
     codes, verified = validate_icd10_codes([good_code], symptom_id=symptom)
     assert codes == [good_code]
+    assert verified is True
+
+
+# ── B1 [D6]：ED / PSA 升高 對映 ─────────────────────────────
+
+
+def test_ed_maps_n52():
+    """ED 場次 LLM 輸出 N52.9 → 白名單放行且對映驗證通過。"""
+    assert validate_icd10_codes(["N52.9"], "erectile_dysfunction") == (
+        ["N52.9"],
+        True,
+    )
+
+
+def test_psa_maps_r97():
+    """PSA 升高場次 LLM 輸出 R97.20 → 白名單放行且對映驗證通過。"""
+    assert validate_icd10_codes(["R97.20"], "elevated_psa") == (["R97.20"], True)
+
+
+def test_r97_prefix3_coarse_granularity_accepted():
+    """E7 決策 4：R97 採 3 碼前綴比對——R97.1（CA-125 升高）在 elevated_psa
+    場次也會 verified=True。這是拍板接受的已知粗粒度（泌尿情境以 PSA 為大宗），
+    本測試固化此行為；若未來擴充 4 碼精度比對，需同步修改本測試。"""
+    codes, verified = validate_icd10_codes(["R97.1"], "elevated_psa")
+    assert codes == ["R97.1"]
     assert verified is True

@@ -19,6 +19,8 @@ Design
 
 from __future__ import annotations
 
+from typing import Any
+
 
 # ── 症狀 → 可能 ICD-10 前綴清單 ─────────────────────────────
 # 至少 10 個 entry，涵蓋泌尿科常見 chief complaint。
@@ -53,7 +55,36 @@ SYMPTOM_TO_ICD10: dict[str, list[str]] = {
     "urethral_discharge": ["N34", "A54", "A56"],
     # 會陰疼痛
     "perineal_pain": ["R10", "N41"],
+    # 勃起功能障礙（D6：ED 場次 icd10_codes 曾為空陣列，應接受 N52.x）
+    "erectile_dysfunction": ["N52"],
+    # PSA 升高（D6：應接受 R97.20）。R97 為 3 碼粗粒度：無法區分
+    # R97.20(PSA)/R97.1(CA-125)，E7 決策 4 拍板接受並在此註記。
+    "elevated_psa": ["R97"],
 }
 
 
-__all__ = ["SYMPTOM_TO_ICD10"]
+def resolve_symptom_id(session_obj: Any) -> str | None:
+    """
+    從 session ORM 物件解析 ICD-10 validator 用的 symptom_id slug（B2 共用：
+    Celery `report_queue._async_generate` 與 WS `_generate_soap_report_async` 兩路徑共用）。
+
+    策略：
+    1. 優先讀 `chief_complaint.name_en`（英文 slug 最接近 SYMPTOM_TO_ICD10 的 key）。
+    2. 退而求其次讀 `chief_complaint.name`（如為中文會 miss，但不 raise）。
+    正規化為 snake_case 小寫；若無資料回 None（validator 會視為「未登記」→ unverified）。
+
+    注意：「其他」sentinel 主訴（name_en="Other"）會解析成 "other"，不在對映表內
+    → `validate_icd10_codes` 回 `is_verified=False` 但不 strip codes——這是預期的
+    graceful 行為，勿為 sentinel 特判。
+    """
+    cc = getattr(session_obj, "chief_complaint", None)
+    if cc is None:
+        return None
+    raw = getattr(cc, "name_en", None) or getattr(cc, "name", None)
+    if not raw:
+        return None
+    slug = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+    return slug or None
+
+
+__all__ = ["SYMPTOM_TO_ICD10", "resolve_symptom_id"]
