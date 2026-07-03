@@ -616,6 +616,16 @@ MESSAGES: dict[str, dict[str, str]] = {
             "Triệu chứng \"{chief_complaint}\" của bạn bắt đầu từ khi nào?"
         ),
     },
+
+    # A1 [D5]：LLM 空回應 retry 後仍空時的在地化 fallback（直接整句 _spawn_tts_task，
+    # 不走切句 — _SENTENCE_BOUNDARY_CHARS 是 CJK-only，en/ko/vi 的 '?' 切不出句子）。
+    "ws.ai_empty_retry_fallback": {
+        "zh-TW": "不好意思，我剛才沒有處理好您的回覆。可以請您再說一次，或再補充一下您的症狀嗎？",
+        "en-US": "Sorry, I had trouble processing your last reply. Could you say that again, or tell me a bit more about your symptoms?",
+        "ja-JP": "申し訳ありません。先ほどのご回答をうまく処理できませんでした。もう一度お話しいただくか、症状についてもう少し詳しく教えていただけますか？",
+        "ko-KR": "죄송합니다. 방금 하신 말씀을 제대로 처리하지 못했습니다. 다시 한번 말씀해 주시거나 증상을 조금 더 설명해 주시겠어요?",
+        "vi-VN": "Xin lỗi, tôi chưa xử lý được câu trả lời vừa rồi của bạn. Bạn có thể nói lại, hoặc mô tả thêm một chút về triệu chứng của mình không?",
+    },
 }
 
 

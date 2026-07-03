@@ -112,6 +112,7 @@ async def _async_generate(session_id: str) -> dict:
     from app.models.enums import ReportRevisionReason, ReportStatus
     from app.models.session import Session
     from app.models.soap_report import SOAPReport
+    from app.pipelines.icd10_symptom_map import resolve_symptom_id
     from app.pipelines.soap_generator import SOAPGenerator
     from app.utils.datetime_utils import utc_now
 
@@ -183,7 +184,8 @@ async def _async_generate(session_id: str) -> dict:
 
             # M3：symptom_id 供 ICD-10 validator 對映——優先取 ChiefComplaint.name_en
             # 正規化後的 snake_case slug（與 `icd10_symptom_map.SYMPTOM_TO_ICD10` 的 key 相容）。
-            symptom_id = _resolve_symptom_id(session_obj)
+            # B2：共用函式見 icd10_symptom_map.resolve_symptom_id（WS 路徑亦使用）。
+            symptom_id = resolve_symptom_id(session_obj)
 
             # 取出本場次即時偵測並持久化的紅旗，注入 SOAP 生成（安全關鍵：
             # 避免 LLM 自逐字稿重新推導時把 critical 急症 under-triage）。
@@ -327,25 +329,6 @@ async def _publish_report_generated(
             "status": status,
         },
     )
-
-
-def _resolve_symptom_id(session_obj) -> str | None:
-    """
-    從 session 取得用於 ICD-10 validator 的 symptom_id slug。
-
-    策略：
-    1. 優先讀 `chief_complaint.name_en`（英文 slug 最接近 map key）。
-    2. 退而求其次讀 `chief_complaint.name`（如為中文會 miss，但不 raise）。
-    正規化為 snake_case 小寫；若無資料回 None（validator 會視為「未登記」）。
-    """
-    cc = getattr(session_obj, "chief_complaint", None)
-    if cc is None:
-        return None
-    raw = getattr(cc, "name_en", None) or getattr(cc, "name", None)
-    if not raw:
-        return None
-    slug = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
-    return slug or None
 
 
 async def _update_report_status(db, session_id: str, status) -> None:

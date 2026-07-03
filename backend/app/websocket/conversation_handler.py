@@ -286,8 +286,113 @@ def _should_auto_conclude(
         and hpi_pct >= getattr(settings, "HPI_COMPLETION_TERMINATION_THRESHOLD", 80)
         and patient_turns >= getattr(settings, "MIN_PATIENT_TURNS_BEFORE_AUTO_END", 5)
     )
-    hard_ready = patient_turns >= getattr(settings, "MAX_PATIENT_TURNS_HARD_CAP", 10)
+    hard_ready = _hard_cap_reached(patient_turns, settings)
     return bool(soft_ready or hard_ready)
+
+
+# A3：紅旗 gate 的同步等待秒數。原為 _handle_text_message 內局部常數 3.5，
+# 抬升為模組常數以利單元測試 monkeypatch（值與行為不變）。
+_RED_FLAG_WAIT_TIMEOUT: float = 3.5
+
+# A5：跨輪去重的 Redis hash key 與嚴重度排序（升級判斷用）。
+_SESSION_EMITTED_RED_FLAGS_KEY = "gu:session:{session_id}:emitted_red_flags"
+_RED_FLAG_SEVERITY_RANK = {"medium": 0, "high": 1, "critical": 2}
+
+
+def _hard_cap_reached(patient_turns: int, settings: Settings) -> bool:
+    """A2 [D1]：硬上限是否已到（獨立於軟門檻的旗標；受總開關控制）。"""
+    if not getattr(settings, "HPI_COMPLETION_TERMINATION_ENABLED", True):
+        return False
+    return patient_turns >= getattr(settings, "MAX_PATIENT_TURNS_HARD_CAP", 10)
+
+
+def _should_conclude_now(
+    should_conclude: bool,
+    hard_cap_reached: bool,
+    soft_defer: bool,
+    drain_unresolved: bool,
+) -> bool:
+    """A2 [D1+D5]：收尾閘門（純函式，便於矩陣測試）。
+
+    - should_conclude 為 False → 一律不收尾。
+    - drain_unresolved（遲到紅旗仍未解析）→ 一律延後；硬上限時呼叫端須先做
+      有界 inline 解析 + MAX_HARD_CAP_DRAIN_DEFERS 絕對保命線後才傳入。
+    - 軟門檻路徑（未達硬上限）被 soft_defer（本輪 critical/high 紅旗或空回應
+      fallback）否決；**硬上限不被 soft_defer 否決**（D1 修復核心）。
+    """
+    if not should_conclude:
+        return False
+    if drain_unresolved:
+        return False
+    if hard_cap_reached:
+        return True
+    return not soft_defer
+
+
+def _alert_dedup_identity(alert: dict[str, Any]) -> str | None:
+    """A5 [D3] 去重身份：優先 canonical_id（跨語言穩定），fallback lowercase title；
+    都沒有回 None（不去重，fail-open）。"""
+    cid = alert.get("canonical_id")
+    if cid:
+        return str(cid)
+    title = str(alert.get("title", "")).strip().lower()
+    return title or None
+
+
+async def _should_suppress_duplicate_alert(
+    redis: Redis, session_id: str, alert: dict[str, Any]
+) -> bool:
+    """A5 [D3]：跨輪去重判斷（只抑制「持久化+廣播」，絕不影響 abort 判斷用的 list）。
+
+    Redis hash session:{id}:emitted_red_flags 存 canonical_id→severity：
+    - 同 canonical_id 且 severity 未升級（同級或降級）→ True（抑制）。
+    - 升級（high→critical）→ False（放行，critical 照常觸發 abort）。
+    - Redis 失效 / 身份不明 / severity 不明 → False（fail-open：寧重複不可漏急症）。
+    """
+    identity = _alert_dedup_identity(alert)
+    if identity is None:
+        return False
+    new_rank = _RED_FLAG_SEVERITY_RANK.get(str(alert.get("severity", "")).lower())
+    if new_rank is None:
+        return False
+    try:
+        key = _SESSION_EMITTED_RED_FLAGS_KEY.format(session_id=session_id)
+        prev = await redis.hget(key, identity)
+        if prev is None:
+            return False
+        if isinstance(prev, (bytes, bytearray)):
+            prev = prev.decode("utf-8", errors="replace")
+        prev_rank = _RED_FLAG_SEVERITY_RANK.get(str(prev).lower())
+        if prev_rank is None:
+            return False
+        return new_rank <= prev_rank
+    except Exception as exc:
+        logger.warning(
+            "紅旗去重查詢失敗，fail-open 照常送出 | session=%s, error=%s",
+            session_id,
+            str(exc),
+        )
+        return False
+
+
+async def _record_emitted_alert(
+    redis: Redis, session_id: str, alert: dict[str, Any]
+) -> None:
+    """A5 [D3]：record-on-success — 僅在持久化+廣播成功後呼叫；
+    自身吞例外（記錄失敗頂多下一輪重複 emit，不可拋、不可阻斷主流程）。"""
+    identity = _alert_dedup_identity(alert)
+    if identity is None:
+        return
+    try:
+        key = _SESSION_EMITTED_RED_FLAGS_KEY.format(session_id=session_id)
+        await redis.hset(key, identity, str(alert.get("severity", "")).lower())
+        await redis.expire(key, _SESSION_CONTEXT_TTL)
+    except Exception as exc:
+        logger.warning(
+            "紅旗去重記錄失敗（下一輪可能重複 emit，可接受） | session=%s, error=%s",
+            session_id,
+            str(exc),
+        )
 
 
 async def conversation_websocket(
@@ -1301,6 +1406,59 @@ async def _handle_text_message(
                 _tts_task.cancel()
         return False
 
+    # ── A1 [D5] 空回應守衛：LLM 正常結束但無內容 → 單次 retry → 仍空送在地化 fallback ──
+    used_empty_fallback = False
+    if not full_response.strip():
+        logger.warning(
+            "LLM 回傳空回應 | session=%s, retry_enabled=%s",
+            session_id,
+            getattr(settings, "LLM_EMPTY_RESPONSE_RETRY", True),
+        )
+        # 先清 in-flight TTS + reset（空/純空白回應理論上切不出句子，防禦性清理）
+        for _t in pending_tts_tasks:
+            if not _t.done():
+                _t.cancel()
+        pending_sentences.clear()
+        pending_tts_tasks.clear()
+        full_response = ""
+        sentence_buffer = ""
+        if getattr(settings, "LLM_EMPTY_RESPONSE_RETRY", True):
+            try:
+                async for text_chunk in llm_engine.generate_response(
+                    messages, session_context
+                ):
+                    full_response += text_chunk
+                    sentence_buffer += text_chunk
+                    completed, sentence_buffer = _split_completed_sentences(sentence_buffer)
+                    for s in completed:
+                        _spawn_tts_task(s)
+                tail = sentence_buffer.strip()
+                if tail:
+                    _spawn_tts_task(tail)
+                sentence_buffer = ""
+            except Exception as exc:
+                # retry「全程吞例外」：後面的 ai_response_end 必須照送（VAD 不卡死不變式）
+                logger.error(
+                    "空回應 retry 失敗 | session=%s, error=%s", session_id, str(exc)
+                )
+                for _t in pending_tts_tasks:
+                    if not _t.done():
+                        _t.cancel()
+                pending_sentences.clear()
+                pending_tts_tasks.clear()
+                full_response = ""
+                sentence_buffer = ""
+        if not full_response.strip():
+            # 仍空：送在地化 fallback，「直接」整句 _spawn_tts_task —— 不可走切句：
+            # _SENTENCE_BOUNDARY_CHARS 是 CJK-only，en/ko/vi 的 ASCII '?' 切不出句子
+            # → 會變成 0 個 chunk 的空泡泡（D5 根因之一）。
+            from app.utils.i18n_messages import get_message as _i18n_get
+
+            used_empty_fallback = True
+            full_response = _i18n_get("ws.ai_empty_retry_fallback", session_language)
+            _spawn_tts_task(full_response)
+    # 不可 early-return：後續歷史寫入 / 紅旗 gate / TTS chunk / ai_response_end 照走。
+
     # 加入 AI 回應到對話歷史
     conversation_history.append(
         {
@@ -1379,7 +1537,6 @@ async def _handle_text_message(
     # === 醫療安全：在 TTS/ai_response_end 之前，優先等待紅旗偵測結果 ===
     # 若為 CRITICAL/HIGH 嚴重度，必須在患者聽到 AI 回應前先送出警示
     # 較低嚴重度可以延後處理（ai_response_end 之後）以避免阻塞語音
-    RED_FLAG_WAIT_TIMEOUT = 3.5
     red_flag_alerts: list[dict[str, Any]] = []
     red_flag_timed_out = False
     # 是否仍有「遲到紅旗」背景 drain 在跑；若有，本輪不可自動結束（會 break 主迴圈、
@@ -1387,13 +1544,13 @@ async def _handle_text_message(
     red_flag_drain_in_flight = False
     try:
         red_flag_alerts = await asyncio.wait_for(
-            asyncio.shield(red_flag_task), timeout=RED_FLAG_WAIT_TIMEOUT
+            asyncio.shield(red_flag_task), timeout=_RED_FLAG_WAIT_TIMEOUT
         )
     except asyncio.TimeoutError:
         red_flag_timed_out = True
         logger.warning(
             "紅旗偵測逾時（%.1fs），延後處理偵測結果 | session=%s",
-            RED_FLAG_WAIT_TIMEOUT,
+            _RED_FLAG_WAIT_TIMEOUT,
             session_id,
         )
     except Exception as exc:
@@ -1427,7 +1584,18 @@ async def _handle_text_message(
         persist_db：寫入用的 DB session。預設用 WS 的 db；但「遲到紅旗」背景 drain
         在主迴圈已結束（自動結束/閒置/end_session）時 WS db 已關閉，必須傳入自有的
         獨立 session 才能持久化，否則急症紅旗會被靜默丟棄（under-triage）。
+
+        A5 [D3]：跨輪去重 — 同 canonical 紅旗未升級時抑制重複持久化/廣播；
+        僅抑制此處的 emit，不影響呼叫端組裝 abort 判斷用的 red_flag_alerts list。
         """
+        if await _should_suppress_duplicate_alert(redis, session_id, alert):
+            logger.info(
+                "紅旗跨輪去重：同紅旗未升級，抑制重複持久化/廣播 | session=%s, canonical_id=%s, severity=%s",
+                session_id,
+                alert.get("canonical_id"),
+                alert.get("severity"),
+            )
+            return None
         target_db = persist_db if persist_db is not None else db
         try:
             from app.services.alert_service import AlertService
@@ -1507,6 +1675,10 @@ async def _handle_text_message(
                 },
             }
         )
+        # A5 [D3]：record-on-success — DB 持久化 + 廣播皆未拋例外才記錄去重身份。
+        # send_to_session 回 False（病患 WS 已關，drain 情境常見）仍記錄：
+        # 去重目的在防重複 DB row / 儀表板轟炸，DB 已寫成功即記。
+        await _record_emitted_alert(redis, session_id, alert)
         return alert_id
 
     # Step C：在任何 ai_response_chunk（含音訊）送出之前，先送 critical/high 警示
@@ -1632,8 +1804,21 @@ async def _handle_text_message(
                             str(a.get("severity", "")).lower() == "critical"
                             for a in late_alerts
                         ):
+                            late_critical_title = next(
+                                (
+                                    a.get("title")
+                                    for a in late_alerts
+                                    if str(a.get("severity", "")).lower() == "critical"
+                                ),
+                                None,
+                            )
                             await _update_session_status(
-                                drain_db, redis, session_id, "aborted_red_flag", "in_progress"
+                                drain_db,
+                                redis,
+                                session_id,
+                                "aborted_red_flag",
+                                "in_progress",
+                                red_flag_reason=late_critical_title,
                             )
                 except Exception as exc:
                     logger.error(
@@ -1660,8 +1845,23 @@ async def _handle_text_message(
             logger.warning(
                 "偵測到 critical 紅旗，中止場次 | session=%s", session_id
             )
+            # A4 [D2]：帶 critical 紅旗 title 作為 red_flag_reason（title 已由偵測器
+            # 按場次語言在地化），供醫師端分流顯示。
+            critical_title = next(
+                (
+                    a.get("title")
+                    for a in red_flag_alerts
+                    if str(a.get("severity", "")).lower() == "critical"
+                ),
+                None,
+            )
             await _update_session_status(
-                db, redis, session_id, "aborted_red_flag", "in_progress"
+                db,
+                redis,
+                session_id,
+                "aborted_red_flag",
+                "in_progress",
+                red_flag_reason=critical_title,
             )
             await manager.send_localized_to_session(
                 session_id,
@@ -1696,17 +1896,113 @@ async def _handle_text_message(
     # ── 自動結束問診（HPI 達標或回合硬上限）──────────────────────
     # 醫療安全多重保護，本區塊刻意放在「紅旗 gate 之後、critical-abort 區塊之後」：
     #   (i) 本輪病患輸入一定先被紅旗篩檢；
-    #   (ii) 本輪若偵測到 critical/high 紅旗 → 不在「剛冒出嚴重症狀的這一輪」自動收尾，
-    #        讓對話多撐一輪由 AI 處理（critical 另已走 abort）；
-    #   (iii) 仍有遲到紅旗 drain 在背景跑時不結束，避免 break 主迴圈關閉 WS db 導致
-    #        急症紅旗無法持久化（drain 雖已改用自有 session，這裡多一層保險）；
+    #   (ii) 軟門檻收尾被 soft_defer（本輪 critical/high 紅旗、或空回應 fallback 輪）
+    #        否決 → 對話多撐一輪由 AI 處理（critical 另已走 abort）。但「硬上限」不受
+    #        soft_defer 否決（A2 [D1]：持續 high 的主訴如肉眼血尿，否則永不結束）；
+    #   (iii) 仍有遲到紅旗 drain 未解析時：軟門檻延後一輪；硬上限改做有界 inline 解析
+    #        （A3 [D1]：late-critical 先 abort，偵測器真卡死累計 MAX_HARD_CAP_DRAIN_DEFERS
+    #        輪後強制收尾 — 絕對保命線）；
     #   (iv) 真正改狀態用 compare-and-set：只有「確實從 in_progress → completed」成功
     #        才送 completed/推 SOAP，避免把已 aborted_red_flag 的終態降級成 completed。
     serious_red_flag_this_turn = bool(red_flag_alerts) and any(
         str(a.get("severity", "")).lower() in ("critical", "high")
         for a in red_flag_alerts
     )
-    if should_conclude and not serious_red_flag_this_turn and not red_flag_drain_in_flight:
+    hard_cap_reached = _hard_cap_reached(patient_turns, settings)
+    # A2：soft_defer 只否決軟門檻收尾；空回應 fallback 輪也不軟收尾（病患還沒真的被
+    # 問到問題）。硬上限不受 soft_defer 否決（D1 修復核心：持續 high 紅旗的主訴
+    # 如肉眼血尿，不可再把硬上限「永久延後」）。
+    soft_defer = serious_red_flag_this_turn or used_empty_fallback
+    drain_unresolved = red_flag_drain_in_flight
+
+    # A3 [D1]：硬上限 + 遲到紅旗未解析 → 有界 inline 解析，偵測器真卡死才走絕對保命線
+    if hard_cap_reached and drain_unresolved:
+        try:
+            # 必須 shield：wait_for 逾時會 cancel 內層 task，會連帶殺掉正在 await
+            # 同一 red_flag_task 的 _drain_late_red_flags（遲到紅旗就永遠無法持久化）。
+            late_alerts = await asyncio.wait_for(
+                asyncio.shield(red_flag_task),
+                timeout=float(getattr(settings, "HARD_CAP_DRAIN_AWAIT_SECONDS", 5.0)),
+            )
+        except asyncio.TimeoutError:
+            defers = int(session_context.get("_hard_cap_drain_defers", 0)) + 1
+            session_context["_hard_cap_drain_defers"] = defers
+            if defers > int(getattr(settings, "MAX_HARD_CAP_DRAIN_DEFERS", 2)):
+                # 絕對保命線（E7 決策 2）：偵測器真卡死，強制收尾出 SOAP。
+                # 接受極罕見 late-critical race：偵測若日後完成，_drain_late_red_flags
+                # 仍會持久化警示供醫師審閱；其 abort CAS 對已 completed 終態為 no-op。
+                logger.error(
+                    "紅旗偵測器連續 %d 輪未解析，硬上限強制收尾 | session=%s",
+                    defers,
+                    session_id,
+                )
+                drain_unresolved = False
+        except Exception:
+            # 偵測任務本身失敗（drain 端已記 log）：沒有結果可等 → 視為已解析
+            drain_unresolved = False
+        else:
+            drain_unresolved = False
+            session_context.pop("_hard_cap_drain_defers", None)
+            if any(
+                str(a.get("severity", "")).lower() == "critical"
+                for a in late_alerts or []
+            ):
+                # 紅旗優先：先 abort（CAS，永不覆寫終態），持久化/廣播交給已在跑的
+                # _drain_late_red_flags（避免與其 double-persist 競態），再結束主迴圈。
+                late_critical_title = next(
+                    (
+                        a.get("title")
+                        for a in late_alerts or []
+                        if str(a.get("severity", "")).lower() == "critical"
+                    ),
+                    None,
+                )
+                logger.warning(
+                    "硬上限收尾前解析出遲到 critical 紅旗，中止場次 | session=%s",
+                    session_id,
+                )
+                await _update_session_status(
+                    db,
+                    redis,
+                    session_id,
+                    "aborted_red_flag",
+                    "in_progress",
+                    red_flag_reason=late_critical_title,
+                )
+                # 與既有 critical-abort 區塊相同的通知組（行為一致）。
+                await manager.send_localized_to_session(
+                    session_id,
+                    msg_type="session_status",
+                    code="events.session.aborted_red_flag",
+                    params={},
+                    severity="critical",
+                )
+                await manager.broadcast_localized_dashboard(
+                    msg_type="session_status_changed",
+                    code="events.session.aborted_red_flag_dashboard",
+                    params={},
+                    severity="critical",
+                    extra={
+                        "sessionId": session_id,
+                        "status": "aborted_red_flag",
+                        "previousStatus": "in_progress",
+                    },
+                )
+                await _broadcast_dashboard_queue_and_stats(db, redis)
+                # SOAP 冪等由 _generate_soap_report_async 雙重存在性檢查 + UNIQUE 保護。
+                asyncio.create_task(
+                    _generate_soap_report_async(
+                        session_id=session_id,
+                        conversation_history=conversation_history,
+                        session_context=session_context,
+                        settings=settings,
+                    )
+                )
+                return True
+            # late_alerts 不併入 red_flag_alerts：非 critical 由 _drain_late_red_flags
+            # 持久化/廣播，避免重跑上方 abort 區塊或 double-persist。
+
+    if _should_conclude_now(should_conclude, hard_cap_reached, soft_defer, drain_unresolved):
         transitioned = await _update_session_status(
             db, redis, session_id, "completed", "in_progress"
         )
@@ -1776,10 +2072,13 @@ async def _generate_soap_report_async(
 
     from sqlalchemy import select
     from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.orm import selectinload
 
     from app.core.database import get_db_session
     from app.models.enums import ReportStatus, ReviewStatus
+    from app.models.session import Session
     from app.models.soap_report import SOAPReport
+    from app.pipelines.icd10_symptom_map import resolve_symptom_id
     from app.pipelines.soap_generator import SOAPGenerator
 
     logger.info("開始生成 SOAP 報告 | session=%s", session_id)
@@ -1788,6 +2087,7 @@ async def _generate_soap_report_async(
         # 冪等保護（早期檢查）：一場場次只能有一份 SOAP。多個結束路徑可能同時觸發本函式
         # （end_session 控制指令 / 閒置逾時 / critical 紅旗中止 / HPI 自動結束），
         # 早期就先查一次，重複時直接 return，連昂貴的 LLM 生成都不跑。
+        symptom_id: str | None = None
         async with get_db_session() as _check_db:
             _existing = await _check_db.execute(
                 select(SOAPReport.id).where(SOAPReport.session_id == UUID(session_id))
@@ -1795,6 +2095,17 @@ async def _generate_soap_report_async(
             if _existing.scalar_one_or_none() is not None:
                 logger.info("SOAP 已存在，跳過重複生成（早期檢查） | session=%s", session_id)
                 return
+            # B2：同一趟連線順便查 session（eager-load 主訴）解析 symptom_id，
+            # 供 ICD-10 驗證層做 symptom↔code 對映；解析不到（無主訴/「其他」
+            # sentinel/查無 session）→ None，validator 會回 unverified（graceful）。
+            _session_obj = (
+                await _check_db.execute(
+                    select(Session)
+                    .options(selectinload(Session.chief_complaint))
+                    .where(Session.id == UUID(session_id))
+                )
+            ).scalar_one_or_none()
+            symptom_id = resolve_symptom_id(_session_obj)
 
         generator = SOAPGenerator(settings)
         soap_data = await generator.generate(
@@ -1802,6 +2113,7 @@ async def _generate_soap_report_async(
             patient_info=session_context.get("patient_info", {}),
             chief_complaint=session_context.get("chief_complaint", ""),
             language=session_context.get("language"),
+            symptom_id=symptom_id,
         )
 
         # 格式化對話逐字稿
@@ -1833,6 +2145,13 @@ async def _generate_soap_report_async(
                 plan=soap_data.get("plan"),
                 summary=soap_data.get("summary"),
                 icd10_codes=soap_data.get("icd10_codes", []),
+                # D6/B2：validator 的 symptom↔code 對映驗證結果（供前端「需醫師確認」顯示）
+                icd10_verified=bool(soap_data.get("icd10_verified", False)),
+                # D4/B3：SOAP 語言必須跟 session 語言（先前漏設 → 落 server_default 恆 zh-TW）。
+                # 「or DEFAULT_LANGUAGE」是承重的：欄位 nullable=False，若把 None 傳進去會
+                # IntegrityError，被下方 except IntegrityError 誤當 UNIQUE 冪等撞擊 →
+                # SOAP 靜默消失。絕對不可拿掉 fallback。
+                language=session_context.get("language") or settings.DEFAULT_LANGUAGE,
                 ai_confidence_score=soap_data.get("confidence_score"),
                 raw_transcript=raw_transcript,
                 generated_at=datetime.now(timezone.utc),
@@ -2044,6 +2363,8 @@ async def _update_session_status(
     session_id: str,
     new_status: str,
     previous_status: str,
+    *,
+    red_flag_reason: str | None = None,
 ) -> bool:
     """
     更新場次狀態（資料庫 + Redis 快取），採 compare-and-set。
@@ -2058,6 +2379,8 @@ async def _update_session_status(
         session_id: 場次 ID
         new_status: 新狀態
         previous_status: 前一狀態（compare-and-set 的條件）
+        red_flag_reason: 轉 aborted_red_flag 時的紅旗原因（critical 紅旗 title，
+            已按場次語言在地化）；其他轉移忽略此參數。
 
     Returns:
         bool: True 表示確實發生狀態轉移；False 表示目前狀態不符（no-op）或失敗。
@@ -2066,11 +2389,19 @@ async def _update_session_status(
         from app.models.session import Session
         from sqlalchemy import update
 
+        values: dict[str, Any] = {"status": new_status}
+        if new_status == "aborted_red_flag":
+            # E2 [D2]（E7 決策 3）：session.red_flag 語意＝「因紅旗中止」。
+            # 僅 aborted_red_flag 轉移時寫入；completed（含 high-only 撐到硬上限收尾）
+            # 不設 true —「曾有紅旗」請查 red_flag_alerts 表。
+            values["red_flag"] = True
+            if red_flag_reason:
+                values["red_flag_reason"] = red_flag_reason
         stmt = (
             update(Session)
             .where(Session.id == session_id)
             .where(Session.status == previous_status)
-            .values(status=new_status)
+            .values(**values)
         )
         result = await db.execute(stmt)
         await db.commit()

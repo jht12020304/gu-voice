@@ -135,12 +135,27 @@
   `_update_session_status` 採 **compare-and-set**（只在仍 `in_progress` 才轉 `completed`），
   避免把 `aborted_red_flag` 降級；`_generate_soap_report_async` 雙重存在性檢查 +
   `soap_reports.session_id` UNIQUE → 任何結束路徑都不會重複報告。
-- **⚠️ 已知缺陷 D1（2026-06-28 真 OpenAI E2E 揪出，待修）**：上述「critical/high 紅旗當輪不收尾」的
-  deferral 對「每輪都再觸發 high 紅旗」的主訴（**肉眼血尿**最典型）會變成**永久延後**——high 不 abort、
-  硬上限也被否決 → 問診**永不結束、無 SOAP**（重現了 #3「問不停」）。硬上限**並非**真正的保命線。
-  另：`session.red_flag` 從不被對話紅旗/abort 更新（D2）、紅旗每輪重複送（D3）、`soap.language` 恆 zh-TW（D4）。
-  根因定位、系統性修法（A 群硬上限獨立 + drain 有界解析；B 群 SOAP language/symptom_id）、驗證與待拍板臨床決策
-  見 [`e2e_realopenai_audit_2026-06-28.md`](./e2e_realopenai_audit_2026-06-28.md)。
+- **D1–D6 已修復（2026-07-04，`a92a23f`，真 OpenAI E2E 驗收 13/13 PASS）**：原「critical/high 紅旗
+  當輪不收尾」的 deferral 對每輪再觸發 high 的主訴（肉眼血尿）會永久延後收尾。修復後的不變式：
+  - **硬上限不再被紅旗 deferral 否決**：收尾閘門是純函式 `_should_conclude_now(should_conclude,
+    hard_cap_reached, soft_defer, drain_unresolved)`——軟門檻仍可被 `soft_defer`（當輪嚴重紅旗或
+    空回應 fallback）延後，**硬上限不行**；硬上限遇未解析 drain 走**有界 inline 解析**
+    （`HARD_CAP_DRAIN_AWAIT_SECONDS`，late-critical 先 abort 再收尾），偵測器真卡死則
+    `MAX_HARD_CAP_DRAIN_DEFERS` 輪後強制收尾出 SOAP（絕對保命線）。
+  - **紅旗跨輪冪等（A5）**：`_persist_and_emit_alert` 以 Redis hash（canonical_id→severity）
+    去重，record-on-success、high→critical 升級放行、Redis 失效 fail-open；
+    **abort 判斷用的 alerts list 不過濾**（被抑制的 critical 仍照常 abort）。
+  - **`sessions.red_flag` 持久化（A4）**：轉 `aborted_red_flag` 時補寫 `red_flag=True` +
+    `red_flag_reason`；語意＝「因紅旗中止」，high-only completed 不設 true（曾有紅旗查
+    `red_flag_alerts`）。
+  - **空回應守衛（A1/D5）**：LLM 空串流 → try/except 單次 retry → 仍空送
+    `ws.ai_empty_retry_fallback`（5 語）並直接 `_spawn_tts_task`；每分支唯一 `ai_response_end`。
+  - **SOAP metadata（B 群/D4+D6）**：`soap.language` 依場次語言（`or DEFAULT_LANGUAGE` 承重防
+    IntegrityError 靜默掉 SOAP）；WS 路徑補傳 `symptom_id` 使 `icd10_verified` 真的可為 true；
+    ICD 白名單含 N52/R97（R97 接受 prefix-3 粗粒度）。
+  - E7 臨床決策採保守預設（high 不升級 abort 等，見 TODO §E E7），kill-switch：
+    `LLM_EMPTY_RESPONSE_RETRY`、`HARD_CAP_DRAIN_AWAIT_SECONDS`、`MAX_HARD_CAP_DRAIN_DEFERS`。
+  原始根因與修法計畫見 [`e2e_realopenai_audit_2026-06-28.md`](./e2e_realopenai_audit_2026-06-28.md)。
 
 ---
 
