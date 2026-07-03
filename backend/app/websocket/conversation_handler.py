@@ -1859,12 +1859,21 @@ async def _generate_soap_report_async(
             exc_info=True,
         )
 
+# 「其他」主訴 sentinel：與 alembic seed（20260704_1000-seed_other_chief_complaint）的固定
+# UUID 同步，unit test 交叉驗證兩處一致。病患選「其他」時 FK 指向此筆，實際主訴內容
+# 在 chief_complaint_text（病患自述）。
+OTHER_CHIEF_COMPLAINT_ID = "00000000-0000-4000-8000-0000000000ff"
+
+
 def _resolve_chief_complaint_display(session_obj: Any) -> str | None:
     """#6：把場次主訴解析成「場次語言」的顯示名稱（給開場問診語用）。
 
     英文場次卻顯示中文「血尿」的根因是開場語直接用 chief_complaint_text（建場當下凍結的
     單一語言字串）。此處改從 ChiefComplaint.name_by_lang/fallback 字典按場次語言解析，
     解析不到（無主訴記錄/字典缺項）才回 None，讓呼叫端 fallback 回原 text。
+
+    #5：主訴為「其他」sentinel 時，名稱只是佔位詞，改回傳 chief_complaint_text
+    （病患自述）；自述為空才落回一般解析（至少顯示在地化的「其他」）。
     """
     from app.core.config import settings as _settings
     from app.services.complaint_service import _resolve_with_fallback
@@ -1873,6 +1882,13 @@ def _resolve_chief_complaint_display(session_obj: Any) -> str | None:
     cc = getattr(session_obj, "chief_complaint", None)
     if cc is None:
         return None
+    # 「其他」sentinel：名稱只是佔位詞，開場語若念「關於您的『其他』」毫無資訊量，
+    # 優先改用病患自述（chief_complaint_text）；自述為空（前端已擋，防禦舊 client /
+    # 直接打 API）才落回一般解析，至少顯示在地化的「其他」而不是壞字串。
+    if str(getattr(cc, "id", "")) == OTHER_CHIEF_COMPLAINT_ID:
+        text = (getattr(session_obj, "chief_complaint_text", None) or "").strip()
+        if text:
+            return text
     lang = getattr(session_obj, "language", None) or _settings.DEFAULT_LANGUAGE
     try:
         return _resolve_with_fallback(
