@@ -13,10 +13,15 @@ import {
   useConversationStore,
   conversationToMessage,
   normalizeSupervisorGuidance,
+  shouldUnmuteVAD,
 } from '../../stores/conversationStore';
-import type { SupervisorGuidancePayload } from '../../stores/conversationStore';
+import type {
+  SupervisorGuidancePayload,
+  VadResumeTrigger,
+} from '../../stores/conversationStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useConversationWebSocket } from '../../hooks/useWebSocket';
+import { conversationWS } from '../../services/websocket';
 import { useAudioStream } from '../../hooks/useAudioStream';
 import * as sessionsApi from '../../services/api/sessions';
 import { formatDuration } from '../../utils/format';
@@ -74,6 +79,7 @@ export default function ConversationPage() {
     isRecording,
     isAIResponding,
     sttProcessing,
+    userPaused,
     sttPartialText,
     aiStreamingText,
     recordingDuration,
@@ -87,6 +93,7 @@ export default function ConversationPage() {
     setConversations,
     updateSTTPartial,
     setSttProcessing,
+    setUserPaused,
     setAIResponding,
     appendAIStreamingText,
     finalizeAIResponse,
@@ -106,10 +113,32 @@ export default function ConversationPage() {
   const hasConnectedRef = useRef(false);
   if (connectionState === 'open') hasConnectedRef.current = true;
 
+  // #4：出聲模式 AI 回合硬鎖是否尚未由 TTS 鏈解除。isAIResponding 在 ai_response_end 事件時
+  // 就被 finalizeAIResponse 設回 false（TTS 可能還在播），不能拿來判斷硬鎖，故獨立追蹤。
+  const pendingAiUnmuteRef = useRef(false);
+
   // 根據 session 狀態自動啟動 VAD（in_progress / waiting 時才開麥克風）
   const isSessionActiveForMic =
     currentSession?.status === 'in_progress' || currentSession?.status === 'waiting';
-  const { muteVAD, unmuteVAD } = useAudioStream(isSessionActiveForMic);
+  const { muteVAD, unmuteVAD, forceEndSegment } = useAudioStream(isSessionActiveForMic);
+
+  /** #4：所有「自動恢復收音」路徑一律走這裡，由 shouldUnmuteVAD 決策矩陣把關。
+   * wsDown 直接讀 WS 服務的同步狀態，不走 React state（render 才同步的 ref 會慢半拍：
+   * onclose 內停掉 TTS 時鏈尾 microtask 緊接著跑，讀到過期的 'open' 就會在斷線瞬間解鎖）。 */
+  const unmuteIfAllowed = useCallback(
+    (trigger: VadResumeTrigger) => {
+      if (
+        shouldUnmuteVAD(trigger, {
+          userPaused: useConversationStore.getState().userPaused,
+          aiTurnLocked: pendingAiUnmuteRef.current,
+          wsDown: conversationWS.getConnectionState() !== 'open',
+        })
+      ) {
+        unmuteVAD();
+      }
+    },
+    [unmuteVAD],
+  );
 
   // 連線中斷／重連中 → 顯示非警示性持續橫幅（病患不會對著死連線講話）。
   // 條件：曾經連上過（排除初次載入中），且場次仍進行中（排除結束導向時的 disconnect）。
@@ -122,13 +151,25 @@ export default function ConversationPage() {
   const stopActiveTTS = useCallback(() => {
     const src = activeSourceRef.current;
     if (src) {
+      // 醫療安全：句級佇列（enqueueTTSAudioB64）的 step promise 靠 onended resolve；
+      // 若只把 handler 清掉再 stop()，該 promise 永不 resolve，ai_response_end 掛在鏈尾
+      // 的「清硬鎖 + 恢復收音」步驟就永遠不會執行 → VAD 卡死。故取下 handler 後手動
+      // 呼叫一次（不留給 stop() 觸發，確保 stop() 拋錯時鏈也一定前進）。
+      const onended = src.onended;
+      src.onended = null;
+      activeSourceRef.current = null;
       try {
-        src.onended = null;
         src.stop();
       } catch {
         /* ignore */
       }
-      activeSourceRef.current = null;
+      if (onended) {
+        try {
+          onended.call(src, new Event('ended'));
+        } catch {
+          /* ignore */
+        }
+      }
     }
   }, []);
 
@@ -137,7 +178,8 @@ export default function ConversationPage() {
   const playTTSAudio = useCallback(
     async (dataUrl: string): Promise<void> => {
       if (!dataUrl) {
-        unmuteVAD();
+        pendingAiUnmuteRef.current = false;
+        unmuteIfAllowed('ai_tts_done');
         return;
       }
       try {
@@ -174,17 +216,19 @@ export default function ConversationPage() {
         source.onended = () => {
           activeSourceRef.current = null;
           // TTS 播完 → 恢復 VAD，使用者可以直接說下一句
-          unmuteVAD();
+          pendingAiUnmuteRef.current = false;
+          unmuteIfAllowed('ai_tts_done');
         };
         activeSourceRef.current = source;
         source.start(0);
       } catch (err) {
         console.error('[TTS] 播放失敗:', err);
         // 出錯也要恢復 VAD，避免卡死
-        unmuteVAD();
+        pendingAiUnmuteRef.current = false;
+        unmuteIfAllowed('ai_tts_done');
       }
     },
-    [unmuteVAD],
+    [unmuteIfAllowed],
   );
 
   /**
@@ -276,9 +320,10 @@ export default function ConversationPage() {
     if (willMute) {
       stopActiveTTS();
       clearTTSQueue();
-      unmuteVAD();
+      pendingAiUnmuteRef.current = false;
+      unmuteIfAllowed('tts_mute_toggle');
     }
-  }, [ttsMuted, toggleTtsMuted, stopActiveTTS, clearTTSQueue, unmuteVAD]);
+  }, [ttsMuted, toggleTtsMuted, stopActiveTTS, clearTTSQueue, unmuteIfAllowed]);
 
   // 打字輸入：語音收不到時的備援。樂觀在本地顯示病患氣泡，再送後端 text_message
   // （後端會走與語音同一條 _handle_text_message：紅旗篩檢 / LLM / auto-conclude 都照跑）。
@@ -304,6 +349,26 @@ export default function ConversationPage() {
     send('text_message', { text });
     setTextDraft('');
   }, [textDraft, sessionId, addConversation, send, connectionState, setError, t]);
+
+  // #4：暫停/繼續收音。暫停會先 flush 進行中的段落（已講的半句照常送出辨識——
+  // MediaRecorder fallback 的 chunk 已即時上送，丟棄會在後端留下無 isFinal 的殘段），
+  // 再通知後端進入 is_paused；繼續則交由決策矩陣決定是否立即開麥。
+  const handleTogglePause = useCallback(() => {
+    if (!useConversationStore.getState().userPaused) {
+      setUserPaused(true);
+      muteVAD(); // hard-mute：isSpeaking 時同步 flush（WAV chunk + isFinal）→ 先於 pause 控制送達
+      send('control', { action: 'pause_recording' });
+    } else {
+      setUserPaused(false);
+      send('control', { action: 'resume_recording' });
+      unmuteIfAllowed('user_resume'); // AI 出聲硬鎖中則保持 mute，TTS 播畢由鏈尾解鎖
+    }
+  }, [setUserPaused, muteVAD, send, unmuteIfAllowed]);
+
+  // #4：「我說完了」——立即結束當前段落送出，不等 2 秒靜音（audioStream silenceEndMs=2000）
+  const handleFinishSpeaking = useCallback(() => {
+    forceEndSegment();
+  }, [forceEndSegment]);
 
   /**
    * Fix 18：重播某則 AI 訊息的快取 TTS 音訊。
@@ -336,6 +401,24 @@ export default function ConversationPage() {
     },
     [markMessageTtsFailed],
   );
+
+  // #6：空 stt_final 的短暫可見提示（系統提示樣式，非對話氣泡），4 秒自動消失、再開口即收
+  const [showNoSpeechHint, setShowNoSpeechHint] = useState(false);
+  const noSpeechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashNoSpeechHint = useCallback(() => {
+    setShowNoSpeechHint(true);
+    if (noSpeechTimerRef.current) clearTimeout(noSpeechTimerRef.current);
+    noSpeechTimerRef.current = setTimeout(() => setShowNoSpeechHint(false), 4000);
+  }, []);
+  useEffect(
+    () => () => {
+      if (noSpeechTimerRef.current) clearTimeout(noSpeechTimerRef.current);
+    },
+    [],
+  );
+  useEffect(() => {
+    if (isRecording) setShowNoSpeechHint(false);
+  }, [isRecording]);
 
   // Fix 20：首次 onboarding 提示狀態
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -395,11 +478,9 @@ export default function ConversationPage() {
           setConversations(convs.data.map(conversationToMessage));
         }
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error('[ConversationPage] load failed', err);
         const anyErr = err as any;
         if (anyErr?.response) {
-          // eslint-disable-next-line no-console
           console.error('[ConversationPage] response.status=', anyErr.response.status, 'data=', anyErr.response.data);
         }
         setError(t('conversation:error.loadFailed'));
@@ -423,7 +504,9 @@ export default function ConversationPage() {
       // VAD hard-mute；若不在這裡重新解鎖，病患就無法再用語音開口（minSpeechMs 調低後更易遇到）。
       // 空結果時 re-arm VAD 並略過空氣泡；有字才照常顯示並等 AI 回覆（回覆結束會自然 unmute）。
       if (!data.text || !data.text.trim()) {
-        unmuteVAD();
+        // #6：空辨識不再靜默——暫停中不提示（暫停徽章已說明現況），其餘顯示短暫提示
+        if (!useConversationStore.getState().userPaused) flashNoSpeechHint();
+        unmuteIfAllowed('empty_stt');
         return;
       }
       addConversation({
@@ -446,8 +529,10 @@ export default function ConversationPage() {
       // 下方 ai_response_end 的 ttsChain.then(unmuteVAD) 解鎖；空 STT/錯誤/重連也都會 re-arm
       // （VAD 不可卡死不變式）。靜音模式沒有 TTS 可回授 → 用正常門檻開 VAD 讓病患能立刻接話。
       if (useSettingsStore.getState().ttsMuted) {
-        unmuteVAD();
+        pendingAiUnmuteRef.current = false;
+        unmuteIfAllowed('ai_start_tts_muted');
       } else {
+        pendingAiUnmuteRef.current = true;
         muteVAD();
       }
       addConversation({
@@ -496,9 +581,10 @@ export default function ConversationPage() {
         return;
       }
       // 句級流程：在佇列尾端附加一個「播完所有句子 → 恢復正常 VAD 門檻」步驟。
-      // 靜音時佇列沒有音訊步驟，這個 unmuteVAD 會立即執行（病患永遠能繼續說話）。
+      // 靜音時佇列沒有音訊步驟，這個 unmute 會立即執行（病患永遠能繼續說話）。
       ttsChainRef.current = ttsChainRef.current.then(() => {
-        unmuteVAD();
+        pendingAiUnmuteRef.current = false;
+        unmuteIfAllowed('ai_tts_done');
       });
     });
 
@@ -573,17 +659,30 @@ export default function ConversationPage() {
       // #3：錯誤路徑（rate limit / 音訊格式 / STT 失敗）後端不會送 stt_final，這裡清辨識提示
       setSttProcessing(false);
       // 也解除 VAD mute，避免使用者卡在「等 AI 回應」的狀態
-      unmuteVAD();
+      pendingAiUnmuteRef.current = false;
+      unmuteIfAllowed('ws_error');
     });
 
     // WebSocket 連線狀態：透過頂部非警示性「重連中」橫幅呈現（見下方 isConnectionDown），
     // 不再灌入 error（保留給真正的對話／場次錯誤）。此處僅控制斷線期間暫停收音。
     on('_disconnected', () => {
+      // 斷線即停掉本地仍在播的 TTS 並清佇列（該 AI 回合已作廢）：否則 _connected 解鎖
+      // 麥克風時喇叭還在播 AI 語音，回授會被當成病患答案（AI 講話期間硬鎖麥克風不變式）。
+      // 文字已在畫面上，病患可用重播鍵重聽。muteVAD 放最後：stopActiveTTS 會補跑 onended
+      // （舊式 playTTSAudio 路徑會同步 unmute），最後 mute 確保斷線期間必定停止收音。
+      stopActiveTTS();
+      clearTTSQueue();
       muteVAD(); // 斷線期間暫停收音，避免對著死連線講話
       setSttProcessing(false); // #3：斷線時清辨識提示，避免卡住
     });
     on('_connected', () => {
-      unmuteVAD(); // 重連成功 → 恢復收音
+      pendingAiUnmuteRef.current = false; // 後端 handler 重啟，舊 AI 回合作廢
+      if (useConversationStore.getState().userPaused) {
+        // 後端 is_paused 是連線區域變數（conversation_handler.py），重連即歸零 → 重申暫停
+        send('control', { action: 'pause_recording' });
+      } else {
+        unmuteIfAllowed('reconnected'); // 重連成功 → 恢復收音
+      }
     });
 
     return () => {
@@ -610,6 +709,13 @@ export default function ConversationPage() {
       clearTTSQueue();
     }
   }, [isRecording, isAIResponding, stopActiveTTS, clearTTSQueue]);
+
+  // #4：麥克風重開（openMic 會把 mute 狀態重設）或任何競態下，手動暫停必須重新生效。
+  // isRecording 列入 deps：若 mute 在暫停期間遺失、VAD 意外開錄，此 effect 會立即重新
+  // hard-mute（後端 is_paused 另有丟棄 audio_chunk 的第二道防線）。
+  useEffect(() => {
+    if (isSessionActiveForMic && userPaused) muteVAD();
+  }, [isSessionActiveForMic, userPaused, isRecording, muteVAD]);
 
   // 聊天自動捲動（使用者上捲時暫停）
   const [userScrolledUp, setUserScrolledUp] = useState(false);
@@ -962,33 +1068,80 @@ export default function ConversationPage() {
             />
           </div>
         )}
-        {/* 麥克風狀態指示圈（顯示狀態，無需點擊） */}
-        <div className="flex items-center justify-center">
-          <div
-            className={`flex h-14 w-14 items-center justify-center rounded-full transition-colors ${
-              !isSessionActive
-                ? 'bg-surface-tertiary text-ink-placeholder dark:bg-dark-card dark:text-slate-500'
-                : isAIResponding
-                  ? 'bg-primary-50 text-primary-500 dark:bg-primary-950 dark:text-primary-300'
-                  : isRecording
-                    ? 'bg-alert-critical text-white shadow-lg shadow-alert-critical/30'
-                    : 'bg-primary-50 text-primary-600 dark:bg-primary-950 dark:text-primary-300'
+        {/* #6：空辨識提示（系統提示樣式，4 秒自動消失、再開口即收） */}
+        {showNoSpeechHint && (
+          <div role="status" aria-live="polite" className="mb-3 flex justify-center">
+            <span className="animate-slide-down rounded-full bg-amber-100 px-4 py-2 text-caption font-medium text-amber-900 dark:bg-amber-950/60 dark:text-amber-200">
+              {t('conversation:status.noSpeechDetected')}
+            </span>
+          </div>
+        )}
+        {/* 麥克風狀態圈 + 手動語音控制（#4） */}
+        <div className="flex items-center justify-center gap-4">
+          {/* 暫停／繼續收音（醒目：暫停中轉為 amber 實心） */}
+          <button
+            type="button"
+            onClick={handleTogglePause}
+            disabled={!isSessionActive}
+            aria-pressed={userPaused}
+            className={`h-12 rounded-btn px-4 text-body font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              userPaused
+                ? 'bg-amber-500 text-white shadow-md hover:bg-amber-600'
+                : 'bg-surface-tertiary text-ink-secondary hover:bg-surface-secondary dark:bg-dark-card dark:text-slate-300'
             }`}
           >
-            <svg
-              className={`h-7 w-7 ${isRecording ? 'animate-pulse' : ''}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
+            {userPaused ? t('conversation:voiceControl.resume') : t('conversation:voiceControl.pause')}
+          </button>
+
+          <div className="relative">
+            <div
+              className={`flex h-14 w-14 items-center justify-center rounded-full transition-colors ${
+                !isSessionActive
+                  ? 'bg-surface-tertiary text-ink-placeholder dark:bg-dark-card dark:text-slate-500'
+                  : userPaused
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                    : isAIResponding
+                      ? 'bg-primary-50 text-primary-500 dark:bg-primary-950 dark:text-primary-300'
+                      : isRecording
+                        ? 'bg-alert-critical text-white shadow-lg shadow-alert-critical/30'
+                        : 'bg-primary-50 text-primary-600 dark:bg-primary-950 dark:text-primary-300'
+              }`}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M19 11a7 7 0 01-14 0m7 7v4m-4 0h8M12 2a3 3 0 00-3 3v6a3 3 0 006 0V5a3 3 0 00-3-3z"
+              <svg
+                className={`h-7 w-7 ${isRecording && !userPaused ? 'animate-pulse' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M19 11a7 7 0 01-14 0m7 7v4m-4 0h8M12 2a3 3 0 00-3 3v6a3 3 0 006 0V5a3 3 0 00-3-3z"
+                />
+                {/* 暫停：麥克風加斜線 */}
+                {userPaused && <path strokeLinecap="round" d="M4 4l16 16" />}
+              </svg>
+            </div>
+            {/* #6：辨識中在麥克風圈疊真 spinner 環（錄音紅色回饋不變） */}
+            {sttProcessing && !isAIResponding && !userPaused && (
+              <span
+                aria-hidden="true"
+                className="absolute -inset-1 animate-spin rounded-full border-4 border-primary-400 border-t-transparent"
               />
-            </svg>
+            )}
           </div>
+
+          {/* 我說完了：講話中才可見（invisible 佔位避免版面跳動），點擊立即送出不等 2 秒靜音 */}
+          <button
+            type="button"
+            onClick={handleFinishSpeaking}
+            className={`h-12 rounded-btn bg-primary-600 px-4 text-body font-semibold text-white shadow-md hover:bg-primary-700 transition-colors ${
+              isRecording && !userPaused && isSessionActive ? '' : 'invisible'
+            }`}
+          >
+            {t('conversation:voiceControl.finishSpeaking')}
+          </button>
         </div>
 
         {/* 波形視覺化：錄音時顯示即時頻譜彩條，閒置時顯示低透明度呼吸動畫佔位 */}
@@ -1013,18 +1166,43 @@ export default function ConversationPage() {
               ))}
         </div>
 
-        {/* 狀態文字（Fix 21：改用 ink-secondary 達到 WCAG AA） */}
-        <p className="mt-2 text-center text-small text-ink-secondary dark:text-slate-300">
-          {!isSessionActive
-            ? t('conversation:status.notStarted')
-            : isAIResponding
-              ? t('conversation:status.aiResponding')
-              : sttProcessing
-                ? t('conversation:status.transcribing')
+        {/* 狀態呈現：#4 暫停 / #6 辨識中用醒目徽章，其餘狀態維持小字（Fix 21：ink-secondary 達 WCAG AA） */}
+        {userPaused ? (
+          <div role="status" aria-live="polite" className="mt-3 flex justify-center">
+            <span className="inline-flex items-center gap-2 rounded-full bg-amber-100 px-4 py-2 text-body font-medium text-amber-900 dark:bg-amber-950/60 dark:text-amber-200">
+              <svg
+                className="h-4 w-4 flex-shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6" />
+              </svg>
+              {t('conversation:voiceControl.pausedBanner')}
+            </span>
+          </div>
+        ) : sttProcessing && !isAIResponding ? (
+          <div role="status" aria-live="polite" className="mt-3 flex justify-center">
+            <span className="inline-flex items-center gap-2 rounded-full bg-primary-50 px-4 py-2 text-body font-medium text-primary-700 dark:bg-primary-950 dark:text-primary-300">
+              <span
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"
+              />
+              {t('conversation:status.transcribing')}
+            </span>
+          </div>
+        ) : (
+          <p className="mt-2 text-center text-small text-ink-secondary dark:text-slate-300">
+            {!isSessionActive
+              ? t('conversation:status.notStarted')
+              : isAIResponding
+                ? t('conversation:status.aiResponding')
                 : isRecording
                   ? t('conversation:status.listening', { duration: formatDuration(recordingDuration) })
                   : t('conversation:status.idle')}
-        </p>
+          </p>
+        )}
 
         {/* 打字輸入備援：語音收不到時可直接打字（送後端 text_message，仍走紅旗篩檢） */}
         {isSessionActive && (

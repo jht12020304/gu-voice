@@ -38,6 +38,13 @@
   故**無需 DB migration**。前端以 code-point 為單位嚴格 ≤200 字、選取時 `NAME_BUDGET`
   擋名稱總長，確保症狀名稱**永不被中途截斷**（否則醫師端/SOAP/紅旗會漏掉次要主訴 →
   under-triage）。實作見 `frontend/src/screens/patient/SelectComplaintPage.tsx`。
+- **「其他」選項（2026-07-04，使用回饋 #5，`e43144f`）**：預設清單涵蓋不了的症狀走「其他」
+  sentinel 主訴（固定 UUID `00000000-0000-4000-8000-0000000000ff`，seed migration
+  `20260704_1000`，前後端常數同步）——FK 由 sentinel 滿足、實際主訴內容在
+  `chief_complaint_text`（病患自述；**含「其他」時自述必填**，且合併文字排除字面「其他」
+  佔位詞，否則「其他」訊號會完全消失）。開場語由 `_resolve_chief_complaint_display`
+  特判 sentinel 改念病患自述（否則 AI 會說「關於您的『其他』…」）。已知 graceful 退化：
+  該場次 ICD-10 `unverified`、對話紅旗提示退回全量清單（更保守、不漏）。
 
 ---
 
@@ -94,6 +101,23 @@
   永遠看得到。靜音時 `unmuteVAD()` 必須在**每條** `ai_response_end` 分支觸發，否則病患會被
   靜音鎖住、無法再開口。空 STT（Whisper 沒聽出字）時前端須 re-arm VAD（同上理由）。
 
+**手動語音控制與辨識回饋（2026-07-04 — 使用回饋 #4/#6，`eb4993e`）**
+- 新增**暫停/繼續鈕**（muteVAD/unmuteVAD + WS `control` `pause_recording`/`resume_recording`
+  同步後端忽略音訊；暫停中常駐 amber 徽章）與**「我說完了」鈕**（`forceEndSegment()` 立即
+  切段送出，不等 2s 靜音——病患思考停頓不再被迫等自動切段）。
+- **不變式：unmute 一律走 `shouldUnmuteVAD` 純函式決策矩陣**（`conversationStore.ts`，56 案例
+  矩陣測試 `shouldUnmuteVAD.test.mts`）：`userPaused`（手動暫停）與 AI 出聲硬鎖
+  （`pendingAiUnmuteRef`）是**兩個獨立閘**——手動暫停不被 `ai_response_end` 的自動解鎖覆蓋；
+  手動繼續不得解除 AI 出聲硬鎖與斷線 mute。`ConversationPage` 八個 unmute/mute 掛點全走
+  此矩陣，新增播放/連線路徑時不可繞過。
+- **不變式：`stopActiveTTS` 取下 `onended` 後必須手動補呼叫一次**——句級 TTS 佇列的 step
+  promise 靠 `onended` resolve，否則鏈尾（唯一負責清硬鎖＋恢復收音者）永不執行 → 重播鍵
+  會讓 VAD 永久卡死（對抗式 review 揪出，已修）。斷線（`_disconnected`）要**先停本地 TTS
+  再 mute**，重連解鎖時喇叭必須已無 AI 語音（回授安全）。
+- **辨識回饋**：`sttProcessing` 期間麥克風圈疊 spinner＋醒目徽章（原僅一行小灰字，病患
+  以為沒錄進去）；**空 `stt_final` 不再靜默**——顯示「沒聽清楚，請再說一次」提示（4 秒
+  自動消失、暫停中不顯示）並照舊 re-arm VAD。
+
 **問診自動結束**（`conversation_handler.py`，修 #3「問診不會結束」；2026-06-29 調為「平衡 8-10 題」）
 - **軟門檻**：Supervisor HPI 完整度 ≥ `HPI_COMPLETION_TERMINATION_THRESHOLD`(80) 且病患回合
   ≥ `MIN_PATIENT_TURNS_BEFORE_AUTO_END`(5)；**硬上限 backstop**：回合 ≥
@@ -101,6 +125,12 @@
   軟門檻永不觸發 → 硬上限才是「等不到結果」的真正保命線）。總開關
   `HPI_COMPLETION_TERMINATION_ENABLED`。舊值 85/4/15 因軟門檻幾乎不觸發、benign 全撐到 15 題，
   病患回報「AI 一直問、等不到自動結束」，故下調；`supervisor.py` 並補 hpi_completion 誠實評分準則。
+- **don't-know 第三態（2026-07-04，使用回饋 #2「換句話重問」，`40c2f42`）**：Supervisor prompt
+  明定「病患已表示不知道／記不得／無法回答的欄位＝已盡力採集」——移出 `missing_hpi`、
+  `next_focus` 不再指向、完成度不因此壓低；兩處防重問護欄（問診準則 +
+  `supervisor_guidance_no_repeat`，5 語）擴充涵蓋 don't-know 並升級為硬性護欄。修前整套
+  機制只認「已明確回答」二元狀態：don't-know 欄位讓完成度卡在 80 以下、軟門檻永不觸發，
+  AI 換句話重問到硬上限。
 - **不變式（醫療安全）**：自動結束區塊放在**紅旗 gate 之後**且 critical/high 紅旗當輪不收尾；
   `_update_session_status` 採 **compare-and-set**（只在仍 `in_progress` 才轉 `completed`），
   避免把 `aborted_red_flag` 降級；`_generate_soap_report_async` 雙重存在性檢查 +
@@ -433,3 +463,12 @@ ChiefComplaint（主訴清單）
 - **稽核日誌**：所有操作留下 audit log
 - **AI 免責聲明**：報告標注「AI 輔助生成，需醫師確認」
 - **符合醫療法規**：依據當地個資法 / HIPAA 規範設計
+- **Auth token 雙路徑（2026-07-04，使用回饋 #3「一直被登出」，`5e6566e`）**：M-22 的
+  httpOnly-cookie refresh + double-submit CSRF 在前後端**不同註冊網域**（Vercel↔Railway）
+  下結構性失效（`SameSite=lax` 跨站不送 cookie；CSRF cookie 跨站讀不到）。`/auth/refresh`、
+  `/auth/logout` 依 token 來源分路：**有 cookie 必驗 CSRF**（防降級攻擊）；無 cookie 走
+  request body 路徑並豁免 CSRF（token 由 JS 顯式提交、無 CSRF 攻擊面）。rotation +
+  reuse-detection 兩路徑共用零放寬。token 效期環境變數加 `AliasChoices` 兼容 `JWT_` 前綴
+  （原 `.env` 變數名不符被 pydantic `extra="ignore"` 靜默吞掉、實際效期 15 分鐘）。
+  **部署注意**：alias 生效後 Railway 上原被忽略的 `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` 會
+  開始生效，建議統一設 canonical `ACCESS_TOKEN_EXPIRE_MINUTES=30`。

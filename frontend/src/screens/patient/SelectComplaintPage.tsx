@@ -15,6 +15,15 @@
 //   LLM / Supervisor / SOAP / 紅旗偵測吃的都是這段文字，故無需 DB migration。
 // - 醫療安全：合併文字以「code point」為單位嚴格 <=200，且選取時即用 NAME_BUDGET
 //   擋住名稱總長，確保症狀名稱永不被中途截斷（否則醫師端/SOAP/紅旗會漏掉次要主訴）。
+//
+// 「其他」選項（2026-07-04）：
+// - 預設主訴涵蓋不了的狀況走「其他」sentinel（固定 UUID，後端 seed 同步），
+//   FK 指向 sentinel、實際主訴內容在 chief_complaint_text（病患自述）。
+// - 含「其他」時補充說明轉必填：若併選（如血尿+其他）而自述空白，complaintText
+//   只剩既有名稱，「其他」的訊號完全消失（sentinel 非 primary 時連 FK 都不留痕），
+//   醫師端/SOAP/紅旗全看不到 → 必填才保證訊號不遺失。
+// - 送後端的 complaintText 排除字面「其他」佔位詞，以病患自述為主
+//   （否則 AI 開場/SOAP 會出現無資訊量的「其他」）。
 // =============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
@@ -31,6 +40,10 @@ const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 const MAX_SELECT = 5;        // 最多可選主訴數
 const TEXT_MAX = 200;        // == 後端 SessionCreate.chief_complaint_text max_length / models String(200)
 const NAME_BUDGET = 160;     // 名稱優先但硬性低於 TEXT_MAX，保留約 40 cp 給「（補充）」，名稱永不被中途切斷
+
+// 「其他」sentinel 主訴 — 與後端 seed（20260704_1000-seed_other_chief_complaint）固定 UUID 同步。
+// 選「其他」時補充說明轉必填；送後端的 complaintText 排除字面「其他」，以病患自述為主。
+const OTHER_COMPLAINT_ID = '00000000-0000-4000-8000-0000000000ff';
 
 // 以 code point 計數 / 截斷（對齊 Python len()，避免 UTF-16 落單 surrogate 導致 DB insert 失敗）
 const cp = (s: string): string[] => Array.from(s);
@@ -49,6 +62,7 @@ const mockComplaints: ChiefComplaint[] = [
   { id: 'cc8', name: '勃起功能障礙', nameEn: 'Erectile Dysfunction', description: '勃起困難或無法維持', category: '其他', isDefault: false, isActive: true, displayOrder: 8, createdAt: '', updatedAt: '' },
   { id: 'cc9', name: 'PSA 異常', nameEn: 'Elevated PSA', description: 'PSA 指數偏高需追蹤', category: '檢查異常', isDefault: false, isActive: true, displayOrder: 9, createdAt: '', updatedAt: '' },
   { id: 'cc10', name: '尿液檢查異常', nameEn: 'Abnormal Urinalysis', description: '尿液常規檢查發現異常', category: '檢查異常', isDefault: false, isActive: true, displayOrder: 10, createdAt: '', updatedAt: '' },
+  { id: OTHER_COMPLAINT_ID, name: '其他', nameEn: 'Other', description: '以上皆不符合，請用自己的話描述症狀', category: '其他', isDefault: true, isActive: true, displayOrder: 99, createdAt: '', updatedAt: '' },
 ];
 
 // 任一語言 → intake.selectComplaint.categories.* 的 key 映射。
@@ -134,7 +148,12 @@ export default function SelectComplaintPage() {
   // 顯示與儲存共用同一份「已 clamp 名稱」，確保病患確認的 complaintName 與後端
   // 實際存的 complaintText 名稱部分完全一致（避免病患看到完整、醫師看到截斷）。
   const safeNames = clampCp(joinedNames, TEXT_MAX);
-  const customMaxLen = Math.max(0, TEXT_MAX - cp(safeNames).length - wrapperLen);
+  const hasOther = selected.some((c) => c.id === OTHER_COMPLAINT_ID);
+  // 送後端文字的名稱部分排除「其他」佔位詞（醫師端要看的是病患自述，不是字面「其他」）
+  const namedSelected = selected.filter((c) => c.id !== OTHER_COMPLAINT_ID);
+  const safeTextNames = clampCp(namedSelected.map((c) => c.name).join(sep), TEXT_MAX);
+  const otherNeedsText = hasOther && customText.trim().length === 0;
+  const customMaxLen = Math.max(0, TEXT_MAX - cp(safeTextNames).length - (safeTextNames ? wrapperLen : 0));
 
   const selIdx = (id: string) => selected.findIndex((x) => x.id === id);
 
@@ -165,6 +184,7 @@ export default function SelectComplaintPage() {
   function buildComplaintText(names: string, custom: string): string {
     const trimmed = custom.trim();
     if (!trimmed) return clampCp(names, TEXT_MAX);
+    if (!names) return clampCp(trimmed, TEXT_MAX); // 只選「其他」：整段即病患自述
     const full = `${names}${open}${trimmed}${close}`;
     if (cp(full).length <= TEXT_MAX) return full;
     const room = TEXT_MAX - cp(names).length - wrapperLen;
@@ -184,10 +204,15 @@ export default function SelectComplaintPage() {
 
   const handleStart = () => {
     if (selected.length === 0) return;
-    const text = buildComplaintText(safeNames, customText); // <=200 cp，名稱不被中途切
+    if (otherNeedsText) {
+      toast.error(t('selectComplaint.otherRequired'));
+      return; // 防禦：CTA disabled 理論上到不了這裡
+    }
+    const text = buildComplaintText(safeTextNames, customText); // <=200 cp，名稱不被中途切
     const params = new URLSearchParams({
-      complaintId: selected[0].id,   // 單一必填 FK = primary / 第一個選的
-      complaintName: safeNames,      // MedicalInfo header + 摘要顯示；== text 的名稱部分
+      complaintId: selected[0].id,   // 單一必填 FK = primary / 第一個選的（可為「其他」sentinel）
+      complaintName: safeNames,      // MedicalInfo header + 摘要顯示（含在地化「其他」）；
+                                     // 含「其他」時與 text 的名稱部分刻意不相等（text 不含佔位詞）
       complaintText: text,           // AI / Supervisor / SOAP / 紅旗偵測實際吃的內容
     });
     navigate(`/patient/medical-info?${params.toString()}`);
@@ -239,13 +264,15 @@ export default function SelectComplaintPage() {
               {items.map((complaint) => {
                 const idx = selIdx(complaint.id);
                 const isSelected = idx >= 0;
+                // 「其他」卡片以虛線框略作區別（開放式選項，非具體症狀）
+                const isOtherCard = complaint.id === OTHER_COMPLAINT_ID;
                 return (
                   <button
                     key={complaint.id}
                     aria-pressed={isSelected}
                     className={`relative rounded-card border px-4 py-4 text-left transition-all ${
                       isSelected ? 'pr-12' : ''
-                    } ${
+                    } ${isOtherCard ? 'border-dashed' : ''} ${
                       isSelected
                         ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-500/20 dark:border-primary-400 dark:bg-primary-950 dark:ring-primary-400/20'
                         : 'border-edge bg-white hover:border-edge-hover hover:shadow-card dark:border-dark-border dark:bg-dark-card dark:hover:border-dark-border'
@@ -293,10 +320,14 @@ export default function SelectComplaintPage() {
       {selected.length > 0 && (
         <div className="mt-8 animate-fade-in">
           <label className="mb-1.5 flex items-center justify-between text-small font-medium text-ink-secondary dark:text-white/60">
-            <span>{t('selectComplaint.customLabel')}</span>
+            <span>
+              {hasOther
+                ? t('selectComplaint.customLabelRequired')
+                : t('selectComplaint.customLabel')}
+            </span>
             <span className="text-tiny tabular-nums text-ink-placeholder dark:text-white/30">
               {t('selectComplaint.combinedCounter', {
-                count: cp(buildComplaintText(safeNames, customText)).length,
+                count: cp(buildComplaintText(safeTextNames, customText)).length,
                 max: TEXT_MAX,
               })}
             </span>
@@ -305,10 +336,18 @@ export default function SelectComplaintPage() {
             value={customText}
             onChange={(e) => setCustomText(e.target.value)}
             maxLength={customMaxLen}
-            placeholder={t('selectComplaint.customPlaceholder', { name: safeNames })}
+            aria-required={hasOther}
+            placeholder={
+              hasOther
+                ? t('selectComplaint.otherPlaceholder')
+                : t('selectComplaint.customPlaceholder', { name: safeNames })
+            }
             className="input-base min-h-[80px] resize-y"
             rows={3}
           />
+          {otherNeedsText && (
+            <p className="mt-1 text-tiny text-red-500">{t('selectComplaint.otherRequired')}</p>
+          )}
         </div>
       )}
 
@@ -316,7 +355,7 @@ export default function SelectComplaintPage() {
       <div className="sticky bottom-0 mt-8 border-t border-edge bg-surface-secondary/80 py-4 backdrop-blur-sm dark:border-dark-border dark:bg-dark-bg/80">
         <button
           className="btn-primary w-full py-3 text-body"
-          disabled={selected.length === 0}
+          disabled={selected.length === 0 || otherNeedsText}
           onClick={handleStart}
         >
           {selected.length > 0

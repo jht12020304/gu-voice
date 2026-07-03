@@ -26,6 +26,9 @@ export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'closed';
  */
 type ResumeTokenProvider = () => Promise<string | null | undefined>;
 
+/** 每次（重）連線當下解析 access token 的 provider —— 不快取，杜絕過期 token 無限重連。 */
+type TokenProvider = () => string | null;
+
 interface WebSocketManagerOptions {
   /** 初始重連延遲 (ms) */
   initialRetryDelay?: number;
@@ -47,7 +50,7 @@ const DEFAULT_OPTIONS: Required<WebSocketManagerOptions> = {
 export class WebSocketManager {
   private ws: WebSocket | null = null;
   private url = '';
-  private token = '';
+  private tokenSource: string | TokenProvider = '';
   private options: Required<WebSocketManagerOptions>;
   private listeners = new Map<string, Set<MessageHandler>>();
   private retryCount = 0;
@@ -73,10 +76,10 @@ export class WebSocketManager {
     this.resumeTokenProvider = provider;
   }
 
-  /** 建立 WebSocket 連線 */
-  connect(url: string, token: string): void {
+  /** 建立 WebSocket 連線；token 可傳字串（舊行為）或 provider（每次重連重新解析）。 */
+  connect(url: string, token: string | TokenProvider): void {
     this.url = url;
-    this.token = token;
+    this.tokenSource = token;
     this.isManualClose = false;
     this.retryCount = 0;
     this.setConnectionState('connecting');
@@ -162,6 +165,12 @@ export class WebSocketManager {
     this.emit('_statechange', { state });
   }
 
+  /** 取「當下最新」token：provider 每次呼叫重新解析；字串來源維持舊行為。 */
+  private resolveToken(): string {
+    const t = typeof this.tokenSource === 'function' ? this.tokenSource() : this.tokenSource;
+    return t ?? '';
+  }
+
   /** 將 resume token 以 `?resumeFrom=<token>` 附加到基底 URL（已有 query 則用 &）。 */
   private buildUrl(resumeToken?: string | null): string {
     if (!resumeToken) return this.url;
@@ -180,7 +189,7 @@ export class WebSocketManager {
       // 注意：**不走 `this.send()`**（後者會包 WSMessage 信封 `{type,id,timestamp,payload}`），
       // 這裡需要頂層 `{type:"auth", token:...}` 才對得上後端 schema。
       try {
-        this.ws?.send(JSON.stringify({ type: 'auth', token: this.token }));
+        this.ws?.send(JSON.stringify({ type: 'auth', token: this.resolveToken() }));
       } catch (err) {
         console.error('[WS] 送 auth handshake 失敗:', err);
       }

@@ -9,6 +9,7 @@
     "notStarted": "Consultation not started",
     "aiResponding": "AI is responding...",
     "transcribing": "Transcribing what you said…",
+    "noSpeechDetected": "We didn't catch that — please say it again",
     "listening": "Listening {{duration}}",
     "idle": "Start speaking — I'll listen automatically",
     "thinking": "AI is thinking...",
@@ -27,6 +28,12 @@
     "speedLabel": "Speed {{rate}}x",
     "play": "Play",
     "playAria": "Play this AI reply"
+  },
+  "voiceControl": {
+    "pause": "Pause listening",
+    "resume": "Resume listening",
+    "pausedBanner": "Listening is paused — what you say now will not be recorded. Tap \"Resume listening\" when you are ready.",
+    "finishSpeaking": "I'm done speaking"
   },
   "input": {
     "textPlaceholder": "Can't hear well? You can type instead",

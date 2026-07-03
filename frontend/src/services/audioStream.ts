@@ -13,6 +13,8 @@
 //      可在該環境設 VITE_VAD_PREROLL=false 退回舊行為。
 // =============================================================================
 
+/* global ScriptProcessorNode, GainNode, AudioProcessingEvent */
+
 import { PcmRingBuffer } from './pcmRingBuffer';
 import { encodeWav, arrayBufferToBase64 } from './wavEncoder';
 
@@ -209,7 +211,6 @@ class AudioStreamService {
           this.pcmRing = null;
           this.scriptNode = null;
           this.silentSink = null;
-          // eslint-disable-next-line no-console
           console.warn('[Voice] pre-roll tap 建立失敗，改用 MediaRecorder 路徑:', err);
         }
       }
@@ -448,7 +449,6 @@ class AudioStreamService {
             this.callbacks.onChunk?.(arrayBufferToBase64(wav), 0);
           }
         } catch (err) {
-          // eslint-disable-next-line no-console
           console.warn('[Voice] pre-roll WAV 編碼/送出失敗，本段以空音訊收尾:', err);
         }
         this.callbacks.onSpeechEnd?.();

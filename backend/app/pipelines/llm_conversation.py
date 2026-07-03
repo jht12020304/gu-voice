@@ -166,7 +166,7 @@ class LLMConversationEngine:
 - 每次回覆最多 2 句話，請保持簡潔明瞭
 - {red_flag_alert_rule}
 - {unsupported_speech_rule}
-- 不要重複詢問病患在本次對話中已明確回答過的問題；若已得到答案，請接續尚未釐清的下一個面向。
+- 不要重複詢問病患在本次對話中已明確回答過、或已表示不知道／記不得／無法回答的問題；已回答或已確認無法提供時，請接續尚未釐清的下一個面向，不要換句話重問。
 
 {SINGLE_QUESTION_RULE}
 
@@ -215,7 +215,8 @@ class LLMConversationEngine:
 
         # #2：Supervisor 指導是「上一輪」結果（fire-and-forget，分析時還沒看到病患對該題的回答），
         # next_focus 常仍指向 AI 剛問過的題目 → 偶發重複提問。對策：(a) 逾時 fallback 佔位不注入；
-        # (b) 注入指導時附「已答過就別重問」護欄。不改指導管線本身，純消費端 prompt。
+        # (b) 注入指導時附「已答過或已表示不知道就別重問」硬性護欄（優先級高於指導本身）。
+        # 不改指導管線本身，純消費端 prompt。
         if supervisor_guidance and not supervisor_guidance.get("fallback"):
             next_focus = supervisor_guidance.get("next_focus", "")
             if next_focus:

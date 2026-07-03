@@ -45,9 +45,13 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await authApi.login(email, password);
-      // M-22：access token 維持 localStorage（既有處理）；refresh token 不再持久化到
-      // localStorage，改由後端以 httpOnly cookie 下發、瀏覽器自動保管（防 XSS 竊取）。
       localStorage.setItem('access_token', response.accessToken);
+      // 雙路徑 refresh：後端 body 與 httpOnly cookie 同時下發；跨站部署只有
+      // localStorage 這份能用。sentry 已 redact 'refresh_token'。state 的
+      // refreshToken 維持 null——記憶體不留副本，localStorage 為唯一來源。
+      if (response.refreshToken) {
+        localStorage.setItem('refresh_token', response.refreshToken);
+      }
       set({
         user: response.user,
         accessToken: response.accessToken,
@@ -66,15 +70,15 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
 
   logout: async () => {
     try {
-      // M-22：refresh token 由後端 httpOnly cookie 管理，前端不再傳；呼叫後端 /auth/logout
-      // 由它清除 cookie（含黑名單 access/refresh）。CSRF header 與 cookie 由 apiClient
-      // 攔截器 + withCredentials 自動帶上。
-      await authApi.logout();
+      // 雙路徑 refresh：把 localStorage 的 refresh token 放進 body 交給後端黑名單
+      // （跨站部署 httpOnly cookie 不會送達，body 是唯一管道；同站部署後端以 cookie
+      // 優先）。CSRF header 與 cookie 由 apiClient 攔截器 + withCredentials 自動帶上。
+      await authApi.logout(localStorage.getItem('refresh_token') ?? undefined);
     } catch {
       // 忽略登出 API 錯誤
     } finally {
       localStorage.removeItem('access_token');
-      // M-22：清掉升級前舊 session 殘留的 legacy refresh_token key（現已不寫入）；無殘留時 no-op。
+      // 清除跨站後備 refresh token（httpOnly cookie 那份由後端 /auth/logout 清除）。
       localStorage.removeItem('refresh_token');
       set({
         user: null,
@@ -158,9 +162,9 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
     }
     // === END MOCK ===
 
-    // M-22：只看 access token；refresh token 已改由 httpOnly cookie 管理，前端讀不到，
-    // 不再從 localStorage 還原。getMe 若因 access token 過期回 401，client.ts 攔截器會
-    // 走 cookie-based refresh 自動續期。
+    // 只看 access token；refresh token（cookie 或 localStorage 後備）不當作有無
+    // session 的判斷。getMe 若因 access token 過期回 401，client.ts 攔截器會走
+    // 雙路徑 refresh（cookie 優先、localStorage body 後備）自動續期。
     const accessToken = localStorage.getItem('access_token');
     if (!accessToken) {
       set({ isLoading: false });
@@ -172,14 +176,17 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
       const user = await authApi.getMe();
       set({
         user,
-        accessToken,
+        // getMe 可能觸發 401→refresh（client.ts 已把「新」access token 寫回 localStorage
+        // 與 store），這裡必須重讀當下值而非進函式時的快取，否則會把 store 蓋回過期舊
+        // token —— WS token provider 以 store 優先，語音 WS handshake 會拿舊 token 無限重連。
+        accessToken: localStorage.getItem('access_token'),
         refreshToken: null,
         isAuthenticated: true,
         isLoading: false,
       });
     } catch {
       localStorage.removeItem('access_token');
-      // 清掉升級前殘留的 legacy refresh_token key（現已不寫入）；無殘留時 no-op。
+      // 會話已失效：連跨站後備 refresh token 一併清除，避免殘留舊 token。
       localStorage.removeItem('refresh_token');
       set({ isLoading: false });
     }

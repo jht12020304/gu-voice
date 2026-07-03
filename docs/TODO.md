@@ -384,6 +384,69 @@
 
 ---
 
+## F — 使用回饋第三輪（2026-07-03 回報，2026-07-04 已全部修復）
+
+> 來源：使用者院內 Kiosk 實測回饋 5 題。根因調查 + 20-agent workflow（設計→並行實作→
+> 5 視角審查→對抗式驗證→修正）完成，後端 662 unit 全綠、前端 tsc/lint/build 綠、
+> 主訴 e2e 7 案例綠。架構說明已同步 `app_architecture.md` §2.1／§2.2.1／§7。
+> **尚未部署**：Railway 需跑 alembic migration（其他主訴 seed）並檢查 env（見 F1）。
+
+### [x] F1. #3 帳號一直跳掉 — 2026-07-04 (5e6566e)
+
+- 根因：M-22 httpOnly-cookie refresh 在 Vercel↔Railway 跨站結構性失效（SameSite=lax 不送
+  cookie、CSRF cookie 跨站讀不到）+ access token 因 `.env` 變數名 `JWT_` 前綴被靜默忽略、
+  實際只有 15 分鐘
+- 修法：refresh/logout 依 token 來源分路（有 cookie 必驗 CSRF；無 cookie 走 body 豁免 CSRF）、
+  body 恢復下發 refresh_token 由前端 localStorage 保管、config 加 AliasChoices、
+  WS token 改 provider 每次取最新、hydrate 不再蓋回舊 token
+- **部署必查**：Railway 若設有 `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`，alias 上線後會開始生效，
+  建議統一改 canonical `ACCESS_TOKEN_EXPIRE_MINUTES=30`
+
+### [x] F2. #2 病患說「不知道」仍被換句話重問 — 2026-07-04 (40c2f42)
+
+- 根因：全機制只認「已明確回答」二元狀態，don't-know 欄位永留 missing_hpi、完成度卡 80 以下
+- 修法：Supervisor prompt 補 don't-know 第三態（視為已盡力採集）+ 兩處防重問護欄擴充並升級硬性（5 語）
+- **驗收待做**：prompt 層修復，需真 OpenAI 情境重放驗證（病患連答「不知道」→ next_focus 不再指向該欄）
+
+### [x] F3. #4 手動語音控制（暫停/繼續、「我說完了」）— 2026-07-04 (eb4993e)
+
+- 新增暫停/繼續鈕（同步後端 pause_recording/resume_recording）與「我說完了」鈕（forceEndSegment）
+- `shouldUnmuteVAD` 純函式決策矩陣統一八個 unmute/mute 掛點（56 案例測試）；userPaused 與
+  AI 出聲硬鎖分離。review 加修：重播鍵永久卡死 VAD（high）、斷線未停本地 TTS 即解鎖
+
+### [x] F4. #6 辨識中回饋 + 空辨識提示 — 2026-07-04 (eb4993e)
+
+- sttProcessing 疊 spinner + 醒目徽章；空 stt_final 不再靜默（「沒聽清楚」4 秒提示 + 照舊 re-arm VAD）
+
+### [x] F5. #5 主訴「其他」選項 — 2026-07-04 (e43144f)
+
+- 「其他」sentinel seed（UUID `00000000-0000-4000-8000-0000000000ff`、migration `20260704_1000`）；
+  含「其他」自述必填；開場語特判念病患自述。退化（graceful）：ICD-10 unverified、紅旗退全量清單
+
+### [ ] F6. 🟡 既有 e2e 紅燈：`i18n_en_no_cjk.spec.ts` 4 案例在乾淨 HEAD 也失敗
+
+- playwright webServer 強制 mock 模式，mock 假資料（陳小明、中文主訴清單、中文 SOAP）洩漏 CJK
+  到 en-US 頁面（select-complaint / medical-info / session-complete / thank-you）
+- 非 F 輪造成（HEAD 對照確認）。修法方向：mock 資料補英文 variant 依語言 pick，或 spec 對
+  「資料層 CJK」設 allowlist
+
+### [ ] F7. 🟢 F 輪 review 判 low 的遺留（彙整，擇機修）
+
+- AI 回合硬鎖無 re-assert（語言切換 closeMic/openMic 重跑可遺失硬鎖）
+- logout 的 401-retry 會重放舊 refresh token → rotation 後的新 token 未被黑名單（7 天自然過期）
+- refresh rate-limit 移到 CSRF 驗證之前（無憑證請求也扣 REFRESH_IP_LIMIT 額度）
+- 其他主訴 seed migration 重跑在 sentinel 已被 sessions 引用時撞 FK（docstring 與行為矛盾）
+- dashboard WS 無 token 續期路徑（過期後重連永遠同一顆舊 token）
+- 快速斷線重連時本地 TTS 佇列殘播可打穿 AI 出聲硬鎖（既有行為，本輪矩陣將其正式化）
+- 重播若打斷 AI 出聲回合，鏈尾清硬鎖後重播期間 VAD 開啟（與 Fix 18 重播 barge-in 設計一致，邊界待定調）
+
+### [ ] F8. 待臨床拍板：其餘 6 筆 `is_default=False` 預設主訴（尿失禁/下腹痛/陰囊腫脹/ED/PSA/尿檢異常）是否對病患開放
+
+- 病患現僅見 5 個選項（血尿/頻尿/排尿疼痛/腰痛/其他），痛點「找不到符合症狀」部分仍在，
+  開放與否屬臨床分流決策
+
+---
+
 ## 追蹤約定
 
 - PR 描述附上 TODO 編號（例如 `Fixes TODO #3`）

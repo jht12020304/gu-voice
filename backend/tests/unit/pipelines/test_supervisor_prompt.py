@@ -42,3 +42,19 @@ def test_supervisor_prompt_has_dynamic_placeholders():
     """patient_info_str 與 chief_complaint 必須仍是 placeholder,等 .replace() 注入。"""
     assert "{patient_info_str}" in SUPERVISOR_SYSTEM_PROMPT
     assert "{chief_complaint}" in SUPERVISOR_SYSTEM_PROMPT
+
+
+def test_supervisor_prompt_treats_dont_know_as_collected():
+    """#2:病患表示不知道的欄位必須視為已盡力採集(missing_hpi 移除、next_focus 不再指向)。"""
+    assert "已盡力採集" in SUPERVISOR_SYSTEM_PROMPT
+    assert "不知道" in SUPERVISOR_SYSTEM_PROMPT
+
+
+def test_supervisor_prompt_forbids_rephrase_reask():
+    """換句話重問必須被明文禁止,否則 don't-know 欄位仍會被換方法追問。"""
+    assert "換句話" in SUPERVISOR_SYSTEM_PROMPT
+
+
+def test_supervisor_prompt_dont_know_does_not_lower_completion():
+    """don't-know 不可壓低 hpi_completion_percentage,否則軟收尾門檻(>=80)永不觸發。"""
+    assert "不因此壓低" in SUPERVISOR_SYSTEM_PROMPT

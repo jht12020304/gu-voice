@@ -2,6 +2,7 @@
 // 音訊串流 Hook（自動 VAD）
 // 當 enabled=true 時自動開啟麥克風持續監聽，偵測到語音自動錄製、
 // 偵測到停頓自動結束並送出。AI 回應期間可透過 muteVAD/unmuteVAD 暫停。
+// 使用者也可透過 forceEndSegment 立即結束當前段落（「我說完了」鈕）。
 // =============================================================================
 
 import { useEffect, useCallback } from 'react';
@@ -147,6 +148,11 @@ export function useAudioStream(enabled: boolean) {
     audioStreamService.setMuted(false);
   }, []);
 
+  /** #4：立即結束當前段落並送出（「我說完了」鈕），不等 silenceEndMs 靜音判定。 */
+  const forceEndSegment = useCallback(() => {
+    audioStreamService.forceEndSegment();
+  }, []);
+
   /**
    * 進入 barge-in 模式：AI 播放 TTS 期間仍保持 VAD，但用較高門檻，
    * 使用者可大聲說話打斷 AI。
@@ -159,6 +165,7 @@ export function useAudioStream(enabled: boolean) {
     isRecording,
     muteVAD,
     unmuteVAD,
+    forceEndSegment,
     enableBargeIn,
   };
 }

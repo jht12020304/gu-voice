@@ -24,7 +24,9 @@ interface UseWebSocketOptions {
  * 語音對話 WebSocket Hook
  */
 export function useConversationWebSocket(sessionId: string | null) {
-  const token = useAuthStore((s) => s.accessToken);
+  // 只以「有無 token」gating：token 值會在每次 refresh 後輪換，若以值為 dep，
+  // 問診中每次續期都會拆掉重建 WS（對話中斷）。實際 token 由 provider 取當下最新。
+  const hasToken = useAuthStore((s) => !!s.accessToken);
   const listenersRef = useRef<Map<string, MessageHandler>>(new Map());
   // 連線狀態（供 ConversationPage 顯示「連線中斷／重連中」橫幅）。
   // 直接掛在 manager 上監聽 _statechange，與頁面自己的 on/off 監聽表互不干擾。
@@ -46,7 +48,7 @@ export function useConversationWebSocket(sessionId: string | null) {
   }, []);
 
   useEffect(() => {
-    if (!sessionId || !token) return;
+    if (!sessionId || !hasToken) return;
 
     const url = `${WS_BASE}/sessions/${sessionId}/stream`;
     // CONV-1：重連時呼叫 POST /sessions/{id}/reconnect 取回歷史 checksum，
@@ -62,12 +64,16 @@ export function useConversationWebSocket(sessionId: string | null) {
         return null;
       }
     });
-    conversationWS.connect(url, token);
+    // token 用 provider 而非快取值：refresh 後重連 handshake 永遠拿當下最新
+    // access token；token 輪換不觸發本 effect（避免問診中無謂斷線重連）。
+    conversationWS.connect(url, () =>
+      useAuthStore.getState().accessToken ?? localStorage.getItem('access_token'),
+    );
 
     return () => {
       conversationWS.disconnect();
     };
-  }, [sessionId, token]);
+  }, [sessionId, hasToken]);
 
   const send = useCallback((type: string, payload?: unknown) => {
     conversationWS.send(type, payload);
@@ -117,19 +123,23 @@ export function useConversationWebSocket(sessionId: string | null) {
  * 儀表板 WebSocket Hook
  */
 export function useDashboardWebSocket() {
-  const token = useAuthStore((s) => s.accessToken);
+  // 同 useConversationWebSocket：以「有無 token」gating + provider 取當下最新，
+  // token 輪換不重建連線。
+  const hasToken = useAuthStore((s) => !!s.accessToken);
   const listenersRef = useRef<Map<string, MessageHandler>>(new Map());
 
   useEffect(() => {
-    if (!token) return;
+    if (!hasToken) return;
 
     const url = `${WS_BASE}/dashboard`;
-    dashboardWS.connect(url, token);
+    dashboardWS.connect(url, () =>
+      useAuthStore.getState().accessToken ?? localStorage.getItem('access_token'),
+    );
 
     return () => {
       dashboardWS.disconnect();
     };
-  }, [token]);
+  }, [hasToken]);
 
   const send = useCallback((type: string, payload?: unknown) => {
     dashboardWS.send(type, payload);

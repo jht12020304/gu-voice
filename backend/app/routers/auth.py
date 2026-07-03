@@ -74,15 +74,15 @@ def _clear_refresh_cookie(response: Response) -> None:
 def _auth_json_response(result: dict, status_code: int = status.HTTP_200_OK) -> JSONResponse:
     """登入 / refresh 成功 → 構造 JSONResponse 並設好 refresh + CSRF cookie。
 
-    refresh token 改放 httpOnly cookie，回應 body 不再回傳 refresh_token（達成
-    「前端無法讀取 refresh token」的安全目的）。同時設一個 double-submit 用的
-    CSRF cookie（非 httpOnly），供前端回填 X-CSRF-Token header。
-
-    直接回 JSONResponse（而非走 response_model）是因為 LoginResponse /
-    RefreshResponse 將 refresh_token 標為必填，省略它無法通過 response_model
-    驗證；改由此處明確控制 body 與 Set-Cookie。
+    雙路徑 refresh：
+    - 同站部署：refresh token 走 httpOnly + Secure cookie（M-22 原流程）。
+    - 跨站部署（Vercel 前端 ↔ Railway API）：SameSite cookie 不會隨 XHR 送出，
+      cookie 路徑天生不可用；body 同時回傳 refresh_token，由前端存 localStorage、
+      refresh 時放 body（見 /refresh 的 CSRF 豁免理由）。
+    回應 body 因此重新符合 LoginResponse / RefreshResponse 宣告；仍直接回
+    JSONResponse 以便同時控制 Set-Cookie。
     """
-    refresh_token = result.pop("refresh_token", None)
+    refresh_token = result.get("refresh_token")
     response = JSONResponse(content=result, status_code=status_code)
     if refresh_token:
         _set_refresh_cookie(response, refresh_token)
@@ -129,8 +129,9 @@ async def login(
 ) -> JSONResponse:
     """以電子郵件與密碼登入，取得 JWT Token 組合。
 
-    M-22：refresh token 改以 httpOnly + Secure cookie 下發（回應 body 不含
-    refresh_token），同時設 double-submit 用的 CSRF cookie。
+    refresh token 以 httpOnly + Secure cookie 與回應 body 雙路徑下發（跨站部署
+    cookie 送不出去，前端存 localStorage 走 body refresh），同時設 double-submit
+    用的 CSRF cookie（僅 cookie 路徑需要）。
 
     Rate limit 由 `AuthService.login` 負責：
     - 每 IP 每分鐘 10 次
@@ -192,9 +193,9 @@ async def register(
 async def _parse_optional_refresh_request(request: Request) -> RefreshRequest | None:
     """嘗試從 JSON body 解析 RefreshRequest；body 缺漏 / 非法時回 None。
 
-    M-22 後 refresh token 主要來自 cookie，body 變為可選（相容舊客戶端）。
-    因 RefreshRequest.refresh_token 為必填，這裡寬鬆解析而非以 FastAPI body
-    依賴強制要求。
+    同站部署 refresh token 來自 cookie、body 可省略；跨站部署（cookie 送不出去）
+    則以 body 為唯一管道。因 RefreshRequest.refresh_token 為必填，這裡寬鬆解析
+    而非以 FastAPI body 依賴強制要求。
     """
     try:
         raw = await request.json()
@@ -220,10 +221,14 @@ async def refresh_token(
 ) -> JSONResponse:
     """以 Refresh Token 換發新的 Access Token 與 Refresh Token。
 
-    M-22：
-    - refresh token 優先從 httpOnly cookie 讀取；cookie 缺漏時退而讀 body（相容）。
-    - 採 double-submit CSRF：要求 X-CSRF-Token header 與 csrf cookie 相符，否則 403。
-    - 換發成功後以 Set-Cookie 旋轉 refresh + CSRF cookie，body 不含 refresh_token。
+    雙路徑（M-22 + 跨站部署後備）：
+    - cookie 路徑（同站部署）：refresh token 從 httpOnly cookie 讀取，並要求
+      double-submit CSRF（X-CSRF-Token header 與 csrf cookie 相符），否則 403。
+    - body 路徑（跨站部署）：cookie 缺漏時改讀 JSON body 的 refresh_token，
+      跳過 CSRF 驗證（理由見下方註解）。
+    - 換發成功後以 Set-Cookie 旋轉 refresh + CSRF cookie，body 同時回傳新
+      refresh_token（雙路徑下發）。rotation + reuse-detection 在
+      `AuthService.refresh_token`，兩路徑共用、不放寬。
 
     Rate limit：每 IP per-IP sliding window（見 settings.REFRESH_IP_*），
     擋對 refresh 端點的暴力 / 濫用；超限拋 RateLimitExceededException（429）。
@@ -232,15 +237,20 @@ async def refresh_token(
     from app.core import rate_limit as rl
     from app.core.net import get_client_ip
 
-    # CSRF 防護：cookie-based 端點必須驗 double-submit token
-    validate_csrf(request)
-
     redis = await get_redis()
     await rl.enforce_refresh_ip_rate_limit(redis, get_client_ip(request))
 
-    # cookie 優先，缺漏退回 body（相容）
     token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
-    if not token:
+    if token:
+        # cookie 路徑：refresh token 由瀏覽器自動附帶，具 CSRF 攻擊面 →
+        # 必須驗 double-submit，維持 M-22 原防護，不放寬。
+        validate_csrf(request)
+    else:
+        # body 路徑（跨站部署後備）：token 由前端 JS 自 localStorage 讀出並顯式
+        # 放入 JSON body。跨站攻擊者既無法讀取受害者的 localStorage，也無法令
+        # 瀏覽器自動附帶它，偽造請求不可能持有有效 refresh token —— 與
+        # Authorization: Bearer header 同級的自證憑證，無 CSRF 攻擊面，
+        # 故跳過 double-submit 驗證（bearer-style token 的標準做法）。
         body = await _parse_optional_refresh_request(request)
         token = body.refresh_token if body else None
     if not token:
@@ -266,17 +276,22 @@ async def logout(
 ) -> MessageResponse:
     """登出並黑名單 Access / Refresh Token。
 
-    M-22：
-    - 採 double-submit CSRF：要求 X-CSRF-Token header 與 csrf cookie 相符，否則 403。
-    - refresh token 優先從 httpOnly cookie 讀取；cookie 缺漏時退而讀 body（相容）。
+    雙路徑（M-22 + 跨站部署後備）：
+    - cookie 路徑：refresh token 從 httpOnly cookie 讀取，要求 double-submit CSRF
+      （X-CSRF-Token header 與 csrf cookie 相符），否則 403。
+    - body 路徑（跨站部署）：cookie 缺漏時改讀 body 的 refresh_token，跳過 CSRF
+      驗證（理由同 /refresh）。
     - 一律清除 refresh + CSRF cookie。
     """
-    # CSRF 防護：cookie-based 端點必須驗 double-submit token
-    validate_csrf(request)
+    cookie_refresh = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+    if cookie_refresh:
+        # cookie 路徑才有 CSRF 攻擊面（見 /refresh 說明）；本端點本身已由
+        # Bearer access token（get_current_user）授權，無 cookie 時不驗 double-submit。
+        validate_csrf(request)
 
     # get_current_user 已驗證格式，此處直接去掉 "Bearer " 前綴即可
     access_token = authorization[7:] if authorization.startswith("Bearer ") else authorization
-    refresh_token = request.cookies.get(settings.REFRESH_COOKIE_NAME) or payload.refresh_token
+    refresh_token = cookie_refresh or payload.refresh_token
     await auth_service.logout(
         db,
         user_id=current_user.id,
