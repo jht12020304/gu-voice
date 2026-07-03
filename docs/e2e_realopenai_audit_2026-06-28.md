@@ -1,5 +1,10 @@
 # GU-Voice 真 OpenAI 本機 E2E 稽核與系統性修復計畫
 
+> **✅ 2026-07-04 已全數修復**（commit `a92a23f`，TODO §E E1–E6 完成）：§三 A1–A5、B1–B3 照計畫實作，
+> E7 採保守預設（TODO §E E7）。真 OpenAI E2E 驗收 3 情境 13/13 PASS：torsion 1 輪 abort＋`red_flag=true`、
+> hematuria 10 輪收斂＋alert ×6→×1＋`soap.language=en-US`＋收尾非空、ED `N52.9`＋`verified=true`。
+> 單元 704 全綠（新增 49+）。現況不變式見 app_architecture.md §2.2.1。以下為原始稽核記錄。
+
 > 盤點日期：2026-06-28
 > 方法：本機起 docker postgres+redis、alembic migrate、uvicorn 接**真 OpenAI**（HS256、不碰生產 Supabase），
 > 以 OpenAI 模擬病患（依 AI 動態提問即時作答）跑 **8 個文字問診情境**（中/英/日、良性/急症/寡言），
