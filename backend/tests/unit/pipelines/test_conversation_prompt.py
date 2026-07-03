@@ -85,3 +85,11 @@ def test_prompt_patient_info_is_rendered():
     assert "王先生" in prompt
     assert "Gender" in prompt
     assert "Age" in prompt
+
+
+def test_prompt_no_repeat_covers_dont_know():
+    """#2:問診準則的防重問須涵蓋「已表示不知道／無法回答」,不只「已明確回答」。"""
+    prompt = _build()
+    assert "已明確回答過" in prompt
+    assert "不知道" in prompt
+    assert "換句話" in prompt

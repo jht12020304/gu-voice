@@ -90,6 +90,34 @@ def test_initial_greeting_substitutes_chief_complaint():
     assert "泌尿科" not in en
 
 
+def test_supervisor_guidance_no_repeat_covers_dont_know_all_locales():
+    """#2:防重問護欄 5 語都必須涵蓋「不知道」語意,缺一語該語系護欄即失效。"""
+    entry = MESSAGES["llm.supervisor_guidance_no_repeat"]
+    needles = {
+        "zh-TW": "不知道",
+        "en-US": "do not know",
+        "ja-JP": "分からない",
+        "ko-KR": "모른다",
+        "vi-VN": "không biết",
+    }
+    for locale, needle in needles.items():
+        assert needle in entry[locale], f"{locale} 護欄缺 don't-know 字句"
+
+
+def test_supervisor_guidance_section_no_unconditional_priority():
+    """#2:指導區段標題不得無條件宣告最高優先,否則會壓過防重問護欄。"""
+    entry = MESSAGES["llm.supervisor_guidance_section"]
+    banned = {
+        "zh-TW": "請優先執行",
+        "en-US": "top priority",
+        "ja-JP": "最優先",
+        "ko-KR": "최우선",
+        "vi-VN": "ưu tiên cao nhất",
+    }
+    for locale, phrase in banned.items():
+        assert phrase not in entry[locale], f"{locale} 標題仍含無條件優先字句"
+
+
 @pytest.mark.parametrize("key", sorted(MESSAGES.keys()))
 def test_every_key_has_every_active_locale(key: str):
     """每個 key 都必須涵蓋 ACTIVE_LANGUAGES 的所有 locale，避免缺譯。

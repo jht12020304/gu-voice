@@ -457,20 +457,21 @@ MESSAGES: dict[str, dict[str, str]] = {
     # Conversation handler format_messages 注入 Supervisor 指導時的區段標題。
     # 放 system prompt 內部不直接給病患看，但避免中文標題被 LLM 誤當輸出語言的訊號。
     "llm.supervisor_guidance_section": {
-        "zh-TW": "## 👨‍⚕️ 來自資深醫師的即時指導（請優先執行）",
-        "en-US": "## 👨‍⚕️ Realtime guidance from the senior supervising physician (top priority)",
-        "ja-JP": "## 👨‍⚕️ 上級指導医からのリアルタイム指導（最優先）",
-        "ko-KR": "## 👨‍⚕️ 선임 지도 전문의의 실시간 지도(최우선)",
-        "vi-VN": "## 👨‍⚕️ Hướng dẫn thời gian thực từ bác sĩ giám sát cấp cao (ưu tiên cao nhất)",
+        "zh-TW": "## 👨‍⚕️ 來自資深醫師的即時指導（受下方護欄約束）",
+        "en-US": "## 👨‍⚕️ Realtime guidance from the senior supervising physician (subject to the guardrail below)",
+        "ja-JP": "## 👨‍⚕️ 上級指導医からのリアルタイム指導（下記のガードレールに従うこと）",
+        "ko-KR": "## 👨‍⚕️ 선임 지도 전문의의 실시간 지도(아래 가드레일이 우선함)",
+        "vi-VN": "## 👨‍⚕️ Hướng dẫn thời gian thực từ bác sĩ giám sát cấp cao (tuân theo rào chắn bên dưới)",
     },
-    # #2：附在上面 Supervisor 指導之後的「別重問」護欄。Supervisor 指導為上一輪結果，
-    # 常仍指向 AI 剛問過的題目；此句要 LLM 先看對話紀錄，已答過就不重問、直接接下一個面向。
+    # #2：附在上面 Supervisor 指導之後的「別重問」硬性護欄，優先級高於指導本身。
+    # Supervisor 指導為上一輪結果，常仍指向 AI 剛問過的題目；病患「已明確回答」或
+    # 「已表示不知道／無法回答」皆視為已處理，LLM 不得換句話重問，直接接下一個面向。
     "llm.supervisor_guidance_no_repeat": {
-        "zh-TW": "（注意：若上述指導所問的內容病患在前面對話已明確回答過，請勿重複提問，直接接續尚未釐清的下一個面向。）",
-        "en-US": "(Note: if the patient has already clearly answered what the guidance above asks, do NOT re-ask it — move on to the next unclarified aspect.)",
-        "ja-JP": "（注意：上記の指導が尋ねる内容を患者がすでに明確に回答している場合は、繰り返し質問せず、まだ明らかでない次の面に進んでください。）",
-        "ko-KR": "(참고: 위 지도가 묻는 내용을 환자가 앞선 대화에서 이미 명확히 답했다면 다시 묻지 말고, 아직 확인되지 않은 다음 측면으로 넘어가세요.)",
-        "vi-VN": "(Lưu ý: nếu bệnh nhân đã trả lời rõ nội dung mà hướng dẫn trên hỏi, đừng hỏi lại — hãy chuyển sang khía cạnh tiếp theo chưa được làm rõ.)",
+        "zh-TW": "【硬性護欄，優先於上述指導】若上述指導所問的內容，病患在前面對話已明確回答過、或已表示不知道／記不得／無法回答，請勿以任何形式重問（包括換句話），直接接續尚未釐清的下一個面向。",
+        "en-US": "[Hard guardrail — overrides the guidance above] If the patient has already clearly answered what the guidance above asks, or has said they do not know / cannot remember / cannot answer, do NOT ask it again in any form (including rephrasing) — move on to the next unclarified aspect.",
+        "ja-JP": "【ハードガードレール：上記の指導より優先】上記の指導が尋ねる内容について、患者がすでに明確に回答している、または「分からない・覚えていない・答えられない」と述べている場合は、言い換えを含むいかなる形でも再質問せず、まだ明らかでない次の面に進んでください。",
+        "ko-KR": "[하드 가드레일 — 위 지도보다 우선] 위 지도가 묻는 내용을 환자가 앞선 대화에서 이미 명확히 답했거나 모른다·기억나지 않는다·답할 수 없다고 밝혔다면, 표현을 바꾸는 것을 포함해 어떤 형태로도 다시 묻지 말고 아직 확인되지 않은 다음 측면으로 넘어가세요.",
+        "vi-VN": "[Rào chắn cứng — ưu tiên hơn hướng dẫn ở trên] Nếu bệnh nhân đã trả lời rõ nội dung mà hướng dẫn trên hỏi, hoặc đã nói không biết / không nhớ / không thể trả lời, thì KHÔNG hỏi lại dưới bất kỳ hình thức nào (kể cả diễn đạt lại) — hãy chuyển sang khía cạnh tiếp theo chưa được làm rõ.",
     },
     # 問診自動收尾指示（本輪限定，僅在 should_conclude 時由 format_messages 附加到 system prompt）。
     # 目的：HPI 完整度達標或達回合硬上限時，讓 LLM 講一句溫暖的結束語、不再發問，
