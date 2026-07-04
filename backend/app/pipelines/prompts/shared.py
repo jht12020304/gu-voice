@@ -102,10 +102,17 @@ def render_hpi_checklist() -> str:
 #     解析、conversation_handler 持久化/廣播前再次防禦性解析(見兩檔內
 #     E8-4 註記)。5 語(zh-TW/en-US/ja-JP/ko-KR/vi-VN)皆已補齊翻譯。
 #   - title 欄位保留為 zh-TW 版本(與語意層 prompt / legacy DB name 對齊)。
-# triggers_by_lang (TODO-M8):
-#   - 按 BCP-47 分層儲存 trigger keywords;若目前 session.language 無此
-#     紅旗的對應 keywords → confidence=uncovered_locale,自動 escalate。
+# triggers_by_lang (TODO-M8 / W1):
+#   - 按 BCP-47 分層儲存 trigger keywords;`has_locale_coverage` 用此欄位
+#     判斷 session.language 是否有覆蓋——若無 → confidence=uncovered_locale,
+#     自動 escalate(僅影響語意層 confidence 分級,與下面規則比對用途不同)。
 #   - triggers 欄位維持向後相容(等於 triggers_by_lang["zh-TW"])。
+#   - W1:規則比對層(`_rule_based_detect` / `_get_fallback_rules`)**不**
+#     依 session.language 篩選 keywords,而是用
+#     `_collect_all_language_keywords` 取所有語言 triggers 的聯集比對
+#     (病患可能混用語言;fail-open 精神下,漏報風險 > 誤報風險,見該函式
+#     docstring)。目前 en-US 8 條全齊;ja-JP/ko-KR/vi-VN 已補上初版翻譯,
+#     待醫療術語稽核。
 # =============================================================================
 
 URO_RED_FLAGS: list[dict[str, Any]] = [
@@ -141,6 +148,25 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
                 "unable to pee",
                 "urinary retention",
                 "can't pass urine",
+            ],
+            # W1：ja/ko/vi 補齊(待稽核 agent 覆核醫療術語準確度)。
+            "ja-JP": [
+                "尿閉",
+                "尿が出ない",
+                "排尿できない",
+                "全く排尿できない",
+            ],
+            "ko-KR": [
+                "요폐",
+                "소변이 안 나와요",
+                "소변을 볼 수 없어요",
+                "전혀 배뇨가 안 돼요",
+            ],
+            "vi-VN": [
+                "bí tiểu",
+                "không đi tiểu được",
+                "không thể đi tiểu",
+                "bí tiểu cấp tính",
             ],
         },
         "related_complaints": ["排尿困難", "頻尿"],
@@ -183,6 +209,24 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
                 "lots of blood",
                 "clot in urine",
             ],
+            "ja-JP": [
+                "大量の血尿",
+                "血の塊",
+                "尿が真っ赤",
+                "血だらけの尿",
+            ],
+            "ko-KR": [
+                "다량의 혈뇨",
+                "혈전",
+                "피가 섞인 소변이 많아요",
+                "새빨간 소변",
+            ],
+            "vi-VN": [
+                "tiểu ra nhiều máu",
+                "cục máu đông trong nước tiểu",
+                "nước tiểu toàn máu",
+                "tiểu máu nhiều",
+            ],
         },
         "related_complaints": ["血尿"],
         "suggested_actions": [
@@ -222,6 +266,24 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
                 "sudden testicular",
                 "severe scrotal pain",
             ],
+            "ja-JP": [
+                "睾丸の激痛",
+                "突然の睾丸痛",
+                "陰嚢の激しい痛み",
+                "急な睾丸の痛み",
+            ],
+            "ko-KR": [
+                "극심한 고환 통증",
+                "갑작스런 고환 통증",
+                "심한 음낭 통증",
+                "고환이 갑자기 아파요",
+            ],
+            "vi-VN": [
+                "đau tinh hoàn dữ dội",
+                "đau tinh hoàn đột ngột",
+                "đau bìu dữ dội",
+                "tinh hoàn đau nhói",
+            ],
         },
         "related_complaints": ["睪丸疼痛"],
         "suggested_actions": [
@@ -260,6 +322,24 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
                 "chills",
                 "altered consciousness",
                 "fever with dysuria",
+            ],
+            "ja-JP": [
+                "高熱",
+                "悪寒",
+                "意識がもうろう",
+                "発熱と排尿痛",
+            ],
+            "ko-KR": [
+                "고열",
+                "오한",
+                "의식이 흐려짐",
+                "발열과 배뇨통",
+            ],
+            "vi-VN": [
+                "sốt cao",
+                "ớn lạnh",
+                "rối loạn ý thức",
+                "sốt kèm tiểu buốt",
             ],
         },
         "related_complaints": ["頻尿", "排尿困難", "血尿"],
@@ -303,6 +383,24 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
                 "new incontinence",
                 "back pain with numbness",
             ],
+            "ja-JP": [
+                "会陰部のしびれ",
+                "下肢の脱力",
+                "新たな尿失禁",
+                "しびれを伴う背部痛",
+            ],
+            "ko-KR": [
+                "회음부 감각 이상",
+                "다리 힘 빠짐",
+                "새로운 요실금",
+                "저림을 동반한 등 통증",
+            ],
+            "vi-VN": [
+                "tê vùng đáy chậu",
+                "yếu chân",
+                "tiểu không tự chủ mới xuất hiện",
+                "đau lưng kèm tê",
+            ],
         },
         "related_complaints": ["排尿困難", "腰痛"],
         "suggested_actions": [
@@ -344,6 +442,24 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
                 "red urine",
                 "hematuria",
             ],
+            "ja-JP": [
+                "肉眼的血尿",
+                "尿が赤い",
+                "赤い尿",
+                "尿に血が混じる",
+            ],
+            "ko-KR": [
+                "육안적 혈뇨",
+                "소변이 빨개요",
+                "붉은 소변",
+                "소변에 피가 섞여요",
+            ],
+            "vi-VN": [
+                "tiểu máu đại thể",
+                "nước tiểu đỏ",
+                "tiểu ra máu",
+                "nước tiểu có máu",
+            ],
         },
         "related_complaints": ["血尿"],
         "suggested_actions": [
@@ -358,7 +474,7 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         "display_title_by_lang": {
             "zh-TW": "腎絞痛合併發燒",
             "en-US": "Renal Colic with Fever",
-            "ja-JP": "発熱を伴う腎仙痛",
+            "ja-JP": "発熱を伴う腎疝痛",
             "ko-KR": "발열을 동반한 신산통",
             "vi-VN": "Cơn đau quặn thận kèm sốt",
         },
@@ -379,6 +495,21 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
                 "flank pain with fever",
                 "back pain with fever",
                 "colic with fever",
+            ],
+            "ja-JP": [
+                "腰痛と発熱",
+                "側腹部痛と発熱",
+                "疝痛と発熱",
+            ],
+            "ko-KR": [
+                "허리 통증과 발열",
+                "옆구리 통증과 발열",
+                "산통과 발열",
+            ],
+            "vi-VN": [
+                "đau lưng kèm sốt",
+                "đau hông kèm sốt",
+                "cơn đau quặn kèm sốt",
             ],
         },
         "related_complaints": ["腰痛"],
@@ -418,6 +549,24 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
                 "losing weight",
                 "poor appetite",
                 "unintentional weight loss",
+            ],
+            "ja-JP": [
+                "体重減少",
+                "痩せてきた",
+                "食欲不振",
+                "原因不明の体重減少",
+            ],
+            "ko-KR": [
+                "체중 감소",
+                "살이 빠졌어요",
+                "식욕 부진",
+                "원인 불명의 체중 감소",
+            ],
+            "vi-VN": [
+                "sụt cân",
+                "giảm cân",
+                "chán ăn",
+                "sụt cân không rõ nguyên nhân",
             ],
         },
         "related_complaints": ["血尿", "腰痛"],

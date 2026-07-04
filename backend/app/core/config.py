@@ -268,6 +268,17 @@ class Settings(BaseSettings):
     # 被後端視為 draft（非 zh-TW fail-safe 機制）。預設 0.3。
     RED_FLAG_SEMANTIC_ONLY_THRESHOLD: float = 0.3
 
+    # W1：紅旗規則層 kill-switch。
+    # red_flag_rules 表在生產環境從未被 seed，查詢「成功但 0 筆」在語意上
+    # 等同「規則層從未被配置過」，而非管理者刻意清空。預設 True 時，
+    # RedFlagDetector._load_rules() 遇到 0 筆會 fallback 到內建 catalogue
+    # （shared.URO_RED_FLAGS），避免規則層恆為 [] 導致偵測全靠語意層、
+    # 沒有雙層備援（違反 fail-open 精神）。若 DB 已有任何一筆規則，一律
+    # 尊重 DB 配置、不與內建規則混用。設 False 可翻案回舊行為（0 筆就是
+    # 空，不 fallback）；不影響「DB 查詢例外」時的 fallback（該路徑維持
+    # 既有行為，不受此旗標控制）。
+    RED_FLAG_BUILTIN_RULES_FALLBACK: bool = True
+
     # ── Rate limit（per-IP / per-user policy 旋鈕） ─────
     # 登入端點 per-IP sliding window（rate_limit.py 的 LOGIN_IP_LIMIT/WINDOW 預設
     # 與此對齊；新增 policy 一律從這裡讀，方便維運不改 code 就能調整）。
