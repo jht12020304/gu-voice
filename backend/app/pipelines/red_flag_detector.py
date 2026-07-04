@@ -136,7 +136,17 @@ class RedFlagDetector:
         )
 
     async def _load_rules(self) -> None:
-        """從資料庫載入啟用中的紅旗規則"""
+        """從資料庫載入啟用中的紅旗規則
+
+        W1：查詢成功但回傳 0 筆時的處理——red_flag_rules 表在生產環境從無
+        seed，「0 筆」語意上等同「規則層從未被配置過」，而非管理者刻意清空
+        規則。若規則層在此情境下維持恆為 [],偵測就完全仰賴語意層、失去
+        雙層備援,違反 fail-open 精神(寧可重複/誤報也不可漏急症)。因此
+        RED_FLAG_BUILTIN_RULES_FALLBACK 開啟時(預設 True),0 筆會 fallback
+        到內建 catalogue(shared.URO_RED_FLAGS)。只要 DB 已有任何一筆規則
+        (即使只有 1 筆),就視為「已配置過」,尊重 DB 內容、不與內建規則
+        混用,避免管理者刻意精簡規則卻被內建規則蓋掉。
+        """
         if self._rules_loaded:
             return
 
@@ -147,6 +157,16 @@ class RedFlagDetector:
             stmt = select(RedFlagRule).where(RedFlagRule.is_active.is_(True))
             result = await self._db.execute(stmt)
             db_rules = result.scalars().all()
+
+            if not db_rules and self._settings.RED_FLAG_BUILTIN_RULES_FALLBACK:
+                self._rules = self._get_fallback_rules()
+                self._rules_loaded = True
+                logger.warning(
+                    "紅旗規則表查無啟用中規則(0 筆)→ fallback 至內建 catalogue | "
+                    "rules_count=%d",
+                    len(self._rules),
+                )
+                return
 
             self._rules = []
             for rule in db_rules:
@@ -184,9 +204,39 @@ class RedFlagDetector:
             self._rules_loaded = True
 
     @staticmethod
+    def _collect_all_language_keywords(flag: dict[str, Any]) -> list[str]:
+        """
+        聚合單一紅旗在所有語言的 trigger keywords,做為規則比對的關鍵字集合。
+
+        W1 設計理由(聯集比對,而非依 session.language 篩選):
+        場次語言只決定「UI 顯示語言」,不代表病患打字/口說用詞只會落在該
+        語言——日文場次的病患可能直接混用英文說「blood in urine」、或中英
+        夾雜。這裡收錄的醫療紅旗關鍵字都是特異性高的臨床片語(如「尿滯留」
+        「testicular pain」「urosepsis」),跨語言聯集比對帶來的誤報風險可
+        忽略不計;但若只比對當次 session.language 對應的 keywords,漏報
+        風險才是真正該防的——這違反紅旗偵測 fail-open 的核心精神(寧可
+        重複/誤報,也不可漏掉一句用其他語言講出的危險症狀)。因此規則比對
+        一律採「頂層 triggers ∪ triggers_by_lang 全語言」聯集,不因場次
+        語言篩選;DB 規則與此處內建 fallback 規則共用同一套
+        `_rule_based_detect` 比對邏輯,行為一致。
+        """
+        keywords: list[str] = []
+        seen: set[str] = set()
+        for kw in flag.get("triggers", []):
+            if kw not in seen:
+                seen.add(kw)
+                keywords.append(kw)
+        for lang_keywords in (flag.get("triggers_by_lang") or {}).values():
+            for kw in lang_keywords:
+                if kw not in seen:
+                    seen.add(kw)
+                    keywords.append(kw)
+        return keywords
+
+    @staticmethod
     def _get_fallback_rules() -> list[dict[str, Any]]:
         """
-        內建備援紅旗規則（當資料庫不可用時使用）
+        內建備援紅旗規則（當資料庫不可用,或 DB 規則表為空時使用）
 
         直接從 shared.URO_RED_FLAGS 產生,保持與語意層 prompt 的知識庫
         完全一致,避免兩邊漂移(P2-E)。這裡不帶 regex_pattern,因為 shared
@@ -195,6 +245,10 @@ class RedFlagDetector:
         E8-4（原 TODO-E6）:攜帶 canonical_id + display_title_by_lang,讓
         rule-based 層可以在寫入 RedFlagAlert 時 snapshot canonical_id、
         依場次語言渲染 title(見 `_rule_based_detect`)。
+
+        W1:keywords 改用 `_collect_all_language_keywords` 產生所有語言
+        triggers 的聯集,而非僅 zh-TW 頂層 triggers(見該函式 docstring
+        的設計理由)。
         """
         return [
             {
@@ -204,7 +258,7 @@ class RedFlagDetector:
                 "display_title_by_lang": dict(flag.get("display_title_by_lang", {})),
                 "severity": flag["severity"],
                 "category": flag["title"],  # 暫用 title 當 category
-                "keywords": list(flag["triggers"]),
+                "keywords": RedFlagDetector._collect_all_language_keywords(flag),
                 "regex_pattern": None,
                 "description": flag["description"],
                 "suggested_actions": list(flag["suggested_actions"]),
@@ -234,8 +288,12 @@ class RedFlagDetector:
             trigger_reason = ""
 
             # 關鍵字比對
+            # W1：keyword 也需 lower() 才能保證大小寫不敏感——text_lower 已
+            # 轉小寫,但 DB/內建規則的 keyword 本身若帶大寫(如 "Hematuria")
+            # 會導致 substring 比對失敗;英文/越南文等有大小寫的語言都靠
+            # 這裡統一 normalize。
             for keyword in rule.get("keywords", []):
-                if keyword in text_lower:
+                if keyword and keyword.lower() in text_lower:
                     matched = True
                     trigger_reason = get_message(
                         "alert.rule_match_reason", language, keyword=keyword

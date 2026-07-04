@@ -24,13 +24,23 @@ def test_fallback_rules_titles_align_with_shared():
 
 
 def test_fallback_rules_preserve_severity_and_keywords():
-    """fallback rule 必須攜帶原始 severity 與 triggers 作為 keywords。"""
+    """
+    fallback rule 必須攜帶原始 severity,且 keywords 須涵蓋所有語言的
+    triggers 聯集(W1:規則比對不因場次語言篩選 keyword 集合,見
+    `_collect_all_language_keywords` docstring)。
+    """
     fallback_by_name = {r["name"]: r for r in RedFlagDetector._get_fallback_rules()}
     for flag in URO_RED_FLAGS:
         rule = fallback_by_name[flag["title"]]
         assert rule["severity"] == flag["severity"]
-        assert rule["keywords"] == list(flag["triggers"])
         assert rule["suggested_actions"] == list(flag["suggested_actions"])
+
+        expected_keywords: set[str] = set(flag["triggers"])
+        for lang_keywords in (flag.get("triggers_by_lang") or {}).values():
+            expected_keywords.update(lang_keywords)
+        assert set(rule["keywords"]) == expected_keywords
+        # 頂層 triggers(zh-TW)必須全數保留在聯集中
+        assert set(flag["triggers"]) <= set(rule["keywords"])
 
 
 def test_fallback_rules_have_required_fields_for_rule_layer():

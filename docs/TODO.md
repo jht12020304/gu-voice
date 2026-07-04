@@ -439,13 +439,31 @@
 - 「其他」sentinel seed（UUID `00000000-0000-4000-8000-0000000000ff`、migration `20260704_1000`）；
   含「其他」自述必填；開場語特判念病患自述。退化（graceful）：ICD-10 unverified、紅旗退全量清單
 
-### [ ] E9. 🟡 W2 範圍外發現（2026-07-04，紅旗規則層可靠性）
+### [x] E9. 🟡 紅旗規則層可靠性 — 2026-07-04 工程項完成（本輪）
 
-- `RedFlagDetector._load_rules()` 只在 DB **例外**時 fallback 內建 catalogue；`red_flag_rules` 表
-  查詢成功但為空（生產無 seed，推測即空）→ 規則層恆 `[]`，偵測全靠語意層扛。是否空表也 fallback 待定
-- `_get_fallback_rules()` 的 keywords 只讀頂層 `triggers`（僅 zh-TW），未讀 `triggers_by_lang`
-  ——規則層即使啟用，非中文場次比對仍 no-op
-- ja/ko/vi 的紅旗 display_title 翻譯（W2 補齊）建議臨床/母語者審閱一次（尤其 신산통/Tiểu máu đại thể）
+- [x] 空表 fallback：`red_flag_rules` 查詢成功但 0 筆時也 fallback 內建 8 條（規則層生產首次真正
+  啟用）；kill-switch `RED_FLAG_BUILTIN_RULES_FALLBACK`（預設開）；DB 有 ≥1 筆則尊重 DB 不混用；
+  載入時 log warning
+- [x] 多語 triggers：規則比對改「全語言聯集」（頂層 + `triggers_by_lang` 全部，跨語言混講也命中，
+  fail-open）+ 英文 case-insensitive；內建 catalogue 補齊 ja/ko/vi triggers（24 組）
+- [x] AI 術語稽核（56 詞條）：3 筆明確錯誤已修（ja「腎仙痛」錯字→「腎疝痛」、ko 睪痛語序、
+  vi「lú lẫn」太寬鬆會誤觸發 critical→「rối loạn ý thức」）
+
+### [ ] E10. 🟢 紅旗譯名待母語臨床者最終覆核（AI 稽核標 medium/uncertain 的 8 筆）
+
+- ko `산통과 발열`→建議 `신산통과 발열`（산통日常語感=分娩陣痛，混淆風險）
+- en urosepsis trigger `fever with dysuria`→`fever with painful urination`（病患不講術語）
+- en cauda_equina 建議增補口語 `numbness down there / in my private area`（saddle anesthesia 是教科書詞）
+- ko gross_hematuria_heavy trigger `혈전`→`핏덩어리`（血塊口語）
+- vi display_title `Tiểu máu đại thể lượng nhiều`→`Tiểu máu đại thể nặng`（語序）
+- ja display_title `高度肉眼的血尿`（可考慮加「の」）、ko `회음부 감각 이상`（可更口語）、
+  vi trigger `giảm cân`（偏健身脈絡，可換 `sụt cân nhanh`）——風格邊界，母語者定奪
+- **E9 驗收觀察（追蹤）**：規則層子字串比對無否定語意——病患否定句「沒有注意到…體重減輕」
+  被命中 `unexplained_weight_loss` high（已正確去重 1 筆、title 在地化；語意層不會這樣誤判）。
+  fail-open 取捨下先接受，生產觀察誤報率；若 critical 級出現否定誤報（誤 abort）則需處理——
+  選項：規則層否定詞窗口防護／critical 降為僅語意層可 abort／`RED_FLAG_BUILTIN_RULES_FALLBACK=false` 退關
+- DB `red_flag_rules.keywords` 仍是扁平 ARRAY 無 `keywords_by_lang`——若日後要讓管理者精細管理
+  DB 規則多語關鍵字需加欄位（目前靠塞同一陣列）
 
 ### [x] F6. 🟡 既有 e2e 紅燈：`i18n_en_no_cjk.spec.ts` 4 案例在乾淨 HEAD 也失敗 — 2026-07-04 修復（mock 資料依 resolvedLanguage 在地化，12/12 綠）
 
