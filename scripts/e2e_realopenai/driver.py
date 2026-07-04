@@ -221,6 +221,10 @@ SCENARIOS = {
         "farewell_after_turn": None,
         "farewell_text": None,
         "max_patient_turns": 4,
+        # E8-1 驗收：abort 後再送 2 則訊息，server 應回固定終止提示
+        # （不跑 LLM、不重發 abort 事件）
+        "post_terminal_probes": 2,
+        "probe_text": "醫生，我還是很痛，還需要我補充什麼嗎？",
     },
     # ED 配合病患：預期 8-10 輪自動結束；SOAP icd10_codes 含 N52 開頭 +
     # icd10_verified=true（B1+B2）。
@@ -320,6 +324,7 @@ async def drive_conversation(session_id: str, token: str, sc: dict, sim: Patient
     completed_event: dict | None = None
     ws_close: dict | None = None
     last_guidance_raw: str | None = None
+    post_terminal_probes: list[dict] = []  # E8-1：終結後補送訊息的觀察記錄
 
     # 當前累積中的 AI 回應
     ai_state = {"message_id": None, "chunks": [], "audio_bytes": 0}
@@ -489,6 +494,65 @@ async def drive_conversation(session_id: str, token: str, sc: dict, sim: Patient
                 if completed_event is None:
                     await drain(1)
 
+            # ── E8-1 驗收：場次終結後再送訊息，觀察 server 回什麼 ──────────
+            # 預期（修復後）：回固定的 ai_response_start/chunk/end 終止提示
+            # （i18n ws.session_terminated_*_notice），不跑紅旗/LLM、
+            # 不重發 abort session_status。修復前：LLM 續答 + 重發 abort。
+            n_probes = sc.get("post_terminal_probes", 0)
+            if n_probes and completed_event is not None:
+                probe_text = sc.get("probe_text") or "還需要我補充什麼嗎？"
+                for i in range(n_probes):
+                    rec: dict = {
+                        "sent": probe_text,
+                        "ts": now_iso(),
+                        "responses": [],
+                        "ai_fulltext": None,
+                    }
+                    try:
+                        await ws.send(
+                            json.dumps(
+                                {"type": "text_message", "payload": {"text": probe_text}},
+                                ensure_ascii=False,
+                            )
+                        )
+                        deadline = time.monotonic() + 30
+                        while time.monotonic() < deadline:
+                            try:
+                                raw = await asyncio.wait_for(
+                                    ws.recv(),
+                                    timeout=max(0.1, deadline - time.monotonic()),
+                                )
+                            except asyncio.TimeoutError:
+                                break
+                            data = json.loads(raw)
+                            t = data.get("type", "")
+                            payload = data.get("payload", {}) or {}
+                            lite = {"ts": now_iso(), "type": t}
+                            for k in ("text", "fullText", "code", "status", "severity", "title"):
+                                if k in payload:
+                                    lite[k] = payload[k]
+                            if payload.get("audioB64"):
+                                lite["audio_bytes_approx"] = (
+                                    len(payload["audioB64"]) * 3 // 4
+                                )
+                            rec["responses"].append(lite)
+                            if t == "ai_response_end":
+                                rec["ai_fulltext"] = payload.get("fullText", "")
+                                break
+                    except websockets.exceptions.ConnectionClosed as exc:
+                        rec["connection_closed"] = {
+                            "code": exc.code,
+                            "reason": str(exc.reason),
+                        }
+                        post_terminal_probes.append(rec)
+                        print(
+                            f"[PROBE{i+1}] connection closed code={exc.code}",
+                            flush=True,
+                        )
+                        break
+                    post_terminal_probes.append(rec)
+                    print(f"[PROBE{i+1}] → {rec.get('ai_fulltext')!r}", flush=True)
+
         except websockets.exceptions.ConnectionClosed as exc:
             ws_close = {"code": exc.code, "reason": str(exc.reason), "ts": now_iso()}
             print(f"[WS CLOSED] code={exc.code} reason={exc.reason}", flush=True)
@@ -511,6 +575,7 @@ async def drive_conversation(session_id: str, token: str, sc: dict, sim: Patient
         "completed_event": completed_event,
         "ws_close": ws_close,
         "final_guidance": final_guidance,
+        "post_terminal_probes": post_terminal_probes,
     }
 
 
@@ -579,16 +644,22 @@ def fetch_db_state(session_id: str, wait_soap: bool) -> dict:
             break
         time.sleep(5)
 
-    opt_sess = [c for c in ("red_flag", "red_flag_reason", "language") if c in session_cols]
+    _sess_opt_names = (
+        "red_flag", "red_flag_reason", "language", "started_at", "completed_at"
+    )
+    opt_sess = [c for c in _sess_opt_names if c in session_cols]
     sess_select = "status" + "".join(f", {c}" for c in opt_sess)
     status_rows = q(
         f"select {sess_select} from sessions where id = %s", (session_id,)
     )
     session_status = str(status_rows[0][0]) if status_rows else None
-    session_extra: dict = {c: None for c in ("red_flag", "red_flag_reason", "language")}
+    session_extra: dict = {c: None for c in _sess_opt_names}
     if status_rows:
         for i, c in enumerate(opt_sess):
-            session_extra[c] = status_rows[0][1 + i]
+            val = status_rows[0][1 + i]
+            if c in ("started_at", "completed_at") and val is not None:
+                val = str(val)
+            session_extra[c] = val
 
     alert_rows = q(
         "select severity, title, count(*) from red_flag_alerts "
@@ -622,6 +693,8 @@ def fetch_db_state(session_id: str, wait_soap: bool) -> dict:
         "session_red_flag": session_extra["red_flag"],
         "session_red_flag_reason": session_extra["red_flag_reason"],
         "session_language": session_extra["language"],
+        "session_started_at": session_extra["started_at"],
+        "session_completed_at": session_extra["completed_at"],
         "soap_report": soap_row,
         "soap_report_count": soap_count,
         "red_flag_alerts_summary": alerts_summary,
@@ -924,6 +997,22 @@ def analyze_hematuria_fixed(result: dict, db_state: dict) -> dict:
             "pass": bool(last_ai),
             "final_ai_fulltext_head": last_ai[:120],
         },
+        # E8-4：en-US 場次 alert title 應為英文（baseline 是中文「肉眼血尿」）
+        "h6_alert_titles_localized": {
+            "pass": bool(db_state["red_flag_alerts_summary"])
+            and not any(
+                re.search(r"[一-鿿]", a["title"] or "")
+                for a in db_state["red_flag_alerts_summary"]
+            ),
+            "titles": [a["title"] for a in db_state["red_flag_alerts_summary"]],
+        },
+        # E8-3：started_at / completed_at 補寫
+        "h7_timestamps_persisted": {
+            "pass": bool(db_state.get("session_started_at"))
+            and bool(db_state.get("session_completed_at")),
+            "started_at": db_state.get("session_started_at"),
+            "completed_at": db_state.get("session_completed_at"),
+        },
     }
     assertions["overall_pass"] = all(
         v["pass"] for v in assertions.values() if isinstance(v, dict)
@@ -986,6 +1075,66 @@ def analyze_torsion(result: dict, db_state: dict) -> dict:
             "session_red_flag_reason": reason,
         },
     }
+
+    # E8-1：abort 後補送訊息 → 回固定終止提示（ai_response_* 三段、內容為
+    # ws.session_terminated_aborted_notice 模板），不跑紅旗/LLM、不重發 abort，
+    # 且 server 隨後「結束主迴圈、關閉 WS」（實作規格）。因此合格樣態是：
+    #   probe1 = 終止提示模板；probe2 = 同模板 或 乾淨 close（1000/1001）。
+    probes = result.get("post_terminal_probes") or []
+    probe_issues: list[dict] = []
+    notice_texts: list[str] = []
+    clean_close_after_notice = False
+    for idx, p in enumerate(probes, 1):
+        if "connection_closed" in p:
+            code = p["connection_closed"].get("code")
+            if idx >= 2 and notice_texts and code in (1000, 1001):
+                # 已先收到過終止提示，之後 server 收掉連線 → 符合實作規格
+                clean_close_after_notice = True
+            else:
+                probe_issues.append(
+                    {"probe": idx, "issue": "connection_closed", "detail": p["connection_closed"]}
+                )
+            continue
+        resp = p.get("responses", [])
+        ft = (p.get("ai_fulltext") or "").strip()
+        if any(r["type"] == "red_flag_alert" for r in resp):
+            probe_issues.append({"probe": idx, "issue": "red_flag_rerun"})
+        if any(
+            r["type"] == "session_status"
+            and (
+                r.get("status") == "aborted_red_flag"
+                or r.get("code") == "events.session.aborted_red_flag"
+            )
+            for r in resp
+        ):
+            probe_issues.append({"probe": idx, "issue": "abort_event_resent"})
+        if not ft:
+            probe_issues.append({"probe": idx, "issue": "no_reply"})
+        elif "問診已經結束" not in ft or "現場" not in ft:
+            probe_issues.append(
+                {"probe": idx, "issue": "unexpected_text", "text": ft[:160]}
+            )
+        else:
+            notice_texts.append(ft)
+    # 模板穩定：收到的所有提示文字完全一致（非 LLM 續答的直接證據）
+    template_stable = len(notice_texts) >= 1 and len(set(notice_texts)) == 1
+    assertions["t5_post_abort_terminated_notice"] = {
+        "pass": len(probes) == 2 and not probe_issues and template_stable,
+        "probes_sent": len(probes),
+        "notices_received": len(notice_texts),
+        "server_closed_ws_after_notice": clean_close_after_notice,
+        "issues": probe_issues,
+        "template_stable": template_stable,
+        "notice_text": notice_texts[0][:200] if notice_texts else None,
+    }
+    # E8-3：started_at / completed_at 補寫
+    assertions["t6_timestamps_persisted"] = {
+        "pass": bool(db_state.get("session_started_at"))
+        and bool(db_state.get("session_completed_at")),
+        "started_at": db_state.get("session_started_at"),
+        "completed_at": db_state.get("session_completed_at"),
+    }
+
     assertions["overall_pass"] = all(
         v["pass"] for v in assertions.values() if isinstance(v, dict)
     )
@@ -1060,6 +1209,7 @@ def reanalyze(scenario_name: str) -> None:
         "completed_event": output["completed_event"],
         "patient_turns": output["patient_turns"],
         "events": output.get("events", []),
+        "post_terminal_probes": output.get("post_terminal_probes", []),
     }
     db_state = output["db_state"]
     output["analysis"] = ANALYZERS[scenario_name](result, db_state)
@@ -1118,6 +1268,7 @@ async def main() -> None:
         "ws_close": result["ws_close"],
         "db_state": db_state,
         "final_guidance": result.get("final_guidance"),
+        "post_terminal_probes": result.get("post_terminal_probes", []),
         "analysis": analysis,
         "guidance_timeline": result["guidance_timeline"],
         "events": result["events"],
