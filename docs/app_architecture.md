@@ -206,6 +206,28 @@
 | 大量肉眼血尿 + 血塊 | 膀胱填塞 | 緊急沖洗 |
 | 腎絞痛合併感染徵象 | 感染性腎結石 | 急診處理 |
 
+#### 2.3.1 實作補充與不變式（2026-07-04 — E8-4 / E9）
+
+**兩層偵測的實際運作**（`red_flag_detector.py` + `prompts/shared.py` URO_RED_FLAGS 8 條）
+- **規則層（關鍵字）自 E9 起才真正啟用**：`red_flag_rules` 表查詢成功但 **0 筆**時（生產現況，
+  從無 seed）fallback 到內建 catalogue 8 條規則——修復前只在「DB 例外」時 fallback，空表＝
+  規則層恆空、偵測全靠語意層單層。DB 有 ≥1 筆則尊重 DB 配置、不與內建混用。kill-switch
+  `RED_FLAG_BUILTIN_RULES_FALLBACK`（預設開）；fallback 啟用時載入 log 一行 warning（含規則數），
+  可作為生產端確認訊號。
+- **關鍵字比對＝全語言聯集**（頂層 `triggers` ∪ `triggers_by_lang` 全語言、英文 case-insensitive）：
+  場次語言只決定「顯示」語言，病患實際用詞可能跨語言混講；醫療關鍵字特異性高，聯集的誤報
+  風險遠小於按語言篩選的漏報風險（fail-open）。
+- **已知取捨**：規則層是子字串比對、無否定語意——否定句（「沒有注意到…體重減輕」）可能誤報
+  high（E2E 實測 1 例；僅醫師端 banner、去重與在地化皆正確）。若 critical 級出現否定誤報
+  （誤 abort）的退路：否定詞窗口防護／critical 僅語意層可 abort／kill-switch 退關。
+- **title 在地化（E8-4）**：alert 顯示名依場次語言解析（`get_display_title`，fallback
+  requested → en-US → zh-TW）；語意層不信任 LLM 原文 title（會逐字複製 prompt 中文範例），
+  凡命中 catalogue canonical_id 一律重新解析；DB 管理員自訂規則（canonical 不在 catalogue）
+  title 不覆寫。去重身份一律 canonical_id（單輪 `_dedup_key` 合併 + 跨輪 A5 Redis），
+  title 只是顯示，**不可拿 title 做任何判斷**；abort 判斷依 severity。
+- 8 條紅旗的 ja/ko/vi 譯名經 AI 稽核修 3 筆明確錯誤；8 筆 medium/uncertain 待母語臨床者
+  覆核（TODO §E E10 有逐筆建議）。
+
 ---
 
 ### 2.4 SOAP 報告生成模組
