@@ -7,6 +7,7 @@ import { WebSocketManager, conversationWS, dashboardWS } from '../services/webso
 import type { ConnectionState } from '../services/websocket';
 import { useAuthStore } from '../stores/authStore';
 import { reconnectSession } from '../services/api/sessions';
+import { refreshAccessToken } from '../services/api/client';
 import type { WSMessage } from '../types/websocket';
 
 const WS_BASE = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000/api/v1/ws';
@@ -132,11 +133,33 @@ export function useDashboardWebSocket() {
     if (!hasToken) return;
 
     const url = `${WS_BASE}/dashboard`;
+    // F7 #3：對話 WS 靠 HTTP resume（reconnectSession）401 順帶觸發 client.ts 的
+    // refresh 攔截器續期；dashboard WS 沒有對應的 HTTP 請求，token 過期後單靠
+    // WS 重連會一直帶著同一顆過期 token 失敗。這裡在 manager 偵測到 4001 時
+    // 主動呼叫共享的 refreshAccessToken()（內建單飛去重），成功才允許重連。
+    dashboardWS.setAuthFailureHandler(async () => {
+      try {
+        await refreshAccessToken();
+        return true;
+      } catch {
+        return false;
+      }
+    });
+
+    // manager 端已限制「每次斷線至多一次 refresh 嘗試」；刷新仍失敗代表 token
+    // 徹底失效（例如帳號被停用 / refresh token 也已過期），停止重連並登出
+    // ——ProtectedRoute 會在 isAuthenticated 轉 false 時自動導回登入頁。
+    const handleAuthExhausted = () => {
+      void useAuthStore.getState().logout();
+    };
+    dashboardWS.on('_auth_exhausted', handleAuthExhausted);
+
     dashboardWS.connect(url, () =>
       useAuthStore.getState().accessToken ?? localStorage.getItem('access_token'),
     );
 
     return () => {
+      dashboardWS.off('_auth_exhausted', handleAuthExhausted);
       dashboardWS.disconnect();
     };
   }, [hasToken]);

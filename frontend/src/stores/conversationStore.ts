@@ -138,6 +138,7 @@ export type VadResumeTrigger =
   | 'empty_stt'          // 空 stt_final（Whisper 沒聽出字）
   | 'ai_start_tts_muted' // AI 回合開始且 TTS 靜音（無回授風險，立即開麥）
   | 'ai_tts_done'        // 出聲模式 AI 回合的 TTS 全部播畢（鏈尾步驟 / 舊式 playTTSAudio 結束）
+  | 'replay_end'         // W4-3：重播（點擊舊訊息重聽 TTS）播放結束或被新動作中止
   | 'ws_error'           // 後端 error 事件（rate limit / 音訊格式 / STT 失敗）
   | 'reconnected'        // WS 斷線後重連成功
   | 'tts_mute_toggle'    // 使用者切到 TTS 靜音（停播 + 清佇列後恢復收音）
@@ -146,7 +147,10 @@ export type VadResumeTrigger =
 export interface VadResumeContext {
   /** 使用者手動暫停中 */
   userPaused: boolean;
-  /** 出聲模式 AI 回合硬鎖尚未由 TTS 鏈解除（pendingAiUnmuteRef） */
+  /**
+   * 出聲模式 AI 回合硬鎖，或 W4-3 重播硬鎖，尚未由各自的 TTS 鏈解除
+   * （呼叫端以 pendingAiUnmuteRef.current || pendingReplayUnmuteRef.current 計算）。
+   */
   aiTurnLocked: boolean;
   /** WS 非 open（斷線/重連中，unmute 只會對著死連線收音） */
   wsDown: boolean;
@@ -157,6 +161,10 @@ export function shouldUnmuteVAD(trigger: VadResumeTrigger, ctx: VadResumeContext
   if (trigger === 'reconnected') return !ctx.userPaused;
   // 手動繼續：不得在 AI 出聲期間解除硬鎖（回授不變式）；斷線時交給 reconnected 補償
   if (trigger === 'user_resume') return !ctx.aiTurnLocked && !ctx.wsDown;
+  // W4-3：重播播畢/中止——第三方解鎖路徑，須讓位給仍在進行中的「真正」AI 回合硬鎖
+  // （例如重播打斷了尚在串流的 AI 回合，該回合稍後仍會繼續把音訊排進同一條鏈；此時
+  // 不得搶先開麥），並同樣尊重手動暫停與斷線。
+  if (trigger === 'replay_end') return !ctx.userPaused && !ctx.aiTurnLocked && !ctx.wsDown;
   // 其餘所有自動恢復路徑：手動暫停優先；斷線時延後到 reconnected
   return !ctx.userPaused && !ctx.wsDown;
 }

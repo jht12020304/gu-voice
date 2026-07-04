@@ -31,10 +31,20 @@ const mockSession: Session = {
   updatedAt: '2026-04-10T13:45:00Z',
 };
 
+// 英文系 locale 用的 mock session（避免中文假資料洩漏到 en-US 頁；
+// 見 W6：e2e i18n_en_no_cjk 稽核發現 mockSession.chiefComplaintText /
+// redFlagReason 是固定中文字串，不隨 i18n 語言切換）。
+const mockSessionEn: Session = {
+  ...mockSession,
+  chiefComplaintText: 'Gross hematuria for 3 days',
+  redFlagReason: 'Gross hematuria persisting more than 48 hours',
+  language: 'en-US',
+};
+
 export default function SessionCompletePage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useLocalizedNavigate();
-  const { t } = useTranslation('session');
+  const { t, i18n } = useTranslation('session');
   const { selectedReport, isLoading: reportLoading, fetchReportBySession } = useReportStore();
   const [session, setSession] = useState<Session | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
@@ -44,7 +54,8 @@ export default function SessionCompletePage() {
 
     async function load() {
       if (IS_MOCK) {
-        setSession(mockSession);
+        const isEnglish = !!i18n.resolvedLanguage?.startsWith('en');
+        setSession(isEnglish ? mockSessionEn : mockSession);
         setIsLoadingSession(false);
       } else {
         try {
@@ -59,6 +70,11 @@ export default function SessionCompletePage() {
       fetchReportBySession(sessionId!);
     }
     load();
+    // 不把 i18n.resolvedLanguage 放進 deps：session 內容是病患自述 / SOAP 報告
+    // 屬 generation-time-fixed 資料，不像 chief_complaints 目錄資料要隨語言切換
+    // 重新以 Accept-Language 取值（沿用既有「只在 sessionId 變動時抓一次」行為）；
+    // IS_MOCK 分支的中英選擇改用當下 i18n 值即可，見 useEffect 內 isEnglish。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, fetchReportBySession]);
 
   if (isLoadingSession) return <LoadingSpinner fullPage message={t('complete.loading')} />;

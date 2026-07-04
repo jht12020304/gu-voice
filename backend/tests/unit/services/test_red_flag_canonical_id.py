@@ -44,6 +44,42 @@ def test_every_flag_has_display_title_for_zh_tw_and_en_us():
         assert "en-US" in by_lang, f"missing en-US display for {flag['canonical_id']}"
 
 
+# ── E8-4：5 語全覆蓋（ja-JP / ko-KR / vi-VN 補齊） ─────────
+
+_ALL_SUPPORTED_LANGUAGES = ["zh-TW", "en-US", "ja-JP", "ko-KR", "vi-VN"]
+
+
+def test_every_flag_has_display_title_for_all_five_languages():
+    """E8-4：紅旗 alert title 在地化須涵蓋全部 5 語,en/ja/ko/vi 場次才不會漏回中文。"""
+    for flag in URO_RED_FLAGS:
+        by_lang = flag.get("display_title_by_lang") or {}
+        for lang in _ALL_SUPPORTED_LANGUAGES:
+            assert lang in by_lang, (
+                f"missing {lang} display title for {flag['canonical_id']}"
+            )
+            assert isinstance(by_lang[lang], str) and by_lang[lang].strip(), (
+                f"empty {lang} display title for {flag['canonical_id']}"
+            )
+
+
+def test_display_titles_are_distinct_across_languages_per_flag():
+    """粗略防呆:同一 flag 的 5 語 title 不應該有兩語言完全相同的字串
+    （避免複製貼上漏改,例如 ja-JP 忘記改直接複製 en-US）。"""
+    for flag in URO_RED_FLAGS:
+        by_lang = flag.get("display_title_by_lang") or {}
+        values = [by_lang[lang] for lang in _ALL_SUPPORTED_LANGUAGES if lang in by_lang]
+        assert len(values) == len(set(values)), (
+            f"duplicate display title across languages for {flag['canonical_id']}: {by_lang}"
+        )
+
+
+def test_get_display_title_resolves_ja_ko_vi():
+    """get_display_title 應能正確解析 ja-JP / ko-KR / vi-VN 的內建 catalogue 翻譯。"""
+    assert get_display_title("gross_hematuria", "ja-JP") == "肉眼的血尿"
+    assert get_display_title("gross_hematuria", "ko-KR") == "육안적 혈뇨"
+    assert get_display_title("gross_hematuria", "vi-VN") == "Tiểu máu đại thể"
+
+
 # ── get_display_title serializer helper ─────────────────
 
 

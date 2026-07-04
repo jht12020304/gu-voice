@@ -7,6 +7,7 @@ import type { SOAPReport, Conversation } from '../types';
 import * as reportsApi from '../services/api/reports';
 import * as sessionsApi from '../services/api/sessions';
 import type { ReportListParams, ReviewRequest } from '../types/api';
+import i18n from '../i18n';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 
@@ -61,6 +62,20 @@ const mockReport: SOAPReport = {
   createdAt: '2026-04-10T14:00:00Z',
   updatedAt: '2026-04-10T14:00:00Z',
 };
+
+// 英文系 locale 用的 mock report 摘要 / ICD-10（僅覆蓋病患端 SessionCompletePage
+// 實際會顯示的兩個欄位——summary / icd10Codes；subjective/objective/assessment/plan/
+// rawTranscript 等醫師端專用欄位維持 zh-TW，病患頁不會渲染，非本輪 e2e 稽核範圍）。
+// 呼應「SOAP 報告是 generation-time-fixed，不重譯」不變式：這裡只在 mock 產生當下
+// 依目前語言「挑一份」固定假資料，不是切語言就重譯同一份報告。
+const mockReportSummaryEn =
+  'A 45-year-old male presented to urology with gross hematuria persisting for three days. ' +
+  'During the AI-assisted intake, questions covered the onset and color changes of the hematuria, ' +
+  'associated symptoms (frequent urination and mild dysuria), past medical history (controlled hypertension), ' +
+  'smoking history (quit 5 years ago, 20 pack-years), and current medications. The patient reported visible ' +
+  'blood with every void, no clear trigger, and no fever or flank pain. Based on the history and symptom ' +
+  'pattern, initial assessment should rule out bladder malignancy, urinary tract infection, and urolithiasis.';
+const mockReportIcd10CodesEn = ['R31.0 — Gross hematuria', 'R30.0 — Dysuria', 'N30.9 — Cystitis'];
 
 const mockConversations = [
   { id: 'c1', sessionId: 's1', sequenceNumber: 1, role: 'system' as const, contentText: '歡迎來到泌尿科 AI 問診助手。我將協助您進行初步問診，請放心描述您的症狀。', redFlagDetected: false, createdAt: '2026-04-10T13:30:00Z' },
@@ -166,7 +181,13 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
 
   fetchReportBySession: async (sessionId) => {
     if (IS_MOCK) {
-      set({ selectedReport: { ...mockReport, sessionId }, conversations: mockConversations, isLoading: false });
+      // 英文系 locale 用英文摘要 / ICD-10，避免中文 mock 洩漏到 en-US 頁
+      // （W6：e2e i18n_en_no_cjk 稽核發現 session-complete 頁的洩漏源）。
+      const isEnglish = !!(i18n.resolvedLanguage || i18n.language)?.startsWith('en');
+      const localizedReport: SOAPReport = isEnglish
+        ? { ...mockReport, sessionId, summary: mockReportSummaryEn, icd10Codes: mockReportIcd10CodesEn }
+        : { ...mockReport, sessionId };
+      set({ selectedReport: localizedReport, conversations: mockConversations, isLoading: false });
       return;
     }
     set({ isLoading: true, error: null });

@@ -5,7 +5,7 @@
 // 使用者也可透過 forceEndSegment 立即結束當前段落（「我說完了」鈕）。
 // =============================================================================
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { audioStreamService } from '../services/audioStream';
 import { useConversationStore } from '../stores/conversationStore';
@@ -44,6 +44,16 @@ function detectRecorderFormat(): string {
 
 export function useAudioStream(enabled: boolean) {
   const { t } = useTranslation(['conversation', 'common']);
+  // W4-1：開麥 effect 不可依賴 `t` 的參照本身——react-i18next 切換語言時 `t`
+  // 會換一個新的函式參照，若列進下面 mic 開關 effect 的 deps，語言切換（含
+  // LanguageLayout 對進行中場次也可能繞過 M16 守衛的 URL 驅動切換）會誤觸
+  // closeMic()+openMic() 重跑；openMic() 會無條件把 vadMuteMode 重設為
+  // 'none'，在 AI 講話／重播硬鎖生效期間開出一段「硬鎖被悄悄解除」的競態
+  // 窗口，回授或環境雜訊可能被誤當成病患已講完的答案送出（回授不變式）。
+  // 用 ref 保存「當下最新」的 t，effect 內錯誤訊息一律讀 tRef.current，
+  // 這樣 effect 本身完全不需要感知語言變化。
+  const tRef = useRef(t);
+  tRef.current = t;
   const {
     isRecording,
     setRecording,
@@ -109,11 +119,11 @@ export function useAudioStream(enabled: boolean) {
           onError: (error) => {
             console.error('[Voice] mic error:', error);
             if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-              setError(t('conversation:error.micPermission'));
+              setError(tRef.current('conversation:error.micPermission'));
             } else if (error.name === 'NotFoundError') {
-              setError(t('conversation:error.micNotFound'));
+              setError(tRef.current('conversation:error.micNotFound'));
             } else {
-              setError(t('conversation:error.micGeneric', { message: error.message }));
+              setError(tRef.current('conversation:error.micGeneric', { message: error.message }));
             }
           },
         });
@@ -122,11 +132,11 @@ export function useAudioStream(enabled: boolean) {
           console.error('[Voice] 無法開啟麥克風:', error);
           const err = error as { name?: string; message?: string };
           if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-            setError(t('conversation:error.micPermission'));
+            setError(tRef.current('conversation:error.micPermission'));
           } else if (err.name === 'NotFoundError') {
-            setError(t('conversation:error.micNotFound'));
+            setError(tRef.current('conversation:error.micNotFound'));
           } else {
-            setError(t('conversation:error.micGeneric', { message: err.message ?? t('common:unknownError') }));
+            setError(tRef.current('conversation:error.micGeneric', { message: err.message ?? tRef.current('common:unknownError') }));
           }
         }
       }
@@ -136,7 +146,10 @@ export function useAudioStream(enabled: boolean) {
       cancelled = true;
       audioStreamService.closeMic();
     };
-  }, [enabled, setRecording, setRecordingDuration, setWaveformData, updateSTTPartial, setSttProcessing, setError, t]);
+    // W4-1：刻意不含 `t`——mic 開關只應由 `enabled` 決定，語言切換造成的 `t`
+    // 參照變化不應觸發 closeMic()+openMic() 重跑（見上方 tRef 註解）。錯誤訊息
+    // 一律讀 tRef.current，故 exhaustive-deps 本就不會要求把 `t` 加回來。
+  }, [enabled, setRecording, setRecordingDuration, setWaveformData, updateSTTPartial, setSttProcessing, setError]);
 
   /** 完全停止 VAD 偵測（如斷線時） */
   const muteVAD = useCallback(() => {

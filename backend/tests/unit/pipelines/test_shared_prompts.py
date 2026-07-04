@@ -161,6 +161,35 @@ def test_get_red_flags_for_complaint_empty_returns_all():
     assert len(get_red_flags_for_complaint("牙痛")) == all_count  # 無泌尿相關
 
 
+def test_get_red_flags_for_complaint_coerces_non_str_input():
+    """E8-2 防禦：呼叫端理論上保證傳字串，但曾因 fallback 邏輯誤傳 ChiefComplaint
+    ORM 物件進來，`cc in chief_complaint` 對非字串直接 TypeError，炸掉整個問診
+    WS 開場。非 str 應被安全轉字串處理，不得 raise。"""
+
+    class _FakeChiefComplaintOrmObject:
+        """模擬 ORM 關聯物件：非 str、不可疊代、沒有 __contains__。"""
+
+        def __str__(self) -> str:
+            return "血尿"
+
+    # 不 raise，且能用 str() 後的內容命中血尿相關紅旗。
+    flags = get_red_flags_for_complaint(_FakeChiefComplaintOrmObject())
+    titles = {f["title"] for f in flags}
+    assert "大量血尿" in titles
+
+
+def test_render_red_flags_for_conversation_coerces_non_str_input():
+    """同上，透過 render_red_flags_for_conversation（conversation prompt 實際呼叫的
+    入口）驗證不 raise。"""
+
+    class _FakeChiefComplaintOrmObject:
+        def __str__(self) -> str:
+            return "血尿"
+
+    rendered = render_red_flags_for_conversation(_FakeChiefComplaintOrmObject())
+    assert "大量血尿" in rendered
+
+
 def test_render_red_flag_titles_for_prompt_contains_all():
     """Prompt 中的 title 對齊段落必須含所有紅旗 title。"""
     rendered = render_red_flag_titles_for_prompt()

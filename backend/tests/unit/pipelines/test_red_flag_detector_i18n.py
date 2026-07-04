@@ -256,3 +256,149 @@ def test_semantic_prompt_contains_language_instruction_zh_tw(monkeypatch):
     system_content = captured["messages"][0]["content"]
     assert "輸出語言" in system_content
     assert "繁體中文" in system_content
+
+
+# ── E8-4：語意層 title 不再照抄 prompt 裡的 zh-TW 範例名稱 ─────
+#
+# `_SEMANTIC_SYSTEM_PROMPT` 的「title 命名對齊」段落固定列出 zh-TW 範例名稱
+# （要求 LLM 對齊命名以利跨層合併），這會讓 LLM 即使被要求以 en-US 輸出，
+# 仍逐字沿用中文範例當 title。`_semantic_detect` 現在只要能解出
+# canonical_id，就一律用 get_display_title 依 session.language 重新解析，
+# 不信任 LLM 原文 title 的語言。
+
+
+def _stub_openai_alerts(monkeypatch, detector, alerts: list[dict[str, Any]]) -> None:
+    """讓 detector._client.chat.completions.create 回傳指定的 alerts payload。"""
+    import json as _json
+
+    async def fake_call_with_retry(fn):
+        return await fn()
+
+    async def fake_create(**kwargs):
+        response = MagicMock()
+        response.choices = [MagicMock()]
+        response.choices[0].message.content = _json.dumps({"alerts": alerts})
+        return response
+
+    monkeypatch.setattr(rfd_module, "call_with_retry", fake_call_with_retry)
+    detector._client.chat.completions.create = AsyncMock(side_effect=fake_create)
+
+
+def test_semantic_detect_localizes_catalogue_title_to_en_us(monkeypatch):
+    """en-US 場次：LLM 沿用 prompt 範例回中文「肉眼血尿」→ 應被覆寫為英文標題。"""
+    detector = _make_detector_with_rules([], monkeypatch=monkeypatch)
+    _stub_openai_alerts(
+        monkeypatch,
+        detector,
+        [
+            {
+                "severity": "high",
+                "title": "肉眼血尿",
+                "description": "patient reports red urine",
+                "trigger_reason": "patient reports red urine",
+                "suggested_actions": ["urinalysis"],
+            }
+        ],
+    )
+
+    alerts = _run(
+        detector._semantic_detect(
+            text="I noticed blood in my urine",
+            session_context={"session_id": "s1", "chief_complaint": "hematuria"},
+            language="en-US",
+        )
+    )
+
+    assert len(alerts) == 1
+    assert alerts[0]["canonical_id"] == "gross_hematuria"
+    assert alerts[0]["title"] == "Gross Hematuria"
+
+
+def test_semantic_detect_localizes_catalogue_title_to_zh_tw(monkeypatch):
+    """zh-TW 場次：LLM 回英文 title「Gross Hematuria」→ 應被覆寫為中文標題。"""
+    detector = _make_detector_with_rules([], monkeypatch=monkeypatch)
+    _stub_openai_alerts(
+        monkeypatch,
+        detector,
+        [
+            {
+                "severity": "high",
+                "title": "Gross Hematuria",
+                "description": "病患陳述尿液帶血",
+                "trigger_reason": "病患陳述尿液帶血",
+                "suggested_actions": ["安排尿液檢查"],
+            }
+        ],
+    )
+
+    alerts = _run(
+        detector._semantic_detect(
+            text="我尿裡有血",
+            session_context={"session_id": "s1", "chief_complaint": "血尿"},
+            language="zh-TW",
+        )
+    )
+
+    assert len(alerts) == 1
+    assert alerts[0]["canonical_id"] == "gross_hematuria"
+    assert alerts[0]["title"] == "肉眼血尿"
+
+
+def test_semantic_detect_localizes_catalogue_title_to_ja_jp(monkeypatch):
+    """ja-JP 場次同樣要能正確解析（5 語全覆蓋守護）。"""
+    detector = _make_detector_with_rules([], monkeypatch=monkeypatch)
+    _stub_openai_alerts(
+        monkeypatch,
+        detector,
+        [
+            {
+                "severity": "high",
+                "title": "肉眼血尿",
+                "description": "血尿を認める",
+                "trigger_reason": "血尿を認める",
+                "suggested_actions": [],
+            }
+        ],
+    )
+
+    alerts = _run(
+        detector._semantic_detect(
+            text="尿に血が混じっています",
+            session_context={"session_id": "s1", "chief_complaint": "血尿"},
+            language="ja-JP",
+        )
+    )
+
+    assert len(alerts) == 1
+    assert alerts[0]["title"] == "肉眼的血尿"
+
+
+def test_semantic_detect_new_flag_without_canonical_match_keeps_raw_title(monkeypatch):
+    """LLM 自創、不在內建 catalogue 的新型紅旗 → 沒有 catalogue title 可解析,保留原文。"""
+    detector = _make_detector_with_rules([], monkeypatch=monkeypatch)
+    _stub_openai_alerts(
+        monkeypatch,
+        detector,
+        [
+            {
+                "severity": "medium",
+                "title": "急性副睪炎可能",
+                "description": "疑似副睪炎",
+                "trigger_reason": "陰囊腫痛合併發燒",
+                "suggested_actions": [],
+            }
+        ],
+    )
+
+    alerts = _run(
+        detector._semantic_detect(
+            text="我陰囊腫痛還發燒",
+            session_context={"session_id": "s1", "chief_complaint": "陰囊腫脹"},
+            language="en-US",
+        )
+    )
+
+    assert len(alerts) == 1
+    # 無對應 canonical_id → 不覆寫,沿用 LLM 原文 title
+    assert alerts[0]["title"] == "急性副睪炎可能"
+    assert alerts[0]["canonical_id"] == "急性副睪炎可能"

@@ -6,6 +6,7 @@ import { create } from 'zustand';
 import type { User } from '../types';
 import * as authApi from '../services/api/auth';
 import { refreshAccessToken } from '../services/api/client';
+import i18n from '../i18n';
 
 // 注意：偏好語言（preferredLanguage）刻意「不」在這裡直接寫 i18n。
 // 改由 LanguageLayout 於登入 / 還原後把 URL 導到偏好語系，i18n 再由 URL 同步，
@@ -127,12 +128,17 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
     if (import.meta.env.VITE_ENABLE_MOCK === 'true') {
       // 透過 VITE_MOCK_ROLE 切換角色: 'patient' | 'doctor' (預設 doctor)
       const mockRole = import.meta.env.VITE_MOCK_ROLE || 'doctor';
+      // Mock 使用者姓名 / 科別依目前 i18n 語言在地化：英文系 locale 用英文假資料，
+      // 其餘沿用 zh-TW —— 這份 mock user 會出現在 PatientLayout / Header 等每個
+      // 頁面的頂列，英文頁面若仍顯示中文姓名會被 e2e i18n_en_no_cjk.spec.ts 抓到
+      // CJK 洩漏（見 W6 稽核）。
+      const isEnglish = !!(i18n.resolvedLanguage || i18n.language)?.startsWith('en');
       const mockUser: User =
         mockRole === 'patient'
           ? {
               id: 'mock-patient-001',
               email: 'patient@gu-voice.local',
-              name: '陳小明',
+              name: isEnglish ? 'Chen Hsiao-Ming' : '陳小明',
               role: 'patient',
               phone: '0987654321',
               isActive: true,
@@ -142,10 +148,10 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
           : {
               id: 'mock-doctor-001',
               email: 'doctor@gu-voice.local',
-              name: '王大明',
+              name: isEnglish ? 'Wang Da-Ming' : '王大明',
               role: 'doctor',
               phone: '0912345678',
-              department: '泌尿科',
+              department: isEnglish ? 'Urology' : '泌尿科',
               licenseNumber: 'D-2024-001',
               isActive: true,
               createdAt: '2024-01-01T00:00:00Z',

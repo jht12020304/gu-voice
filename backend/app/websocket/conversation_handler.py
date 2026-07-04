@@ -970,6 +970,89 @@ async def _send_initial_greeting(
     logger.info("初始問診語發送完成 | session=%s", session_id)
 
 
+# ── E8-1：場次已終止後仍收到訊息的唯一回覆 ──────────────────
+# _SESSION_TERMINATED_NOTICE_KEYS：終態 → i18n key 的對照表；場次已終止
+# （aborted_red_flag / completed）後若還收到訊息（前端競態、殘留的緩衝片段
+# 等），不可再重跑紅旗/LLM/auto-conclude（會重發 abort 事件洪流、浪費 LLM
+# 配額 — e2e_realopenai_findings 2026-06-28 實測），只送這一則提示。
+_SESSION_TERMINATED_NOTICE_KEYS: dict[str, str] = {
+    "aborted_red_flag": "ws.session_terminated_aborted_notice",
+    "completed": "ws.session_terminated_completed_notice",
+}
+
+
+async def _notify_session_already_terminated(
+    *,
+    session_id: str,
+    terminated_status: str,
+    tts_pipeline: TTSPipeline,
+    session_context: dict[str, Any],
+) -> None:
+    """場次已終止（aborted_red_flag / completed）後仍收到訊息時的唯一回覆。
+
+    刻意重用 ai_response_start / ai_response_chunk / ai_response_end 三段序列
+    （而非另開新訊息型別）：前端「AI 講話時硬鎖麥克風」與 VAD 解鎖都掛在這條
+    既有鏈上（每分支唯一 ai_response_end 不變式），沿用此序列可保證 VAD 不
+    卡死，且不需要改動前端 payload 契約 / 新增前端 i18n key。
+    """
+    from app.utils.i18n_messages import get_message as _i18n_get
+
+    message_id = str(uuid.uuid4())
+    session_language = session_context.get("language")
+    notice_key = _SESSION_TERMINATED_NOTICE_KEYS.get(
+        terminated_status, "ws.session_terminated_completed_notice"
+    )
+    notice_text = _i18n_get(notice_key, session_language)
+
+    await manager.send_to_session(
+        session_id,
+        {"type": "ai_response_start", "payload": {"messageId": message_id}},
+    )
+
+    audio_b64: str | None = ""
+    tts_failed = False
+    try:
+        audio_bytes = await tts_pipeline.synthesize(
+            text=notice_text, language=session_language
+        )
+        if audio_bytes:
+            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+    except Exception as exc:
+        tts_failed = True
+        audio_b64 = None
+        logger.warning(
+            "場次已終止提示 TTS 合成失敗，仍送出文字 | session=%s, error=%s",
+            session_id,
+            str(exc),
+        )
+
+    await manager.send_to_session(
+        session_id,
+        {
+            "type": "ai_response_chunk",
+            "payload": {
+                "messageId": message_id,
+                "text": notice_text,
+                "chunkIndex": 0,
+                "audioB64": audio_b64,
+                "ttsFailed": tts_failed,
+            },
+        },
+    )
+
+    await manager.send_to_session(
+        session_id,
+        {
+            "type": "ai_response_end",
+            "payload": {
+                "messageId": message_id,
+                "fullText": notice_text,
+                "ttsAudioUrl": "",
+            },
+        },
+    )
+
+
 # ── 音訊片段處理 ─────────────────────────────────────────
 async def _handle_audio_chunk(
     *,
@@ -996,6 +1079,27 @@ async def _handle_audio_chunk(
     停止錄音時發送一個空的 audio_chunk（isFinal=true）作為結束標記。
     所有片段累積完成後統一送 Whisper 轉錄，避免切碎音訊。
     """
+    # E8-1：場次已終止（前一輪紅旗 abort / 已完成）→ 拒收後續音訊，不進 STT。
+    # 放在最前面（先於任何 buffer 累積），避免對已終止場次浪費 Whisper 額度；
+    # 只要收到任何片段（不論 isFinal）就立刻回一則提示並結束主迴圈，
+    # 不會像舊行為一樣每 250ms 的殘留片段都重跑一次。
+    terminated_status = session_context.get("_terminated")
+    if terminated_status:
+        logger.info(
+            "場次已終止（%s），忽略音訊片段、不進 STT | session=%s",
+            terminated_status,
+            session_id,
+        )
+        audio_buffer.clear()
+        audio_buffer_total_bytes[0] = 0
+        await _notify_session_already_terminated(
+            session_id=session_id,
+            terminated_status=terminated_status,
+            tts_pipeline=tts_pipeline,
+            session_context=session_context,
+        )
+        return True
+
     audio_b64: str = payload.get("audioData", "")
     is_final: bool = payload.get("isFinal", False)
 
@@ -1278,6 +1382,28 @@ async def _handle_text_message(
         text: 病患文字訊息
         其他參數: 各管線與上下文
     """
+    # E8-1：場次已終止（前一輪紅旗 abort / 已完成）→ 拒收後續訊息。
+    # session_context 是本連線唯一、跨輪共用的同一份參照（由 conversation_websocket
+    # 建立一次、每輪都原樣傳入）；一旦本連線任何一輪（含背景 late-critical drain）
+    # 把場次判定為終態就會設下面這個旗標，之後任何一輪都會在這裡攔下——不再跑紅旗
+    # /LLM/auto-conclude、不再重發 abort 事件洪流，只回一則在地化提示並結束主迴圈
+    # （e2e_realopenai_findings 2026-06-28：critical abort 後 server 對已中止場次
+    # 續答 3 輪、每輪重發 abort 事件並照跑 LLM）。
+    terminated_status = session_context.get("_terminated")
+    if terminated_status:
+        logger.info(
+            "場次已終止（%s），忽略本則訊息、不重跑紅旗/LLM | session=%s",
+            terminated_status,
+            session_id,
+        )
+        await _notify_session_already_terminated(
+            session_id=session_id,
+            terminated_status=terminated_status,
+            tts_pipeline=tts_pipeline,
+            session_context=session_context,
+        )
+        return True
+
     # 加入對話歷史
     conversation_history.append(
         {
@@ -1571,6 +1697,31 @@ async def _handle_text_message(
         if str(a.get("severity", "")).lower() not in ("critical", "high")
     ]
 
+    def _resolve_alert_display_title(alert: dict[str, Any]) -> str:
+        """依場次語言防禦性重解析單一紅旗 alert 的顯示用 title（E8-4 防線）。
+
+        對「內建 catalogue（shared.URO_RED_FLAGS）」的紅旗，不論上游傳入的 title
+        實際語言為何，一律以 get_display_title 依當前場次語言重新解析一次；
+        非內建 catalogue（DB 自訂規則／LLM 自創）維持原樣，避免被覆寫成醜陋的
+        canonical_id slug（詳見 `_persist_and_emit_alert` docstring 的完整理由）。
+
+        供 `_persist_and_emit_alert`（DB／WS／dashboard 廣播用）與
+        critical_title／late_critical_title（寫入 session.red_flag_reason）
+        共用同一份重解析邏輯，避免兩者對同一急症事件顯示不同語言的 title。
+        """
+        from app.pipelines.prompts.shared import URO_RED_FLAGS, get_display_title
+
+        _canonical_id = alert.get("canonical_id")
+        _is_builtin_catalog_flag = any(
+            f.get("canonical_id") == _canonical_id for f in URO_RED_FLAGS
+        )
+        resolved = (
+            get_display_title(_canonical_id, session_context.get("language"))
+            if _canonical_id and _is_builtin_catalog_flag
+            else alert.get("title")
+        )
+        return resolved or alert.get("title")
+
     async def _persist_and_emit_alert(
         alert: dict[str, Any],
         *,
@@ -1587,6 +1738,20 @@ async def _handle_text_message(
 
         A5 [D3]：跨輪去重 — 同 canonical 紅旗未升級時抑制重複持久化/廣播；
         僅抑制此處的 emit，不影響呼叫端組裝 abort 判斷用的 red_flag_alerts list。
+
+        E8-4：title 依場次語言防禦性重解析 — red_flag_detector 偵測時已依
+        session.language 解析 title（規則層 `_rule_based_detect` / 語意層
+        `_semantic_detect` 皆已本地化），這裡是持久化/廣播前的最後把關，
+        只針對「內建 catalogue（shared.URO_RED_FLAGS）」的紅旗做二次防禦性
+        重解析：不論上游傳進來的 title 實際語言為何，一律以
+        get_display_title 依當前場次語言重新解析一次。
+
+        刻意排除「canonical_id 存在但不在內建 catalogue」的情況（DB 管理員
+        自訂規則、或 LLM 自創的新型紅旗）：get_display_title 只認得內建
+        catalogue，對這類 canonical_id 只會回傳 canonical_id 原始字串
+        （如 "acute_epididymitis_suspected"），若在此無條件覆寫會讓 DB
+        自訂規則原本已透過自身 display_title_by_lang 正確解析好的 title
+        被替換成醜陋的 snake_case slug——反而製造新的在地化 regression。
         """
         if await _should_suppress_duplicate_alert(redis, session_id, alert):
             logger.info(
@@ -1596,6 +1761,7 @@ async def _handle_text_message(
                 alert.get("severity"),
             )
             return None
+        resolved_title = _resolve_alert_display_title(alert)
         target_db = persist_db if persist_db is not None else db
         try:
             from app.services.alert_service import AlertService
@@ -1606,14 +1772,15 @@ async def _handle_text_message(
                 "conversation_id": patient_conv_id or uuid.uuid4(),
                 "alert_type": AlertType(alert.get("alert_type", "semantic")),
                 "severity": AlertSeverity(alert["severity"]),
-                "title": alert["title"],
+                "title": resolved_title,
                 "description": alert.get("description", ""),
                 "trigger_reason": alert.get("trigger_reason", ""),
                 "trigger_keywords": alert.get("trigger_keywords"),
                 "suggested_actions": alert.get("suggested_actions", []),
                 "matched_rule_id": _UUID(alert["matched_rule_id"]) if alert.get("matched_rule_id") else None,
-                # TODO-E6 / TODO-M8：把 canonical_id + confidence 穿到 DB,
-                # 供 serializer 按 Accept-Language 渲染、前端 banner 呈現信心層級。
+                # E8-4（原 TODO-E6 / TODO-M8）：把 canonical_id + confidence 穿到 DB,
+                # title 已依場次語言解析(見上方 resolved_title),confidence 供
+                # 前端 banner 呈現信心層級。
                 "canonical_id": alert.get("canonical_id"),
                 "confidence": alert.get("confidence", "rule_hit"),
                 "language": session_context.get("language"),
@@ -1650,7 +1817,7 @@ async def _handle_text_message(
                 "payload": {
                     "alertId": alert_id,
                     "severity": alert["severity"],
-                    "title": alert["title"],
+                    "title": resolved_title,
                     "description": alert["description"],
                     "suggestedActions": alert.get("suggested_actions", []),
                 },
@@ -1670,7 +1837,7 @@ async def _handle_text_message(
                     )
                     or "",
                     "severity": alert["severity"],
-                    "title": alert["title"],
+                    "title": resolved_title,
                     "description": alert["description"],
                 },
             }
@@ -1806,7 +1973,7 @@ async def _handle_text_message(
                         ):
                             late_critical_title = next(
                                 (
-                                    a.get("title")
+                                    _resolve_alert_display_title(a)
                                     for a in late_alerts
                                     if str(a.get("severity", "")).lower() == "critical"
                                 ),
@@ -1820,6 +1987,10 @@ async def _handle_text_message(
                                 "in_progress",
                                 red_flag_reason=late_critical_title,
                             )
+                            # E8-1：遲到的 critical 常在 _handle_text_message 這輪已
+                            # 結束（本輪 return False）之後才落地；沒有這個旗標，
+                            # 病患下一輪訊息仍會被當成場次還活著、整套紅旗/LLM 重跑。
+                            session_context["_terminated"] = "aborted_red_flag"
                 except Exception as exc:
                     logger.error(
                         "背景紅旗 drain 失敗 | session=%s, error=%s",
@@ -1846,10 +2017,12 @@ async def _handle_text_message(
                 "偵測到 critical 紅旗，中止場次 | session=%s", session_id
             )
             # A4 [D2]：帶 critical 紅旗 title 作為 red_flag_reason（title 已由偵測器
-            # 按場次語言在地化），供醫師端分流顯示。
+            # 按場次語言在地化；_resolve_alert_display_title 再做一次 E8-4 防禦性
+            # 重解析，與 _persist_and_emit_alert 對 DB/WS 廣播用的 title 保持一致，
+            # 避免 session.red_flag_reason 與 alerts 表語言不一致），供醫師端分流顯示。
             critical_title = next(
                 (
-                    a.get("title")
+                    _resolve_alert_display_title(a)
                     for a in red_flag_alerts
                     if str(a.get("severity", "")).lower() == "critical"
                 ),
@@ -1892,6 +2065,11 @@ async def _handle_text_message(
                     settings=settings,
                 )
             )
+            # E8-1：標記本連線場次已終止（不論上面 CAS 是否真的轉移成功——即使
+            # 因競態已被別的路徑轉走，場次現在也一定是終態），讓「下一輪」訊息
+            # 進 _handle_text_message / _handle_audio_chunk 時被開頭的守衛攔下，
+            # 不再重新跑一次紅旗/LLM/重發 abort 事件。
+            session_context["_terminated"] = "aborted_red_flag"
 
     # ── 自動結束問診（HPI 達標或回合硬上限）──────────────────────
     # 醫療安全多重保護，本區塊刻意放在「紅旗 gate 之後、critical-abort 區塊之後」：
@@ -1951,7 +2129,7 @@ async def _handle_text_message(
                 # _drain_late_red_flags（避免與其 double-persist 競態），再結束主迴圈。
                 late_critical_title = next(
                     (
-                        a.get("title")
+                        _resolve_alert_display_title(a)
                         for a in late_alerts or []
                         if str(a.get("severity", "")).lower() == "critical"
                     ),
@@ -1998,6 +2176,10 @@ async def _handle_text_message(
                         settings=settings,
                     )
                 )
+                # E8-1：與其他終態分支一致地標記（雖然下面立刻 return True 結束
+                # 主迴圈，這輪不會再進 handler，但保持所有終態出口一致，避免
+                # 未來重構誤刪 return True 時失去這道保護）。
+                session_context["_terminated"] = "aborted_red_flag"
                 return True
             # late_alerts 不併入 red_flag_alerts：非 critical 由 _drain_late_red_flags
             # 持久化/廣播，避免重跑上方 abort 區塊或 double-persist。
@@ -2049,6 +2231,8 @@ async def _handle_text_message(
                     settings=settings,
                 )
             )
+            # E8-1：正常收尾同樣標記終態（見上方 aborted_red_flag 分支同註解）。
+            session_context["_terminated"] = "completed"
             return True
 
     return False
@@ -2335,13 +2519,26 @@ async def _validate_session(
                 "family_history": intake_summary["family_history"],
             }
 
+        # #6：主訴在「場次語言」下的顯示名稱（給開場問診語）。解析不到時為 None，
+        # 呼叫端 fallback 回 chief_complaint_text（保留病患原輸入，含多選/自訂備註）。
+        resolved_chief_complaint_display = _resolve_chief_complaint_display(session_obj)
+
         return {
             "id": str(session_obj.id),
             "status": session_obj.status,
-            "chief_complaint": session_obj.chief_complaint_text or getattr(session_obj, "chief_complaint", ""),
-            # #6：主訴在「場次語言」下的顯示名稱（給開場問診語）。解析不到時為 None，
-            # 呼叫端 fallback 回 chief_complaint_text（保留病患原輸入，含多選/自訂備註）。
-            "chief_complaint_display": _resolve_chief_complaint_display(session_obj),
+            # E8-2：舊版在 chief_complaint_text 為空時 fallback 成
+            # `getattr(session_obj, "chief_complaint", "")`——那其實是 ChiefComplaint
+            # ORM 關聯物件（selectinload 整個 model instance），不是字串。之後
+            # shared.py 的 get_red_flags_for_complaint 對它做 `cc in chief_complaint`
+            # substring 比對會直接 TypeError，導致「建場次不帶 chief_complaint_text」
+            # 時整個 WS 開場直接 internal_error 掛掉。改成沿用 #6 的場次語言解析
+            # （name_by_lang → name），fallback 鏈最終保證是字串（含空字串）。
+            "chief_complaint": (
+                session_obj.chief_complaint_text
+                or resolved_chief_complaint_display
+                or ""
+            ),
+            "chief_complaint_display": resolved_chief_complaint_display,
             "patient_info": patient_info,
             "language": getattr(session_obj, "language", None),
         }
@@ -2387,7 +2584,7 @@ async def _update_session_status(
     """
     try:
         from app.models.session import Session
-        from sqlalchemy import update
+        from sqlalchemy import func, update
 
         values: dict[str, Any] = {"status": new_status}
         if new_status == "aborted_red_flag":
@@ -2397,6 +2594,21 @@ async def _update_session_status(
             values["red_flag"] = True
             if red_flag_reason:
                 values["red_flag_reason"] = red_flag_reason
+        # E8-3：sessions.started_at / completed_at 補寫。這兩欄過去只有 REST 端點
+        # （SessionService.update_status_static）會寫，但實際問診幾乎全程走 WS
+        # 這條路徑（本函式），從未被寫過 → 恆為 NULL，dashboard 平均時長只能退回
+        # 同樣沒人寫的 duration_seconds（等於恆缺值）。
+        #   - started_at：問診真正開始（轉 in_progress，含首次連線與斷線 resume
+        #     重連）時寫一次；用 COALESCE 保留既有值達成冪等 —— 不可用額外 WHERE
+        #     擋（下面 compare-and-set 的 WHERE 條件不可動），resume 重連時
+        #     previous_status 常已是 in_progress，加 WHERE 會讓整條 UPDATE 連
+        #     status 都轉不了。
+        #   - completed_at：轉任一終態（completed / aborted_red_flag）時寫入；
+        #     CAS 本身保證同一場次只會成功轉移一次，天然冪等，不需額外保護。
+        if new_status == "in_progress":
+            values["started_at"] = func.coalesce(Session.started_at, func.now())
+        elif new_status in ("completed", "aborted_red_flag"):
+            values["completed_at"] = func.now()
         stmt = (
             update(Session)
             .where(Session.id == session_id)

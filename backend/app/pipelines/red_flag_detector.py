@@ -153,8 +153,9 @@ class RedFlagDetector:
                 self._rules.append(
                     {
                         "id": str(rule.id),
-                        # TODO-E6：canonical_id 為跨語言穩定標識符;dedup 以此為 key。
-                        # 若 DB 既有 rule 尚未 backfill canonical_id,fallback 回 name。
+                        # E8-4（原 TODO-E6）：canonical_id 為跨語言穩定標識符;
+                        # dedup 以此為 key。若 DB 既有 rule 尚未 backfill
+                        # canonical_id,fallback 回 name。
                         "canonical_id": (
                             getattr(rule, "canonical_id", None) or rule.name
                         ),
@@ -191,9 +192,9 @@ class RedFlagDetector:
         完全一致,避免兩邊漂移(P2-E)。這裡不帶 regex_pattern,因為 shared
         catalogue 是純關鍵字;如需 regex 匹配仍應由 DB 規則主導。
 
-        TODO-E6:攜帶 canonical_id + display_title_by_lang,讓 rule-based 層
-        可以在寫入 RedFlagAlert 時 snapshot canonical_id、alert serializer
-        按 Accept-Language 渲染 title。
+        E8-4（原 TODO-E6）:攜帶 canonical_id + display_title_by_lang,讓
+        rule-based 層可以在寫入 RedFlagAlert 時 snapshot canonical_id、
+        依場次語言渲染 title(見 `_rule_based_detect`)。
         """
         return [
             {
@@ -261,8 +262,9 @@ class RedFlagDetector:
                     )
 
             if matched:
-                # TODO-E6：依 session.language 從 display_title_by_lang 取 title。
-                # DB rule 若無此欄位,fallback 至 rule.name / shared catalogue 查表。
+                # E8-4（原 TODO-E6）：依 session.language 從 display_title_by_lang
+                # 取 title。DB rule 若無此欄位,fallback 至 rule.name / shared
+                # catalogue 查表。
                 canonical_id = rule.get("canonical_id") or rule.get("name")
                 display_map = rule.get("display_title_by_lang") or {}
                 # Fallback 順序: session lang → en-US → catalogue(含 en-US / zh-TW)
@@ -365,16 +367,31 @@ class RedFlagDetector:
             alerts: list[dict[str, Any]] = []
             for alert in raw_alerts:
                 raw_title = alert.get("title", default_semantic_title)
+                normalized_title = raw_title.lower().strip()
+                is_catalogue_match = normalized_title in title_to_canonical
                 canonical_id = title_to_canonical.get(
-                    raw_title.lower().strip(),
+                    normalized_title,
                     # 新型紅旗(LLM 自創命名)→ 無對應 canonical_id,以 title 當 fallback
                     raw_title,
+                )
+                # E8-4：system prompt 的「title 命名對齊」段落固定列出 zh-TW 範例
+                # 名稱,要求 LLM「使用完全相同的 title」以利跨層合併——這會讓
+                # LLM 即使被要求以 en-US/ja-JP/... 輸出,仍逐字沿用中文範例
+                # 當 title,導致非 zh-TW 場次的 alert 顯示中文標題(en 場次仍見
+                # 「肉眼血尿」)。只要 title 命中內建 catalogue、能解出
+                # canonical_id,一律不信任 LLM 原文 title 的語言,改用
+                # get_display_title 依 session.language 重新解析;只有全新
+                # (LLM 自創、catalogue 沒有對應項目)的紅旗才保留 raw_title 原樣。
+                resolved_title = (
+                    get_display_title(canonical_id, language)
+                    if is_catalogue_match
+                    else raw_title
                 )
                 alerts.append(
                     {
                         "canonical_id": canonical_id,
                         "severity": alert.get("severity", "medium"),
-                        "title": raw_title,
+                        "title": resolved_title,
                         "description": alert.get("description", ""),
                         "trigger_reason": alert.get("trigger_reason", ""),
                         "alert_type": "semantic",
@@ -523,7 +540,7 @@ class RedFlagDetector:
         若同一 canonical_id 在兩層都有命中,合併為 combined 類型並保留較高嚴重度;
         合併後 confidence 升級為 rule_hit(規則層有命中代表高信心)。
 
-        TODO-E6:dedup key 改用 canonical_id,讓 zh-TW 規則層(肉眼血尿)與
+        E8-4（原 TODO-E6）:dedup key 改用 canonical_id,讓 zh-TW 規則層(肉眼血尿)與
         en-US 語意層(Gross Hematuria)也能正確合併到同一 alert。
 
         Args:

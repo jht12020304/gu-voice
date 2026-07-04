@@ -232,29 +232,43 @@ async def refresh_token(
 
     Rate limit：每 IP per-IP sliding window（見 settings.REFRESH_IP_*），
     擋對 refresh 端點的暴力 / 濫用；超限拋 RateLimitExceededException（429）。
+
+    F7 #2：完全無憑證（無 cookie 且 body 也無 refresh_token）的請求，快速拒絕要
+    放在「消耗 rate limit 額度之前」——否則沒有任何憑證的 garbage 請求也能白白
+    洗掉合法使用者的每 IP 額度（等於用零成本的 401 就能把別人擠出 refresh 端點）。
+    只要「帶了憑證」（不論最終驗證是否通過），才進入下面的額度消耗，對「有憑證但
+    無效」的暴力嘗試維持原本的防暴力語意不變。
     """
     from app.cache.redis_client import get_redis
     from app.core import rate_limit as rl
     from app.core.net import get_client_ip
 
+    cookie_token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+    body = None if cookie_token else await _parse_optional_refresh_request(request)
+
+    if not cookie_token and (body is None or not body.refresh_token):
+        # 無 cookie、body 也解不出 refresh_token：視為完全無憑證，直接 401，
+        # 不呼叫 enforce_refresh_ip_rate_limit（不消耗額度）。
+        raise UnauthorizedException("errors.refresh_token_invalid")
+
     redis = await get_redis()
     await rl.enforce_refresh_ip_rate_limit(redis, get_client_ip(request))
 
-    token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
-    if token:
+    if cookie_token:
         # cookie 路徑：refresh token 由瀏覽器自動附帶，具 CSRF 攻擊面 →
         # 必須驗 double-submit，維持 M-22 原防護，不放寬。
         validate_csrf(request)
+        token = cookie_token
     else:
         # body 路徑（跨站部署後備）：token 由前端 JS 自 localStorage 讀出並顯式
         # 放入 JSON body。跨站攻擊者既無法讀取受害者的 localStorage，也無法令
         # 瀏覽器自動附帶它，偽造請求不可能持有有效 refresh token —— 與
         # Authorization: Bearer header 同級的自證憑證，無 CSRF 攻擊面，
         # 故跳過 double-submit 驗證（bearer-style token 的標準做法）。
-        body = await _parse_optional_refresh_request(request)
         token = body.refresh_token if body else None
-    if not token:
-        raise UnauthorizedException("errors.refresh_token_invalid")
+        if not token:
+            # 理論上不會走到（上面的快速拒絕已排除），防禦性保留。
+            raise UnauthorizedException("errors.refresh_token_invalid")
 
     result = await auth_service.refresh_token(db, refresh_token=token)
     return _auth_json_response(result)

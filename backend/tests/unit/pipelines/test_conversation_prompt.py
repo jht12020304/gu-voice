@@ -93,3 +93,18 @@ def test_prompt_no_repeat_covers_dont_know():
     assert "已明確回答過" in prompt
     assert "不知道" in prompt
     assert "換句話" in prompt
+
+
+def test_prompt_no_repeat_bans_field_variant_rephrasing_from_first_question():
+    """E8-4:實測首輪(Supervisor guidance 尚不存在)病患說「不知道」後,AI 仍會
+    用同一 HPI 欄位的變化提問換句話追問(例如 Onset 改問「突然還是漸進」)。
+
+    防重問條款必須明文:
+    - 具體舉出「同欄位變形」的例子(而非只講抽象的「換句話」),讓 LLM 更難鑽漏洞;
+    - 明白涵蓋「包括對話第一題」,不能讓 LLM 誤以為此規則只在有 Supervisor
+      指導的後續輪次才生效。
+    """
+    prompt = _build()
+    assert "第一" in prompt  # 「包括對話第一題」等義敘述
+    assert "突然" in prompt and "漸進" in prompt  # 具體舉例:同屬 Onset 的換句話
+    assert "同一個" in prompt or "同一欄位" in prompt or "同一面向" in prompt
