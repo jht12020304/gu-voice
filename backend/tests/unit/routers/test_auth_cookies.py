@@ -217,6 +217,82 @@ def test_refresh_cookie_path_not_relaxed_by_body(client):
     assert resp.status_code == 403
 
 
+def test_refresh_without_credentials_skips_rate_limit(client, monkeypatch):
+    """F7 #2：完全無憑證（無 cookie、body 也無 refresh_token）→ 401，且不消耗
+    per-IP rate limit 額度（快速拒絕要在 enforce_refresh_ip_rate_limit 之前）。
+    """
+    import app.core.rate_limit as rl
+
+    calls: list[tuple] = []
+
+    async def _spy(*args, **kwargs):
+        calls.append(args)
+
+    monkeypatch.setattr(rl, "enforce_refresh_ip_rate_limit", _spy)
+
+    assert not client.cookies
+    resp = client.post("/api/v1/auth/refresh")  # 無 cookie、無 body
+    assert resp.status_code == 401
+    assert calls == []
+
+    # body 存在但沒有 refresh_token 欄位，一樣算無憑證
+    resp2 = client.post("/api/v1/auth/refresh", json={})
+    assert resp2.status_code == 401
+    assert calls == []
+
+
+def test_refresh_with_body_credentials_still_consumes_rate_limit(client, monkeypatch):
+    """有憑證（body 路徑）→ 照舊先扣 per-IP 額度，防暴力語意不變。"""
+    import app.core.rate_limit as rl
+
+    calls: list[tuple] = []
+
+    async def _spy(*args, **kwargs):
+        calls.append(args)
+
+    monkeypatch.setattr(rl, "enforce_refresh_ip_rate_limit", _spy)
+
+    resp = client.post("/api/v1/auth/refresh", json={"refresh_token": "refresh-A"})
+    assert resp.status_code == 200
+    assert len(calls) == 1
+
+
+def test_refresh_with_cookie_credentials_still_consumes_rate_limit(client, monkeypatch):
+    """有憑證（cookie 路徑，即便最終因缺 CSRF 而 403）→ 照舊先扣額度。"""
+    import app.core.rate_limit as rl
+
+    calls: list[tuple] = []
+
+    async def _spy(*args, **kwargs):
+        calls.append(args)
+
+    monkeypatch.setattr(rl, "enforce_refresh_ip_rate_limit", _spy)
+
+    _login(client)  # 取得 refresh cookie，但這次不帶 X-CSRF-Token
+    resp = client.post("/api/v1/auth/refresh")
+    assert resp.status_code == 403  # CSRF 缺漏被擋下
+    assert len(calls) == 1  # 但額度仍先被消耗（cookie 在場即視為「有憑證」）
+
+
+def test_refresh_rate_limited_takes_precedence_over_csrf_when_credentials_present(client, monkeypatch):
+    """有憑證但已超過 rate limit → 429，且發生在 CSRF 檢查之前（維持既有防暴力順序）。"""
+    from app.core.exceptions import RateLimitExceededException
+    import app.core.rate_limit as rl
+
+    async def _always_limited(*args, **kwargs):
+        raise RateLimitExceededException(
+            message="errors.login_ip_rate_limited",
+            details={"retry_after": 5, "scope": "refresh_ip"},
+            message_kwargs={"retry_after": 5},
+        )
+
+    monkeypatch.setattr(rl, "enforce_refresh_ip_rate_limit", _always_limited)
+
+    _login(client)  # 取得 refresh + csrf cookie，但這次不帶 X-CSRF-Token
+    resp = client.post("/api/v1/auth/refresh")  # cookie 在場，缺 CSRF header
+    assert resp.status_code == 429  # 429（rate limit）先於 403（CSRF）
+
+
 def test_logout_body_path_skips_csrf(client):
     """/auth/logout 分路：純 body 路徑免 CSRF；有 refresh cookie 必驗 CSRF。
 

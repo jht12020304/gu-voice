@@ -98,6 +98,15 @@ const CSRF_HEADER_NAME = 'X-CSRF-Token';
 // cookie 不會送出，cookie 路徑不可用）。sentry.ts 已將 'refresh_token' 列入 redact。
 const REFRESH_TOKEN_STORAGE_KEY = 'refresh_token';
 
+// F7 #1：/auth/logout 的 401 自動重試若原樣重放舊 request body，會把
+// refreshAccessToken() 剛輪換掉的「舊」refresh token 送給後端黑名單——舊 token
+// 本就該死無妨，但輪換出的「新」refresh token 完全沒被撤銷，殘留到 7 天自然到期
+// （使用者以為登出了，該 token 其實仍可用來換發新 session）。用 URL 判斷是否為
+// logout 請求，重試前用「當下」localStorage 的 refresh token 重建 body。
+function _isLogoutUrl(url: string | undefined): boolean {
+  return !!url && url.replace(/\/+$/, '').endsWith('/auth/logout');
+}
+
 // ---- Axios 實例 ----
 
 const apiClient: AxiosInstance = axios.create({
@@ -256,6 +265,24 @@ apiClient.interceptors.response.use(
         const newToken = await refreshAccessToken();
         originalRequest.headers = originalRequest.headers ?? {};
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        // F7 #1：refreshAccessToken() 已經把 localStorage 的 refresh token 從舊值
+        // 輪換成新值；logout 的 retry body 若沿用重試前就序列化好的舊值，會撤銷
+        // 錯的 token（見上方 _isLogoutUrl 註解）。這裡改用「當下」localStorage 值
+        // 重建 body，讓 logout 真正撤銷使用者目前持有的那顆 refresh token。
+        // 注意：originalRequest 是「已發送過一次」的 config，此時 .data 已經過 axios
+        // 預設 transformRequest 序列化成 JSON 字串（而非物件）——先 parse 回物件改
+        // 欄位，並「以物件」寫回（不要重新 stringify）：apiClient(originalRequest)
+        // 會重跑一次完整 pipeline，transformRequest 會在這次重送時把物件正確序列化
+        // 一次；若這裡先手動 stringify，會被 transformRequest 二次序列化成雙重轉義
+        // 的字串，後端收到的 body 就不是合法 JSON 物件了。
+        if (_isLogoutUrl(originalRequest.url) && originalRequest.data) {
+          const latestRefresh = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
+          const rawData = originalRequest.data;
+          const parsed: Record<string, unknown> =
+            typeof rawData === 'string' ? JSON.parse(rawData) : (rawData as Record<string, unknown>);
+          parsed.refresh_token = latestRefresh || undefined;
+          originalRequest.data = parsed;
+        }
         return apiClient(originalRequest);
       } catch (refreshError) {
         clearAuthAndRedirect();

@@ -116,6 +116,11 @@ export default function ConversationPage() {
   // #4：出聲模式 AI 回合硬鎖是否尚未由 TTS 鏈解除。isAIResponding 在 ai_response_end 事件時
   // 就被 finalizeAIResponse 設回 false（TTS 可能還在播），不能拿來判斷硬鎖，故獨立追蹤。
   const pendingAiUnmuteRef = useRef(false);
+  // W4-3：重播（點擊訊息重聽 TTS）播放期間的硬鎖，語意等同 pendingAiUnmuteRef 但獨立追蹤——
+  // 重播可能發生在「無 AI 回合進行中」（單純重聽舊訊息）或「打斷仍在串流的 AI 回合」兩種
+  // 情境，兩顆鎖各自對應各自的音訊來源是否仍在播放／佇列中，任一顆鎖著都不得自動開麥
+  // （見下方 unmuteIfAllowed 的 aiTurnLocked 計算，OR 兩者）。
+  const pendingReplayUnmuteRef = useRef(false);
 
   // 根據 session 狀態自動啟動 VAD（in_progress / waiting 時才開麥克風）
   const isSessionActiveForMic =
@@ -130,7 +135,8 @@ export default function ConversationPage() {
       if (
         shouldUnmuteVAD(trigger, {
           userPaused: useConversationStore.getState().userPaused,
-          aiTurnLocked: pendingAiUnmuteRef.current,
+          // W4-3：AI 回合硬鎖 OR 重播硬鎖，任一鎖著都不放行自動開麥。
+          aiTurnLocked: pendingAiUnmuteRef.current || pendingReplayUnmuteRef.current,
           wsDown: conversationWS.getConnectionState() !== 'open',
         })
       ) {
@@ -387,10 +393,34 @@ export default function ConversationPage() {
       stopActiveTTS();
       clearTTSQueue();
 
+      // W4-3：重播播放期間比照 AI 出聲硬鎖，避免喇叭放語音時麥克風開著造成回授
+      // （回授不變式）。用獨立旗標追蹤（見 pendingReplayUnmuteRef 宣告處說明）。
+      // 若此刻沒有「仍在串流」的 AI 回合（isAIResponding false）——即使
+      // pendingAiUnmuteRef 還是 true，它原本掛在鏈尾的釋放步驟也已被上面
+      // clearTTSQueue() 判為過期、永遠不會再跑，不視同接管清掉會讓硬鎖永久卡住
+      // （死鎖）。若仍在串流，保留該旗標，交由真正 AI 回合之後用新世代續接的鏈尾
+      // （不會過期）自行決定何時釋放；重播鏈尾只釋放「重播」自己這一份鎖，兩者
+      // 各自獨立、由 unmuteIfAllowed 的 aiTurnLocked 一併把關。
+      if (!useConversationStore.getState().isAIResponding) {
+        pendingAiUnmuteRef.current = false;
+      }
+      pendingReplayUnmuteRef.current = true;
+      muteVAD();
+
       // 把所有快取片段依序排入佇列
       chunks.forEach((b64) => enqueueTTSAudioB64(b64));
+
+      // 鏈尾補上「重播播畢 → 解鎖重播硬鎖」步驟；epoch 防禦同 ai_response_end：若鏈尾
+      // 執行時世代已變（又被新的重播 / 靜音切換 / 斷線打斷），代表本次重播已被取代，
+      // 鎖的釋放交給新擁有者自己的鏈尾步驟負責，這裡不得越權清鎖。
+      const chainEpoch = ttsEpochRef.current;
+      ttsChainRef.current = ttsChainRef.current.then(() => {
+        if (ttsEpochRef.current !== chainEpoch) return;
+        pendingReplayUnmuteRef.current = false;
+        unmuteIfAllowed('replay_end');
+      });
     },
-    [stopActiveTTS, clearTTSQueue, enqueueTTSAudioB64],
+    [stopActiveTTS, clearTTSQueue, enqueueTTSAudioB64, muteVAD, unmuteIfAllowed],
   );
 
   /** Fix 16：統一把某則訊息標記為 TTS 失敗的 helper（Option A / B 共用） */
@@ -582,7 +612,13 @@ export default function ConversationPage() {
       }
       // 句級流程：在佇列尾端附加一個「播完所有句子 → 恢復正常 VAD 門檻」步驟。
       // 靜音時佇列沒有音訊步驟，這個 unmute 會立即執行（病患永遠能繼續說話）。
+      // W4-2/W4-3 epoch 防禦：捕捉附加當下的世代；若鏈尾真正執行時世代已變（被
+      // clearTTSQueue 打斷——重播 / 靜音切換 / 斷線），代表本回合已被新的擁有者
+      // 取代，鎖的釋放交由新擁有者自己的鏈尾步驟負責，這裡不得越權清鎖／開麥
+      // （否則會打穿新擁有者的硬鎖，見 replayMessageAudio 的對稱處理）。
+      const chainEpoch = ttsEpochRef.current;
       ttsChainRef.current = ttsChainRef.current.then(() => {
+        if (ttsEpochRef.current !== chainEpoch) return;
         pendingAiUnmuteRef.current = false;
         unmuteIfAllowed('ai_tts_done');
       });
@@ -660,6 +696,7 @@ export default function ConversationPage() {
       setSttProcessing(false);
       // 也解除 VAD mute，避免使用者卡在「等 AI 回應」的狀態
       pendingAiUnmuteRef.current = false;
+      pendingReplayUnmuteRef.current = false; // W4-3：錯誤路徑視為各硬鎖來源皆作廢，避免卡死
       unmuteIfAllowed('ws_error');
     });
 
@@ -677,6 +714,12 @@ export default function ConversationPage() {
     });
     on('_connected', () => {
       pendingAiUnmuteRef.current = false; // 後端 handler 重啟，舊 AI 回合作廢
+      pendingReplayUnmuteRef.current = false; // W4-3：重播鎖同理，連線是全新的，重播已無意義
+      // W4-2：unmute 前防禦——保險起見清掉任何殘留 TTS 播放/佇列。正常應已由 _disconnected
+      // 清空；此處防禦「_disconnected 未觸發的快速斷連」或「TTS chain 卡在 await 中段」等
+      // 邊界路徑，避免喇叭仍放語音時麥克風已被打開造成回授。冪等：無殘留時為 no-op。
+      stopActiveTTS();
+      clearTTSQueue();
       if (useConversationStore.getState().userPaused) {
         // 後端 is_paused 是連線區域變數（conversation_handler.py），重連即歸零 → 重申暫停
         send('control', { action: 'pause_recording' });
@@ -716,6 +759,24 @@ export default function ConversationPage() {
   useEffect(() => {
     if (isSessionActiveForMic && userPaused) muteVAD();
   }, [isSessionActiveForMic, userPaused, isRecording, muteVAD]);
+
+  // W4-1：AI 出聲硬鎖／重播硬鎖同款 re-assert（比照上面 userPaused）。麥克風重開會讓
+  // useAudioStream 的開麥 effect 重跑、把 vadMuteMode 重設為 none；此時若硬鎖仍生效
+  // （AI 出聲中或重播播放中）需要立即補鎖，否則喇叭放語音、麥克風卻悄悄開著會造成
+  // 回授（違反回授不變式）。isRecording 列入 deps 同上：若補鎖有空窗、VAD 意外先開錄，
+  // 這裡會在偵測到開錄的當下立刻重新 hard-mute（並中止該段落；後端 is_paused 以外，
+  // AI 回合本身無第二道防線，故此 re-assert 尤其重要）。pendingAiUnmuteRef /
+  // pendingReplayUnmuteRef 是 ref，故不列入 deps（React refs 本就不需要）。
+  //
+  // 注意：語言切換（LanguageLayout 的 URL-driven i18n.changeLanguage()）本身「不會」
+  // 觸發這段開麥重跑——useAudioStream 的開麥 effect 刻意不依賴 `t`（改用 tRef 讀取
+  // 最新翻譯函式），避免單純切換語言就誤觸 closeMic()+openMic() 重置 vadMuteMode。
+  // 這段 re-assert 仍保留，作為斷線重連等「真正」需要重開麥克風情境的防線。
+  useEffect(() => {
+    if (isSessionActiveForMic && (pendingAiUnmuteRef.current || pendingReplayUnmuteRef.current)) {
+      muteVAD();
+    }
+  }, [isSessionActiveForMic, isRecording, muteVAD]);
 
   // 聊天自動捲動（使用者上捲時暫停）
   const [userScrolledUp, setUserScrolledUp] = useState(false);

@@ -385,7 +385,7 @@
   ＝「因紅旗中止」，high-only completed 不設 true（「曾有紅旗」查 `red_flag_alerts`）；(4) R97 接受
   prefix-3 粗粒度；(5) D4 歷史回填不做。任一項臨床端有不同意見時再翻案（kill-switch 已備）。詳見稽核 §四
 
-### [ ] E8. 🟡 驗收過程新發現（2026-07-04 真 OpenAI E2E）
+### [x] E8. 🟡 驗收過程新發現（2026-07-04 真 OpenAI E2E）— 2026-07-04 全部修復（本輪）
 
 - **abort 後 WS 對話仍繼續**：critical abort 後 server 對已中止場次續答（每輪重發 abort 事件）；
   AI 話術正確（告知現場醫護）但場次應考慮拒收後續 text_message
@@ -439,14 +439,22 @@
 - 「其他」sentinel seed（UUID `00000000-0000-4000-8000-0000000000ff`、migration `20260704_1000`）；
   含「其他」自述必填；開場語特判念病患自述。退化（graceful）：ICD-10 unverified、紅旗退全量清單
 
-### [ ] F6. 🟡 既有 e2e 紅燈：`i18n_en_no_cjk.spec.ts` 4 案例在乾淨 HEAD 也失敗
+### [ ] E9. 🟡 W2 範圍外發現（2026-07-04，紅旗規則層可靠性）
+
+- `RedFlagDetector._load_rules()` 只在 DB **例外**時 fallback 內建 catalogue；`red_flag_rules` 表
+  查詢成功但為空（生產無 seed，推測即空）→ 規則層恆 `[]`，偵測全靠語意層扛。是否空表也 fallback 待定
+- `_get_fallback_rules()` 的 keywords 只讀頂層 `triggers`（僅 zh-TW），未讀 `triggers_by_lang`
+  ——規則層即使啟用，非中文場次比對仍 no-op
+- ja/ko/vi 的紅旗 display_title 翻譯（W2 補齊）建議臨床/母語者審閱一次（尤其 신산통/Tiểu máu đại thể）
+
+### [x] F6. 🟡 既有 e2e 紅燈：`i18n_en_no_cjk.spec.ts` 4 案例在乾淨 HEAD 也失敗 — 2026-07-04 修復（mock 資料依 resolvedLanguage 在地化，12/12 綠）
 
 - playwright webServer 強制 mock 模式，mock 假資料（陳小明、中文主訴清單、中文 SOAP）洩漏 CJK
   到 en-US 頁面（select-complaint / medical-info / session-complete / thank-you）
 - 非 F 輪造成（HEAD 對照確認）。修法方向：mock 資料補英文 variant 依語言 pick，或 spec 對
   「資料層 CJK」設 allowlist
 
-### [ ] F7. 🟢 F 輪 review 判 low 的遺留（彙整，擇機修）
+### [x] F7. 🟢 F 輪 review 判 low 的遺留 — 2026-07-04 七條全修（本輪；審查加修 3 條：red_flag_reason 語言一致、dashboard WS 防迴圈 guard 改「首則應用層訊息」歸零、AI 硬鎖 re-assert 競態窗口）
 
 - AI 回合硬鎖無 re-assert（語言切換 closeMic/openMic 重跑可遺失硬鎖）
 - logout 的 401-retry 會重放舊 refresh token → rotation 後的新 token 未被黑名單（7 天自然過期）

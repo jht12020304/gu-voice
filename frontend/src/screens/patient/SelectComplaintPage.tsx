@@ -65,6 +65,25 @@ const mockComplaints: ChiefComplaint[] = [
   { id: OTHER_COMPLAINT_ID, name: '其他', nameEn: 'Other', description: '以上皆不符合，請用自己的話描述症狀', category: '其他', isDefault: true, isActive: true, displayOrder: 99, createdAt: '', updatedAt: '' },
 ];
 
+// 英文系 locale（en-US 等）用的 mock 主訴：name 本身直接是英文，故不再重複填
+// nameEn（避免卡片同時顯示兩行一樣的英文）；category 沿用 CATEGORY_I18N_KEY
+// 已收錄的英文字串（'Urinary symptoms' / 'Pain' / 'Abnormal findings' / 'Other'），
+// 讓 categoryBucket() 能命中既有 i18n key，不需要新增映射（W6：e2e i18n_en_no_cjk
+// 稽核發現 zh-TW mock 洩漏到 en-US 頁）。
+const mockComplaintsEn: ChiefComplaint[] = [
+  { id: 'cc1', name: 'Hematuria', description: 'Blood visible in urine', category: 'Urinary symptoms', isDefault: true, isActive: true, displayOrder: 1, createdAt: '', updatedAt: '' },
+  { id: 'cc2', name: 'Frequent Urination', description: 'Abnormally increased urination frequency', category: 'Urinary symptoms', isDefault: true, isActive: true, displayOrder: 2, createdAt: '', updatedAt: '' },
+  { id: 'cc3', name: 'Dysuria', description: 'Pain or burning sensation during urination', category: 'Urinary symptoms', isDefault: true, isActive: true, displayOrder: 3, createdAt: '', updatedAt: '' },
+  { id: 'cc4', name: 'Urinary Incontinence', description: 'Inability to control urination', category: 'Urinary symptoms', isDefault: false, isActive: true, displayOrder: 4, createdAt: '', updatedAt: '' },
+  { id: 'cc5', name: 'Flank Pain', description: 'Pain in the flank or lower back', category: 'Pain', isDefault: true, isActive: true, displayOrder: 5, createdAt: '', updatedAt: '' },
+  { id: 'cc6', name: 'Lower Abdominal Pain', description: 'Pain or discomfort in the lower abdomen', category: 'Pain', isDefault: false, isActive: true, displayOrder: 6, createdAt: '', updatedAt: '' },
+  { id: 'cc7', name: 'Scrotal Swelling', description: 'Swelling or a lump in the scrotum', category: 'Other', isDefault: false, isActive: true, displayOrder: 7, createdAt: '', updatedAt: '' },
+  { id: 'cc8', name: 'Erectile Dysfunction', description: 'Difficulty achieving or maintaining an erection', category: 'Other', isDefault: false, isActive: true, displayOrder: 8, createdAt: '', updatedAt: '' },
+  { id: 'cc9', name: 'Elevated PSA', description: 'Elevated PSA level requiring follow-up', category: 'Abnormal findings', isDefault: false, isActive: true, displayOrder: 9, createdAt: '', updatedAt: '' },
+  { id: 'cc10', name: 'Abnormal Urinalysis', description: 'Abnormal findings on routine urinalysis', category: 'Abnormal findings', isDefault: false, isActive: true, displayOrder: 10, createdAt: '', updatedAt: '' },
+  { id: OTHER_COMPLAINT_ID, name: 'Other', description: 'Please describe your symptoms in your own words if none of the above match', category: 'Other', isDefault: true, isActive: true, displayOrder: 99, createdAt: '', updatedAt: '' },
+];
+
 // 任一語言 → intake.selectComplaint.categories.* 的 key 映射。
 // 後端已用 Accept-Language 回傳 localized category，但舊記錄可能未 backfill
 // `category_by_lang` → fallback 成 zh-TW；本表同時收錄 5 國語言對應 key，
@@ -121,7 +140,9 @@ export default function SelectComplaintPage() {
   const [selected, setSelected] = useState<ChiefComplaint[]>([]);
   const [customText, setCustomText] = useState('');
 
-  const displayComplaints = IS_MOCK ? mockComplaints : complaints;
+  // 英文系 locale 用英文假資料，避免中文 mock 洩漏到英文頁（見上方 mockComplaintsEn 說明）。
+  const isEnglishMockLng = !!i18n.resolvedLanguage?.startsWith('en');
+  const displayComplaints = IS_MOCK ? (isEnglishMockLng ? mockComplaintsEn : mockComplaints) : complaints;
   const isLoading = IS_MOCK ? false : storeLoading;
 
   // 語言變更時 refetch — 後端依 Accept-Language 回傳 localized name/description/category

@@ -14,6 +14,7 @@ const ALL_TRIGGERS: VadResumeTrigger[] = [
   'empty_stt',
   'ai_start_tts_muted',
   'ai_tts_done',
+  'replay_end',
   'ws_error',
   'reconnected',
   'tts_mute_toggle',
@@ -26,11 +27,13 @@ function expected(trigger: VadResumeTrigger, ctx: VadResumeContext): boolean {
   if (trigger === 'reconnected') return !ctx.userPaused;
   // user_resume：不得在 AI 出聲硬鎖 / 斷線時解鎖
   if (trigger === 'user_resume') return !ctx.aiTurnLocked && !ctx.wsDown;
+  // W4-3 replay_end：重播播畢/中止，讓位給仍在進行中的 AI 回合硬鎖，並尊重暫停/斷線
+  if (trigger === 'replay_end') return !ctx.userPaused && !ctx.aiTurnLocked && !ctx.wsDown;
   // 其餘自動恢復路徑：手動暫停優先、斷線延後到 reconnected
   return !ctx.userPaused && !ctx.wsDown;
 }
 
-// 1) 全枚舉：7 trigger × 2^3 情境組合 = 56 個斷言
+// 1) 全枚舉：8 trigger × 2^3 情境組合 = 64 個斷言
 let count = 0;
 for (const trigger of ALL_TRIGGERS) {
   for (const userPaused of [false, true]) {
@@ -47,7 +50,7 @@ for (const trigger of ALL_TRIGGERS) {
     }
   }
 }
-assert.equal(count, 56, 'exhaustive matrix covers 56 combinations');
+assert.equal(count, 64, 'exhaustive matrix covers 64 combinations (8 triggers × 2^3 ctx)');
 
 // 2) 關鍵不變式具名斷言
 
@@ -72,7 +75,7 @@ assert.equal(
   '(c) 暫停中重連成功仍保持暫停',
 );
 
-// (d) 全 false 情境下 7 個 trigger 全部 unmute（無任何路徑會永久卡 mute）
+// (d) 全 false 情境下 8 個 trigger 全部 unmute（無任何路徑會永久卡 mute）
 for (const trigger of ALL_TRIGGERS) {
   assert.equal(
     shouldUnmuteVAD(trigger, { userPaused: false, aiTurnLocked: false, wsDown: false }),
@@ -81,4 +84,27 @@ for (const trigger of ALL_TRIGGERS) {
   );
 }
 
-console.log('PASS shouldUnmuteVAD.test.mts (56 matrix + 3 named + 7 no-deadlock assertions)');
+// (e) W4-3：重播打斷仍在串流的 AI 回合時，重播自己播畢不得搶先開麥
+// （aiTurnLocked 此時反映呼叫端 pendingAiUnmuteRef || pendingReplayUnmuteRef 的 OR 結果；
+// 重播鏈尾已把自己那份鎖清成 false，若 ctx 仍是 true 代表「真正」AI 回合鎖仍未釋放）。
+assert.equal(
+  shouldUnmuteVAD('replay_end', { userPaused: false, aiTurnLocked: true, wsDown: false }),
+  false,
+  '(e) 重播打斷仍在串流的 AI 回合時，重播播畢不得搶先開麥（留給該回合自己的鏈尾釋放）',
+);
+
+// (f) W4-3：重播播放期間使用者暫停，重播播畢不得自動開麥（手動暫停優先）
+assert.equal(
+  shouldUnmuteVAD('replay_end', { userPaused: true, aiTurnLocked: false, wsDown: false }),
+  false,
+  '(f) 重播播放期間使用者暫停，重播播畢不得自動開麥',
+);
+
+// (g) W4-3：無阻擋情境下重播播畢正常開麥（單純重聽舊訊息、無並行 AI 回合的常見情境）
+assert.equal(
+  shouldUnmuteVAD('replay_end', { userPaused: false, aiTurnLocked: false, wsDown: false }),
+  true,
+  '(g) 無阻擋情境下重播播畢必須恢復收音',
+);
+
+console.log('PASS shouldUnmuteVAD.test.mts (64 matrix + 6 named + 8 no-deadlock assertions)');

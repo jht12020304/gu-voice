@@ -626,6 +626,25 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ko-KR": "죄송합니다. 방금 하신 말씀을 제대로 처리하지 못했습니다. 다시 한번 말씀해 주시거나 증상을 조금 더 설명해 주시겠어요?",
         "vi-VN": "Xin lỗi, tôi chưa xử lý được câu trả lời vừa rồi của bạn. Bạn có thể nói lại, hoặc mô tả thêm một chút về triệu chứng của mình không?",
     },
+
+    # E8-1：場次已進入終態（completed / aborted_red_flag）後仍收到訊息時的唯一回覆
+    # （拒收後續訊息，不再重跑紅旗/LLM，也不再重發 abort 事件洪流）。情境＝院內候診
+    # （平板/Kiosk）：病患已在現場等看診，故用「請依現場人員安排稍候」而非含糊的
+    # 「盡速就醫」；紅旗中止的版本則明確告知「已通知現場醫護人員」。
+    "ws.session_terminated_completed_notice": {
+        "zh-TW": "本次問診已經結束，感謝您的配合。請依現場人員的安排稍候看診。",
+        "en-US": "This intake session has already ended. Thank you for your time — please wait and follow the on-site staff's instructions for your visit.",
+        "ja-JP": "今回の問診はすでに終了しました。ご協力ありがとうございました。現場スタッフの案内に従ってお待ちください。",
+        "ko-KR": "이번 문진은 이미 종료되었습니다. 협조해 주셔서 감사합니다. 현장 안내에 따라 진료를 기다려 주세요.",
+        "vi-VN": "Buổi hỏi bệnh này đã kết thúc. Cảm ơn sự hợp tác của bạn, vui lòng chờ và làm theo hướng dẫn của nhân viên tại chỗ.",
+    },
+    "ws.session_terminated_aborted_notice": {
+        "zh-TW": "本次問診已經結束，系統已將您先前描述、需要留意的症狀通知現場醫護人員，請依現場人員的安排稍候看診。",
+        "en-US": "This intake session has already ended. On-site clinical staff have already been notified about the symptoms you described that need attention. Please wait and follow their instructions.",
+        "ja-JP": "今回の問診はすでに終了しました。注意が必要な症状については、現場の医療スタッフにすでにお伝えしています。現場スタッフの案内に従ってお待ちください。",
+        "ko-KR": "이번 문진은 이미 종료되었습니다. 주의가 필요한 증상은 이미 현장 의료진에게 전달되었습니다. 현장 안내에 따라 기다려 주세요.",
+        "vi-VN": "Buổi hỏi bệnh này đã kết thúc. Nhân viên y tế tại chỗ đã được thông báo về triệu chứng cần lưu ý mà bạn đã mô tả. Vui lòng chờ và làm theo hướng dẫn của nhân viên tại chỗ.",
+    },
 }
 
 

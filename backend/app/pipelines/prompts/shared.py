@@ -93,12 +93,14 @@ def render_hpi_checklist() -> str:
 # 供 red_flag_detector(語意 prompt + fallback rules)與 llm_conversation
 # (主訴相關紅旗提醒)共用。
 #
-# canonical_id (TODO-E6):
+# canonical_id (E8-4，原 TODO-E6):
 #   - 跨語言穩定的 snake_case 標識符;DB RedFlagRule.canonical_id 需對應此值。
 #   - dedup 以 canonical_id 為 key(不再以 title 為 key),以便未來多語言
 #     版本(同一紅旗跨 zh-TW / en-US)能正確合併。
-# display_title_by_lang (TODO-E6):
-#   - 依 Accept-Language / session.language 選對應語言 title 顯示到 UI。
+# display_title_by_lang (E8-4，原 TODO-E6):
+#   - 依 session.language 選對應語言 title,由 red_flag_detector 偵測時
+#     解析、conversation_handler 持久化/廣播前再次防禦性解析(見兩檔內
+#     E8-4 註記)。5 語(zh-TW/en-US/ja-JP/ko-KR/vi-VN)皆已補齊翻譯。
 #   - title 欄位保留為 zh-TW 版本(與語意層 prompt / legacy DB name 對齊)。
 # triggers_by_lang (TODO-M8):
 #   - 按 BCP-47 分層儲存 trigger keywords;若目前 session.language 無此
@@ -113,6 +115,9 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         "display_title_by_lang": {
             "zh-TW": "急性尿滯留",
             "en-US": "Acute Urinary Retention",
+            "ja-JP": "急性尿閉",
+            "ko-KR": "급성 요폐",
+            "vi-VN": "Bí tiểu cấp tính",
         },
         "severity": "critical",
         "description": "病患可能出現急性尿滯留,需要緊急處理",
@@ -151,6 +156,9 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         "display_title_by_lang": {
             "zh-TW": "大量血尿",
             "en-US": "Heavy Gross Hematuria",
+            "ja-JP": "高度肉眼的血尿",
+            "ko-KR": "다량의 육안적 혈뇨",
+            "vi-VN": "Tiểu máu đại thể lượng nhiều",
         },
         "severity": "critical",
         "description": "嚴重血尿合併血塊,需評估出血原因與血流動力學",
@@ -189,6 +197,9 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         "display_title_by_lang": {
             "zh-TW": "睪丸劇痛",
             "en-US": "Severe Testicular Pain",
+            "ja-JP": "重度の精巣痛",
+            "ko-KR": "심한 고환 통증",
+            "vi-VN": "Đau tinh hoàn dữ dội",
         },
         "severity": "critical",
         "description": "可能為睪丸扭轉,需要在 6 小時內處理以避免壞死",
@@ -225,6 +236,9 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         "display_title_by_lang": {
             "zh-TW": "尿路敗血症",
             "en-US": "Urosepsis",
+            "ja-JP": "尿路性敗血症",
+            "ko-KR": "요로 패혈증",
+            "vi-VN": "Nhiễm khuẩn huyết đường tiết niệu",
         },
         "severity": "critical",
         "description": "尿路感染合併全身性感染徵象,可能為尿路敗血症",
@@ -261,6 +275,9 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         "display_title_by_lang": {
             "zh-TW": "疑似馬尾症候群",
             "en-US": "Suspected Cauda Equina Syndrome",
+            "ja-JP": "馬尾症候群の疑い",
+            "ko-KR": "마미증후군 의심",
+            "vi-VN": "Nghi ngờ hội chứng đuôi ngựa",
         },
         "severity": "critical",
         "description": (
@@ -300,6 +317,9 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         "display_title_by_lang": {
             "zh-TW": "肉眼血尿",
             "en-US": "Gross Hematuria",
+            "ja-JP": "肉眼的血尿",
+            "ko-KR": "육안적 혈뇨",
+            "vi-VN": "Tiểu máu đại thể",
         },
         "severity": "high",
         "description": "肉眼可見血尿,需進一步檢查排除惡性腫瘤",
@@ -338,6 +358,9 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         "display_title_by_lang": {
             "zh-TW": "腎絞痛合併發燒",
             "en-US": "Renal Colic with Fever",
+            "ja-JP": "発熱を伴う腎仙痛",
+            "ko-KR": "발열을 동반한 신산통",
+            "vi-VN": "Cơn đau quặn thận kèm sốt",
         },
         "severity": "high",
         "description": "腎結石合併感染,可能需要緊急引流",
@@ -371,6 +394,9 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         "display_title_by_lang": {
             "zh-TW": "不明原因體重下降",
             "en-US": "Unexplained Weight Loss",
+            "ja-JP": "原因不明の体重減少",
+            "ko-KR": "원인 불명의 체중 감소",
+            "vi-VN": "Sụt cân không rõ nguyên nhân",
         },
         "severity": "high",
         "description": "不明原因體重急速下降,需排除惡性腫瘤",
@@ -452,9 +478,16 @@ def get_red_flags_for_complaint(chief_complaint: str) -> list[dict[str, Any]]:
 
     注意:這裡用 substring match(而非嚴格相等),讓「血尿持續三天」也能
     命中 related_complaints 中的「血尿」。
+
+    E8-2 防禦:呼叫端理論上該保證傳入字串,但曾因 fallback 邏輯誤傳
+    ChiefComplaint ORM 物件進來,`cc in chief_complaint` 對非字串/不可疊代
+    物件會直接 TypeError,炸掉整個問診 WS 開場。這裡對非 str 一律轉字串,
+    避免上游任何一次疏漏就讓病患完全連不上問診。
     """
     if not chief_complaint:
         return list(URO_RED_FLAGS)
+    if not isinstance(chief_complaint, str):
+        chief_complaint = str(chief_complaint)
 
     matches = [
         f

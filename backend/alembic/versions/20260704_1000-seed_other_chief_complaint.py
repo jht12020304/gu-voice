@@ -6,7 +6,9 @@
 實際主訴內容存在 chief_complaint_text（病患自述）——不動 DB schema。
 
 為什麼用固定 UUID？（同 20260418_1900 seed 的理由）
-- Idempotent：重跑時 DELETE-then-INSERT，不會重複建立
+- Idempotent：重跑時以 id 做 UPSERT（INSERT ... ON CONFLICT (id) DO UPDATE），
+  不會重複建立，也不會因為 sentinel 已被 sessions.chief_complaint_id 引用
+  （NOT NULL FK、無 cascade）而在重跑時 DELETE 炸 FK violation
 - 跨層同步：後端 conversation_handler / 前端 SelectComplaintPage 以同一常數特判
 - 多環境可測：dev / staging / prod 都是同一個 id
 
@@ -72,10 +74,12 @@ def _jsonb_literal(payload: dict) -> str:
 
 
 def upgrade() -> None:
-    # 先清掉舊資料（若先前曾手動插入過同 id），保持 idempotent
+    # 以 id 做 UPSERT，保持真正 idempotent：sentinel 一旦被
+    # sessions.chief_complaint_id 引用（NOT NULL FK、無 cascade），
+    # DELETE-then-INSERT 重跑會直接撞 FK violation；改用
+    # INSERT ... ON CONFLICT (id) DO UPDATE 則無論 row 是否已存在、
+    # 是否已被引用都能安全重跑，且對「尚未跑過」的環境結果不變。
     sid = _sql_literal(OTHER_COMPLAINT_ID)
-    op.execute(f"DELETE FROM chief_complaints WHERE id = {sid}")
-
     values = ", ".join(
         [
             sid,
@@ -100,6 +104,18 @@ def upgrade() -> None:
             name_by_lang, description_by_lang, category_by_lang,
             is_default, is_active, display_order
         ) VALUES ({values})
+        ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            name_en = EXCLUDED.name_en,
+            description = EXCLUDED.description,
+            category = EXCLUDED.category,
+            name_by_lang = EXCLUDED.name_by_lang,
+            description_by_lang = EXCLUDED.description_by_lang,
+            category_by_lang = EXCLUDED.category_by_lang,
+            is_default = EXCLUDED.is_default,
+            is_active = EXCLUDED.is_active,
+            display_order = EXCLUDED.display_order,
+            updated_at = now()
         """
     )
 
