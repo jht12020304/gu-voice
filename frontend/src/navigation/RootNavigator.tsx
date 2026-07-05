@@ -25,6 +25,7 @@ const AlertDetailPage = lazyWithRetry(() => import('../screens/doctor/AlertDetai
 const SessionListPage = lazyWithRetry(() => import('../screens/doctor/SessionListPage'), 'SessionListPage');
 const ReportListPage = lazyWithRetry(() => import('../screens/doctor/ReportListPage'), 'ReportListPage');
 const NotificationPage = lazyWithRetry(() => import('../screens/doctor/NotificationPage'), 'NotificationPage');
+const ResearchAnalyticsPage = lazyWithRetry(() => import('../screens/doctor/ResearchAnalyticsPage'), 'ResearchAnalyticsPage');
 const PatientDetailPage = lazyWithRetry(() => import('../screens/doctor/PatientDetailPage'), 'PatientDetailPage');
 const ConversationPage = lazyWithRetry(() => import('../screens/patient/ConversationPage'), 'ConversationPage');
 const SettingsPage = lazyWithRetry(() => import('../screens/doctor/SettingsPage'), 'SettingsPage');
@@ -155,6 +156,7 @@ export default function RootNavigator() {
               <Route element={<RoleGuard allowedRoles={['doctor', 'admin']} />}>
                 <Route element={<MainLayout />}>
                   <Route path="dashboard" element={<DashboardPage />} />
+                  <Route path="research" element={<ResearchAnalyticsPage />} />
                   <Route path="patients" element={<PatientListPage />} />
                   <Route path="patients/:patientId" element={<PatientDetailPage />} />
                   <Route path="sessions" element={<SessionListPage />} />

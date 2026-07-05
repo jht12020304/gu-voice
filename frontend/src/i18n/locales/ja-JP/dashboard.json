@@ -8,6 +8,7 @@
     },
     "nav": {
       "dashboard": "ダッシュボード",
+      "research": "研究分析",
       "tryConversation": "対話フローを体験",
       "patients": "患者一覧",
       "soapReports": "SOAP レポート",

@@ -8,6 +8,7 @@
     },
     "nav": {
       "dashboard": "대시보드",
+      "research": "연구 분석",
       "tryConversation": "대화 흐름 체험",
       "patients": "환자 목록",
       "soapReports": "SOAP 보고서",

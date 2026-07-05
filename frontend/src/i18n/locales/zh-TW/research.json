@@ -1,0 +1,133 @@
+{
+  "page": {
+    "eyebrow": "研究分析",
+    "title": "問診研究指標",
+    "subtitle": "全收案期間的去識別化聚合指標，對齊國際期刊評估框架",
+    "loading": "載入研究指標中…",
+    "error": "無法載入研究指標，請稍後重試",
+    "empty": "尚無資料",
+    "autoUpdate": "每場問診結束後自動更新",
+    "updatedAt": "更新於",
+    "minutesShort": "分"
+  },
+  "kpi": {
+    "sessions": "收案場次",
+    "sessionsHelper": "全部問診場次",
+    "completionRate": "完成率",
+    "redFlagRate": "紅旗場次率",
+    "redFlagRateHelper": "{{count}} / {{terminal}} 終態場次",
+    "medianDuration": "中位問診時長",
+    "hpiCompleteness": "HPI 完整度",
+    "hpiCompletenessHelper": "{{count}} 份報告平均",
+    "agreementRate": "醫師同意率",
+    "agreementRateHelper": "審閱通過 /（通過＋退回）"
+  },
+  "cohort": {
+    "title": "收案流與週趨勢",
+    "subtitle": "CONSORT-style 收案流：完成／紅旗中止／取消，與逐週趨勢",
+    "badge": "共 {{total}} 場",
+    "completed": "完成",
+    "abortedRedFlag": "紅旗中止",
+    "cancelled": "取消",
+    "active": "進行中／等待中",
+    "seriesSessions": "場次數",
+    "seriesCompleted": "完成數",
+    "redFlagWeek": "紅旗場次"
+  },
+  "hpi": {
+    "title": "病史採集完整度（HPI 10 欄）",
+    "subtitle": "各欄位於 SOAP 中被採集到的比例（AMIE 病史採集評估軸）",
+    "badge": "{{count}} 份報告",
+    "fields": {
+      "onset": "發病時間",
+      "location": "部位",
+      "duration": "持續時間",
+      "characteristics": "性質",
+      "severity": "嚴重度",
+      "aggravating_factors": "加重因素",
+      "relieving_factors": "緩解因素",
+      "associated_symptoms": "伴隨症狀",
+      "timing": "時間模式",
+      "context": "情境脈絡"
+    }
+  },
+  "safety": {
+    "title": "Triage 安全",
+    "subtitle": "紅旗偵測與醫師確認（症狀檢查器 triage 安全指標）",
+    "severityTitle": "警示嚴重度分佈",
+    "severity": {
+      "critical": "危急",
+      "high": "高",
+      "medium": "中"
+    },
+    "layerTitle": "偵測層信心分佈",
+    "layer": {
+      "rule_hit": "規則層命中",
+      "semantic_only": "僅語意層",
+      "uncovered_locale": "語系未覆蓋"
+    },
+    "urgencyTitle": "SOAP 建議緊急度分佈",
+    "urgencySubtitle": "AI 產出 Plan 的整體緊急度（含紅旗只升不降保護）",
+    "urgency": {
+      "er_now": "立即急診",
+      "24h": "24 小時內",
+      "this_week": "本週內",
+      "routine": "常規追蹤"
+    },
+    "timeToFirstAlert": "首次紅旗偵測延遲（中位/IQR）",
+    "ackRate": "醫師確認率",
+    "ackLatency": "確認延遲（中位/IQR）"
+  },
+  "stt": {
+    "title": "語音辨識品質",
+    "subtitle": "STT 信心分數分佈（exp(avg_logprob) proxy，0–1）",
+    "badge": "{{count}} 個語音輪",
+    "turns": "輪數",
+    "medianConfidence": "信心分數（中位/IQR）",
+    "lowConfidence": "低信心輪率（<0.5）",
+    "voiceShare": "語音輸入占比"
+  },
+  "efficiency": {
+    "title": "問診效率",
+    "subtitle": "終態場次的時長分佈與對話輪次",
+    "sessions": "場次數",
+    "medianDuration": "時長（中位/IQR）",
+    "medianTurns": "病患輪次（中位/IQR）",
+    "medianChars": "每輪字數（中位/IQR）"
+  },
+  "documentation": {
+    "title": "AI 文件品質",
+    "subtitle": "SOAP 報告品質與醫師審閱結果（PDQI-9 精神的 pragmatic proxy）",
+    "badge": "{{count}} 份報告",
+    "outcomesTitle": "醫師審閱結果",
+    "outcomes": {
+      "approved": "通過",
+      "revision_needed": "需修改",
+      "pending": "待審閱"
+    },
+    "aiConfidence": "AI 信心分數（中位/IQR）",
+    "icdVerified": "ICD-10 驗證通過率",
+    "agreement": "醫師同意率"
+  },
+  "table": {
+    "title": "各語言子群摘要",
+    "subtitle": "多語言部署的子群比較（圖表數值的資料表後援）",
+    "language": "語言",
+    "sessions": "場次",
+    "completed": "完成",
+    "medianDuration": "中位時長",
+    "meanTurns": "平均輪次",
+    "meanConfidence": "平均 STT 信心",
+    "redFlagRate": "紅旗場次率"
+  },
+  "methods": {
+    "title": "研究方法對照（發表指引）",
+    "subtitle": "本頁指標對齊的國際評估框架；投稿時可據此撰寫 Methods 與報告清單",
+    "decideAi": "AI 決策支援早期臨床評估的報告指引（Nature Medicine 2022）——本系統屬院內小規模實地評估，投稿時建議逐項對照其 17 項 AI 專屬條目",
+    "amie": "對話式診斷 AI 的評估軸：病史採集完整度、診斷準確度、管理計畫合理性與同理溝通——本頁 HPI 完整度即對應其病史採集軸",
+    "triageLabel": "症狀檢查器 triage 文獻",
+    "triage": "以敏感度／特異度與 under-triage 率評估分流安全（JMIR 等）——本頁紅旗場次率、偵測延遲與醫師確認率為對應的過程指標；正式投稿需以醫師判讀為金標準計算敏感度",
+    "pdqi": "醫療文件品質工具（9 維度）——本頁以醫師審閱通過率為 pragmatic proxy；正式研究建議抽樣以 PDQI-9 雙評分者評分並報告 ICC/kappa",
+    "disclaimer": "本頁皆為去識別化聚合統計。正式發表前需 IRB 審查、事前註冊分析計畫，並依樣本數報告信賴區間。"
+  }
+}

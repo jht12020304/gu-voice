@@ -140,17 +140,37 @@ class FakeRedis:
 
 # ── DB 替身 ─────────────────────────────────────────────
 class StubResult:
-    def __init__(self, rowcount: int = 1) -> None:
+    def __init__(self, rowcount: int = 1, row: Any | None = None) -> None:
         self.rowcount = rowcount
+        self._row = row
+
+    def first(self) -> Any | None:
+        """UPDATE ... RETURNING 語意：CAS 命中（rowcount≥1）回一列，否則 None。
+
+        預設列帶 `_update_session_status` 稽核 / 通知所需欄位；doctor_id=None
+        讓通知路徑 no-op，避免 stub 需要再模擬 User / Patient 查詢。
+        """
+        if self._row is not None:
+            return self._row
+        if self.rowcount:
+            return SimpleNamespace(language="zh-TW", doctor_id=None, patient_id=None)
+        return None
 
 
 class StubDB:
     """捕捉 execute stmt 的最小 AsyncSession 替身。"""
 
-    def __init__(self, rowcount: int = 1, execute_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        rowcount: int = 1,
+        execute_error: Exception | None = None,
+        returning_row: Any | None = None,
+    ) -> None:
         self.executed: list[Any] = []
+        self.added: list[Any] = []
         self.rowcount = rowcount
         self.execute_error = execute_error
+        self.returning_row = returning_row
         self.commits = 0
         self.rollbacks = 0
 
@@ -158,7 +178,14 @@ class StubDB:
         if self.execute_error is not None:
             raise self.execute_error
         self.executed.append(stmt)
-        return StubResult(self.rowcount)
+        return StubResult(self.rowcount, row=self.returning_row)
+
+    def add(self, obj: Any) -> None:
+        """ORM add 替身（AuditLogService.log / NotificationService.create 用）。"""
+        self.added.append(obj)
+
+    async def flush(self) -> None:
+        return None
 
     async def commit(self) -> None:
         self.commits += 1

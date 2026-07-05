@@ -8,6 +8,7 @@
     },
     "nav": {
       "dashboard": "Dashboard",
+      "research": "Research analytics",
       "tryConversation": "Try conversation flow",
       "patients": "Patients",
       "soapReports": "SOAP reports",

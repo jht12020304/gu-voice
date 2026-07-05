@@ -138,6 +138,7 @@ class ReportService:
             assessment=report.assessment,
             plan=report.plan,
             summary=report.summary,
+            raw_transcript=report.raw_transcript,
             icd10_codes=list(report.icd10_codes) if report.icd10_codes else None,
             language=report.language,
             ai_confidence_score=report.ai_confidence_score,

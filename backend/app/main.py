@@ -183,6 +183,7 @@ from app.routers import (  # noqa: E402
     notifications,
     patients,
     reports,
+    research,
     sessions,
 )
 
@@ -193,6 +194,7 @@ app.include_router(complaints.router)
 app.include_router(reports.router)
 app.include_router(alerts.router)
 app.include_router(dashboard.router)
+app.include_router(research.router)
 app.include_router(notifications.router)
 app.include_router(admin.router)
 app.include_router(audit_logs.router)

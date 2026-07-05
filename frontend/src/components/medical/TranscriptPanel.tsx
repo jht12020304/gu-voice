@@ -216,7 +216,10 @@ function MessageBubble({ message, compact = false }: { message: Conversation; co
     : 'system';
   const cfg = roleStyle[role];
   const roleLabel = t(`transcript.roles.${role}`);
-  const isLowConfidence = message.sttConfidence !== undefined && message.sttConfidence < 0.8;
+  // 低信心門檻校準：sttConfidence 現為 exp(avg_logprob)（幾何平均 token 機率），
+  // 清晰語音約 0.7~0.95；Whisper 自身視 avg_logprob < -1.0（exp ≈ 0.37）為解碼
+  // 失敗。0.5 以下才標低信心——沿用舊的 0.8 會誤標大量正常輪次。
+  const isLowConfidence = message.sttConfidence !== undefined && message.sttConfidence < 0.5;
 
   if (message.role === 'system') {
     return (

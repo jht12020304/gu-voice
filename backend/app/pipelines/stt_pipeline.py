@@ -7,6 +7,7 @@
 
 import io
 import logging
+import math
 from typing import Any
 
 from app.core.config import Settings
@@ -152,8 +153,10 @@ class STTPipeline:
 
         Returns:
             {
-                "text":       str,    # 辨識文字
-                "confidence": float,  # 固定 1.0（Whisper 未提供分數）
+                "text":       str,          # 辨識文字
+                "confidence": float | None, # 由 verbose_json segments 的 avg_logprob
+                                            # 估算（幾何平均 token 機率，0~1）；
+                                            # segments 缺失時為 None（未知，非 1.0）
                 "is_final":   True,
                 "words":      [],
             }
@@ -189,24 +192,26 @@ class STTPipeline:
             text = (getattr(response, "text", None) or "").strip()
 
             # ── 幻覺 / 靜音過濾（醫療安全：不要拿幻覺去跑紅旗篩檢 / LLM）──────
+            # PHI：log 不輸出對話原文（含被丟棄的幻覺片段），只留長度供排查。
             if text and self._is_hallucination(text, response):
                 logger.info(
-                    "STT 判定為幻覺/靜音，丟棄該段 | lang=%s, dropped=%s",
+                    "STT 判定為幻覺/靜音，丟棄該段 | lang=%s, dropped_chars=%d",
                     lang,
-                    text[:60],
+                    len(text),
                 )
                 return {"text": "", "confidence": 0.0, "is_final": True, "words": []}
 
+            confidence = self._estimate_confidence(response)
             logger.info(
-                "STT 轉錄完成 | lang=%s, chars=%d, preview=%s",
+                "STT 轉錄完成 | lang=%s, chars=%d, confidence=%s",
                 lang,
                 len(text),
-                text[:60] if text else "(空)",
+                f"{confidence:.4f}" if confidence is not None else "n/a",
             )
 
             return {
                 "text": text,
-                "confidence": 1.0,
+                "confidence": confidence,
                 "is_final": True,
                 "words": [],
             }
@@ -231,6 +236,23 @@ class STTPipeline:
         if normalized and normalized in _HALLUCINATION_NORMALIZED:
             return True
 
+        no_speech_probs, avg_logprobs = STTPipeline._segment_stats(response)
+
+        if no_speech_probs and avg_logprobs:
+            mean_nsp = sum(no_speech_probs) / len(no_speech_probs)
+            mean_alp = sum(avg_logprobs) / len(avg_logprobs)
+            if mean_nsp >= _NO_SPEECH_PROB_THRESHOLD and mean_alp < _AVG_LOGPROB_THRESHOLD:
+                return True
+
+        return False
+
+    @staticmethod
+    def _segment_stats(response: Any) -> tuple[list[float], list[float]]:
+        """自 verbose_json segments 取出 (no_speech_probs, avg_logprobs)。
+
+        segment 可能是 dict（raw JSON）或 SDK 物件，兩種取法都支援；
+        缺欄 / 非數值一律略過，回傳兩個可能為空的 list。
+        """
         segments = getattr(response, "segments", None) or []
         no_speech_probs: list[float] = []
         avg_logprobs: list[float] = []
@@ -249,14 +271,24 @@ class STTPipeline:
                 no_speech_probs.append(float(nsp))
             if isinstance(alp, (int, float)):
                 avg_logprobs.append(float(alp))
+        return no_speech_probs, avg_logprobs
 
-        if no_speech_probs and avg_logprobs:
-            mean_nsp = sum(no_speech_probs) / len(no_speech_probs)
-            mean_alp = sum(avg_logprobs) / len(avg_logprobs)
-            if mean_nsp >= _NO_SPEECH_PROB_THRESHOLD and mean_alp < _AVG_LOGPROB_THRESHOLD:
-                return True
+    @staticmethod
+    def _estimate_confidence(response: Any) -> float | None:
+        """由 segments 的 avg_logprob 估算信心分數（0~1）。
 
-        return False
+        Whisper API 不直接回傳 confidence；業界慣用 proxy 是
+        exp(mean(avg_logprob))＝幾何平均 token 機率：
+        清晰語音約落在 0.7~0.95，Whisper 自身視 avg_logprob < -1.0
+        （≈ exp ≈ 0.37）為解碼失敗門檻，故 0.5 以下可視為低信心。
+        segments 缺失時回 None（未知），呼叫端應存 NULL 而非假裝滿分。
+        小數點取 4 位以對齊 conversations.stt_confidence Numeric(5,4)。
+        """
+        _, avg_logprobs = STTPipeline._segment_stats(response)
+        if not avg_logprobs:
+            return None
+        mean_alp = sum(avg_logprobs) / len(avg_logprobs)
+        return round(max(0.0, min(1.0, math.exp(mean_alp))), 4)
 
     async def close(self) -> None:
         """OpenAI AsyncClient 無需明確關閉，保留介面一致性。"""

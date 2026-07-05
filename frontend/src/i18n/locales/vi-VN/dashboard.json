@@ -8,6 +8,7 @@
     },
     "nav": {
       "dashboard": "Bảng điều khiển",
+      "research": "Phân tích nghiên cứu",
       "tryConversation": "Trải nghiệm luồng hội thoại",
       "patients": "Danh sách bệnh nhân",
       "soapReports": "Báo cáo SOAP",
