@@ -2,7 +2,7 @@
   "page": {
     "eyebrow": "Research analytics",
     "title": "Consultation research metrics",
-    "subtitle": "De-identified aggregate metrics across the whole cohort, aligned with international journal evaluation frameworks",
+    "subtitle": "De-identified aggregate metrics across the whole cohort, presented to international journal figure and statistical-reporting standards",
     "loading": "Loading research metrics…",
     "error": "Failed to load research metrics. Please retry later.",
     "empty": "No data yet",
@@ -10,9 +10,19 @@
     "updatedAt": "Updated at",
     "minutesShort": "min"
   },
+  "fig": {
+    "one": "Figure 1",
+    "two": "Figure 2",
+    "three": "Figure 3",
+    "four": "Figure 4",
+    "five": "Figure 5",
+    "six": "Figure 6",
+    "seven": "Figure 7",
+    "eight": "Figure 8"
+  },
   "kpi": {
     "sessions": "Sessions enrolled",
-    "sessionsHelper": "All consultation sessions",
+    "patients": "{{count}} patients",
     "completionRate": "Completion rate",
     "redFlagRate": "Red-flag session rate",
     "redFlagRateHelper": "{{count}} / {{terminal}} terminal sessions",
@@ -22,22 +32,40 @@
     "agreementRate": "Physician agreement",
     "agreementRateHelper": "Approved / (approved + revision)"
   },
+  "demographics": {
+    "title": "Table 1. Patient characteristics",
+    "subtitle": "Patient-level demographics and case mix (the baseline table every clinical paper needs)",
+    "badge": "{{count}} patients",
+    "age": "Age (years)",
+    "medianIqr": "median, IQR",
+    "ageMeanSd": "Age mean ± SD",
+    "ageBands": "Age bands",
+    "caseMix": "Chief-complaint case mix (by session)",
+    "gender": {
+      "male": "Male",
+      "female": "Female",
+      "other": "Other"
+    }
+  },
   "cohort": {
     "title": "Cohort flow & weekly trend",
-    "subtitle": "CONSORT-style flow: completed / red-flag aborted / cancelled, with weekly trend",
-    "badge": "{{total}} sessions",
-    "completed": "Completed",
-    "abortedRedFlag": "Red-flag aborted",
-    "cancelled": "Cancelled",
-    "active": "In progress / waiting",
+    "subtitle": "Weekly enrolled sessions and completions (CONSORT-style flow)",
+    "footnote": "{{total}} sessions enrolled: {{completed}} completed, {{aborted}} red-flag aborted, {{cancelled}} cancelled.",
     "seriesSessions": "Sessions",
-    "seriesCompleted": "Completed",
-    "redFlagWeek": "Red-flag sessions"
+    "seriesCompleted": "Completed"
+  },
+  "efficiency": {
+    "title": "Consultation efficiency distributions",
+    "subtitle": "Duration / turns / chars-per-turn for terminal sessions (box plots: median, IQR, Tukey whiskers, outliers)",
+    "footnote": "Distributions are shown as box plots rather than bar graphs, which conceal data structure (Weissgerber 2015, PLOS Biology).",
+    "duration": "Duration",
+    "turns": "Patient turns",
+    "chars": "Chars per turn"
   },
   "hpi": {
     "title": "History-taking completeness (10 HPI fields)",
     "subtitle": "Share of SOAP reports capturing each field (AMIE history-taking axis)",
-    "badge": "{{count}} reports",
+    "footnote": "Denominator is {{count}} generated reports; bar length is the fill rate.",
     "fields": {
       "onset": "Onset",
       "location": "Location",
@@ -54,12 +82,16 @@
   "safety": {
     "title": "Triage safety",
     "subtitle": "Red-flag detection and physician acknowledgement (symptom-checker triage safety metrics)",
-    "severityTitle": "Alert severity distribution",
+    "footnote": "Proportions carry Wilson score 95% CIs (error bars); denominators are terminal sessions or alert count.",
+    "keyRates": "Key proportions (95% CI)",
+    "alertRate": "Red-flag session rate",
+    "ackRate": "Acknowledgement rate",
     "severity": {
       "critical": "Critical",
       "high": "High",
       "medium": "Medium"
     },
+    "severityTitle": "Alert severity distribution",
     "layerTitle": "Detection-layer confidence",
     "layer": {
       "rule_hit": "Rule-layer hit",
@@ -67,7 +99,7 @@
       "uncovered_locale": "Locale uncovered"
     },
     "urgencyTitle": "SOAP recommended urgency",
-    "urgencySubtitle": "Overall plan urgency from the AI (with monotonic red-flag escalation)",
+    "urgencySubtitle": "Overall plan urgency from the AI (with monotonic red-flag escalation) and detection-layer confidence",
     "urgency": {
       "er_now": "ER now",
       "24h": "Within 24 h",
@@ -75,30 +107,21 @@
       "routine": "Routine"
     },
     "timeToFirstAlert": "Time to first alert (median/IQR)",
-    "ackRate": "Acknowledgement rate",
     "ackLatency": "Acknowledgement latency (median/IQR)"
   },
   "stt": {
     "title": "Speech recognition quality",
-    "subtitle": "STT confidence distribution (exp(avg_logprob) proxy, 0–1)",
-    "badge": "{{count}} voice turns",
-    "turns": "Turns",
+    "subtitle": "STT confidence histogram (exp(avg_logprob) proxy, 0–1)",
+    "footnote": "Denominator is {{count}} voice turns with a confidence score.",
+    "turns": "Confidence score (0–1)",
     "medianConfidence": "Confidence (median/IQR)",
-    "lowConfidence": "Low-confidence turn rate (<0.5)",
+    "lowConfidence": "Low-confidence rate (<0.5)",
     "voiceShare": "Voice input share"
-  },
-  "efficiency": {
-    "title": "Consultation efficiency",
-    "subtitle": "Duration distribution and dialogue turns for terminal sessions",
-    "sessions": "Sessions",
-    "medianDuration": "Duration (median/IQR)",
-    "medianTurns": "Patient turns (median/IQR)",
-    "medianChars": "Chars per turn (median/IQR)"
   },
   "documentation": {
     "title": "AI documentation quality",
     "subtitle": "SOAP quality and physician review outcomes (pragmatic proxy in the spirit of PDQI-9)",
-    "badge": "{{count}} reports",
+    "footnote": "Agreement / verification rates carry Wilson 95% CIs; denominator is {{count}} generated reports.",
     "outcomesTitle": "Physician review outcomes",
     "outcomes": {
       "approved": "Approved",
@@ -109,25 +132,34 @@
     "icdVerified": "ICD-10 verified rate",
     "agreement": "Physician agreement"
   },
+  "forest": {
+    "title": "Red-flag rate by language subgroup (forest plot)",
+    "subtitle": "Point estimate and Wilson 95% CI of red-flag rate per language (terminal sessions); dashed line is the overall rate",
+    "footnote": "Marker size reflects subgroup size; wider CIs indicate smaller n and warrant cautious interpretation.",
+    "overall": "Overall",
+    "xLabel": "Red-flag session rate (%)"
+  },
   "table": {
     "title": "Per-language subgroup summary",
-    "subtitle": "Subgroup comparison for multilingual deployment (table fallback for chart values)",
+    "subtitle": "Subgroup comparison for multilingual deployment (full table behind the forest plot)",
     "language": "Language",
     "sessions": "Sessions",
     "completed": "Completed",
     "medianDuration": "Median duration",
     "meanTurns": "Mean turns",
-    "meanConfidence": "Mean STT confidence",
-    "redFlagRate": "Red-flag rate"
+    "medianConfidence": "Median STT confidence",
+    "redFlagRate": "Red-flag rate (95% CI)"
   },
   "methods": {
     "title": "Methods crosswalk (publication guidance)",
-    "subtitle": "Frameworks these metrics align with; use them to draft Methods and reporting checklists",
-    "decideAi": "Reporting guideline for early-stage clinical evaluation of AI decision support (Nature Medicine 2022) — this system is a small-scale live clinical evaluation; map each of its 17 AI-specific items when submitting",
+    "subtitle": "Frameworks these metrics and figures align with; use them to draft Methods and reporting checklists",
+    "decideAi": "Reporting guideline for early-stage clinical evaluation of AI decision support (Nature Medicine 2022) — this system is a small-scale live evaluation; map each of its 17 AI-specific items when submitting",
     "amie": "Evaluation axes for conversational diagnostic AI: history-taking completeness, diagnostic accuracy, management, and empathic communication — the HPI completeness panel maps to its history-taking axis",
     "triageLabel": "Symptom-checker triage literature",
-    "triage": "Triage safety is reported as sensitivity/specificity and under-triage rate (JMIR and others) — red-flag session rate, detection latency and acknowledgement rate here are the corresponding process metrics; a formal paper needs physician adjudication as the gold standard",
+    "triage": "Triage safety is reported as sensitivity/specificity and under-triage rate (JMIR and others) — red-flag rate, detection latency and acknowledgement rate here are the corresponding process metrics; a formal paper needs physician adjudication as the gold standard",
     "pdqi": "9-dimension physician documentation quality instrument — physician approval rate here is a pragmatic proxy; for publication, sample notes for dual-rater PDQI-9 scoring and report ICC/kappa",
+    "statsLabel": "Statistical & figure standards",
+    "stats": "Continuous data are shown as box-plot distributions (not bar graphs, Weissgerber 2015); proportions carry Wilson score 95% CIs with numerator/denominator (SAMPL guideline); subgroups use a forest plot. Every figure exports as a vector SVG for typesetting.",
     "disclaimer": "All figures are de-identified aggregates. Formal publication requires IRB approval, a pre-registered analysis plan, and confidence intervals appropriate to the sample size."
   }
 }

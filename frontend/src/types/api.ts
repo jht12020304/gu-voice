@@ -411,11 +411,24 @@ export interface DistributionBucket {
 export interface NumericSummary {
   n: number;
   mean: number | null;
+  sd: number | null;
   median: number | null;
   p25: number | null;
   p75: number | null;
   min: number | null;
   max: number | null;
+  whiskerLow: number | null;
+  whiskerHigh: number | null;
+  outliers: number[];
+}
+
+/** 比例 + Wilson score 95% CI（value/ciLow/ciHigh 為 0~1；分母 0 時為 null） */
+export interface Proportion {
+  numerator: number;
+  denominator: number;
+  value: number | null;
+  ciLow: number | null;
+  ciHigh: number | null;
 }
 
 export interface HistogramBucket {
@@ -438,7 +451,16 @@ export interface ResearchCohortSection {
   cancelled: number;
   inProgressOrWaiting: number;
   completionRate: number | null;
+  completion: Proportion;
   weeklyTrend: WeeklyTrendItem[];
+}
+
+export interface ResearchDemographicsSection {
+  totalPatients: number;
+  ageYears: NumericSummary;
+  ageBandDistribution: DistributionBucket[];
+  genderDistribution: DistributionBucket[];
+  chiefComplaintDistribution: DistributionBucket[];
 }
 
 export interface ResearchEfficiencySection {
@@ -466,6 +488,7 @@ export interface ResearchHistoryTakingSection {
 export interface ResearchSafetySection {
   sessionsWithAlerts: number;
   alertSessionRate: number | null;
+  alertSession: Proportion;
   totalAlerts: number;
   severityDistribution: DistributionBucket[];
   layerDistribution: DistributionBucket[];
@@ -473,6 +496,7 @@ export interface ResearchSafetySection {
   urgencyDistribution: DistributionBucket[];
   timeToFirstAlertSeconds: NumericSummary;
   acknowledgedRate: number | null;
+  acknowledged: Proportion;
   ackLatencySeconds: NumericSummary;
 }
 
@@ -480,6 +504,7 @@ export interface SttLanguageQuality {
   language: string;
   turns: number;
   meanConfidence: number | null;
+  medianConfidence: number | null;
   lowConfidenceRate: number | null;
 }
 
@@ -487,6 +512,7 @@ export interface ResearchSttQualitySection {
   turnsWithConfidence: number;
   confidenceSummary: NumericSummary;
   lowConfidenceRate: number | null;
+  lowConfidence: Proportion;
   histogram: HistogramBucket[];
   byLanguage: SttLanguageQuality[];
   voiceTurnShare: number | null;
@@ -496,8 +522,10 @@ export interface ResearchDocumentationSection {
   reportsGenerated: number;
   aiConfidenceSummary: NumericSummary;
   icd10VerifiedRate: number | null;
+  icd10Verified: Proportion;
   reviewOutcomes: DistributionBucket[];
   physicianAgreementRate: number | null;
+  physicianAgreement: Proportion;
   revisionReasonDistribution: DistributionBucket[];
 }
 
@@ -509,6 +537,7 @@ export interface ResearchLanguageBreakdownItem {
   meanPatientTurns: number | null;
   meanSttConfidence: number | null;
   redFlagSessionRate: number | null;
+  redFlagRate: Proportion;
 }
 
 export interface ResearchAnalyticsResponse {
@@ -516,6 +545,7 @@ export interface ResearchAnalyticsResponse {
   dateFrom: string | null;
   dateTo: string | null;
   cohort: ResearchCohortSection;
+  demographics: ResearchDemographicsSection;
   efficiency: ResearchEfficiencySection;
   historyTaking: ResearchHistoryTakingSection;
   safety: ResearchSafetySection;

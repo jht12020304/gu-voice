@@ -16,12 +16,15 @@ from uuid import uuid4
 from app.services.research_service import (
     HPI_FIELDS,
     ResearchService,
+    age_band,
+    age_from_dob,
     histogram,
     hpi_completeness,
     percentile,
     rate,
     summarize,
     week_start_of,
+    wilson_proportion,
 )
 
 T0 = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)  # 週三
@@ -72,6 +75,48 @@ def test_rate_zero_denominator_is_none():
 
 def test_week_start_is_monday():
     assert week_start_of(T0) == "2026-06-29"  # 2026-07-01 為週三
+
+
+def test_wilson_proportion_known_value():
+    # 教科書驗證：Wilson 95% CI for 陽性 8/10
+    # Wilson score 95% CI for 8/10 ≈ (0.490, 0.943)（教科書值）
+    p = wilson_proportion(8, 10)
+    assert p.value == 0.8
+    assert p.numerator == 8 and p.denominator == 10
+    assert abs(p.ci_low - 0.4902) < 0.005
+    assert abs(p.ci_high - 0.9433) < 0.005
+    # CI 不可越界 [0,1]
+    edge = wilson_proportion(10, 10)
+    assert 0.0 <= edge.ci_low <= 1.0 and edge.ci_high <= 1.0
+
+
+def test_wilson_zero_denominator_is_none():
+    p = wilson_proportion(0, 0)
+    assert p.value is None and p.ci_low is None and p.ci_high is None
+    assert p.denominator == 0
+
+
+def test_summarize_has_sd_and_boxplot_whiskers():
+    s = summarize([1, 2, 3, 4, 5, 100])  # 100 為離群
+    assert s.sd is not None and s.sd > 0
+    # Tukey 1.5×IQR：100 應被列為 outlier，whisker_high 落在圍籬內最大值
+    assert 100.0 in s.outliers
+    assert s.whisker_high < 100.0
+    assert s.whisker_low == 1.0
+
+
+def test_age_band_cutpoints():
+    assert age_band(39) == "<40"
+    assert age_band(40) == "40-59"
+    assert age_band(59) == "40-59"
+    assert age_band(60) == "60-74"
+    assert age_band(75) == "75+"
+
+
+def test_age_from_dob():
+    from datetime import date
+    assert age_from_dob(date(1960, 6, 1), date(2026, 5, 1)) == 65  # 生日未到
+    assert age_from_dob(date(1960, 6, 1), date(2026, 6, 1)) == 66  # 生日當天
 
 
 # ── _assemble 全流程（stub rows） ─────────────────────────
@@ -136,6 +181,16 @@ def _build():
             urgency="er_now",
         ),
     ]
+    from datetime import date as _date
+    p1, p2 = uuid4(), uuid4()
+    demo = [
+        SimpleNamespace(session_id=s1, patient_id=p1,
+                        date_of_birth=_date(1955, 1, 1), gender="male", complaint="Hematuria"),
+        SimpleNamespace(session_id=s2, patient_id=p2,
+                        date_of_birth=_date(1990, 1, 1), gender="female", complaint="Frequency"),
+        SimpleNamespace(session_id=s3, patient_id=p1,
+                        date_of_birth=_date(1955, 1, 1), gender="male", complaint="Hematuria"),
+    ]
     svc = ResearchService()
     return svc._assemble(
         session_rows=sessions,
@@ -144,6 +199,7 @@ def _build():
         alert_rows=alerts,
         report_rows=reports,
         revision_pairs=[("initial", 2), ("review_override", 1)],
+        demo_rows=demo,
         date_from=None,
         date_to=None,
     )
@@ -213,3 +269,30 @@ def test_assemble_by_language_table():
     assert langs["zh-TW"].median_duration_seconds == 600.0
     # en-US 唯一終態場次即紅旗場次 → rate 1.0
     assert langs["en-US"].red_flag_session_rate == 1.0
+    # 森林圖：紅旗率帶 Wilson CI（en-US 1/1）
+    assert langs["en-US"].red_flag_rate.value == 1.0
+    assert langs["en-US"].red_flag_rate.denominator == 1
+
+
+def test_assemble_demographics_table1():
+    out = _build()
+    d = out.demographics
+    # 3 場次但只有 2 位 distinct 病患（p1 兩場）
+    assert d.total_patients == 2
+    assert d.age_years.n == 2  # 去重後兩位病患的年齡
+    genders = {b.key: b.count for b in d.gender_distribution}
+    assert genders == {"male": 1, "female": 1, "other": 0}
+    # case mix 以場次計：Hematuria 2 場（s1+s3）、Frequency 1 場
+    cc = {b.key: b.count for b in d.chief_complaint_distribution}
+    assert cc == {"Hematuria": 2, "Frequency": 1}
+
+
+def test_assemble_proportions_carry_wilson_ci():
+    out = _build()
+    # completion 1/3 → value + CI 存在
+    assert out.cohort.completion.value == round(1 / 3, 4)
+    assert out.cohort.completion.ci_low is not None
+    assert out.cohort.completion.ci_high is not None
+    # 分母 0 的比例（無資料語言等）不應 crash；alert_session 2 分母有值
+    assert out.safety.alert_session.denominator == 2
+    assert out.documentation.physician_agreement.value == 0.5

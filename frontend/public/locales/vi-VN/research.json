@@ -2,7 +2,7 @@
   "page": {
     "eyebrow": "Phân tích nghiên cứu",
     "title": "Chỉ số nghiên cứu khám bệnh",
-    "subtitle": "Chỉ số tổng hợp ẩn danh trên toàn bộ giai đoạn thu nhận, theo các khung đánh giá của tạp chí quốc tế",
+    "subtitle": "Chỉ số tổng hợp ẩn danh trên toàn giai đoạn thu nhận, trình bày theo chuẩn hình và báo cáo thống kê của tạp chí quốc tế",
     "loading": "Đang tải chỉ số nghiên cứu…",
     "error": "Không thể tải chỉ số nghiên cứu. Vui lòng thử lại sau.",
     "empty": "Chưa có dữ liệu",
@@ -10,9 +10,19 @@
     "updatedAt": "Cập nhật lúc",
     "minutesShort": "phút"
   },
+  "fig": {
+    "one": "Figure 1",
+    "two": "Figure 2",
+    "three": "Figure 3",
+    "four": "Figure 4",
+    "five": "Figure 5",
+    "six": "Figure 6",
+    "seven": "Figure 7",
+    "eight": "Figure 8"
+  },
   "kpi": {
     "sessions": "Số buổi thu nhận",
-    "sessionsHelper": "Tất cả buổi khám",
+    "patients": "{{count}} bệnh nhân",
     "completionRate": "Tỷ lệ hoàn tất",
     "redFlagRate": "Tỷ lệ buổi có cờ đỏ",
     "redFlagRateHelper": "{{count}} / {{terminal}} buổi kết thúc",
@@ -22,22 +32,40 @@
     "agreementRate": "Tỷ lệ bác sĩ chấp thuận",
     "agreementRateHelper": "Chấp thuận / (chấp thuận + cần sửa)"
   },
+  "demographics": {
+    "title": "Table 1. Đặc điểm bệnh nhân",
+    "subtitle": "Nhân khẩu học cấp bệnh nhân và case mix (bảng nền tảng mọi bài lâm sàng đều cần)",
+    "badge": "{{count}} bệnh nhân",
+    "age": "Tuổi (năm)",
+    "medianIqr": "trung vị, IQR",
+    "ageMeanSd": "Tuổi trung bình ± SD",
+    "ageBands": "Nhóm tuổi",
+    "caseMix": "Case mix triệu chứng chính (theo buổi)",
+    "gender": {
+      "male": "Nam",
+      "female": "Nữ",
+      "other": "Khác"
+    }
+  },
   "cohort": {
     "title": "Luồng thu nhận & xu hướng theo tuần",
-    "subtitle": "Luồng kiểu CONSORT: hoàn tất / dừng do cờ đỏ / hủy, kèm xu hướng theo tuần",
-    "badge": "{{total}} buổi",
-    "completed": "Hoàn tất",
-    "abortedRedFlag": "Dừng do cờ đỏ",
-    "cancelled": "Đã hủy",
-    "active": "Đang diễn ra / chờ",
+    "subtitle": "Số buổi và số hoàn tất theo tuần (luồng kiểu CONSORT)",
+    "footnote": "{{total}} buổi thu nhận: {{completed}} hoàn tất, {{aborted}} dừng do cờ đỏ, {{cancelled}} hủy.",
     "seriesSessions": "Số buổi",
-    "seriesCompleted": "Hoàn tất",
-    "redFlagWeek": "Buổi có cờ đỏ"
+    "seriesCompleted": "Hoàn tất"
+  },
+  "efficiency": {
+    "title": "Phân bố hiệu suất khám",
+    "subtitle": "Thời lượng / số lượt / ký tự mỗi lượt của buổi đã kết thúc (biểu đồ hộp: trung vị, IQR, râu Tukey, ngoại lệ)",
+    "footnote": "Phân bố được thể hiện bằng biểu đồ hộp thay vì biểu đồ cột vốn che giấu cấu trúc dữ liệu (Weissgerber 2015, PLOS Biology).",
+    "duration": "Thời lượng",
+    "turns": "Lượt bệnh nhân",
+    "chars": "Ký tự mỗi lượt"
   },
   "hpi": {
     "title": "Độ đầy đủ khai thác bệnh sử (10 mục HPI)",
     "subtitle": "Tỷ lệ báo cáo SOAP thu thập được từng mục (trục khai thác bệnh sử của AMIE)",
-    "badge": "{{count}} báo cáo",
+    "footnote": "Mẫu số là {{count}} báo cáo đã tạo; độ dài thanh là tỷ lệ thu thập.",
     "fields": {
       "onset": "Thời điểm khởi phát",
       "location": "Vị trí",
@@ -54,12 +82,16 @@
   "safety": {
     "title": "An toàn phân loại (triage)",
     "subtitle": "Phát hiện cờ đỏ và xác nhận của bác sĩ (chỉ số an toàn triage theo y văn symptom checker)",
-    "severityTitle": "Phân bố mức độ cảnh báo",
+    "footnote": "Tỷ lệ kèm KTC 95% Wilson (thanh sai số); mẫu số là buổi kết thúc hoặc số cảnh báo.",
+    "keyRates": "Tỷ lệ chính (KTC 95%)",
+    "alertRate": "Tỷ lệ buổi có cờ đỏ",
+    "ackRate": "Tỷ lệ bác sĩ xác nhận",
     "severity": {
       "critical": "Nguy kịch",
       "high": "Cao",
       "medium": "Trung bình"
     },
+    "severityTitle": "Phân bố mức độ cảnh báo",
     "layerTitle": "Độ tin cậy theo tầng phát hiện",
     "layer": {
       "rule_hit": "Khớp tầng luật",
@@ -67,7 +99,7 @@
       "uncovered_locale": "Ngôn ngữ chưa phủ"
     },
     "urgencyTitle": "Mức khẩn cấp SOAP đề xuất",
-    "urgencySubtitle": "Mức khẩn cấp tổng thể của Plan do AI đề xuất (có bảo vệ nâng bậc theo cờ đỏ)",
+    "urgencySubtitle": "Mức khẩn cấp tổng thể của Plan do AI đề xuất (có nâng bậc đơn điệu theo cờ đỏ) và độ tin cậy tầng phát hiện",
     "urgency": {
       "er_now": "Cấp cứu ngay",
       "24h": "Trong 24 giờ",
@@ -75,30 +107,21 @@
       "routine": "Theo dõi định kỳ"
     },
     "timeToFirstAlert": "Thời gian đến cảnh báo đầu tiên (trung vị/IQR)",
-    "ackRate": "Tỷ lệ bác sĩ xác nhận",
     "ackLatency": "Độ trễ xác nhận (trung vị/IQR)"
   },
   "stt": {
     "title": "Chất lượng nhận dạng giọng nói",
-    "subtitle": "Phân bố độ tin cậy STT (proxy exp(avg_logprob), 0–1)",
-    "badge": "{{count}} lượt nói",
-    "turns": "Số lượt",
+    "subtitle": "Biểu đồ tần suất độ tin cậy STT (proxy exp(avg_logprob), 0–1)",
+    "footnote": "Mẫu số là {{count}} lượt nói có điểm tin cậy.",
+    "turns": "Điểm tin cậy (0–1)",
     "medianConfidence": "Độ tin cậy (trung vị/IQR)",
-    "lowConfidence": "Tỷ lệ lượt tin cậy thấp (<0.5)",
+    "lowConfidence": "Tỷ lệ tin cậy thấp (<0.5)",
     "voiceShare": "Tỷ lệ nhập bằng giọng nói"
-  },
-  "efficiency": {
-    "title": "Hiệu suất khám",
-    "subtitle": "Phân bố thời lượng và số lượt hội thoại của các buổi đã kết thúc",
-    "sessions": "Số buổi",
-    "medianDuration": "Thời lượng (trung vị/IQR)",
-    "medianTurns": "Lượt của bệnh nhân (trung vị/IQR)",
-    "medianChars": "Ký tự mỗi lượt (trung vị/IQR)"
   },
   "documentation": {
     "title": "Chất lượng tài liệu AI",
     "subtitle": "Chất lượng SOAP và kết quả duyệt của bác sĩ (proxy thực dụng theo tinh thần PDQI-9)",
-    "badge": "{{count}} báo cáo",
+    "footnote": "Tỷ lệ chấp thuận/xác minh kèm KTC 95% Wilson; mẫu số là {{count}} báo cáo đã tạo.",
     "outcomesTitle": "Kết quả duyệt của bác sĩ",
     "outcomes": {
       "approved": "Chấp thuận",
@@ -109,25 +132,34 @@
     "icdVerified": "Tỷ lệ ICD-10 được xác minh",
     "agreement": "Tỷ lệ bác sĩ chấp thuận"
   },
+  "forest": {
+    "title": "Tỷ lệ cờ đỏ theo phân nhóm ngôn ngữ (forest plot)",
+    "subtitle": "Ước lượng điểm và KTC 95% Wilson của tỷ lệ cờ đỏ mỗi ngôn ngữ (buổi kết thúc); đường nét đứt là tỷ lệ chung",
+    "footnote": "Kích thước điểm phản ánh cỡ phân nhóm; KTC càng rộng nghĩa là n càng nhỏ, cần diễn giải thận trọng.",
+    "overall": "Tổng thể",
+    "xLabel": "Tỷ lệ buổi có cờ đỏ (%)"
+  },
   "table": {
     "title": "Tóm tắt phân nhóm theo ngôn ngữ",
-    "subtitle": "So sánh phân nhóm cho triển khai đa ngôn ngữ (bảng thay thế cho số liệu biểu đồ)",
+    "subtitle": "So sánh phân nhóm cho triển khai đa ngôn ngữ (bảng đầy đủ đằng sau forest plot)",
     "language": "Ngôn ngữ",
     "sessions": "Buổi",
     "completed": "Hoàn tất",
     "medianDuration": "Thời lượng trung vị",
     "meanTurns": "Lượt trung bình",
-    "meanConfidence": "Độ tin cậy STT trung bình",
-    "redFlagRate": "Tỷ lệ cờ đỏ"
+    "medianConfidence": "Độ tin cậy STT trung vị",
+    "redFlagRate": "Tỷ lệ cờ đỏ (KTC 95%)"
   },
   "methods": {
     "title": "Đối chiếu phương pháp (hướng dẫn công bố)",
-    "subtitle": "Các khung đánh giá quốc tế mà chỉ số trang này bám theo; dùng để soạn Methods và checklist báo cáo",
-    "decideAi": "Hướng dẫn báo cáo đánh giá lâm sàng giai đoạn sớm cho hệ hỗ trợ quyết định AI (Nature Medicine 2022) — hệ thống này thuộc đánh giá thực địa quy mô nhỏ; khi nộp bài cần đối chiếu 17 mục dành riêng cho AI",
+    "subtitle": "Các khung quốc tế mà chỉ số và hình của trang này bám theo; dùng để soạn Methods và checklist",
+    "decideAi": "Hướng dẫn báo cáo đánh giá lâm sàng giai đoạn sớm cho hệ hỗ trợ quyết định AI (Nature Medicine 2022) — hệ thống này là đánh giá thực địa quy mô nhỏ; khi nộp bài cần đối chiếu 17 mục dành riêng cho AI",
     "amie": "Các trục đánh giá AI chẩn đoán hội thoại: độ đầy đủ khai thác bệnh sử, độ chính xác chẩn đoán, kế hoạch xử trí, giao tiếp thấu cảm — bảng HPI của trang này tương ứng trục khai thác bệnh sử",
     "triageLabel": "Y văn triage của symptom checker",
     "triage": "An toàn triage được báo cáo bằng độ nhạy/độ đặc hiệu và tỷ lệ under-triage (JMIR v.v.) — tỷ lệ cờ đỏ, độ trễ phát hiện và tỷ lệ xác nhận ở đây là chỉ số quá trình tương ứng; bài báo chính thức cần lấy phán định của bác sĩ làm chuẩn vàng để tính độ nhạy",
     "pdqi": "Bộ công cụ chất lượng tài liệu y khoa (9 chiều) — tỷ lệ chấp thuận của bác sĩ là proxy thực dụng; nghiên cứu chính thức nên chọn mẫu chấm PDQI-9 bởi 2 người đánh giá và báo cáo ICC/kappa",
+    "statsLabel": "Chuẩn thống kê & hình",
+    "stats": "Dữ liệu liên tục thể hiện bằng biểu đồ hộp (không phải biểu đồ cột, Weissgerber 2015); tỷ lệ kèm KTC 95% Wilson với tử số/mẫu số (hướng dẫn SAMPL); phân nhóm dùng forest plot. Mỗi hình xuất được ra SVG vector để dàn trang.",
     "disclaimer": "Toàn bộ số liệu là thống kê tổng hợp ẩn danh. Công bố chính thức cần IRB phê duyệt, kế hoạch phân tích đăng ký trước và khoảng tin cậy phù hợp cỡ mẫu."
   }
 }

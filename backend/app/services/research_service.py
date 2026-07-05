@@ -15,19 +15,23 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime, timedelta
 from typing import Any, Iterable, Optional, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.chief_complaint import ChiefComplaint
 from app.models.conversation import Conversation
+from app.models.patient import Patient
 from app.models.red_flag_alert import RedFlagAlert
 from app.models.session import Session
 from app.models.soap_report import SOAPReport
 from app.models.soap_report_revision import SOAPReportRevision
 from app.schemas.research import (
     CohortSection,
+    DemographicsSection,
     DistributionBucket,
     DocumentationSection,
     EfficiencySection,
@@ -36,6 +40,7 @@ from app.schemas.research import (
     HpiFieldFillRate,
     LanguageBreakdownItem,
     NumericSummary,
+    Proportion,
     ResearchAnalyticsResponse,
     SafetySection,
     SttLanguageQuality,
@@ -43,6 +48,10 @@ from app.schemas.research import (
     WeeklyTrendItem,
 )
 from app.utils.datetime_utils import utc_now
+
+# Wilson score interval 的 z（95% 雙尾）。小樣本下 Wilson 比 Wald 準確且不會
+# 越界 [0,1]，是比例 CI 的發表推薦作法。
+_Z_95 = 1.959963984540054
 
 logger = logging.getLogger(__name__)
 
@@ -71,18 +80,57 @@ _TERMINAL_STATUSES = ("completed", "aborted_red_flag")
 
 
 def summarize(values: Sequence[float]) -> NumericSummary:
-    """描述統計：n / mean / median / IQR / min / max（線性內插百分位）。"""
+    """描述統計：n / mean / SD / median / IQR / min / max + 箱形圖 whisker/離群。
+
+    百分位用線性內插（同 PG percentile_cont）。whisker 取 Tukey 1.5×IQR 圍籬內
+    最極端的真實觀測值，圍籬外者列為 outliers —— 讓前端直接畫標準箱形圖。
+    """
     vals = sorted(float(v) for v in values if v is not None)
     if not vals:
         return NumericSummary()
+    n = len(vals)
+    mean = sum(vals) / n
+    sd = math.sqrt(sum((v - mean) ** 2 for v in vals) / (n - 1)) if n > 1 else 0.0
+    q1 = percentile(vals, 0.25)
+    q3 = percentile(vals, 0.75)
+    iqr = q3 - q1
+    lo_fence, hi_fence = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    inside = [v for v in vals if lo_fence <= v <= hi_fence]
+    outliers = [round(v, 2) for v in vals if v < lo_fence or v > hi_fence]
     return NumericSummary(
-        n=len(vals),
-        mean=round(sum(vals) / len(vals), 2),
+        n=n,
+        mean=round(mean, 2),
+        sd=round(sd, 2),
         median=round(percentile(vals, 0.5), 2),
-        p25=round(percentile(vals, 0.25), 2),
-        p75=round(percentile(vals, 0.75), 2),
+        p25=round(q1, 2),
+        p75=round(q3, 2),
         min=round(vals[0], 2),
         max=round(vals[-1], 2),
+        whisker_low=round(inside[0], 2) if inside else round(vals[0], 2),
+        whisker_high=round(inside[-1], 2) if inside else round(vals[-1], 2),
+        outliers=outliers,
+    )
+
+
+def wilson_proportion(numerator: int, denominator: int) -> Proportion:
+    """比例 + Wilson score 95% CI。denominator 0 → 全 None（缺值，非 0）。"""
+    if denominator <= 0:
+        return Proportion(numerator=numerator, denominator=denominator)
+    p = numerator / denominator
+    z = _Z_95
+    denom = 1 + z * z / denominator
+    center = (p + z * z / (2 * denominator)) / denom
+    half = (
+        z
+        * math.sqrt(p * (1 - p) / denominator + z * z / (4 * denominator * denominator))
+        / denom
+    )
+    return Proportion(
+        numerator=numerator,
+        denominator=denominator,
+        value=round(p, 4),
+        ci_low=round(max(0.0, center - half), 4),
+        ci_high=round(min(1.0, center + half), 4),
     )
 
 
@@ -168,6 +216,22 @@ def rate(numerator: int, denominator: int) -> Optional[float]:
     if not denominator:
         return None
     return round(numerator / denominator, 4)
+
+
+def age_band(age: int) -> str:
+    """年齡分帶（泌尿科常用切點；攝護腺相關集中在 60+）。"""
+    if age < 40:
+        return "<40"
+    if age < 60:
+        return "40-59"
+    if age < 75:
+        return "60-74"
+    return "75+"
+
+
+def age_from_dob(dob: date, ref: date) -> int:
+    """以參考日計算實歲。"""
+    return ref.year - dob.year - ((ref.month, ref.day) < (dob.month, dob.day))
 
 
 # ── 主服務 ──────────────────────────────────────────────
@@ -278,6 +342,30 @@ class ResearchService:
                 for r in rev_rows
             ]
 
+        # ── Q6：病患人口學（Table 1）+ 主訴 case mix ─────
+        # 以 session 為單位取每場的病患 DOB/性別與主訴 canonical 名，
+        # demographics 以「distinct 病患」計、case mix 以「場次」計。
+        demo_rows = (
+            await db.execute(
+                select(
+                    Session.id.label("session_id"),
+                    Session.patient_id,
+                    Patient.date_of_birth,
+                    Patient.gender,
+                    func.coalesce(ChiefComplaint.name_en, ChiefComplaint.name).label(
+                        "complaint"
+                    ),
+                )
+                .join(Patient, Patient.id == Session.patient_id, isouter=True)
+                .join(
+                    ChiefComplaint,
+                    ChiefComplaint.id == Session.chief_complaint_id,
+                    isouter=True,
+                )
+                .where(Session.id.in_(session_ids))
+            )
+        ).all()
+
         return self._assemble(
             session_rows=session_rows,
             sess_by_id=sess_by_id,
@@ -285,6 +373,7 @@ class ResearchService:
             alert_rows=alert_rows,
             report_rows=report_rows,
             revision_pairs=revision_pairs,
+            demo_rows=demo_rows,
             date_from=date_from,
             date_to=date_to,
         )
@@ -302,6 +391,7 @@ class ResearchService:
         revision_pairs: list[tuple[str, int]],
         date_from: Optional[date],
         date_to: Optional[date],
+        demo_rows: Sequence[Any] = (),
     ) -> ResearchAnalyticsResponse:
         def status_of(row: Any) -> str:
             s = row.status
@@ -337,10 +427,46 @@ class ResearchService:
             cancelled=cancelled,
             in_progress_or_waiting=total - completed - aborted - cancelled,
             completion_rate=rate(completed, total),
+            completion=wilson_proportion(completed, total),
             weekly_trend=[
                 WeeklyTrendItem(week_start=wk, **counts)
                 for wk, counts in sorted(weekly.items())
             ],
+        )
+
+        # ── Demographics（Table 1）──────────────────────
+        # 病患層級去重（同病患多場次只計一次年齡/性別）；主訴以場次計 case mix。
+        ref_day = (
+            max((r.created_at.date() for r in session_rows), default=None)
+            or utc_now().date()
+        )
+        patient_age: dict[Any, int] = {}
+        patient_gender: dict[Any, str] = {}
+        complaint_counts: dict[str, int] = {}
+        for r in demo_rows:
+            comp = (r.complaint or "unknown").strip() or "unknown"
+            complaint_counts[comp] = complaint_counts.get(comp, 0) + 1
+            pid = getattr(r, "patient_id", None)
+            if pid is None:
+                continue
+            if r.date_of_birth is not None and pid not in patient_age:
+                patient_age[pid] = age_from_dob(r.date_of_birth, ref_day)
+            if pid not in patient_gender and r.gender is not None:
+                g = r.gender
+                patient_gender[pid] = g.value if hasattr(g, "value") else str(g)
+        ages = list(patient_age.values())
+        demographics = DemographicsSection(
+            total_patients=len({r.patient_id for r in demo_rows if r.patient_id}),
+            age_years=summarize([float(a) for a in ages]),
+            age_band_distribution=distribution(
+                ((age_band(a), 1) for a in ages),
+                order=["<40", "40-59", "60-74", "75+"],
+            ),
+            gender_distribution=distribution(
+                ((g, 1) for g in patient_gender.values()),
+                order=["male", "female", "other"],
+            ),
+            chief_complaint_distribution=distribution(complaint_counts.items()),
         )
 
         # ── Efficiency ─────────────────────────────────
@@ -463,8 +589,10 @@ class ResearchService:
             ),
             time_to_first_alert_seconds=summarize(time_to_first),
             acknowledged_rate=rate(acked, len(alert_rows)),
+            acknowledged=wilson_proportion(acked, len(alert_rows)),
             ack_latency_seconds=summarize(ack_latencies),
         )
+        safety.alert_session = wilson_proportion(len(sessions_with_alert), terminal)
 
         # ── STT quality ────────────────────────────────
         confidences = [
@@ -486,12 +614,14 @@ class ResearchService:
             turns_with_confidence=len(confidences),
             confidence_summary=summarize(confidences),
             low_confidence_rate=rate(low_count, len(confidences)),
+            low_confidence=wilson_proportion(low_count, len(confidences)),
             histogram=histogram(confidences, [i / 10 for i in range(11)]),
             by_language=[
                 SttLanguageQuality(
                     language=lang,
                     turns=len(vals),
                     mean_confidence=round(sum(vals) / len(vals), 4),
+                    median_confidence=round(percentile(sorted(vals), 0.5), 4),
                     low_confidence_rate=rate(
                         sum(1 for v in vals if v < LOW_CONFIDENCE_THRESHOLD),
                         len(vals),
@@ -524,11 +654,13 @@ class ResearchService:
             reports_generated=len(generated_reports),
             ai_confidence_summary=summarize(ai_conf),
             icd10_verified_rate=rate(icd_verified, len(generated_reports)),
+            icd10_verified=wilson_proportion(icd_verified, len(generated_reports)),
             review_outcomes=distribution(
                 review_counts.items(),
                 order=["approved", "revision_needed", "pending"],
             ),
             physician_agreement_rate=rate(approved, approved + revision_needed),
+            physician_agreement=wilson_proportion(approved, approved + revision_needed),
             revision_reason_distribution=distribution(
                 revision_pairs,
                 order=["initial", "regenerate", "review_override"],
@@ -583,6 +715,7 @@ class ResearchService:
                         else None
                     ),
                     red_flag_session_rate=rate(lang_alert_sessions, lang_terminal),
+                    red_flag_rate=wilson_proportion(lang_alert_sessions, lang_terminal),
                 )
             )
 
@@ -591,6 +724,7 @@ class ResearchService:
             date_from=date_from.isoformat() if date_from else None,
             date_to=date_to.isoformat() if date_to else None,
             cohort=cohort,
+            demographics=demographics,
             efficiency=efficiency,
             history_taking=history,
             safety=safety,

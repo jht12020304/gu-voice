@@ -2,7 +2,7 @@
   "page": {
     "eyebrow": "研究分析",
     "title": "問診研究指標",
-    "subtitle": "全収載期間の匿名化集計指標（国際誌の評価フレームワークに準拠）",
+    "subtitle": "全収載期間の匿名化集計指標（国際誌の図表・統計報告基準に準拠）",
     "loading": "研究指標を読み込み中…",
     "error": "研究指標を読み込めませんでした。後でもう一度お試しください。",
     "empty": "データがまだありません",
@@ -10,9 +10,19 @@
     "updatedAt": "更新",
     "minutesShort": "分"
   },
+  "fig": {
+    "one": "Figure 1",
+    "two": "Figure 2",
+    "three": "Figure 3",
+    "four": "Figure 4",
+    "five": "Figure 5",
+    "six": "Figure 6",
+    "seven": "Figure 7",
+    "eight": "Figure 8"
+  },
   "kpi": {
     "sessions": "収載セッション数",
-    "sessionsHelper": "すべての問診セッション",
+    "patients": "{{count}} 名の患者",
     "completionRate": "完了率",
     "redFlagRate": "レッドフラグ率",
     "redFlagRateHelper": "{{count}} / {{terminal}} 終了セッション",
@@ -22,22 +32,40 @@
     "agreementRate": "医師承認率",
     "agreementRateHelper": "承認 /（承認＋要修正）"
   },
+  "demographics": {
+    "title": "Table 1. 患者背景",
+    "subtitle": "患者単位の人口統計とケースミックス（臨床論文に必須の基線表）",
+    "badge": "{{count}} 名",
+    "age": "年齢（歳）",
+    "medianIqr": "中央値、IQR",
+    "ageMeanSd": "年齢 平均 ± SD",
+    "ageBands": "年齢層",
+    "caseMix": "主訴のケースミックス（セッション単位）",
+    "gender": {
+      "male": "男性",
+      "female": "女性",
+      "other": "その他"
+    }
+  },
   "cohort": {
     "title": "収載フローと週次トレンド",
-    "subtitle": "CONSORT スタイルのフロー：完了／レッドフラグ中止／キャンセル、週次トレンド",
-    "badge": "計 {{total}} 件",
-    "completed": "完了",
-    "abortedRedFlag": "レッドフラグ中止",
-    "cancelled": "キャンセル",
-    "active": "進行中／待機中",
+    "subtitle": "週ごとのセッション数と完了数（CONSORT スタイルのフロー）",
+    "footnote": "収載 {{total}} 件：完了 {{completed}}、レッドフラグ中止 {{aborted}}、キャンセル {{cancelled}}。",
     "seriesSessions": "セッション数",
-    "seriesCompleted": "完了数",
-    "redFlagWeek": "レッドフラグ件数"
+    "seriesCompleted": "完了数"
+  },
+  "efficiency": {
+    "title": "問診効率の分布",
+    "subtitle": "終了セッションの所要時間／ターン数／1ターン文字数（箱ひげ図：中央値・IQR・Tukey ひげ・外れ値）",
+    "footnote": "データ構造を隠す棒グラフではなく箱ひげ図で分布を示す（Weissgerber 2015, PLOS Biology）。",
+    "duration": "所要時間",
+    "turns": "患者ターン数",
+    "chars": "1ターン文字数"
   },
   "hpi": {
     "title": "病歴聴取の完全性（HPI 10 項目）",
     "subtitle": "各項目が SOAP に記載された割合（AMIE 病歴聴取軸）",
-    "badge": "{{count}} 件",
+    "footnote": "分母は生成済みレポート {{count}} 件。バーの長さが記載率。",
     "fields": {
       "onset": "発症時期",
       "location": "部位",
@@ -54,12 +82,16 @@
   "safety": {
     "title": "トリアージ安全性",
     "subtitle": "レッドフラグ検出と医師確認（症状チェッカー文献のトリアージ安全指標）",
-    "severityTitle": "アラート重症度分布",
+    "footnote": "比率には Wilson スコア 95% CI（エラーバー）を付す。分母は終了セッションまたはアラート数。",
+    "keyRates": "主要比率（95% CI）",
+    "alertRate": "レッドフラグ率",
+    "ackRate": "医師確認率",
     "severity": {
       "critical": "重篤",
       "high": "高",
       "medium": "中"
     },
+    "severityTitle": "アラート重症度分布",
     "layerTitle": "検出レイヤー信頼度",
     "layer": {
       "rule_hit": "ルール層ヒット",
@@ -67,7 +99,7 @@
       "uncovered_locale": "ロケール未対応"
     },
     "urgencyTitle": "SOAP 推奨緊急度",
-    "urgencySubtitle": "AI の Plan 全体緊急度（レッドフラグによる単調エスカレーション付き）",
+    "urgencySubtitle": "AI の Plan 全体緊急度（レッドフラグによる単調エスカレーション付き）と検出レイヤー信頼度",
     "urgency": {
       "er_now": "直ちに救急",
       "24h": "24 時間以内",
@@ -75,30 +107,21 @@
       "routine": "定期フォロー"
     },
     "timeToFirstAlert": "初回検出までの時間（中央値/IQR）",
-    "ackRate": "医師確認率",
     "ackLatency": "確認までの時間（中央値/IQR）"
   },
   "stt": {
     "title": "音声認識品質",
-    "subtitle": "STT 信頼度分布（exp(avg_logprob) プロキシ、0–1）",
-    "badge": "{{count}} 音声ターン",
-    "turns": "ターン数",
+    "subtitle": "STT 信頼度ヒストグラム（exp(avg_logprob) プロキシ、0–1）",
+    "footnote": "分母は信頼度スコアを持つ音声ターン {{count}} 件。",
+    "turns": "信頼度スコア（0–1）",
     "medianConfidence": "信頼度（中央値/IQR）",
-    "lowConfidence": "低信頼ターン率（<0.5）",
+    "lowConfidence": "低信頼率（<0.5）",
     "voiceShare": "音声入力の割合"
-  },
-  "efficiency": {
-    "title": "問診効率",
-    "subtitle": "終了セッションの所要時間分布と対話ターン数",
-    "sessions": "セッション数",
-    "medianDuration": "所要時間（中央値/IQR）",
-    "medianTurns": "患者ターン数（中央値/IQR）",
-    "medianChars": "1 ターンあたり文字数（中央値/IQR）"
   },
   "documentation": {
     "title": "AI 文書品質",
     "subtitle": "SOAP 品質と医師レビュー結果（PDQI-9 に準じた実用的プロキシ）",
-    "badge": "{{count}} 件",
+    "footnote": "承認率／検証率には Wilson 95% CI。分母は生成済みレポート {{count}} 件。",
     "outcomesTitle": "医師レビュー結果",
     "outcomes": {
       "approved": "承認",
@@ -109,25 +132,34 @@
     "icdVerified": "ICD-10 検証通過率",
     "agreement": "医師承認率"
   },
+  "forest": {
+    "title": "言語サブグループ別レッドフラグ率（フォレストプロット）",
+    "subtitle": "言語ごとの終了セッションでのレッドフラグ率の点推定と Wilson 95% CI。破線は全体率",
+    "footnote": "マーカーの大きさはサブグループの n を反映。CI が広いほど n が小さく、解釈は慎重に。",
+    "overall": "全体",
+    "xLabel": "レッドフラグ率（%）"
+  },
   "table": {
     "title": "言語別サブグループ要約",
-    "subtitle": "多言語展開のサブグループ比較（グラフ数値のテーブル代替）",
+    "subtitle": "多言語展開のサブグループ比較（フォレストプロットの完全表）",
     "language": "言語",
     "sessions": "セッション",
     "completed": "完了",
     "medianDuration": "時間中央値",
     "meanTurns": "平均ターン数",
-    "meanConfidence": "平均 STT 信頼度",
-    "redFlagRate": "レッドフラグ率"
+    "medianConfidence": "STT 信頼度中央値",
+    "redFlagRate": "レッドフラグ率（95% CI）"
   },
   "methods": {
     "title": "研究方法の対応表（投稿ガイド）",
-    "subtitle": "本ページの指標が準拠する国際評価フレームワーク。Methods とレポーティングチェックリスト作成に活用",
-    "decideAi": "AI 意思決定支援の早期臨床評価の報告ガイドライン（Nature Medicine 2022）— 本システムは院内小規模の実地評価に該当。投稿時は 17 の AI 固有項目を対応付けること",
+    "subtitle": "本ページの指標と図表が準拠する国際フレームワーク。Methods とチェックリスト作成に活用",
+    "decideAi": "AI 意思決定支援の早期臨床評価の報告ガイドライン（Nature Medicine 2022）— 本システムは院内小規模の実地評価。投稿時は 17 の AI 固有項目を対応付けること",
     "amie": "対話型診断 AI の評価軸：病歴聴取の完全性・診断精度・マネジメント・共感的コミュニケーション — 本ページの HPI 完全性はその病歴聴取軸に対応",
     "triageLabel": "症状チェッカーのトリアージ文献",
     "triage": "トリアージ安全性は感度／特異度と under-triage 率で報告（JMIR など）— 本ページのレッドフラグ率・検出遅延・確認率は対応するプロセス指標。正式な論文には医師判定をゴールドスタンダードとした感度計算が必要",
     "pdqi": "医療文書品質評価ツール（9 次元）— 本ページの医師承認率は実用的プロキシ。正式研究ではサンプル抽出し 2 名評価者による PDQI-9 採点と ICC/kappa の報告を推奨",
+    "statsLabel": "統計・図表基準",
+    "stats": "連続データは箱ひげ図で分布を示す（棒グラフではない、Weissgerber 2015）。比率には Wilson スコア 95% CI と分子/分母を付す（SAMPL ガイドライン）。サブグループはフォレストプロット。各図はベクター SVG で書き出し可能。",
     "disclaimer": "本ページはすべて匿名化された集計統計です。正式な発表には IRB 承認、事前登録された解析計画、標本サイズに応じた信頼区間の報告が必要です。"
   }
 }
