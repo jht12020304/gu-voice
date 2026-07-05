@@ -113,10 +113,16 @@ def summarize(values: Sequence[float]) -> NumericSummary:
 
 
 def wilson_proportion(numerator: int, denominator: int) -> Proportion:
-    """比例 + Wilson score 95% CI。denominator 0 → 全 None（缺值，非 0）。"""
+    """比例 + Wilson score 95% CI。denominator 0 → 全 None（缺值，非 0）。
+
+    防禦性 clamp：p 夾在 [0,1]。理論上 numerator ≤ denominator，但若呼叫端
+    分子/分母來自不同母體（如「所有有紅旗場次」對「終態場次」），numerator 可能
+    超過 denominator → p>1 → sqrt 負數 domain error。夾住避免 500，呼叫端仍應
+    確保分子是分母的子集（見下方 terminal_ids 交集）。
+    """
     if denominator <= 0:
         return Proportion(numerator=numerator, denominator=denominator)
-    p = numerator / denominator
+    p = min(1.0, max(0.0, numerator / denominator))
     z = _Z_95
     denom = 1 + z * z / denominator
     center = (p + z * z / (2 * denominator)) / denom
@@ -398,6 +404,13 @@ class ResearchService:
             return s.value if hasattr(s, "value") else str(s)
 
         sessions_with_alert = {a.session_id for a in alert_rows}
+        # 終態場次 id（completed / aborted_red_flag）。紅旗率的分母是終態場次，
+        # 故分子必須是「終態且有紅旗」——紅旗可能落在 in_progress/cancelled 場次，
+        # 若直接用 sessions_with_alert 當分子會 > 分母（見 wilson_proportion clamp）。
+        terminal_ids = {
+            r.id for r in session_rows if status_of(r) in _TERMINAL_STATUSES
+        }
+        terminal_with_alert = sessions_with_alert & terminal_ids
 
         # ── Cohort ─────────────────────────────────────
         status_counts: dict[str, int] = {}
@@ -565,7 +578,7 @@ class ResearchService:
 
         safety = SafetySection(
             sessions_with_alerts=len(sessions_with_alert),
-            alert_session_rate=rate(len(sessions_with_alert), terminal),
+            alert_session_rate=rate(len(terminal_with_alert), terminal),
             total_alerts=len(alert_rows),
             severity_distribution=distribution(
                 ((enum_val(a.severity), 1) for a in alert_rows),
@@ -592,7 +605,7 @@ class ResearchService:
             acknowledged=wilson_proportion(acked, len(alert_rows)),
             ack_latency_seconds=summarize(ack_latencies),
         )
-        safety.alert_session = wilson_proportion(len(sessions_with_alert), terminal)
+        safety.alert_session = wilson_proportion(len(terminal_with_alert), terminal)
 
         # ── STT quality ────────────────────────────────
         confidences = [
@@ -688,10 +701,12 @@ class ResearchService:
                 if sid in turns_by_session
             ]
             lang_conf = by_lang_conf.get(lang, [])
-            lang_terminal = sum(
-                1 for r in lang_sessions if status_of(r) in _TERMINAL_STATUSES
-            )
-            lang_alert_sessions = len(lang_ids & sessions_with_alert)
+            lang_terminal_ids = {
+                r.id for r in lang_sessions if status_of(r) in _TERMINAL_STATUSES
+            }
+            lang_terminal = len(lang_terminal_ids)
+            # 分子須是分母（終態場次）的子集 → 與 terminal_with_alert 一致
+            lang_alert_sessions = len(lang_terminal_ids & sessions_with_alert)
             by_language.append(
                 LanguageBreakdownItem(
                     language=lang,

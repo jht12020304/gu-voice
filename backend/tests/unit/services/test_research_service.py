@@ -96,6 +96,51 @@ def test_wilson_zero_denominator_is_none():
     assert p.denominator == 0
 
 
+def test_wilson_clamps_numerator_over_denominator_no_crash():
+    # 防禦：分子 > 分母（呼叫端母體不一致）不可 sqrt domain error → clamp p=1
+    p = wilson_proportion(5, 3)
+    assert p.value == 1.0
+    assert p.ci_low is not None and p.ci_high is not None
+
+
+def test_assemble_alert_on_non_terminal_session_no_500():
+    """回歸：紅旗落在非終態場次（in_progress / cancelled）時，紅旗率分子
+    不可超過終態場次分母而讓 Wilson CI sqrt 負數 500（生產 request 742f698d）。"""
+    from datetime import date as _date
+    s_done, s_cancel = uuid4(), uuid4()
+    sessions = [
+        _session(s_done, "completed", "zh-TW", 8),
+        _session(s_cancel, "cancelled", "zh-TW", 1),
+    ]
+    # 兩場都有紅旗，但只有 1 場是終態 → 分子(2) 若不夾 > 分母(1)
+    alerts = [
+        SimpleNamespace(session_id=s_done, severity="high", alert_type="rule_based",
+                        confidence="rule_hit", created_at=T0 + timedelta(minutes=2),
+                        acknowledged_at=None),
+        SimpleNamespace(session_id=s_cancel, severity="critical", alert_type="combined",
+                        confidence="rule_hit", created_at=T0 + timedelta(minutes=1),
+                        acknowledged_at=None),
+    ]
+    demo = [
+        SimpleNamespace(session_id=s_done, patient_id=uuid4(),
+                        date_of_birth=_date(1970, 1, 1), gender="male", complaint="Hematuria"),
+        SimpleNamespace(session_id=s_cancel, patient_id=uuid4(),
+                        date_of_birth=_date(1980, 1, 1), gender="female", complaint="Frequency"),
+    ]
+    out = ResearchService()._assemble(
+        session_rows=sessions, sess_by_id={s.id: s for s in sessions},
+        conv_rows=[], alert_rows=alerts, report_rows=[], revision_pairs=[],
+        demo_rows=demo, date_from=None, date_to=None,
+    )
+    # 終態=1（completed），其中有紅旗=1 → rate 1.0，CI 有效不 crash
+    assert out.safety.alert_session.denominator == 1
+    assert out.safety.alert_session.value == 1.0
+    assert out.safety.alert_session.ci_low is not None
+    zh = next(b for b in out.by_language if b.language == "zh-TW")
+    assert zh.red_flag_rate.denominator == 1
+    assert zh.red_flag_rate.value == 1.0
+
+
 def test_summarize_has_sd_and_boxplot_whiskers():
     s = summarize([1, 2, 3, 4, 5, 100])  # 100 為離群
     assert s.sd is not None and s.sd > 0
