@@ -2432,6 +2432,15 @@ in_progress -> cancelled   (取消)
 | `401` | `UNAUTHORIZED` | 未認證 |
 | `403` | `FORBIDDEN` | 角色權限不足 |
 
+### 8.x 研究分析聚合
+
+- **方法:** `GET`
+- **路徑:** `/api/v1/research/analytics`
+- **說明:** 去識別化研究指標聚合（收案流、病患 Table 1、效率箱形圖、HPI 完整度、triage 安全、STT 品質、AI 文件品質、各語言子群森林圖），供學術研究與期刊投稿。比例附 Wilson 95% CI、連續變數附箱形圖統計量。
+- **需要認證:** 是｜**允許角色:** `doctor`, `admin`
+- **Query:** `date_from` / `date_to`（選填，YYYY-MM-DD，依 session.created_at 含當日）
+- **完整回應結構、統計方法、文獻對照與圖表規範見** [`research_analytics.md`](research_analytics.md)。
+
 ---
 
 ## 9. 病患管理 API
