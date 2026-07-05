@@ -170,7 +170,7 @@ export default function ResearchAnalyticsPage() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
         <StatTile label={t('kpi.sessions')} value={nf(cohort.totalSessions)} helper={t('kpi.patients', { count: demographics.totalPatients })} />
         <StatTile label={t('kpi.completionRate')} value={pct(cohort.completion.value)} helper={`${nf(cohort.completed)}/${nf(cohort.totalSessions)}`} />
-        <StatTile label={t('kpi.redFlagRate')} value={pct(safety.alertSession.value)} helper={t('kpi.redFlagRateHelper', { count: safety.sessionsWithAlerts, terminal })} />
+        <StatTile label={t('kpi.redFlagRate')} value={pct(safety.alertSession.value)} helper={t('kpi.redFlagRateHelper', { count: safety.alertSession.numerator, terminal })} />
         <StatTile label={t('kpi.medianDuration')} value={`${efficiency.durationSeconds.median !== null ? (efficiency.durationSeconds.median / 60).toFixed(1) : '—'} ${t('page.minutesShort')}`} helper={`IQR ${efficiency.durationSeconds.p25 !== null ? (efficiency.durationSeconds.p25 / 60).toFixed(1) : '—'}–${efficiency.durationSeconds.p75 !== null ? (efficiency.durationSeconds.p75 / 60).toFixed(1) : '—'}`} />
         <StatTile label={t('kpi.hpiCompleteness')} value={pct(historyTaking.meanHpiCompleteness)} helper={t('kpi.hpiCompletenessHelper', { count: historyTaking.reportsAnalyzed })} />
         <StatTile label={t('kpi.agreementRate')} value={pct(documentation.physicianAgreement.value)} helper={t('kpi.agreementRateHelper')} />
