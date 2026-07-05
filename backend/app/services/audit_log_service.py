@@ -40,6 +40,7 @@ class AuditLogService:
         details: Optional[dict[str, Any]] = None,
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> AuditLog:
         """
         寫入稽核日誌
@@ -53,6 +54,7 @@ class AuditLogService:
             details: 操作詳情
             ip_address: 客戶端 IP
             user_agent: 客戶端 User-Agent
+            language: 事件發生時 session / 請求所用語言（BCP-47），可為 None
 
         Returns:
             新建的 AuditLog 物件
@@ -67,6 +69,7 @@ class AuditLogService:
             details=details,
             ip_address=ip_address,
             user_agent=user_agent,
+            language=language,
             created_at=utc_now(),
         )
         db.add(audit_log)

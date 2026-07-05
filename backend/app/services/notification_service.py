@@ -90,6 +90,97 @@ class NotificationService:
 
         return notification
 
+    # ── 問診流程 domain helpers ───────────────────────────
+    # WS（conversation_handler）與 Celery（report_queue）共用；標題/內文以
+    # 「負責醫師的 preferred_language」解析（doctor-facing，不用場次語言）。
+
+    @staticmethod
+    async def notify_session_complete(
+        db: AsyncSession,
+        *,
+        session_id: Any,
+        doctor_id: UUID,
+        patient_id: Optional[UUID] = None,
+    ) -> Optional[Notification]:
+        """問診完成 → SESSION_COMPLETE 站內通知給負責醫師。
+
+        受偏好設定 session_complete_enabled 抑制（回 None）。
+        呼叫端負責 commit；本函式僅 flush。
+        """
+        from app.models.patient import Patient
+        from app.models.user import User
+        from app.utils.i18n_messages import get_message
+
+        doctor_lang = (
+            await db.execute(
+                select(User.preferred_language).where(User.id == doctor_id)
+            )
+        ).scalar_one_or_none()
+        patient_name: Optional[str] = None
+        if patient_id is not None:
+            patient_name = (
+                await db.execute(select(Patient.name).where(Patient.id == patient_id))
+            ).scalar_one_or_none()
+
+        return await NotificationService.create(
+            db,
+            user_id=doctor_id,
+            type=NotificationType.SESSION_COMPLETE,
+            title=get_message("notifications.session_complete.title", doctor_lang),
+            body=get_message(
+                "notifications.session_complete.body",
+                doctor_lang,
+                patient_name=patient_name or "",
+            ),
+            data={"session_id": str(session_id)},
+        )
+
+    @staticmethod
+    async def notify_report_ready(
+        db: AsyncSession,
+        *,
+        session_id: Any,
+        report_id: Any,
+    ) -> Optional[Notification]:
+        """SOAP 報告生成完成 → REPORT_READY 站內通知給負責醫師。
+
+        場次無負責醫師時 no-op 回 None；受偏好 report_ready_enabled 抑制。
+        呼叫端負責 commit；本函式僅 flush。
+        """
+        from app.models.patient import Patient
+        from app.models.session import Session
+        from app.models.user import User
+        from app.utils.i18n_messages import get_message
+
+        row = (
+            await db.execute(
+                select(Session.doctor_id, Patient.name)
+                .join(Patient, Patient.id == Session.patient_id, isouter=True)
+                .where(Session.id == UUID(str(session_id)))
+            )
+        ).first()
+        if row is None or row.doctor_id is None:
+            return None
+
+        doctor_lang = (
+            await db.execute(
+                select(User.preferred_language).where(User.id == row.doctor_id)
+            )
+        ).scalar_one_or_none()
+
+        return await NotificationService.create(
+            db,
+            user_id=row.doctor_id,
+            type=NotificationType.REPORT_READY,
+            title=get_message("notifications.report_ready.title", doctor_lang),
+            body=get_message(
+                "notifications.report_ready.body",
+                doctor_lang,
+                patient_name=row.name or "",
+            ),
+            data={"session_id": str(session_id), "report_id": str(report_id)},
+        )
+
     @staticmethod
     async def list_notifications(
         db: AsyncSession,

@@ -392,6 +392,7 @@ class SessionService:
         session_id: UUID,
         new_status: SessionStatus,
         reason: Optional[str] = None,
+        actor_user_id: Optional[UUID] = None,
     ) -> Session:
         """
         更新場次狀態（含狀態轉移驗證）
@@ -400,6 +401,7 @@ class SessionService:
             session_id: 場次 ID
             new_status: 目標狀態
             reason: 狀態變更原因（取消、紅旗等）
+            actor_user_id: 操作者 user id（REST 路徑帶 current_user；供稽核）
 
         Raises:
             SessionNotFoundException: 場次不存在
@@ -447,6 +449,35 @@ class SessionService:
             session.red_flag = True
             if reason:
                 session.red_flag_reason = reason
+
+        # SESSION_START / SESSION_END 稽核（REST 路徑；WS 路徑由
+        # conversation_handler._update_session_status 負責，兩邊不重疊）。
+        audit_action: Optional[AuditAction] = None
+        if new_status == SessionStatus.IN_PROGRESS:
+            audit_action = AuditAction.SESSION_START
+        elif new_status in (
+            SessionStatus.COMPLETED,
+            SessionStatus.ABORTED_RED_FLAG,
+            SessionStatus.CANCELLED,
+        ):
+            audit_action = AuditAction.SESSION_END
+        if audit_action is not None:
+            from app.services.audit_log_service import AuditLogService
+
+            await AuditLogService.log(
+                db,
+                user_id=actor_user_id,
+                action=audit_action,
+                resource_type="session",
+                resource_id=str(session.id),
+                details={
+                    "previous_status": current_status.value,
+                    "new_status": new_status.value,
+                    "reason": reason,
+                    "via": "rest",
+                },
+                language=session.language,
+            )
 
         await db.flush()
         return session
@@ -950,7 +981,13 @@ class SessionService:
                 )
 
         previous_status = session.status
-        updated = await SessionService.update_status_static(db, session_id, new_status, reason)
+        updated = await SessionService.update_status_static(
+            db,
+            session_id,
+            new_status,
+            reason,
+            actor_user_id=getattr(current_user, "id", None),
+        )
         # L-3：REST 路徑回傳變更前狀態（供 SessionStatusResponse.previous_status）。
         updated.previous_status = previous_status
         return updated

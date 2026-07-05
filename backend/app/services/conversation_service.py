@@ -72,7 +72,10 @@ class ConversationService:
             audio_duration_seconds=audio_duration,
             stt_confidence=stt_confidence,
             red_flag_detected=False,
-            metadata=metadata,
+            # 必須用 mapped attr 名 `metadata_`：傳 `metadata=` 會命中
+            # declarative constructor 的 hasattr(cls, "metadata")（Base.metadata
+            # 的 MetaData 集合），變成 instance attr 遮蔽、值靜默丟失不落 DB。
+            metadata_=metadata,
             created_at=utc_now(),
         )
         db.add(conversation)

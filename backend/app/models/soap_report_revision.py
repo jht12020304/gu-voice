@@ -49,6 +49,10 @@ class SOAPReportRevision(Base):
     assessment: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     plan: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 快照當下主表的對話逐字稿。raw_transcript 在 regenerate 時會被主表覆寫
+    # （重生自 conversations 重組，格式可能隨版本演進），快照留存確保
+    # 「當時 LLM 看到的輸入」可完整追溯。
+    raw_transcript: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     icd10_codes: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), nullable=True)
     language: Mapped[str] = mapped_column(String(10), nullable=False)
     ai_confidence_score: Mapped[Optional[Decimal]] = mapped_column(

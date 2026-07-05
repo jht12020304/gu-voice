@@ -313,10 +313,11 @@ class SOAPGenerator:
 Please produce the full SOAP report based on the information above."""
 
         try:
+            # PHI：log 不輸出主訴原文（「其他」主訴為病患自述自由文字）。
             logger.info(
-                "開始生成 SOAP 報告 | chief_complaint=%s, transcript_length=%d",
-                chief_complaint,
+                "開始生成 SOAP 報告 | transcript_length=%d, language=%s",
                 len(transcript),
+                language,
             )
 
             # 依 session language 強制輸出語言：
@@ -536,10 +537,11 @@ Please produce the full SOAP report based on the information above."""
         impression = str(report.get("assessment", {}).get("clinical_impression", ""))
         sample = f"{summary}\n{impression}".strip()
         if not matches_expected_language(sample, expected_language):
+            # PHI：log 不輸出 summary / clinical_impression 原文，只留長度供排查。
             logger.warning(
-                "SOAP output language mismatch | expected=%s sample=%r",
+                "SOAP output language mismatch | expected=%s sample_chars=%d",
                 expected_language,
-                sample[:120],
+                len(sample),
             )
 
     @staticmethod

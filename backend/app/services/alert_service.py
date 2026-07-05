@@ -17,7 +17,13 @@ from app.core.exceptions import (
     AlertAlreadyAcknowledgedException,
     NotFoundException,
 )
-from app.models.enums import AlertSeverity, AuditAction, RedFlagConfidence, UserRole
+from app.models.enums import (
+    AlertSeverity,
+    AuditAction,
+    NotificationType,
+    RedFlagConfidence,
+    UserRole,
+)
 from app.models.red_flag_alert import RedFlagAlert
 from app.models.red_flag_rule import RedFlagRule
 from app.models.session import Session
@@ -384,20 +390,40 @@ class AlertService:
                     getattr(session, "language", None),
                     title=data["title"],
                 )
+                severity_value = (
+                    data["severity"].value
+                    if hasattr(data["severity"], "value")
+                    else data["severity"]
+                )
+                notification_data = {
+                    "type": "red_flag",
+                    "alert_id": str(alert.id),
+                    "session_id": str(data["session_id"]),
+                    "severity": severity_value,
+                }
+                # FCM 推播之外同時建立「站內通知」（通知中心可見、可追已讀）。
+                # RED_FLAG 為病安關鍵，NotificationService 對其不做偏好抑制。
+                from app.services.notification_service import NotificationService
+
+                await NotificationService.create(
+                    db,
+                    user_id=session.doctor_id,
+                    type=NotificationType.RED_FLAG,
+                    title=push_title,
+                    body=data.get("description") or "",
+                    data=notification_data,
+                )
                 send_push_notification_task.delay(
                     user_id=str(session.doctor_id),
                     title=push_title,
                     body=data.get("description", ""),
-                    data={
-                        "type": "red_flag",
-                        "alert_id": str(alert.id),
-                        "session_id": str(data["session_id"]),
-                        "severity": data["severity"].value if hasattr(data["severity"], "value") else data["severity"],
-                    },
+                    data=notification_data,
                 )
         except Exception:
-            # 推播失敗不應影響警示建立
-            pass
+            # 推播 / 站內通知失敗不應影響警示建立
+            logging.getLogger(__name__).warning(
+                "紅旗通知建立/推播失敗（非致命） | alert=%s", alert.id, exc_info=True
+            )
 
         return alert
 

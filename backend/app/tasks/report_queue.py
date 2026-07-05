@@ -221,9 +221,10 @@ async def _async_generate(session_id: str) -> dict:
                 red_flags=red_flags,
             )
 
-            raw_transcript = "\n".join(
-                f"[{entry['role']}] {entry['content']}" for entry in transcript
-            )
+            # 與 WS 路徑共用單一格式來源（app/utils/transcript.py），不可再 inline。
+            from app.utils.transcript import format_raw_transcript
+
+            raw_transcript = format_raw_transcript(transcript)
 
             report = (
                 await db.execute(
@@ -292,6 +293,26 @@ async def _async_generate(session_id: str) -> dict:
                     session_id,
                     exc,
                 )
+
+            # REPORT_READY 站內通知（負責醫師）。獨立第二段交易，失敗不可
+            # 影響已 commit 的報告與任務結果。
+            try:
+                from app.services.notification_service import NotificationService
+
+                await NotificationService.notify_report_ready(
+                    db, session_id=session_id, report_id=report.id
+                )
+                await db.commit()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "場次 %s REPORT_READY 通知建立失敗（非致命） | error=%s",
+                    session_id,
+                    exc,
+                )
+                try:
+                    await db.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
 
             return {
                 "session_id": session_id,

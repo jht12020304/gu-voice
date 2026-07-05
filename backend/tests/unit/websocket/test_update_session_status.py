@@ -128,7 +128,76 @@ def test_completed_sets_completed_at():
     assert ok is True
     sql = str(db.executed[0].compile())
     assert "completed_at=now()" in sql
-    assert "started_at" not in sql
+    # 不可「賦值」started_at；duration_seconds 的 EXTRACT 表達式引用它是合法的。
+    assert "started_at=" not in sql
+
+
+def test_completed_writes_duration_seconds_from_started_at():
+    """終態補寫 duration_seconds＝EXTRACT(EPOCH FROM now()-started_at)；
+    started_at 為 NULL 時結果為 NULL（保持缺值不硬塞 0）。"""
+    db = StubDB(rowcount=1)
+    ok = _run(db, FakeRedis(), "completed", "in_progress")
+    assert ok is True
+    sql = str(db.executed[0].compile()).lower()
+    assert "duration_seconds=" in sql
+    assert "extract(epoch from" in sql
+    assert "sessions.started_at" in sql
+
+
+def test_in_progress_does_not_write_duration_seconds():
+    db = StubDB(rowcount=1)
+    ok = _run(db, FakeRedis(), "in_progress", "waiting")
+    assert ok is True
+    sql = str(db.executed[0].compile())
+    assert "duration_seconds" not in sql
+
+
+# ── SESSION_START / SESSION_END 稽核（第二段交易；失敗不可回滾轉移）─────
+def _audit_actions(db: StubDB) -> list[str]:
+    from app.models.audit_log import AuditLog
+
+    return [
+        obj.action.value for obj in db.added if isinstance(obj, AuditLog)
+    ]
+
+
+def test_in_progress_writes_session_start_audit():
+    db = StubDB(rowcount=1)
+    ok = _run(db, FakeRedis(), "in_progress", "waiting")
+    assert ok is True
+    assert _audit_actions(db) == ["session_start"]
+
+
+def test_completed_writes_session_end_audit_with_language():
+    from app.models.audit_log import AuditLog
+
+    db = StubDB(rowcount=1)
+    ok = _run(db, FakeRedis(), "completed", "in_progress")
+    assert ok is True
+    audits = [o for o in db.added if isinstance(o, AuditLog)]
+    assert len(audits) == 1
+    assert audits[0].action.value == "session_end"
+    assert audits[0].language == "zh-TW"  # RETURNING row 的場次語言
+    assert audits[0].details["via"] == "websocket"
+    assert audits[0].details["previous_status"] == "in_progress"
+
+
+def test_aborted_writes_session_end_audit_with_reason():
+    from app.models.audit_log import AuditLog
+
+    db = StubDB(rowcount=1)
+    ok = _run(db, FakeRedis(), "aborted_red_flag", "in_progress", red_flag_reason="睪丸扭轉")
+    assert ok is True
+    audits = [o for o in db.added if isinstance(o, AuditLog)]
+    assert len(audits) == 1
+    assert audits[0].details["red_flag_reason"] == "睪丸扭轉"
+
+
+def test_no_transition_writes_no_audit():
+    db = StubDB(rowcount=0)
+    ok = _run(db, FakeRedis(), "completed", "in_progress")
+    assert ok is False
+    assert db.added == []
 
 
 def test_aborted_red_flag_sets_completed_at():

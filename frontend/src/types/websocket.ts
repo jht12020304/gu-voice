@@ -54,7 +54,12 @@ export interface ConnectionAckPayload {
 export interface STTFinalPayload {
   messageId: string;
   text: string;
-  confidence: number;
+  /**
+   * STT 信心分數（0~1）：後端由 Whisper verbose_json segments 的 avg_logprob
+   * 估算（幾何平均 token 機率）；segments 缺失時後端「不帶此鍵」（undefined），
+   * UI 據 undefined 隱藏百分比——不要送 null（會被渲染成 0%）。
+   */
+  confidence?: number;
   isFinal: true;
 }
 

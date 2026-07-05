@@ -101,6 +101,7 @@ class SOAPReportRevisionResponse(BaseModel):
     assessment: Optional[dict[str, Any]] = None
     plan: Optional[dict[str, Any]] = None
     summary: Optional[str] = None
+    raw_transcript: Optional[str] = None
     icd10_codes: Optional[list[str]] = None
     language: str
     ai_confidence_score: Optional[Decimal] = None

@@ -336,6 +336,36 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en-US": "Red flag alert: {title}",
     },
 
+    # ── 站內通知（doctor-facing；以醫師 preferred_language 解析） ───
+    "notifications.session_complete.title": {
+        "zh-TW": "問診完成",
+        "en-US": "Consultation completed",
+        "ja-JP": "問診が完了しました",
+        "ko-KR": "문진 완료",
+        "vi-VN": "Hoàn tất buổi khám",
+    },
+    "notifications.session_complete.body": {
+        "zh-TW": "病患 {patient_name} 的問診已完成，SOAP 報告生成中。",
+        "en-US": "Consultation for {patient_name} is complete; the SOAP report is being generated.",
+        "ja-JP": "{patient_name} さんの問診が完了しました。SOAP レポートを生成しています。",
+        "ko-KR": "{patient_name} 환자의 문진이 완료되었습니다. SOAP 보고서를 생성 중입니다.",
+        "vi-VN": "Buổi khám của bệnh nhân {patient_name} đã hoàn tất; báo cáo SOAP đang được tạo.",
+    },
+    "notifications.report_ready.title": {
+        "zh-TW": "SOAP 報告已生成",
+        "en-US": "SOAP report ready",
+        "ja-JP": "SOAP レポートが完成しました",
+        "ko-KR": "SOAP 보고서 생성 완료",
+        "vi-VN": "Báo cáo SOAP đã sẵn sàng",
+    },
+    "notifications.report_ready.body": {
+        "zh-TW": "病患 {patient_name} 的 SOAP 報告已生成，請審閱。",
+        "en-US": "The SOAP report for {patient_name} is ready for review.",
+        "ja-JP": "{patient_name} さんの SOAP レポートが完成しました。ご確認ください。",
+        "ko-KR": "{patient_name} 환자의 SOAP 보고서가 준비되었습니다. 검토해 주세요.",
+        "vi-VN": "Báo cáo SOAP của bệnh nhân {patient_name} đã sẵn sàng để xem xét.",
+    },
+
     # ── LLM prompt 語言指示（附加在 system prompt 尾段） ───
     # 會被 wrap 在 prompt 末端，用來強制 LLM 以該語言輸出。
     "llm.soap_language_instruction": {

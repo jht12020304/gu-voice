@@ -792,6 +792,7 @@ async def conversation_websocket(
                     redis=redis,
                     db=db,
                     settings=settings,
+                    patient_metadata={"input_source": "text"},
                 )
                 if ended:
                     break
@@ -945,11 +946,17 @@ async def _send_initial_greeting(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
-        # 儲存至 DB
+        # 儲存至 DB（metadata.message_id 對應開場的 ai_response_* WS 事件）
         try:
             from app.services.conversation_service import ConversationService
             from uuid import UUID as _UUID
-            await ConversationService.create(db, _UUID(session_id), "assistant", full_greeting)
+            await ConversationService.create(
+                db,
+                _UUID(session_id),
+                "assistant",
+                full_greeting,
+                metadata={"message_id": message_id, "greeting": True},
+            )
             await db.commit()
         except Exception as _e:
             logger.warning("初始問診語儲存失敗 | session=%s, error=%s", session_id, str(_e))
@@ -1215,21 +1222,29 @@ async def _handle_audio_chunk(
     # 不轉會讓它退回 STTPipeline._language（預設 "zh"）導致英文被強制轉中文。
     whisper_lang = to_whisper_language(session_context.get("language"))
     final_text = ""
+    stt_confidence: float | None = None
     try:
         result = await stt_pipeline.transcribe(complete_audio, language=whisper_lang)
         final_text = result["text"]
+        # 真實信心分數（segments avg_logprob 估算）；None＝未知。
+        # 未知時「不帶 confidence 鍵」而非送 null：前端 ChatBubble 以
+        # `sttConfidence !== undefined` 判斷是否顯示百分比，null 會渲染成 0%。
+        stt_confidence = result.get("confidence")
         message_id = str(uuid.uuid4())
+
+        stt_payload: dict[str, Any] = {
+            "messageId": message_id,
+            "text": final_text,
+            "isFinal": True,
+        }
+        if stt_confidence is not None:
+            stt_payload["confidence"] = stt_confidence
 
         await manager.send_to_session(
             session_id,
             {
                 "type": "stt_final",
-                "payload": {
-                    "messageId": message_id,
-                    "text": final_text,
-                    "confidence": result["confidence"],
-                    "isFinal": True,
-                },
+                "payload": stt_payload,
             },
         )
 
@@ -1264,6 +1279,11 @@ async def _handle_audio_chunk(
             redis=redis,
             db=db,
             settings=settings,
+            stt_confidence=stt_confidence,
+            patient_metadata={
+                "input_source": "voice",
+                "stt_language": whisper_lang,
+            },
         )
 
     return False
@@ -1370,6 +1390,8 @@ async def _handle_text_message(
     redis: Redis,
     db: AsyncSession,
     settings: Settings,
+    stt_confidence: float | None = None,
+    patient_metadata: dict[str, Any] | None = None,
 ) -> bool:
     """
     處理文字訊息：加入歷史 → LLM 回應 → TTS → 紅旗偵測
@@ -1380,6 +1402,9 @@ async def _handle_text_message(
     Args:
         session_id: 場次 ID
         text: 病患文字訊息
+        stt_confidence: 語音路徑的 STT 信心分數（0~1）；文字輸入 / 未知時 None
+        patient_metadata: 病患對話輪的 metadata（input_source 等），落
+            conversations.metadata JSONB
         其他參數: 各管線與上下文
     """
     # E8-1：場次已終止（前一輪紅旗 abort / 已完成）→ 拒收後續訊息。
@@ -1418,7 +1443,14 @@ async def _handle_text_message(
     try:
         from app.services.conversation_service import ConversationService
         from uuid import UUID as _UUID
-        _conv = await ConversationService.create(db, _UUID(session_id), "patient", text)
+        _conv = await ConversationService.create(
+            db,
+            _UUID(session_id),
+            "patient",
+            text,
+            stt_confidence=stt_confidence,
+            metadata=patient_metadata or {"input_source": "text"},
+        )
         await db.commit()
         patient_conv_id = _conv.id
     except Exception as _e:
@@ -1594,11 +1626,17 @@ async def _handle_text_message(
         }
     )
 
-    # 儲存 AI 回應至資料庫
+    # 儲存 AI 回應至資料庫（metadata.message_id 對應本輪 ai_response_* WS 事件）
     try:
         from app.services.conversation_service import ConversationService
         from uuid import UUID as _UUID
-        await ConversationService.create(db, _UUID(session_id), "assistant", full_response)
+        await ConversationService.create(
+            db,
+            _UUID(session_id),
+            "assistant",
+            full_response,
+            metadata={"message_id": message_id},
+        )
         await db.commit()
     except Exception as _e:
         logger.warning("AI 回應記錄儲存失敗 | session=%s, error=%s", session_id, str(_e))
@@ -1787,6 +1825,33 @@ async def _handle_text_message(
             })
             await target_db.commit()
             alert_id = str(_db_alert.id)
+
+            # 把觸發本警示的病患對話輪標記 red_flag_detected=true。
+            # 僅在有真實 conversation row 時標（drain 情境 patient_conv_id 可能為
+            # None，alert.conversation_id 是佔位 uuid、無列可標）。獨立小交易：
+            # 標記失敗絕不可影響已提交的警示（病安優先）。
+            if patient_conv_id is not None:
+                try:
+                    from sqlalchemy import update as _sa_update
+                    from app.models.conversation import Conversation as _Conversation
+
+                    await target_db.execute(
+                        _sa_update(_Conversation)
+                        .where(_Conversation.id == patient_conv_id)
+                        .values(red_flag_detected=True)
+                    )
+                    await target_db.commit()
+                except Exception:
+                    logger.warning(
+                        "紅旗對話輪標記失敗（非致命） | session=%s, conversation=%s",
+                        session_id,
+                        patient_conv_id,
+                        exc_info=True,
+                    )
+                    try:
+                        await target_db.rollback()
+                    except Exception:
+                        pass
         except Exception as _e:
             logger.error(
                 "紅旗警示儲存失敗，不對前端偽造 alert_id | session=%s, severity=%s, error=%s",
@@ -2300,14 +2365,12 @@ async def _generate_soap_report_async(
             symptom_id=symptom_id,
         )
 
-        # 格式化對話逐字稿
-        transcript_lines = []
-        for entry in conversation_history:
-            role = entry.get("role", "unknown")
-            role_label = {"patient": "病患", "assistant": "AI 助手"}.get(role, role)
-            content = entry.get("content", "")
-            transcript_lines.append(f"{role_label}：{content}")
-        raw_transcript = "\n".join(transcript_lines)
+        # 格式化對話逐字稿——與 Celery 重生路徑（report_queue._async_generate）
+        # 共用單一來源 format_raw_transcript（中性 `[patient]` 標籤，
+        # 修掉舊版寫死中文「病患：/AI 助手：」的漂移問題）。
+        from app.utils.transcript import format_raw_transcript
+
+        raw_transcript = format_raw_transcript(conversation_history)
 
         # 建立 SOAPReport 記錄（使用獨立 session，不依賴 WebSocket 的 db）
         async with get_db_session() as db:
@@ -2341,6 +2404,30 @@ async def _generate_soap_report_async(
                 generated_at=datetime.now(timezone.utc),
             )
             db.add(report)
+
+            # M15 append-only：WS 路徑與 Celery 路徑一致——首版內容也留快照
+            # （舊版只有 Celery regenerate 路徑會寫 INITIAL revision）。
+            await db.flush()
+            from app.models.enums import ReportRevisionReason
+            from app.services.report_service import ReportService
+
+            await ReportService._snapshot_revision(
+                db, report, ReportRevisionReason.INITIAL
+            )
+
+            # REPORT_READY 站內通知（有負責醫師才發；失敗不可影響報告寫入）。
+            try:
+                from app.services.notification_service import NotificationService
+
+                await NotificationService.notify_report_ready(
+                    db, session_id=session_id, report_id=report.id
+                )
+            except Exception:
+                logger.warning(
+                    "REPORT_READY 通知建立失敗（非致命） | session=%s",
+                    session_id,
+                    exc_info=True,
+                )
             # get_db_session() 會在 context 結束時自動 commit
 
         logger.info(
@@ -2584,7 +2671,7 @@ async def _update_session_status(
     """
     try:
         from app.models.session import Session
-        from sqlalchemy import func, update
+        from sqlalchemy import Integer, func, update
 
         values: dict[str, Any] = {"status": new_status}
         if new_status == "aborted_red_flag":
@@ -2609,16 +2696,25 @@ async def _update_session_status(
             values["started_at"] = func.coalesce(Session.started_at, func.now())
         elif new_status in ("completed", "aborted_red_flag"):
             values["completed_at"] = func.now()
+            # WS 終態同步補寫 duration_seconds（REST 路徑本來就會寫，補齊對稱）。
+            # started_at 為 NULL 時 interval 運算結果為 NULL —— 保持缺值不硬塞 0，
+            # dashboard 端本就以 completed_at − started_at 為優先來源。
+            values["duration_seconds"] = func.cast(
+                func.extract("epoch", func.now() - Session.started_at), Integer
+            )
         stmt = (
             update(Session)
             .where(Session.id == session_id)
             .where(Session.status == previous_status)
             .values(**values)
+            # RETURNING：轉移成功時順帶取回稽核/通知所需欄位，免第二趟 SELECT。
+            .returning(Session.language, Session.doctor_id, Session.patient_id)
         )
         result = await db.execute(stmt)
+        row = result.first()
         await db.commit()
 
-        if not result.rowcount:
+        if row is None:
             # 目前狀態 != previous_status → 不轉移、不動 Redis（避免快取與 DB 不一致）。
             logger.info(
                 "場次狀態未轉移（目前非 %s，略過 → %s） | session=%s",
@@ -2639,6 +2735,57 @@ async def _update_session_status(
             previous_status,
             new_status,
         )
+
+        # ── SESSION_START / SESSION_END 稽核 + 完成通知（第二段交易）────────
+        # 刻意放在狀態轉移 commit 之後：稽核 / 通知任何失敗都絕不可回滾
+        # 已生效的轉移（狀態機正確性 > 附屬記錄）。失敗僅記 warning。
+        try:
+            from app.models.enums import AuditAction
+            from app.services.audit_log_service import AuditLogService
+
+            audit_action: AuditAction | None = None
+            if new_status == "in_progress":
+                audit_action = AuditAction.SESSION_START
+            elif new_status in ("completed", "aborted_red_flag"):
+                audit_action = AuditAction.SESSION_END
+            if audit_action is not None:
+                details: dict[str, Any] = {
+                    "previous_status": previous_status,
+                    "new_status": new_status,
+                    "via": "websocket",
+                }
+                if red_flag_reason:
+                    details["red_flag_reason"] = red_flag_reason
+                await AuditLogService.log(
+                    db,
+                    user_id=None,  # WS 轉移由系統驅動（kiosk 病患無獨立操作者）
+                    action=audit_action,
+                    resource_type="session",
+                    resource_id=str(session_id),
+                    details=details,
+                    language=row.language,
+                )
+            if new_status == "completed" and row.doctor_id is not None:
+                from app.services.notification_service import NotificationService
+
+                await NotificationService.notify_session_complete(
+                    db,
+                    session_id=session_id,
+                    doctor_id=row.doctor_id,
+                    patient_id=row.patient_id,
+                )
+            await db.commit()
+        except Exception as exc:
+            logger.warning(
+                "場次狀態稽核/通知寫入失敗（非致命，轉移已生效） | session=%s, error=%s",
+                session_id,
+                str(exc),
+            )
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
         return True
 
     except Exception as exc:
