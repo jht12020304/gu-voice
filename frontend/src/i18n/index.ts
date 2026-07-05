@@ -41,6 +41,7 @@ export const ALL_NAMESPACES = [
   'session',
   'admin',
   'auth',
+  'research',
 ] as const;
 
 void i18next

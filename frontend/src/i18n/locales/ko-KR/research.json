@@ -1,0 +1,133 @@
+{
+  "page": {
+    "eyebrow": "연구 분석",
+    "title": "문진 연구 지표",
+    "subtitle": "전체 모집 기간의 비식별 집계 지표(국제 학술지 평가 프레임워크 기준)",
+    "loading": "연구 지표를 불러오는 중…",
+    "error": "연구 지표를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    "empty": "아직 데이터가 없습니다",
+    "autoUpdate": "문진이 끝날 때마다 자동 갱신",
+    "updatedAt": "갱신",
+    "minutesShort": "분"
+  },
+  "kpi": {
+    "sessions": "모집 세션 수",
+    "sessionsHelper": "전체 문진 세션",
+    "completionRate": "완료율",
+    "redFlagRate": "레드플래그 세션율",
+    "redFlagRateHelper": "{{count}} / {{terminal}} 종료 세션",
+    "medianDuration": "문진 시간 중앙값",
+    "hpiCompleteness": "HPI 완전성",
+    "hpiCompletenessHelper": "보고서 {{count}}건 평균",
+    "agreementRate": "의사 승인율",
+    "agreementRateHelper": "승인 / (승인 + 수정 필요)"
+  },
+  "cohort": {
+    "title": "모집 흐름과 주간 추이",
+    "subtitle": "CONSORT 스타일 흐름: 완료/레드플래그 중단/취소, 주간 추이",
+    "badge": "총 {{total}}건",
+    "completed": "완료",
+    "abortedRedFlag": "레드플래그 중단",
+    "cancelled": "취소",
+    "active": "진행 중/대기 중",
+    "seriesSessions": "세션 수",
+    "seriesCompleted": "완료 수",
+    "redFlagWeek": "레드플래그 세션"
+  },
+  "hpi": {
+    "title": "병력 청취 완전성(HPI 10개 항목)",
+    "subtitle": "각 항목이 SOAP에 수집된 비율(AMIE 병력 청취 축)",
+    "badge": "보고서 {{count}}건",
+    "fields": {
+      "onset": "발병 시점",
+      "location": "부위",
+      "duration": "지속 기간",
+      "characteristics": "양상",
+      "severity": "중증도",
+      "aggravating_factors": "악화 요인",
+      "relieving_factors": "완화 요인",
+      "associated_symptoms": "동반 증상",
+      "timing": "시간 패턴",
+      "context": "상황·맥락"
+    }
+  },
+  "safety": {
+    "title": "트리아지 안전성",
+    "subtitle": "레드플래그 감지와 의사 확인(증상 체커 문헌의 트리아지 안전 지표)",
+    "severityTitle": "경고 중증도 분포",
+    "severity": {
+      "critical": "위급",
+      "high": "높음",
+      "medium": "중간"
+    },
+    "layerTitle": "감지 레이어 신뢰도",
+    "layer": {
+      "rule_hit": "규칙 레이어 적중",
+      "semantic_only": "의미 분석만",
+      "uncovered_locale": "로케일 미지원"
+    },
+    "urgencyTitle": "SOAP 권고 긴급도",
+    "urgencySubtitle": "AI Plan의 전체 긴급도(레드플래그 단조 상향 보호 포함)",
+    "urgency": {
+      "er_now": "즉시 응급실",
+      "24h": "24시간 이내",
+      "this_week": "이번 주 내",
+      "routine": "정기 추적"
+    },
+    "timeToFirstAlert": "최초 감지까지 시간(중앙값/IQR)",
+    "ackRate": "의사 확인율",
+    "ackLatency": "확인까지 시간(중앙값/IQR)"
+  },
+  "stt": {
+    "title": "음성 인식 품질",
+    "subtitle": "STT 신뢰도 분포(exp(avg_logprob) 프록시, 0–1)",
+    "badge": "음성 턴 {{count}}개",
+    "turns": "턴 수",
+    "medianConfidence": "신뢰도(중앙값/IQR)",
+    "lowConfidence": "저신뢰 턴 비율(<0.5)",
+    "voiceShare": "음성 입력 비율"
+  },
+  "efficiency": {
+    "title": "문진 효율",
+    "subtitle": "종료 세션의 소요 시간 분포와 대화 턴 수",
+    "sessions": "세션 수",
+    "medianDuration": "소요 시간(중앙값/IQR)",
+    "medianTurns": "환자 턴 수(중앙값/IQR)",
+    "medianChars": "턴당 글자 수(중앙값/IQR)"
+  },
+  "documentation": {
+    "title": "AI 문서 품질",
+    "subtitle": "SOAP 품질과 의사 검토 결과(PDQI-9 취지의 실용적 프록시)",
+    "badge": "보고서 {{count}}건",
+    "outcomesTitle": "의사 검토 결과",
+    "outcomes": {
+      "approved": "승인",
+      "revision_needed": "수정 필요",
+      "pending": "검토 대기"
+    },
+    "aiConfidence": "AI 신뢰도(중앙값/IQR)",
+    "icdVerified": "ICD-10 검증 통과율",
+    "agreement": "의사 승인율"
+  },
+  "table": {
+    "title": "언어별 하위군 요약",
+    "subtitle": "다국어 배포의 하위군 비교(그래프 수치의 표 대체)",
+    "language": "언어",
+    "sessions": "세션",
+    "completed": "완료",
+    "medianDuration": "시간 중앙값",
+    "meanTurns": "평균 턴 수",
+    "meanConfidence": "평균 STT 신뢰도",
+    "redFlagRate": "레드플래그율"
+  },
+  "methods": {
+    "title": "연구 방법 대응표(투고 가이드)",
+    "subtitle": "이 페이지 지표가 따르는 국제 평가 프레임워크. Methods와 보고 체크리스트 작성에 활용",
+    "decideAi": "AI 의사결정 지원의 초기 임상 평가 보고 지침(Nature Medicine 2022) — 본 시스템은 원내 소규모 실사용 평가에 해당하며, 투고 시 17개 AI 항목을 대응시킬 것",
+    "amie": "대화형 진단 AI 평가 축: 병력 청취 완전성, 진단 정확도, 관리 계획, 공감적 소통 — 본 페이지의 HPI 완전성이 병력 청취 축에 대응",
+    "triageLabel": "증상 체커 트리아지 문헌",
+    "triage": "트리아지 안전성은 민감도/특이도와 under-triage율로 보고(JMIR 등) — 본 페이지의 레드플래그율·감지 지연·확인율은 대응 과정 지표이며, 정식 논문에는 의사 판정을 금표준으로 한 민감도 산출이 필요",
+    "pdqi": "의료 문서 품질 도구(9개 차원) — 본 페이지의 의사 승인율은 실용적 프록시. 정식 연구에서는 표본을 추출해 2인 평가자 PDQI-9 채점과 ICC/kappa 보고를 권장",
+    "disclaimer": "이 페이지는 모두 비식별 집계 통계입니다. 정식 발표에는 IRB 승인, 사전 등록된 분석 계획, 표본 크기에 맞는 신뢰구간 보고가 필요합니다."
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "page": {
+    "eyebrow": "Research analytics",
+    "title": "Consultation research metrics",
+    "subtitle": "De-identified aggregate metrics across the whole cohort, aligned with international journal evaluation frameworks",
+    "loading": "Loading research metrics…",
+    "error": "Failed to load research metrics. Please retry later.",
+    "empty": "No data yet",
+    "autoUpdate": "Auto-refreshes after every completed consultation",
+    "updatedAt": "Updated at",
+    "minutesShort": "min"
+  },
+  "kpi": {
+    "sessions": "Sessions enrolled",
+    "sessionsHelper": "All consultation sessions",
+    "completionRate": "Completion rate",
+    "redFlagRate": "Red-flag session rate",
+    "redFlagRateHelper": "{{count}} / {{terminal}} terminal sessions",
+    "medianDuration": "Median duration",
+    "hpiCompleteness": "HPI completeness",
+    "hpiCompletenessHelper": "Mean across {{count}} reports",
+    "agreementRate": "Physician agreement",
+    "agreementRateHelper": "Approved / (approved + revision)"
+  },
+  "cohort": {
+    "title": "Cohort flow & weekly trend",
+    "subtitle": "CONSORT-style flow: completed / red-flag aborted / cancelled, with weekly trend",
+    "badge": "{{total}} sessions",
+    "completed": "Completed",
+    "abortedRedFlag": "Red-flag aborted",
+    "cancelled": "Cancelled",
+    "active": "In progress / waiting",
+    "seriesSessions": "Sessions",
+    "seriesCompleted": "Completed",
+    "redFlagWeek": "Red-flag sessions"
+  },
+  "hpi": {
+    "title": "History-taking completeness (10 HPI fields)",
+    "subtitle": "Share of SOAP reports capturing each field (AMIE history-taking axis)",
+    "badge": "{{count}} reports",
+    "fields": {
+      "onset": "Onset",
+      "location": "Location",
+      "duration": "Duration",
+      "characteristics": "Characteristics",
+      "severity": "Severity",
+      "aggravating_factors": "Aggravating factors",
+      "relieving_factors": "Relieving factors",
+      "associated_symptoms": "Associated symptoms",
+      "timing": "Timing",
+      "context": "Context"
+    }
+  },
+  "safety": {
+    "title": "Triage safety",
+    "subtitle": "Red-flag detection and physician acknowledgement (symptom-checker triage safety metrics)",
+    "severityTitle": "Alert severity distribution",
+    "severity": {
+      "critical": "Critical",
+      "high": "High",
+      "medium": "Medium"
+    },
+    "layerTitle": "Detection-layer confidence",
+    "layer": {
+      "rule_hit": "Rule-layer hit",
+      "semantic_only": "Semantic only",
+      "uncovered_locale": "Locale uncovered"
+    },
+    "urgencyTitle": "SOAP recommended urgency",
+    "urgencySubtitle": "Overall plan urgency from the AI (with monotonic red-flag escalation)",
+    "urgency": {
+      "er_now": "ER now",
+      "24h": "Within 24 h",
+      "this_week": "This week",
+      "routine": "Routine"
+    },
+    "timeToFirstAlert": "Time to first alert (median/IQR)",
+    "ackRate": "Acknowledgement rate",
+    "ackLatency": "Acknowledgement latency (median/IQR)"
+  },
+  "stt": {
+    "title": "Speech recognition quality",
+    "subtitle": "STT confidence distribution (exp(avg_logprob) proxy, 0–1)",
+    "badge": "{{count}} voice turns",
+    "turns": "Turns",
+    "medianConfidence": "Confidence (median/IQR)",
+    "lowConfidence": "Low-confidence turn rate (<0.5)",
+    "voiceShare": "Voice input share"
+  },
+  "efficiency": {
+    "title": "Consultation efficiency",
+    "subtitle": "Duration distribution and dialogue turns for terminal sessions",
+    "sessions": "Sessions",
+    "medianDuration": "Duration (median/IQR)",
+    "medianTurns": "Patient turns (median/IQR)",
+    "medianChars": "Chars per turn (median/IQR)"
+  },
+  "documentation": {
+    "title": "AI documentation quality",
+    "subtitle": "SOAP quality and physician review outcomes (pragmatic proxy in the spirit of PDQI-9)",
+    "badge": "{{count}} reports",
+    "outcomesTitle": "Physician review outcomes",
+    "outcomes": {
+      "approved": "Approved",
+      "revision_needed": "Revision needed",
+      "pending": "Pending"
+    },
+    "aiConfidence": "AI confidence (median/IQR)",
+    "icdVerified": "ICD-10 verified rate",
+    "agreement": "Physician agreement"
+  },
+  "table": {
+    "title": "Per-language subgroup summary",
+    "subtitle": "Subgroup comparison for multilingual deployment (table fallback for chart values)",
+    "language": "Language",
+    "sessions": "Sessions",
+    "completed": "Completed",
+    "medianDuration": "Median duration",
+    "meanTurns": "Mean turns",
+    "meanConfidence": "Mean STT confidence",
+    "redFlagRate": "Red-flag rate"
+  },
+  "methods": {
+    "title": "Methods crosswalk (publication guidance)",
+    "subtitle": "Frameworks these metrics align with; use them to draft Methods and reporting checklists",
+    "decideAi": "Reporting guideline for early-stage clinical evaluation of AI decision support (Nature Medicine 2022) — this system is a small-scale live clinical evaluation; map each of its 17 AI-specific items when submitting",
+    "amie": "Evaluation axes for conversational diagnostic AI: history-taking completeness, diagnostic accuracy, management, and empathic communication — the HPI completeness panel maps to its history-taking axis",
+    "triageLabel": "Symptom-checker triage literature",
+    "triage": "Triage safety is reported as sensitivity/specificity and under-triage rate (JMIR and others) — red-flag session rate, detection latency and acknowledgement rate here are the corresponding process metrics; a formal paper needs physician adjudication as the gold standard",
+    "pdqi": "9-dimension physician documentation quality instrument — physician approval rate here is a pragmatic proxy; for publication, sample notes for dual-rater PDQI-9 scoring and report ICC/kappa",
+    "disclaimer": "All figures are de-identified aggregates. Formal publication requires IRB approval, a pre-registered analysis plan, and confidence intervals appropriate to the sample size."
+  }
+}

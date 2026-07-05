@@ -8,6 +8,7 @@
     },
     "nav": {
       "dashboard": "儀表板",
+      "research": "研究分析",
       "tryConversation": "體驗對話流程",
       "patients": "病患列表",
       "soapReports": "SOAP 報告",

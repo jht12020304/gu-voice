@@ -397,3 +397,129 @@ export type UserListResponse = PaginatedResponse<User>;
 export type AuditLogListResponse = PaginatedResponse<AuditLog>;
 export type ComplaintListResponse = PaginatedResponse<ChiefComplaint>;
 export type RedFlagRuleListResponse = PaginatedResponse<RedFlagRule>;
+
+// =============================================================================
+// 研究分析（Research Analytics）— GET /research/analytics
+// 後端 snake_case 由 client 攔截器自動轉 camelCase
+// =============================================================================
+
+export interface DistributionBucket {
+  key: string;
+  count: number;
+}
+
+export interface NumericSummary {
+  n: number;
+  mean: number | null;
+  median: number | null;
+  p25: number | null;
+  p75: number | null;
+  min: number | null;
+  max: number | null;
+}
+
+export interface HistogramBucket {
+  start: number;
+  end: number;
+  count: number;
+}
+
+export interface WeeklyTrendItem {
+  weekStart: string;
+  sessions: number;
+  completed: number;
+  redFlagSessions: number;
+}
+
+export interface ResearchCohortSection {
+  totalSessions: number;
+  completed: number;
+  abortedRedFlag: number;
+  cancelled: number;
+  inProgressOrWaiting: number;
+  completionRate: number | null;
+  weeklyTrend: WeeklyTrendItem[];
+}
+
+export interface ResearchEfficiencySection {
+  durationSeconds: NumericSummary;
+  patientTurns: NumericSummary;
+  patientTurnChars: NumericSummary;
+  durationHistogram: HistogramBucket[];
+  turnsHistogram: HistogramBucket[];
+}
+
+export interface HpiFieldFillRate {
+  field: string;
+  filled: number;
+  total: number;
+  rate: number | null;
+}
+
+export interface ResearchHistoryTakingSection {
+  reportsAnalyzed: number;
+  meanHpiCompleteness: number | null;
+  hpiCompletenessSummary: NumericSummary;
+  hpiFieldFillRates: HpiFieldFillRate[];
+}
+
+export interface ResearchSafetySection {
+  sessionsWithAlerts: number;
+  alertSessionRate: number | null;
+  totalAlerts: number;
+  severityDistribution: DistributionBucket[];
+  layerDistribution: DistributionBucket[];
+  alertTypeDistribution: DistributionBucket[];
+  urgencyDistribution: DistributionBucket[];
+  timeToFirstAlertSeconds: NumericSummary;
+  acknowledgedRate: number | null;
+  ackLatencySeconds: NumericSummary;
+}
+
+export interface SttLanguageQuality {
+  language: string;
+  turns: number;
+  meanConfidence: number | null;
+  lowConfidenceRate: number | null;
+}
+
+export interface ResearchSttQualitySection {
+  turnsWithConfidence: number;
+  confidenceSummary: NumericSummary;
+  lowConfidenceRate: number | null;
+  histogram: HistogramBucket[];
+  byLanguage: SttLanguageQuality[];
+  voiceTurnShare: number | null;
+}
+
+export interface ResearchDocumentationSection {
+  reportsGenerated: number;
+  aiConfidenceSummary: NumericSummary;
+  icd10VerifiedRate: number | null;
+  reviewOutcomes: DistributionBucket[];
+  physicianAgreementRate: number | null;
+  revisionReasonDistribution: DistributionBucket[];
+}
+
+export interface ResearchLanguageBreakdownItem {
+  language: string;
+  sessions: number;
+  completed: number;
+  medianDurationSeconds: number | null;
+  meanPatientTurns: number | null;
+  meanSttConfidence: number | null;
+  redFlagSessionRate: number | null;
+}
+
+export interface ResearchAnalyticsResponse {
+  generatedAt: string;
+  dateFrom: string | null;
+  dateTo: string | null;
+  cohort: ResearchCohortSection;
+  efficiency: ResearchEfficiencySection;
+  historyTaking: ResearchHistoryTakingSection;
+  safety: ResearchSafetySection;
+  sttQuality: ResearchSttQualitySection;
+  documentation: ResearchDocumentationSection;
+  byLanguage: ResearchLanguageBreakdownItem[];
+}
