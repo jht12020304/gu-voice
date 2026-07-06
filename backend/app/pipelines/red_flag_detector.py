@@ -32,6 +32,97 @@ from app.utils.i18n_messages import get_message
 
 logger = logging.getLogger(__name__)
 
+
+# ── 規則層否定偵測（fail-open 安全設計）──────────────────────
+# 問題：規則層原本用裸 substring `keyword in text`，「血尿」在「沒有血尿」裡也命中
+# → 否定句誤觸紅旗（灌水 red_flag_rate、對護理站發不必要警示）。
+# 修法：關鍵字只在「有任一非否定出現」時才觸發；若每個出現位置都被否定則不觸發。
+# 安全性：只抑制「全部出現都被否定」的關鍵字——真正的紅旗提及一定有非否定出現，
+# 不會被抑制，故不破壞 fail-open（寧可誤報不可漏急症）；語意層仍獨立運作為第二層。
+_NEGATION_CUES: tuple[str, ...] = (
+    # zh-TW
+    "沒有", "沒", "無", "未", "否認", "並無", "不會", "不曾", "不是", "非",
+    # en-US（含尾空格避免誤配 nose/nothing）
+    "no ", "not ", "without", "denies", "denied", "deny", "negative for",
+    "no evidence of", "absence of", "absent", "free of", "ruled out",
+    # ja-JP
+    "ない", "ません", "なし", "無い", "陰性",
+    # ko-KR
+    "없", "아니",
+    # vi-VN
+    "không", "chưa",
+)
+# 否定範圍切斷：句尾/子句標點。list 分隔（、，,）不切斷，讓「沒有血尿、發燒、腰痛」整串被否定。
+_NEG_SCOPE_BREAKS: str = "。！？!?\n．;；:："
+# 轉折/接續詞：其後語義重置。避免「沒有發燒但有血尿」「沒力氣然後睪丸劇痛」
+# 把後段關鍵字誤當否定（保守：寧可少抑制→過度警示 over-triage 安全，也不過度
+# 抑制→漏報 under-triage 危險）。
+# 重置詞＝轉折(但/可是)＋接續(然後/接著)＋追加子句(而且/並且)。這些引入「新謂語」，
+# 其後的關鍵字不受前面否定涵蓋。**刻意不含 list 連接詞（、，,以及/及/和/與/或/還有）**，
+# 因為它們只是把同一否定下的並列項串起來（「沒有血尿、發燒以及腰痛」三者皆否定）。
+_CONTRAST_MARKERS: tuple[str, ...] = (
+    "但", "可是", "不過", "然而", "但是", "反而",
+    "然後", "接著", "後來", "之後", "而且", "並且", " but ",
+)
+# 往前回看上限（字元）：放寬到涵蓋長症狀否定列舉（「沒有血尿、發燒、畏寒、噁心、嘔吐、
+# 食慾不振、體重減輕、排尿疼痛…、尿滯留」整串在同一個「沒有」下）。安全考量：規則層
+# 有語意層並行當後備（LLM 懂否定），故規則層可較積極抑制否定誤觸以減少誤 abort；list
+# 分隔不切斷、只有句尾標點與上面的重置詞切斷。120 為 runaway 上限（超長 run-on 才觸及）。
+_NEG_MAX_LOOKBACK = 120
+
+
+def _clause_before(text_lower: str, start: int) -> str:
+    """取關鍵字出現位置 start 前、同一子句範圍的文字（供否定判定）。"""
+    i = start - 1
+    n = 0
+    while i >= 0 and n < _NEG_MAX_LOOKBACK and text_lower[i] not in _NEG_SCOPE_BREAKS:
+        i -= 1
+        n += 1
+    clause = text_lower[i + 1 : start]
+    # 轉折詞後重置：只看最靠近關鍵字的轉折詞之後那段
+    for marker in _CONTRAST_MARKERS:
+        pos = clause.rfind(marker)
+        if pos != -1:
+            clause = clause[pos + len(marker) :]
+    return clause
+
+
+def _keyword_present_non_negated(keyword: str, text_lower: str) -> bool:
+    """關鍵字是否有「非否定」出現。全部出現都被否定 → False（抑制誤觸）。"""
+    kw = keyword.lower()
+    if not kw:
+        return False
+    idx = text_lower.find(kw)
+    if idx == -1:
+        return False
+    while idx != -1:
+        clause = _clause_before(text_lower, idx)
+        if not any(cue in clause for cue in _NEGATION_CUES):
+            return True  # 有一個非否定出現即觸發（保留 fail-open）
+        idx = text_lower.find(kw, idx + 1)
+    return False  # 每個出現都被否定
+
+
+# ── 目錄 severity floor（防語意層把 critical 自評降級）──────────
+# 問題：語意層(LLM)自評 severity 可能低於內建目錄定義（實測 testicular_pain_severe
+# 目錄=critical 卻被語意層評 high → 未達 abort 門檻 → 真正 under-triage）。
+# 修法：命中內建 catalogue 的紅旗，severity 取 max(LLM 自評, 目錄定義)（只升不降）。
+# 安全性：目錄 severity 是該紅旗的臨床嚴重度下限，flooring 是 fail-open 方向。
+_SEVERITY_RANK: dict[str, int] = {"medium": 1, "high": 2, "critical": 3}
+_CANONICAL_CATALOG_SEVERITY: dict[str, str] = {
+    flag["canonical_id"]: flag["severity"] for flag in URO_RED_FLAGS
+}
+
+
+def _floor_severity_to_catalog(canonical_id: str, llm_severity: str) -> str:
+    """命中目錄的紅旗，severity 不得低於目錄定義（只升不降）。"""
+    catalog = _CANONICAL_CATALOG_SEVERITY.get(canonical_id)
+    llm = (llm_severity or "medium").lower()
+    if catalog and _SEVERITY_RANK.get(catalog, 0) > _SEVERITY_RANK.get(llm, 0):
+        return catalog
+    return llm
+
+
 # ── 語意分析系統提示詞 ───────────────────────────────────
 # NOTE: Critical/High/Medium 情境清單與 title 對齊段落都從 shared.URO_RED_FLAGS 動態渲染,
 # 避免語意層 prompt 與 _get_fallback_rules 及 DB 規則漂移(P2-E 修復)。
@@ -293,7 +384,9 @@ class RedFlagDetector:
             # 會導致 substring 比對失敗;英文/越南文等有大小寫的語言都靠
             # 這裡統一 normalize。
             for keyword in rule.get("keywords", []):
-                if keyword and keyword.lower() in text_lower:
+                # 否定感知比對：關鍵字若每個出現都被否定（如「血尿」只在「沒有血尿」）
+                # 則不觸發；有任一非否定出現才觸發（保留 fail-open）。
+                if keyword and _keyword_present_non_negated(keyword, text_lower):
                     matched = True
                     trigger_reason = get_message(
                         "alert.rule_match_reason", language, keyword=keyword
@@ -445,10 +538,26 @@ class RedFlagDetector:
                     if is_catalogue_match
                     else raw_title
                 )
+                # 目錄 severity floor：命中內建 catalogue 的紅旗，語意層自評不得
+                # 低於目錄定義（防 critical 被 LLM 降級為 high 而躲過 abort 門檻）。
+                llm_severity = alert.get("severity", "medium")
+                floored_severity = (
+                    _floor_severity_to_catalog(canonical_id, llm_severity)
+                    if is_catalogue_match
+                    else llm_severity
+                )
+                if is_catalogue_match and floored_severity != llm_severity:
+                    logger.warning(
+                        "語意層 severity 低於目錄，floor 升級 | session=%s canonical=%s llm=%s → catalog=%s",
+                        session_id,
+                        canonical_id,
+                        llm_severity,
+                        floored_severity,
+                    )
                 alerts.append(
                     {
                         "canonical_id": canonical_id,
-                        "severity": alert.get("severity", "medium"),
+                        "severity": floored_severity,
                         "title": resolved_title,
                         "description": alert.get("description", ""),
                         "trigger_reason": alert.get("trigger_reason", ""),

@@ -37,11 +37,15 @@ import app.websocket.conversation_handler as ch
 
 
 class _FakeResult:
-    def __init__(self, obj: Any = None):
+    def __init__(self, obj: Any = None, rows: list[Any] | None = None):
         self._obj = obj
+        self._rows = rows or []
 
     def scalar_one_or_none(self):
         return self._obj
+
+    def scalars(self):
+        return SimpleNamespace(all=lambda: self._rows)
 
 
 class _FakeDB:
@@ -52,15 +56,24 @@ class _FakeDB:
     早期檢查與 insert 前雙重檢查共用同一實例（兩次 get_db_session 都 yield 它）。
     """
 
-    def __init__(self, session_obj: Any = None, existing_soap_id: Any = None):
+    def __init__(
+        self,
+        session_obj: Any = None,
+        existing_soap_id: Any = None,
+        red_flags: list[Any] | None = None,
+    ):
         self._session_obj = session_obj
         self._existing_soap_id = existing_soap_id
+        self._red_flags = red_flags or []
         self.added: list[Any] = []
 
     async def execute(self, stmt):
         s = str(stmt)
         if "soap_reports" in s:
             return _FakeResult(obj=self._existing_soap_id)
+        # A2：即時 SOAP 路徑會查本場次紅旗注入 generate()；測試無紅旗 → 回空。
+        if "red_flag_alerts" in s:
+            return _FakeResult(rows=list(self._red_flags))
         if "sessions" in s:
             return _FakeResult(obj=self._session_obj)
         raise AssertionError(f"unexpected stmt: {s}")
@@ -96,13 +109,18 @@ def _run(
     existing_soap_id: Any = None,
     language: str | None = "zh-TW",
     soap_data: dict[str, Any] | None = None,
+    red_flags: list[Any] | None = None,
 ) -> SimpleNamespace:
     """await `_generate_soap_report_async` 一輪，回傳 fakes 供斷言。"""
     if session_obj is _DEFAULT:
         session_obj = SimpleNamespace(
             chief_complaint=SimpleNamespace(name_en="Hematuria", name="血尿")
         )
-    db = _FakeDB(session_obj=session_obj, existing_soap_id=existing_soap_id)
+    db = _FakeDB(
+        session_obj=session_obj,
+        existing_soap_id=existing_soap_id,
+        red_flags=red_flags,
+    )
 
     @asynccontextmanager
     async def _fake_get_db_session():
@@ -154,6 +172,36 @@ def _run(
 # ──────────────────────────────────────────────────────────
 # B2：symptom_id 傳遞
 # ──────────────────────────────────────────────────────────
+
+
+def test_red_flags_from_db_passed_to_generator(monkeypatch):
+    """A2：即時路徑查本場次 red_flag_alerts 並轉 dict 傳進 generate()。
+
+    先前漏傳 → generate() red_flags=None → _enforce_red_flag_urgency 恆 no-op（死代碼）。
+    """
+    rf_row = SimpleNamespace(
+        severity="critical",
+        canonical_id="testicular_pain_severe",
+        trigger_reason="睪丸劇痛",
+        suggested_actions=["請立即告知現場醫護"],
+    )
+    r = _run(monkeypatch, red_flags=[rf_row])
+    assert r.generate_calls == 1
+    passed = r.captured["red_flags"]
+    assert passed == [
+        {
+            "severity": "critical",
+            "canonical_id": "testicular_pain_severe",
+            "trigger_reason": "睪丸劇痛",
+            "suggested_actions": ["請立即告知現場醫護"],
+        }
+    ]
+
+
+def test_no_red_flags_passes_empty_list(monkeypatch):
+    """無紅旗 → red_flags 傳空 list（非 None）；generate 仍正常呼叫。"""
+    r = _run(monkeypatch)
+    assert r.captured["red_flags"] == []
 
 
 def test_symptom_id_passed_to_generator(monkeypatch):
