@@ -27,7 +27,6 @@ from app.core.openai_client import call_with_retry, get_openai_client
 from app.pipelines.prompts.shared import (
     HPI_FIELD_IDS,
     SINGLE_QUESTION_RULE,
-    render_critical_risk_factor_items,
     render_hpi_checklist,
 )
 from app.utils.i18n_messages import get_message as _i18n_get
@@ -195,23 +194,6 @@ class SupervisorEngine:
         ).replace(
             "{chief_complaint}", chief_complaint
         )
-
-        # §3b：特定高風險主訴(血尿 / PSA / ED)在關鍵風險因子問到之前不得判「完整可收尾」。
-        # 與上方「不因次要補問未問完壓低分數」的規則搭配:這些風險因子被提升為與 HPI 十欄
-        # 同級,故可 gate 完整度;但仍遵守 don't-know 不變式——病患一旦回答或表示不知道即
-        # 視為已採集,不再壓低、不再重問。無匹配主訴則不附加(其他主訴行為完全不變)。
-        risk_factor_items = render_critical_risk_factor_items(chief_complaint)
-        if risk_factor_items:
-            system_prompt += (
-                "\n\n## 本主訴的關鍵風險因子(與 HPI 十欄同級,收尾前必問)\n"
-                "下列風險因子對本主訴的惡性 / 心血管風險分層至關重要,與 HPI 十欄同級:\n"
-                f"{risk_factor_items}\n"
-                "- 在這些風險因子**尚未問到**(病患既未回答、也未表示不知道)之前,"
-                "hpi_completion_percentage **不得評為 80 以上**,next_focus 應優先安排"
-                "詢問尚未問到的風險因子(每次一題)。\n"
-                "- 一旦病患已回答、或已明確表示不知道 / 沒有,即視為**已盡力採集**:"
-                "不再壓低分數、next_focus 不再指向該項(與 don't-know 規則一致)。"
-            )
 
         # 把場次語言硬性規則附加到 system prompt 尾段，讓 next_focus 跟輸出語言一致。
         # 否則 Supervisor 會永遠寫中文指令 → 灌進 Conversation LLM system prompt 後
