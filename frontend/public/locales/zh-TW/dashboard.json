@@ -60,7 +60,8 @@
       "acknowledging": "處理中...",
       "acknowledgeButton": "標示為已處理",
       "goToSession": "前往場次詳情"
-    }
+    },
+    "newAlertToast": "有 {{count}} 筆新紅旗警示待處理"
   },
   "transcript": {
     "title": "問診對話逐字稿",

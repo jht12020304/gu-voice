@@ -60,7 +60,8 @@
       "acknowledging": "Đang xử lý...",
       "acknowledgeButton": "Đánh dấu đã xử lý",
       "goToSession": "Đến chi tiết phiên"
-    }
+    },
+    "newAlertToast": "Có {{count}} cảnh báo cờ đỏ mới cần xử lý"
   },
   "transcript": {
     "title": "Biên bản hội thoại khám",
