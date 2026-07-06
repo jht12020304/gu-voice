@@ -90,3 +90,18 @@ python3 -m alembic upgrade head
 3. **我方程式碼**：只有在近期改了 DB 連線 / 交易 / pool 設定才可能。純業務邏輯改動（如問診/紅旗 pipeline）**不會**造成連線層 timeout；別誤把平台事故歸咎於自己的部署（部署時間點常與事故撞在一起）。
 
 **分辨口訣**：`/health` 200 + `/healthz/deep` db timeout + Dashboard 連線數沒滿 + status.supabase.com 有事故 → **Supabase 平台事故，等它恢復，別重啟專案**。
+
+### 5a. 事故緩解「後」的復原 playbook（2026-07-06 實戰驗證）
+
+Supabase 平台事故緩解、Dashboard Status 轉回 **`Healthy`** 後，app 仍可能持續 `/healthz/deep` db fail——因為**事故期間 app 的 SQLAlchemy 連線池卡進壞交易**（`PendingRollbackError: Can't reconnect until invalid transaction is rolled back`），該池不會自癒、會一直重用壞連線。步驟：
+
+1. **先確認 Supabase 端真的好了**：用 prod `DATABASE_URL`（`railway variables --service gu-voice-app --kv`）跑一輪**全新連線穩定性測試**（psycopg2 連 10 次量延遲）。若 10/10 ok、延遲 ~1s（僅首條 cold 可能 ~2.6s）＝DB/pooler 已穩。
+2. **強制全新 app 容器**：`cd backend && railway up --detach --service gu-voice-app`。
+   - **⚠️ `railway redeploy` 不可靠**：實測它**沒有真的換掉容器**（logs 無新 startup 序列、`PendingRollbackError` 依舊）——還是舊的壞池在服務。**一律用 `railway up`**（會重新上傳 image、確定產生全新容器+乾淨連線池）。可到 Railway service 頁確認最新 deployment 是 **Active / Deployment successful**。
+3. **驗收看「真實功能」，不要只看 `/healthz/deep`**：`/healthz/deep` 的 db check 是**硬性 2.0s timeout**，pooler 剛回溫時 cold 連線偶爾 ~2.6s 就報 fail（**假警報**）。真正判斷 app 是否可用：
+   - `POST /auth/login`（seed doctor）回 **token** = DB 讀寫正常。
+   - `GET /api/v1/research/analytics`（doctor Bearer）回 **200 + cohort 數** = 深層查詢正常。
+   - deep health 多數綠、偶爾一次 timeout＝pooler 尚在回溫，會自行消失，非故障。
+
+**潛在改進（非緊急）**：(a) app engine 加 `pool_pre_ping=True`，讓壞連線被自動汰換、DB 短暫抖動後不需重啟即自癒；(b) 把 `/healthz/deep` 的 DB 檢查 timeout 從 2s 放寬到 ~5s，避免 pooler 回溫期的假警報。
+**Supabase 端 pool size**：Dashboard → Settings → Database → Connection pooling 的 **Connection pool size**（Micro 預設 15，可調）。事故/飽和時可暫調大（如 30，仍安全低於 DB max_connections ~60；Max client connections 固定 200）給 headroom；本次已調 30。
