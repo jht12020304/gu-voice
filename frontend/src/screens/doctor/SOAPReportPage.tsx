@@ -175,6 +175,8 @@ export default function SOAPReportPage() {
   } = useReportStore();
 
   const [session, setSession] = useState<Session | null>(IS_MOCK ? mockSession : null);
+  // §1d 安全：session 抓取失敗時不可靜默把「有紅旗場次」渲染成「無紅旗」。
+  const [sessionLoadFailed, setSessionLoadFailed] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showRegenerateModal, setShowRegenerateModal] = useState(false);
   const [reviewAction, setReviewAction] = useState<'approved' | 'revision_needed'>('approved');
@@ -203,12 +205,20 @@ export default function SOAPReportPage() {
 
     sessionsApi
       .getSession(sessionId)
-      .then((data) => setSession(data))
-      .catch(() => setSession(null));
+      .then((data) => {
+        setSession(data);
+        setSessionLoadFailed(false);
+      })
+      .catch(() => {
+        setSession(null);
+        setSessionLoadFailed(true); // 顯性化，紅旗區塊改顯示「載入失敗」而非默默消失
+      });
   }, [sessionId, fetchReportBySession, fetchConversations]);
 
   const handleReview = async () => {
     if (!selectedReport) return;
+    // §5d 防禦：非 generated 的報告不可核准/退回（UI 已隱藏按鈕，此為第二道保險）。
+    if (selectedReport.status !== 'generated') return;
 
     if (reviewAction === 'revision_needed' && !reviewNotes.trim()) {
       setReviewError('退回修改時必須填寫原因。');
@@ -357,6 +367,10 @@ export default function SOAPReportPage() {
                   <span className="rounded-pill bg-red-50 px-3 py-1 text-small font-semibold text-red-600 dark:bg-red-500/10 dark:text-red-400">
                     紅旗場次
                   </span>
+                ) : sessionLoadFailed ? (
+                  <span className="rounded-pill bg-amber-50 px-3 py-1 text-small font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+                    ⚠ 紅旗狀態載入失敗
+                  </span>
                 ) : null}
               </div>
             </div>
@@ -498,6 +512,13 @@ export default function SOAPReportPage() {
                 {session.redFlagReason || '此場次曾觸發紅旗警示，建議審閱時特別核對摘要與逐字稿。'}
               </p>
             </div>
+          ) : sessionLoadFailed ? (
+            <div className="card border-amber-200 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/10">
+              <h2 className="text-h3 text-amber-700 dark:text-amber-400">紅旗狀態載入失敗</h2>
+              <p className="mt-3 text-body leading-relaxed text-amber-800/90 dark:text-amber-300/85">
+                無法載入此場次的紅旗狀態，請重新整理頁面後再核對，切勿逕自當作「無紅旗」。
+              </p>
+            </div>
           ) : null}
 
           {isReviewed && report.reviewNotes ? (
@@ -568,7 +589,9 @@ export default function SOAPReportPage() {
         )}
       </div>
 
-      {!isReviewed ? (
+      {/* §5d 安全：只有 status==='generated'（非 generating/failed）才可核准/退回，
+          與 PDF 匯出的 gate 一致，避免核准佔位/失敗的報告。 */}
+      {!isReviewed && report.status === 'generated' ? (
         <div className="sticky bottom-4 z-20">
           <div className="rounded-panel border border-edge bg-white/95 p-4 shadow-lg backdrop-blur dark:border-dark-border dark:bg-dark-card/95">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

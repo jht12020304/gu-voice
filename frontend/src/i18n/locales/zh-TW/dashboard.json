@@ -30,6 +30,7 @@
     "suggestedActions": "建議 {{count}} 項處置",
     "viewDetail": "查看詳情",
     "acknowledge": "確認處理",
+    "acknowledgeConfirm": "確認要將此紅旗標記為「已處理」嗎？此動作無法復原。",
     "acknowledgedBadge": "✓ 已確認",
     "detail": {
       "loadError": "無法載入警示詳情",

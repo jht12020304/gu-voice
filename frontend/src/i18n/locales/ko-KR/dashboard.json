@@ -30,6 +30,7 @@
     "suggestedActions": "권장 조치 {{count}}건",
     "viewDetail": "상세 보기",
     "acknowledge": "처리 확인",
+    "acknowledgeConfirm": "이 레드플래그 경고를 '처리됨'으로 표시하시겠습니까? 이 작업은 취소할 수 없습니다.",
     "acknowledgedBadge": "✓ 확인됨",
     "detail": {
       "loadError": "알림 상세 정보를 불러올 수 없습니다",
