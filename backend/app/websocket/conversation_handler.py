@@ -2107,6 +2107,8 @@ async def _handle_text_message(
                 code="events.session.aborted_red_flag",
                 params={},
                 severity="critical",
+                # 帶終態 status → 前端導離對話頁（不再卡在「使用中」+ 無限重連）。
+                extra={"status": "aborted_red_flag"},
             )
             await manager.broadcast_localized_dashboard(
                 msg_type="session_status_changed",

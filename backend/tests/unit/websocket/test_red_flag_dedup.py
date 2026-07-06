@@ -129,8 +129,15 @@ def test_suppressed_critical_still_aborts(monkeypatch):
     assert res.cap.messages_of_type("red_flag_alert") == []  # 廣播被抑制
     statuses = [c.args[3] for c in res.update_status.call_args_list]
     assert "aborted_red_flag" in statuses  # abort 照走（不變式）
-    assert any(
-        c["code"] == "events.session.aborted_red_flag" for c in res.cap.localized_calls
+    abort_calls = [
+        c
+        for c in res.cap.localized_calls
+        if c["code"] == "events.session.aborted_red_flag"
+    ]
+    assert abort_calls
+    # 患者面 abort 訊息須帶終態 status，前端才能導離對話頁（不卡「使用中」+無限重連）。
+    assert all(
+        c["extra"].get("status") == "aborted_red_flag" for c in abort_calls
     )
 
 

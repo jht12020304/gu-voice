@@ -54,6 +54,7 @@ class _CaptureManager:
         code: str,
         params: dict[str, Any] | None = None,
         severity: str = "info",
+        extra: dict[str, Any] | None = None,
     ) -> bool:
         self.localized_calls.append(
             {
@@ -62,6 +63,7 @@ class _CaptureManager:
                 "code": code,
                 "params": params or {},
                 "severity": severity,
+                "extra": extra or {},
             }
         )
         return True

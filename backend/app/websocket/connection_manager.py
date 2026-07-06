@@ -239,18 +239,22 @@ class ConnectionManager:
         code: str,
         params: dict[str, Any] | None = None,
         severity: str = "info",
+        extra: dict[str, Any] | None = None,
     ) -> bool:
-        """向 session 推播 canonical localizable 訊息。"""
+        """向 session 推播 canonical localizable 訊息。
+
+        extra：合併進 payload 的額外欄位（如終態 `status`，讓前端據以導頁/停止重連）。
+        """
+        payload: dict[str, Any] = {
+            "code": code,
+            "params": params or {},
+            "severity": severity,
+        }
+        if extra:
+            payload.update(extra)
         return await self.send_to_session(
             session_id,
-            {
-                "type": msg_type,
-                "payload": {
-                    "code": code,
-                    "params": params or {},
-                    "severity": severity,
-                },
-            },
+            {"type": msg_type, "payload": payload},
         )
 
     async def broadcast_localized_dashboard(
