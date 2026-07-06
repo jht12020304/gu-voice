@@ -2,13 +2,14 @@
 // 紅旗警示列表頁
 // =============================================================================
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import { useAlertStore } from '../../stores/alertStore';
 import { useRedFlagAlerts } from '../../hooks/useRedFlagAlerts';
 import AlertItem from '../../components/dashboard/AlertItem';
+import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
 import ErrorState from '../../components/common/ErrorState';
 import * as sessionsApi from '../../services/api/sessions';
@@ -129,7 +130,9 @@ export default function AlertListPage() {
     isLoading,
     error,
     filter,
+    hasMore,
     fetchAlerts,
+    fetchMore,
     setFilter,
     acknowledgeAlert,
     fetchUnacknowledgedCount,
@@ -139,10 +142,31 @@ export default function AlertListPage() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sessionMeta, setSessionMeta] = useState<Record<string, AlertSessionMeta>>({});
+  const observerRef = useRef<IntersectionObserver>();
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // H-8 / M-17：訂閱儀表板 WS（new_red_flag / red_flag_acknowledged / initial_state /
   // stats_updated），收到後即時更新 alertStore，讓本頁與側欄徽章免重整即時刷新。
   useRedFlagAlerts();
+
+  // §1e 安全：接上 store 的 fetchMore/hasMore 無限捲動，讓超過 20 筆的未處理 critical
+  // 也能從 UI 取得（過去只抓首 20 筆，超出者永久看不到）。搜尋為前端過濾，仍持續載入更多至 store。
+  useEffect(() => {
+    if (observerRef.current) observerRef.current.disconnect();
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoading) {
+          fetchMore();
+        }
+      },
+      { threshold: 0.1 },
+    );
+
+    if (sentinelRef.current) observerRef.current.observe(sentinelRef.current);
+
+    return () => observerRef.current?.disconnect();
+  }, [hasMore, isLoading, fetchMore]);
 
   // 切換 UI 語言時 refetch：紅旗 title / triggerReason / suggestedActions 由後端依 Accept-Language 在地化。
   useEffect(() => {
@@ -390,6 +414,18 @@ export default function AlertListPage() {
               </div>
             </section>
           ))}
+
+          <div ref={sentinelRef} className="h-4" />
+
+          {isLoading && alerts.length > 0 ? (
+            <div className="flex justify-center py-2">
+              <LoadingSpinner size="sm" />
+            </div>
+          ) : !hasMore ? (
+            <p className="py-2 text-center text-small text-ink-muted">
+              {t('common:pagination.allLoaded', '已顯示全部')}
+            </p>
+          ) : null}
         </div>
       )}
     </div>

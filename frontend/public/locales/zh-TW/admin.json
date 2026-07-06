@@ -110,5 +110,26 @@
     "colResourceType": "資源類型",
     "colResourceId": "資源 ID",
     "colIp": "IP Address"
+  },
+  "systemHealth": {
+    "title": "系統健康監控",
+    "subtitle": "監控後端核心服務與基礎設施狀態。",
+    "refresh": "重新整理",
+    "loading": "載入系統健康狀態...",
+    "loadError": "無法載入系統狀態",
+    "loadErrorFallback": "無法取得系統健康狀態",
+    "metrics": {
+      "apiStatus": "API 伺服器狀態",
+      "database": "資料庫",
+      "redis": "Redis",
+      "openai": "OpenAI 服務",
+      "version": "版本"
+    },
+    "eventsTitle": "最近系統事件",
+    "backendStatus": "後端狀態回報",
+    "lastHealthCheck": "最後健康檢查時間",
+    "notProvided": "未提供",
+    "dependencyTitle": "AI 服務與相依狀態",
+    "dependencyNote": "顯示各服務的連線健康狀態，非用量配額百分比。"
   }
 }

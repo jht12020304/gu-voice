@@ -118,5 +118,38 @@
       "assistant": "Trợ lý AI",
       "system": "Hệ thống"
     }
+  },
+  "reportList": {
+    "eyebrow": "Không gian xét duyệt",
+    "subtitle": "Xem tập trung các bản tóm tắt hỏi bệnh AI, báo cáo chờ duyệt và hồ sơ trả về chỉnh sửa. Hãy bắt đầu từ mục chờ duyệt, sau đó quay lại biên bản để đối chiếu căn cứ nội dung.",
+    "displayCount": "Đang hiển thị {{count}} báo cáo",
+    "tabs": {
+      "all": "Tất cả",
+      "pending": "Chờ duyệt",
+      "approved": "Đã duyệt",
+      "revisionNeeded": "Cần chỉnh sửa"
+    },
+    "summaryTotal": "Tất cả báo cáo",
+    "groupCount": "{{count}} báo cáo",
+    "emptyTitle": "Không có báo cáo",
+    "emptyMessage": "Không có báo cáo SOAP nào khớp với điều kiện",
+    "redFlagBadge": "Phiên cờ đỏ",
+    "chiefComplaintLabel": "Lý do khám: {{value}}",
+    "sessionStatusLabel": "Trạng thái phiên: {{value}}",
+    "complaintEmpty": "Chưa nhập lý do khám",
+    "complaintFetchFailed": "Không lấy được lý do khám",
+    "summaryEmpty": "Chưa có nội dung tóm tắt AI.",
+    "aiConfidence": "Độ tin cậy AI {{percent}}%",
+    "revisionReason": "Lý do trả về",
+    "reportTime": "Thời gian báo cáo",
+    "searchPlaceholder": "Tìm theo tên bệnh nhân hoặc mã bệnh án"
+  },
+  "notifications": {
+    "title": "Trung tâm thông báo",
+    "subtitle": "Xem cảnh báo cờ đỏ, báo cáo hoàn tất và thông báo hệ thống",
+    "markAllRead": "Đánh dấu tất cả đã đọc",
+    "emptyTitle": "Không có thông báo",
+    "emptyMessage": "Hiện không có thông báo hệ thống mới",
+    "unreadBadge": "Chưa đọc"
   }
 }

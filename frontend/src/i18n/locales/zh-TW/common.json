@@ -282,5 +282,10 @@
     "columnDob": "出生日期",
     "columnCreatedAt": "建檔時間",
     "noPhone": "未提供電話"
+  },
+  "pagination": {
+    "loadMore": "載入更多",
+    "loadingMore": "載入中...",
+    "allLoaded": "已顯示全部"
   }
 }

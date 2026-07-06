@@ -102,5 +102,26 @@
       "cancelAction": "Cancel",
       "processing": "Processing..."
     }
+  },
+  "patientHistory": {
+    "sessionCount": "{{count}} consultations",
+    "loading": "Loading records...",
+    "emptyAll": "No consultation records yet",
+    "emptyFiltered": "No records match the filter",
+    "backAria": "Back",
+    "durationMinutes": "{{minutes}} min",
+    "filters": {
+      "all": "All",
+      "completed": "Completed",
+      "inProgress": "In progress",
+      "cancelled": "Cancelled"
+    },
+    "status": {
+      "completed": "Completed",
+      "inProgress": "In progress",
+      "waiting": "Waiting",
+      "abortedRedFlag": "Aborted (Red Flag)",
+      "cancelled": "Cancelled"
+    }
   }
 }

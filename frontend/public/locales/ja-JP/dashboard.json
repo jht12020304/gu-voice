@@ -118,5 +118,38 @@
       "assistant": "AI アシスタント",
       "system": "システム"
     }
+  },
+  "reportList": {
+    "eyebrow": "レビューワークスペース",
+    "subtitle": "AI 問診の要約、レビュー待ちのレポート、差し戻し記録をまとめて確認できます。まずレビュー待ちから始め、逐語記録に戻って内容の根拠を照合してください。",
+    "displayCount": "現在 {{count}} 件のレポートを表示中",
+    "tabs": {
+      "all": "すべて",
+      "pending": "レビュー待ち",
+      "approved": "承認済み",
+      "revisionNeeded": "要修正"
+    },
+    "summaryTotal": "全レポート",
+    "groupCount": "{{count}} 件のレポート",
+    "emptyTitle": "レポートなし",
+    "emptyMessage": "条件に一致する SOAP レポートはありません",
+    "redFlagBadge": "レッドフラグのセッション",
+    "chiefComplaintLabel": "主訴：{{value}}",
+    "sessionStatusLabel": "セッション状態：{{value}}",
+    "complaintEmpty": "主訴の記入なし",
+    "complaintFetchFailed": "主訴を取得できません",
+    "summaryEmpty": "AI の要約はまだありません。",
+    "aiConfidence": "AI 信頼度 {{percent}}%",
+    "revisionReason": "差し戻し理由",
+    "reportTime": "レポート時刻",
+    "searchPlaceholder": "患者名またはカルテ番号で検索"
+  },
+  "notifications": {
+    "title": "通知センター",
+    "subtitle": "レッドフラグ警告、レポート完成、システム通知を確認",
+    "markAllRead": "すべて既読にする",
+    "emptyTitle": "通知はありません",
+    "emptyMessage": "新しいシステム通知はありません",
+    "unreadBadge": "未読"
   }
 }

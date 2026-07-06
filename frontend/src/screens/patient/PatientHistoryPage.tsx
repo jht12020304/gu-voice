@@ -3,6 +3,8 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useAuthStore } from '../../stores/authStore';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import * as sessionsApi from '../../services/api/sessions';
@@ -74,24 +76,41 @@ const mockSessions: Session[] = [
 
 type FilterStatus = 'all' | 'completed' | 'in_progress' | 'cancelled';
 
-const statusConfig: Record<string, { text: string; cls: string }> = {
-  completed: { text: '已完成', cls: 'badge-completed' },
-  in_progress: { text: '進行中', cls: 'badge-in-progress' },
-  waiting: { text: '等待中', cls: 'badge-waiting' },
-  aborted_red_flag: { text: '紅旗中止', cls: 'badge-red-flag' },
-  cancelled: { text: '已取消', cls: 'badge-red-flag' },
+const statusClass: Record<string, string> = {
+  completed: 'badge-completed',
+  in_progress: 'badge-in-progress',
+  waiting: 'badge-waiting',
+  aborted_red_flag: 'badge-red-flag',
+  cancelled: 'badge-red-flag',
 };
 
-const filters: { value: FilterStatus; label: string }[] = [
-  { value: 'all', label: '全部' },
-  { value: 'completed', label: '已完成' },
-  { value: 'in_progress', label: '進行中' },
-  { value: 'cancelled', label: '已取消' },
-];
+function statusLabel(status: string, t: TFunction): string {
+  switch (status) {
+    case 'in_progress':
+      return t('patientHistory.status.inProgress', '進行中');
+    case 'waiting':
+      return t('patientHistory.status.waiting', '等待中');
+    case 'aborted_red_flag':
+      return t('patientHistory.status.abortedRedFlag', '紅旗中止');
+    case 'cancelled':
+      return t('patientHistory.status.cancelled', '已取消');
+    case 'completed':
+    default:
+      return t('patientHistory.status.completed', '已完成');
+  }
+}
 
 export default function PatientHistoryPage() {
+  const { t } = useTranslation('session');
   const navigate = useLocalizedNavigate();
   const user = useAuthStore((s) => s.user);
+
+  const filters: { value: FilterStatus; label: string }[] = [
+    { value: 'all', label: t('patientHistory.filters.all', '全部') },
+    { value: 'completed', label: t('patientHistory.filters.completed', '已完成') },
+    { value: 'in_progress', label: t('patientHistory.filters.inProgress', '進行中') },
+    { value: 'cancelled', label: t('patientHistory.filters.cancelled', '已取消') },
+  ];
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<FilterStatus>('all');
@@ -127,14 +146,19 @@ export default function PatientHistoryPage() {
         <button
           className="rounded-card p-1.5 text-ink-placeholder hover:bg-surface-tertiary hover:text-ink-secondary transition-colors"
           onClick={() => navigate('/patient')}
+          aria-label={t('patientHistory.backAria', '返回')}
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
         <div>
-          <h1 className="text-h2 font-semibold tracking-tight text-ink-heading dark:text-white">問診紀錄</h1>
-          <p className="mt-0.5 text-small text-ink-muted dark:text-white/50">共 {sessions.length} 次問診</p>
+          <h1 className="text-h2 font-semibold tracking-tight text-ink-heading dark:text-white">
+            {t('common:patientLayout.history', '問診紀錄')}
+          </h1>
+          <p className="mt-0.5 text-small text-ink-muted dark:text-white/50">
+            {t('patientHistory.sessionCount', { count: sessions.length })}
+          </p>
         </div>
       </div>
 
@@ -157,17 +181,19 @@ export default function PatientHistoryPage() {
 
       {/* 列表 */}
       {isLoading ? (
-        <LoadingSpinner message="載入紀錄..." />
+        <LoadingSpinner message={t('patientHistory.loading', '載入紀錄...')} />
       ) : filtered.length === 0 ? (
         <div className="py-16 text-center">
           <p className="text-body text-ink-muted dark:text-white/40">
-            {filter === 'all' ? '尚無問診紀錄' : '無符合條件的紀錄'}
+            {filter === 'all'
+              ? t('patientHistory.emptyAll', '尚無問診紀錄')
+              : t('patientHistory.emptyFiltered', '無符合條件的紀錄')}
           </p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
           {filtered.map((session, i) => {
-            const sc = statusConfig[session.status] || statusConfig.completed;
+            const badgeClass = statusClass[session.status] || statusClass.completed;
             return (
               <button
                 key={session.id}
@@ -187,14 +213,16 @@ export default function PatientHistoryPage() {
                 )}
                 <div className="min-w-0 flex-1 pl-1">
                   <p className="text-body font-medium text-ink-heading dark:text-white">
-                    {session.chiefComplaintText || '問診'}
+                    {session.chiefComplaintText || t('common:patient.home.defaultComplaint', '問診')}
                   </p>
                   <p className="mt-0.5 text-small text-ink-muted dark:text-white/40">
                     {formatDate(session.createdAt)}
-                    {session.durationSeconds ? ` · ${Math.round(session.durationSeconds / 60)} 分鐘` : ''}
+                    {session.durationSeconds
+                      ? ` · ${t('patientHistory.durationMinutes', { minutes: Math.round(session.durationSeconds / 60) })}`
+                      : ''}
                   </p>
                 </div>
-                <span className={`badge shrink-0 ${sc.cls}`}>{sc.text}</span>
+                <span className={`badge shrink-0 ${badgeClass}`}>{statusLabel(session.status, t)}</span>
                 <svg className="h-4 w-4 shrink-0 text-ink-placeholder dark:text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                 </svg>

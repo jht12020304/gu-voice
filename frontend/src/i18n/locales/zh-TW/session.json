@@ -102,5 +102,26 @@
       "cancelAction": "取消",
       "processing": "處理中..."
     }
+  },
+  "patientHistory": {
+    "sessionCount": "共 {{count}} 次問診",
+    "loading": "載入紀錄...",
+    "emptyAll": "尚無問診紀錄",
+    "emptyFiltered": "無符合條件的紀錄",
+    "backAria": "返回",
+    "durationMinutes": "{{minutes}} 分鐘",
+    "filters": {
+      "all": "全部",
+      "completed": "已完成",
+      "inProgress": "進行中",
+      "cancelled": "已取消"
+    },
+    "status": {
+      "completed": "已完成",
+      "inProgress": "進行中",
+      "waiting": "等待中",
+      "abortedRedFlag": "紅旗中止",
+      "cancelled": "已取消"
+    }
   }
 }

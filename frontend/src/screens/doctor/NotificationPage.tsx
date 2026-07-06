@@ -2,7 +2,8 @@
 // 通知中心
 // =============================================================================
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
@@ -24,19 +25,42 @@ function getNotificationRoute(notification: {
 }
 
 export default function NotificationPage() {
+  const { t } = useTranslation('dashboard');
   const navigate = useLocalizedNavigate();
   const {
     notifications,
     isLoading,
     error,
+    hasMore,
     fetchNotifications,
+    fetchMore,
     markRead,
     markAllRead,
   } = useNotificationStore();
 
+  const observerRef = useRef<IntersectionObserver>();
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetchNotifications(true);
   }, [fetchNotifications]);
+
+  useEffect(() => {
+    if (observerRef.current) observerRef.current.disconnect();
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoading) {
+          fetchMore();
+        }
+      },
+      { threshold: 0.1 },
+    );
+
+    if (sentinelRef.current) observerRef.current.observe(sentinelRef.current);
+
+    return () => observerRef.current?.disconnect();
+  }, [hasMore, isLoading, fetchMore]);
 
   const handleOpen = async (notification: (typeof notifications)[number]) => {
     if (!notification.isRead) {
@@ -53,20 +77,25 @@ export default function NotificationPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-h1 text-ink-heading dark:text-white">通知中心</h1>
-          <p className="mt-1 text-body text-ink-secondary">查看紅旗警示、報告完成與系統通知</p>
+          <h1 className="text-h1 text-ink-heading dark:text-white">{t('notifications.title', '通知中心')}</h1>
+          <p className="mt-1 text-body text-ink-secondary">
+            {t('notifications.subtitle', '查看紅旗警示、報告完成與系統通知')}
+          </p>
         </div>
         <button className="btn-secondary" onClick={() => markAllRead()}>
-          全部標示已讀
+          {t('notifications.markAllRead', '全部標示已讀')}
         </button>
       </div>
 
       {error && <ErrorState message={error} onRetry={() => fetchNotifications(true)} />}
 
-      {isLoading ? (
+      {isLoading && notifications.length === 0 ? (
         <LoadingSpinner fullPage />
       ) : notifications.length === 0 ? (
-        <EmptyState title="沒有通知" message="目前沒有新的系統通知" />
+        <EmptyState
+          title={t('notifications.emptyTitle', '沒有通知')}
+          message={t('notifications.emptyMessage', '目前沒有新的系統通知')}
+        />
       ) : (
         <div className="space-y-3">
           {notifications.map((notification) => {
@@ -87,7 +116,7 @@ export default function NotificationPage() {
                       </h2>
                       {!notification.isRead && (
                         <span className="rounded-pill bg-primary-600 px-2 py-0.5 text-tiny font-semibold text-white">
-                          未讀
+                          {t('notifications.unreadBadge', '未讀')}
                         </span>
                       )}
                     </div>
@@ -100,13 +129,25 @@ export default function NotificationPage() {
                   </div>
                   {route ? (
                     <span className="shrink-0 text-small font-medium text-primary-600">
-                      查看詳情
+                      {t('alert.viewDetail', '查看詳情')}
                     </span>
                   ) : null}
                 </div>
               </button>
             );
           })}
+
+          <div ref={sentinelRef} className="h-4" />
+
+          {isLoading ? (
+            <div className="flex justify-center py-2">
+              <LoadingSpinner size="sm" />
+            </div>
+          ) : !hasMore ? (
+            <p className="py-2 text-center text-small text-ink-muted">
+              {t('common:pagination.allLoaded', '已顯示全部')}
+            </p>
+          ) : null}
         </div>
       )}
     </div>

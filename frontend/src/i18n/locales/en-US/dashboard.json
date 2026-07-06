@@ -118,5 +118,38 @@
       "assistant": "AI assistant",
       "system": "System"
     }
+  },
+  "reportList": {
+    "eyebrow": "Review Workspace",
+    "subtitle": "Review AI consultation summaries, reports awaiting review, and revision requests in one place. Start with the pending queue, then return to the transcript to verify the supporting evidence.",
+    "displayCount": "Showing {{count}} reports",
+    "tabs": {
+      "all": "All",
+      "pending": "Pending",
+      "approved": "Approved",
+      "revisionNeeded": "Revision needed"
+    },
+    "summaryTotal": "All reports",
+    "groupCount": "{{count}} reports",
+    "emptyTitle": "No reports",
+    "emptyMessage": "No SOAP reports match the current filters",
+    "redFlagBadge": "Red-flag session",
+    "chiefComplaintLabel": "Chief complaint: {{value}}",
+    "sessionStatusLabel": "Session status: {{value}}",
+    "complaintEmpty": "No chief complaint",
+    "complaintFetchFailed": "Chief complaint unavailable",
+    "summaryEmpty": "No AI summary available yet.",
+    "aiConfidence": "AI confidence {{percent}}%",
+    "revisionReason": "Revision reason",
+    "reportTime": "Report time",
+    "searchPlaceholder": "Search patient name or MRN"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "subtitle": "View red-flag alerts, completed reports, and system notifications",
+    "markAllRead": "Mark all as read",
+    "emptyTitle": "No notifications",
+    "emptyMessage": "There are no new system notifications",
+    "unreadBadge": "Unread"
   }
 }

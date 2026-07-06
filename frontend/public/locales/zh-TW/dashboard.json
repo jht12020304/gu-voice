@@ -118,5 +118,38 @@
       "assistant": "AI 助手",
       "system": "系統"
     }
+  },
+  "reportList": {
+    "eyebrow": "審閱工作台",
+    "subtitle": "集中查看 AI 問診摘要、待審閱報告與退回修改紀錄。先從待審閱開始，再回到逐字稿核對內容依據。",
+    "displayCount": "目前顯示 {{count}} 份報告",
+    "tabs": {
+      "all": "全部",
+      "pending": "待審閱",
+      "approved": "已核准",
+      "revisionNeeded": "需修改"
+    },
+    "summaryTotal": "全部報告",
+    "groupCount": "{{count}} 份報告",
+    "emptyTitle": "無報告",
+    "emptyMessage": "目前沒有符合條件的 SOAP 報告",
+    "redFlagBadge": "紅旗場次",
+    "chiefComplaintLabel": "主訴：{{value}}",
+    "sessionStatusLabel": "場次狀態：{{value}}",
+    "complaintEmpty": "未填寫主訴",
+    "complaintFetchFailed": "未取得主訴",
+    "summaryEmpty": "目前尚無 AI 摘要內容。",
+    "aiConfidence": "AI 信心 {{percent}}%",
+    "revisionReason": "退回原因",
+    "reportTime": "報告時間",
+    "searchPlaceholder": "搜尋病患姓名或病歷號"
+  },
+  "notifications": {
+    "title": "通知中心",
+    "subtitle": "查看紅旗警示、報告完成與系統通知",
+    "markAllRead": "全部標示已讀",
+    "emptyTitle": "沒有通知",
+    "emptyMessage": "目前沒有新的系統通知",
+    "unreadBadge": "未讀"
   }
 }

@@ -110,5 +110,26 @@
     "colResourceType": "リソースタイプ",
     "colResourceId": "リソースID",
     "colIp": "IPアドレス"
+  },
+  "systemHealth": {
+    "title": "システムヘルス監視",
+    "subtitle": "バックエンドのコアサービスとインフラの状態を監視します。",
+    "refresh": "更新",
+    "loading": "システムヘルスを読み込み中...",
+    "loadError": "システム状態を読み込めませんでした",
+    "loadErrorFallback": "システムヘルスを取得できません",
+    "metrics": {
+      "apiStatus": "API サーバー状態",
+      "database": "データベース",
+      "redis": "Redis",
+      "openai": "OpenAI サービス",
+      "version": "バージョン"
+    },
+    "eventsTitle": "最近のシステムイベント",
+    "backendStatus": "バックエンド状態レポート",
+    "lastHealthCheck": "最終ヘルスチェック時刻",
+    "notProvided": "未提供",
+    "dependencyTitle": "AI サービスと依存関係の状態",
+    "dependencyNote": "各サービスの接続ヘルス状態を表示します（使用量クォータの割合ではありません）。"
   }
 }

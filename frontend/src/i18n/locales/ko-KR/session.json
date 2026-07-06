@@ -102,5 +102,26 @@
       "cancelAction": "취소",
       "processing": "처리 중..."
     }
+  },
+  "patientHistory": {
+    "sessionCount": "문진 {{count}}회",
+    "loading": "기록을 불러오는 중...",
+    "emptyAll": "아직 문진 기록이 없습니다",
+    "emptyFiltered": "조건에 맞는 기록이 없습니다",
+    "backAria": "뒤로",
+    "durationMinutes": "{{minutes}}분",
+    "filters": {
+      "all": "전체",
+      "completed": "완료",
+      "inProgress": "진행 중",
+      "cancelled": "취소됨"
+    },
+    "status": {
+      "completed": "완료",
+      "inProgress": "진행 중",
+      "waiting": "대기 중",
+      "abortedRedFlag": "레드플래그로 중단",
+      "cancelled": "취소됨"
+    }
   }
 }

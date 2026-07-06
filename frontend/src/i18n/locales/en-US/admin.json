@@ -110,5 +110,26 @@
     "colResourceType": "Resource Type",
     "colResourceId": "Resource ID",
     "colIp": "IP Address"
+  },
+  "systemHealth": {
+    "title": "System health monitoring",
+    "subtitle": "Monitor the status of core backend services and infrastructure.",
+    "refresh": "Refresh",
+    "loading": "Loading system health...",
+    "loadError": "Failed to load system status",
+    "loadErrorFallback": "Unable to retrieve system health",
+    "metrics": {
+      "apiStatus": "API server status",
+      "database": "Database",
+      "redis": "Redis",
+      "openai": "OpenAI service",
+      "version": "Version"
+    },
+    "eventsTitle": "Recent system events",
+    "backendStatus": "Backend status report",
+    "lastHealthCheck": "Last health check",
+    "notProvided": "Not provided",
+    "dependencyTitle": "AI service & dependency status",
+    "dependencyNote": "Shows the connection health of each service, not usage quota percentages."
   }
 }
