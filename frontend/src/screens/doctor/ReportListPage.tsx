@@ -2,7 +2,9 @@
 // SOAP 報告列表頁 — 審閱入口
 // =============================================================================
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
@@ -94,12 +96,20 @@ const mockReports: MockReport[] = [
   },
 ];
 
-const REVIEW_TABS: Array<{ key: ReviewFilter; label: string }> = [
-  { key: '', label: '全部' },
-  { key: 'pending', label: '待審閱' },
-  { key: 'approved', label: '已核准' },
-  { key: 'revision_needed', label: '需修改' },
-];
+const REVIEW_TAB_KEYS: ReviewFilter[] = ['', 'pending', 'approved', 'revision_needed'];
+
+function reviewTabLabel(key: ReviewFilter, t: TFunction): string {
+  switch (key) {
+    case 'pending':
+      return t('reportList.tabs.pending', '待審閱');
+    case 'approved':
+      return t('reportList.tabs.approved', '已核准');
+    case 'revision_needed':
+      return t('reportList.tabs.revisionNeeded', '需修改');
+    default:
+      return t('reportList.tabs.all', '全部');
+  }
+}
 
 function getReportTimestamp(report: SOAPReport): string {
   return report.generatedAt || report.updatedAt || report.createdAt;
@@ -123,14 +133,14 @@ function getDayLabel(report: SOAPReport): string {
   });
 }
 
-function reviewStatusLabel(status: SOAPReport['reviewStatus']): string {
+function reviewStatusLabel(status: SOAPReport['reviewStatus'], t: TFunction): string {
   switch (status) {
     case 'approved':
-      return '已核准';
+      return t('reportList.tabs.approved', '已核准');
     case 'revision_needed':
-      return '需修改';
+      return t('reportList.tabs.revisionNeeded', '需修改');
     default:
-      return '待審閱';
+      return t('reportList.tabs.pending', '待審閱');
   }
 }
 
@@ -145,20 +155,20 @@ function reviewStatusClass(status: SOAPReport['reviewStatus']): string {
   }
 }
 
-function sessionStatusLabel(status?: Session['status']): string {
+function sessionStatusLabel(status: Session['status'] | undefined, t: TFunction): string {
   switch (status) {
     case 'waiting':
-      return '等待中';
+      return t('alertList.sessionStatus.waiting', '等待中');
     case 'in_progress':
-      return '問診中';
+      return t('alertList.sessionStatus.inProgress', '問診中');
     case 'completed':
-      return '已完成';
+      return t('alertList.sessionStatus.completed', '已完成');
     case 'aborted_red_flag':
-      return '紅旗中止';
+      return t('alertList.sessionStatus.abortedRedFlag', '紅旗中止');
     case 'cancelled':
-      return '已取消';
+      return t('alertList.sessionStatus.cancelled', '已取消');
     default:
-      return '未取得場次狀態';
+      return t('common:status.unknown', '未取得場次狀態');
   }
 }
 
@@ -167,17 +177,41 @@ function countByStatus(reports: SOAPReport[], status: SOAPReport['reviewStatus']
 }
 
 export default function ReportListPage() {
+  const { t } = useTranslation('dashboard');
   const navigate = useLocalizedNavigate();
-  const { reports, isLoading: storeLoading, fetchReports } = useReportStore();
+  const { reports, isLoading: storeLoading, hasMore, fetchReports, fetchMore } = useReportStore();
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [summaryReports, setSummaryReports] = useState<SOAPReport[]>(IS_MOCK ? mockReports : []);
   const [sessionMeta, setSessionMeta] = useState<Record<string, ReportMeta>>({});
   const isLoading = IS_MOCK ? false : storeLoading;
+  const observerRef = useRef<IntersectionObserver>();
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (IS_MOCK) return;
     fetchReports({ reviewStatus: reviewFilter || undefined });
   }, [reviewFilter, fetchReports]);
+
+  // §5a：接上 store 的 fetchMore/hasMore 無限捲動，讓 >20 筆的報告可達（過去只抓首 20 筆）。
+  // 搜尋為前端過濾，仍持續載入更多至 store。
+  useEffect(() => {
+    if (IS_MOCK) return;
+    if (observerRef.current) observerRef.current.disconnect();
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !storeLoading) {
+          fetchMore({ reviewStatus: reviewFilter || undefined });
+        }
+      },
+      { threshold: 0.1 },
+    );
+
+    if (sentinelRef.current) observerRef.current.observe(sentinelRef.current);
+
+    return () => observerRef.current?.disconnect();
+  }, [hasMore, storeLoading, fetchMore, reviewFilter]);
 
   useEffect(() => {
     if (IS_MOCK) return;
@@ -232,7 +266,10 @@ export default function ReportListPage() {
               sessionId,
               {
                 patientName: session.patient?.name ?? session.patientName ?? session.patientId,
-                complaint: session.chiefComplaintText ?? session.chiefComplaint?.name ?? '未填寫主訴',
+                complaint:
+                  session.chiefComplaintText ??
+                  session.chiefComplaint?.name ??
+                  t('reportList.complaintEmpty', '未填寫主訴'),
                 redFlag: session.redFlag,
                 sessionStatus: session.status,
               },
@@ -242,7 +279,7 @@ export default function ReportListPage() {
               sessionId,
               {
                 patientName: sessionId,
-                complaint: '未取得主訴',
+                complaint: t('reportList.complaintFetchFailed', '未取得主訴'),
                 redFlag: false,
               },
             ] as const;
@@ -263,11 +300,27 @@ export default function ReportListPage() {
     return () => {
       cancelled = true;
     };
-  }, [displayReports, sessionMeta]);
+  }, [displayReports, sessionMeta, t]);
+
+  // 病患姓名 / 病歷號 / 主訴 前端搜尋（比照 AlertListPage：姓名不在 report 本體，故對已載入清單過濾）。
+  const filteredReports = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return displayReports;
+    return displayReports.filter((report) => {
+      const meta = IS_MOCK
+        ? { patientName: (report as MockReport).patientName, complaint: (report as MockReport).complaint }
+        : sessionMeta[report.sessionId];
+      const haystack = [meta?.patientName, meta?.complaint, report.sessionId]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [displayReports, searchQuery, sessionMeta]);
 
   const overviewReports = summaryReports.length > 0 ? summaryReports : displayReports;
   const groupedReports = useMemo(() => {
-    const sorted = [...displayReports].sort(
+    const sorted = [...filteredReports].sort(
       (a, b) => new Date(getReportTimestamp(b)).getTime() - new Date(getReportTimestamp(a)).getTime(),
     );
 
@@ -285,67 +338,79 @@ export default function ReportListPage() {
       });
       return groups;
     }, []);
-  }, [displayReports]);
+  }, [filteredReports]);
 
   return (
     <div className="animate-fade-in space-y-6">
       <section className="card">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-small font-semibold uppercase tracking-[0.18em] text-ink-muted">Review Workspace</p>
-            <h1 className="mt-2 text-h1 text-ink-heading dark:text-white">SOAP 報告</h1>
+            <p className="text-small font-semibold uppercase tracking-[0.18em] text-ink-muted">{t('reportList.eyebrow', '審閱工作台')}</p>
+            <h1 className="mt-2 text-h1 text-ink-heading dark:text-white">{t('sidebar.nav.soapReports', 'SOAP 報告')}</h1>
             <p className="mt-2 max-w-3xl text-body text-ink-secondary">
-              集中查看 AI 問診摘要、待審閱報告與退回修改紀錄。先從待審閱開始，再回到逐字稿核對內容依據。
+              {t('reportList.subtitle', '集中查看 AI 問診摘要、待審閱報告與退回修改紀錄。先從待審閱開始，再回到逐字稿核對內容依據。')}
             </p>
           </div>
           <div className="rounded-card border border-primary-100 bg-primary-50/70 px-4 py-3 text-body text-primary-700 dark:border-primary-900/50 dark:bg-primary-950/20 dark:text-primary-300">
-            目前顯示 {displayReports.length} 份報告
+            {t('reportList.displayCount', { count: filteredReports.length })}
           </div>
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-card border border-edge bg-white px-4 py-4 shadow-card dark:border-dark-border dark:bg-dark-card">
-            <p className="text-small font-semibold uppercase tracking-[0.16em] text-ink-muted">全部報告</p>
+            <p className="text-small font-semibold uppercase tracking-[0.16em] text-ink-muted">{t('reportList.summaryTotal', '全部報告')}</p>
             <p className="mt-3 text-display text-ink-heading dark:text-white">{overviewReports.length}</p>
           </div>
           <div className="rounded-card border border-amber-200 bg-amber-50/70 px-4 py-4 shadow-card dark:border-amber-900/50 dark:bg-amber-950/20">
-            <p className="text-small font-semibold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">待審閱</p>
+            <p className="text-small font-semibold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">{t('reportList.tabs.pending', '待審閱')}</p>
             <p className="mt-3 text-display text-amber-700 dark:text-amber-300">{countByStatus(overviewReports, 'pending')}</p>
           </div>
           <div className="rounded-card border border-green-200 bg-green-50/70 px-4 py-4 shadow-card dark:border-green-900/50 dark:bg-green-950/20">
-            <p className="text-small font-semibold uppercase tracking-[0.16em] text-green-700 dark:text-green-300">已核准</p>
+            <p className="text-small font-semibold uppercase tracking-[0.16em] text-green-700 dark:text-green-300">{t('reportList.tabs.approved', '已核准')}</p>
             <p className="mt-3 text-display text-green-700 dark:text-green-300">{countByStatus(overviewReports, 'approved')}</p>
           </div>
           <div className="rounded-card border border-red-200 bg-red-50/70 px-4 py-4 shadow-card dark:border-red-900/50 dark:bg-red-950/20">
-            <p className="text-small font-semibold uppercase tracking-[0.16em] text-red-700 dark:text-red-300">需修改</p>
+            <p className="text-small font-semibold uppercase tracking-[0.16em] text-red-700 dark:text-red-300">{t('reportList.tabs.revisionNeeded', '需修改')}</p>
             <p className="mt-3 text-display text-red-700 dark:text-red-300">{countByStatus(overviewReports, 'revision_needed')}</p>
           </div>
         </div>
       </section>
 
       <section className="card">
-        <div className="flex flex-wrap gap-2">
-          {REVIEW_TABS.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              className={`rounded-pill px-4 py-2 text-body font-medium transition-colors ${
-                reviewFilter === tab.key
-                  ? 'bg-primary-600 text-white shadow-sm'
-                  : 'bg-surface-secondary text-ink-secondary hover:text-ink-heading dark:bg-dark-surface dark:text-dark-text-muted dark:hover:text-white'
-              }`}
-              onClick={() => setReviewFilter(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {REVIEW_TAB_KEYS.map((key) => (
+              <button
+                key={key || 'all'}
+                type="button"
+                className={`rounded-pill px-4 py-2 text-body font-medium transition-colors ${
+                  reviewFilter === key
+                    ? 'bg-primary-600 text-white shadow-sm'
+                    : 'bg-surface-secondary text-ink-secondary hover:text-ink-heading dark:bg-dark-surface dark:text-dark-text-muted dark:hover:text-white'
+                }`}
+                onClick={() => setReviewFilter(key)}
+              >
+                {reviewTabLabel(key, t)}
+              </button>
+            ))}
+          </div>
+
+          <div className="w-full xl:max-w-sm">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder={t('reportList.searchPlaceholder', '搜尋病患姓名或病歷號')}
+              className="input-base h-11"
+            />
+          </div>
         </div>
       </section>
 
-      {isLoading ? (
+      {isLoading && displayReports.length === 0 ? (
         <LoadingSpinner fullPage />
-      ) : displayReports.length === 0 ? (
-        <EmptyState title="無報告" message="目前沒有符合條件的 SOAP 報告" />
+      ) : filteredReports.length === 0 ? (
+        <EmptyState title={t('reportList.emptyTitle', '無報告')} message={t('reportList.emptyMessage', '目前沒有符合條件的 SOAP 報告')} />
       ) : (
         <div className="space-y-6">
           {groupedReports.map((group) => (
@@ -353,7 +418,7 @@ export default function ReportListPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-h3 text-ink-heading dark:text-white">{group.label}</h2>
-                  <p className="mt-1 text-small text-ink-muted">{group.reports.length} 份報告</p>
+                  <p className="mt-1 text-small text-ink-muted">{t('reportList.groupCount', { count: group.reports.length })}</p>
                 </div>
               </div>
 
@@ -382,22 +447,22 @@ export default function ReportListPage() {
                               {meta?.patientName ?? report.sessionId}
                             </h3>
                             <span className={`rounded-pill px-3 py-1 text-small font-semibold ${reviewStatusClass(report.reviewStatus)}`}>
-                              {reviewStatusLabel(report.reviewStatus)}
+                              {reviewStatusLabel(report.reviewStatus, t)}
                             </span>
                             {meta?.redFlag ? (
                               <span className="rounded-pill bg-red-50 px-3 py-1 text-small font-semibold text-red-600 ring-1 ring-red-200 dark:bg-red-950/20 dark:text-red-300 dark:ring-red-900">
-                                紅旗場次
+                                {t('reportList.redFlagBadge', '紅旗場次')}
                               </span>
                             ) : null}
                           </div>
 
                           <div className="mt-2 flex flex-wrap items-center gap-3 text-small text-ink-muted">
-                            <span>主訴：{meta?.complaint ?? '未取得主訴'}</span>
-                            <span>場次狀態：{sessionStatusLabel(meta?.sessionStatus)}</span>
+                            <span>{t('reportList.chiefComplaintLabel', { value: meta?.complaint ?? t('reportList.complaintFetchFailed', '未取得主訴') })}</span>
+                            <span>{t('reportList.sessionStatusLabel', { value: sessionStatusLabel(meta?.sessionStatus, t) })}</span>
                           </div>
 
                           <p className="mt-4 line-clamp-3 text-body leading-relaxed text-ink-body dark:text-white/85">
-                            {report.summary || '目前尚無 AI 摘要內容。'}
+                            {report.summary || t('reportList.summaryEmpty', '目前尚無 AI 摘要內容。')}
                           </p>
 
                           <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -416,7 +481,7 @@ export default function ReportListPage() {
 
                             {report.aiConfidenceScore !== undefined ? (
                               <span className="text-small font-medium text-ink-muted">
-                                AI 信心 {Math.round(report.aiConfidenceScore * 100)}%
+                                {t('reportList.aiConfidence', { percent: Math.round(report.aiConfidenceScore * 100) })}
                               </span>
                             ) : null}
                           </div>
@@ -424,7 +489,7 @@ export default function ReportListPage() {
                           {report.reviewStatus === 'revision_needed' && report.reviewNotes ? (
                             <div className="mt-4 rounded-card border border-red-200 bg-red-50/70 px-4 py-3 dark:border-red-900/50 dark:bg-red-950/10">
                               <p className="text-small font-semibold uppercase tracking-[0.14em] text-red-700 dark:text-red-300">
-                                退回原因
+                                {t('reportList.revisionReason', '退回原因')}
                               </p>
                               <p className="mt-2 text-body text-red-700/90 dark:text-red-300/85">
                                 {report.reviewNotes}
@@ -435,7 +500,7 @@ export default function ReportListPage() {
 
                         <div className="flex shrink-0 items-center gap-3 xl:flex-col xl:items-end">
                           <div className="text-right">
-                            <p className="text-small font-semibold text-ink-heading dark:text-white">報告時間</p>
+                            <p className="text-small font-semibold text-ink-heading dark:text-white">{t('reportList.reportTime', '報告時間')}</p>
                             <p className="mt-1 text-small text-ink-muted">
                               {formatDate(getReportTimestamp(report), {
                                 month: '2-digit',
@@ -458,6 +523,21 @@ export default function ReportListPage() {
               </div>
             </section>
           ))}
+
+          {!IS_MOCK ? (
+            <>
+              <div ref={sentinelRef} className="h-4" />
+              {storeLoading && displayReports.length > 0 ? (
+                <div className="flex justify-center py-2">
+                  <LoadingSpinner size="sm" />
+                </div>
+              ) : !hasMore ? (
+                <p className="py-2 text-center text-small text-ink-muted">
+                  {t('common:pagination.allLoaded', '已顯示全部')}
+                </p>
+              ) : null}
+            </>
+          ) : null}
         </div>
       )}
     </div>

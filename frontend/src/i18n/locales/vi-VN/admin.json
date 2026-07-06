@@ -110,5 +110,26 @@
     "colResourceType": "Loại tài nguyên",
     "colResourceId": "ID tài nguyên",
     "colIp": "Địa chỉ IP"
+  },
+  "systemHealth": {
+    "title": "Giám sát tình trạng hệ thống",
+    "subtitle": "Giám sát trạng thái các dịch vụ lõi backend và hạ tầng.",
+    "refresh": "Làm mới",
+    "loading": "Đang tải tình trạng hệ thống...",
+    "loadError": "Không thể tải trạng thái hệ thống",
+    "loadErrorFallback": "Không thể lấy tình trạng hệ thống",
+    "metrics": {
+      "apiStatus": "Trạng thái máy chủ API",
+      "database": "Cơ sở dữ liệu",
+      "redis": "Redis",
+      "openai": "Dịch vụ OpenAI",
+      "version": "Phiên bản"
+    },
+    "eventsTitle": "Sự kiện hệ thống gần đây",
+    "backendStatus": "Báo cáo trạng thái backend",
+    "lastHealthCheck": "Lần kiểm tra tình trạng cuối",
+    "notProvided": "Không có",
+    "dependencyTitle": "Trạng thái dịch vụ AI & phụ thuộc",
+    "dependencyNote": "Hiển thị tình trạng kết nối của từng dịch vụ, không phải phần trăm hạn mức sử dụng."
   }
 }

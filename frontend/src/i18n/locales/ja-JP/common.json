@@ -282,5 +282,10 @@
     "columnDob": "生年月日",
     "columnCreatedAt": "登録日時",
     "noPhone": "電話番号なし"
+  },
+  "pagination": {
+    "loadMore": "さらに読み込む",
+    "loadingMore": "読み込み中...",
+    "allLoaded": "すべて表示しました"
   }
 }

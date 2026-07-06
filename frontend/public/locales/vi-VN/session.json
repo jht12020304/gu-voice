@@ -102,5 +102,26 @@
       "cancelAction": "Hủy",
       "processing": "Đang xử lý..."
     }
+  },
+  "patientHistory": {
+    "sessionCount": "{{count}} lần khám",
+    "loading": "Đang tải hồ sơ...",
+    "emptyAll": "Chưa có hồ sơ khám",
+    "emptyFiltered": "Không có hồ sơ nào khớp với điều kiện",
+    "backAria": "Quay lại",
+    "durationMinutes": "{{minutes}} phút",
+    "filters": {
+      "all": "Tất cả",
+      "completed": "Đã hoàn tất",
+      "inProgress": "Đang tiến hành",
+      "cancelled": "Đã hủy"
+    },
+    "status": {
+      "completed": "Đã hoàn tất",
+      "inProgress": "Đang tiến hành",
+      "waiting": "Đang chờ",
+      "abortedRedFlag": "Dừng do cờ đỏ",
+      "cancelled": "Đã hủy"
+    }
   }
 }

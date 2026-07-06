@@ -282,5 +282,10 @@
     "columnDob": "생년월일",
     "columnCreatedAt": "등록 일시",
     "noPhone": "전화번호 없음"
+  },
+  "pagination": {
+    "loadMore": "더 보기",
+    "loadingMore": "불러오는 중...",
+    "allLoaded": "모두 표시했습니다"
   }
 }

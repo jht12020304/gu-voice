@@ -282,5 +282,10 @@
     "columnDob": "Ngày sinh",
     "columnCreatedAt": "Thời gian tạo",
     "noPhone": "Chưa cung cấp điện thoại"
+  },
+  "pagination": {
+    "loadMore": "Tải thêm",
+    "loadingMore": "Đang tải thêm...",
+    "allLoaded": "Đã hiển thị tất cả"
   }
 }

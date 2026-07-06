@@ -118,5 +118,38 @@
       "assistant": "AI 도우미",
       "system": "시스템"
     }
+  },
+  "reportList": {
+    "eyebrow": "검토 워크스페이스",
+    "subtitle": "AI 문진 요약, 검토 대기 보고서, 반려 기록을 한곳에서 확인하세요. 검토 대기부터 시작한 뒤 전사본으로 돌아가 근거를 확인하세요.",
+    "displayCount": "현재 {{count}}건의 보고서 표시 중",
+    "tabs": {
+      "all": "전체",
+      "pending": "검토 대기",
+      "approved": "승인됨",
+      "revisionNeeded": "수정 필요"
+    },
+    "summaryTotal": "전체 보고서",
+    "groupCount": "보고서 {{count}}건",
+    "emptyTitle": "보고서 없음",
+    "emptyMessage": "조건에 맞는 SOAP 보고서가 없습니다",
+    "redFlagBadge": "레드플래그 세션",
+    "chiefComplaintLabel": "주호소: {{value}}",
+    "sessionStatusLabel": "세션 상태: {{value}}",
+    "complaintEmpty": "주호소 미입력",
+    "complaintFetchFailed": "주호소를 가져올 수 없습니다",
+    "summaryEmpty": "아직 AI 요약이 없습니다.",
+    "aiConfidence": "AI 신뢰도 {{percent}}%",
+    "revisionReason": "반려 사유",
+    "reportTime": "보고서 시각",
+    "searchPlaceholder": "환자 이름 또는 병록번호 검색"
+  },
+  "notifications": {
+    "title": "알림 센터",
+    "subtitle": "레드플래그 경고, 보고서 완료 및 시스템 알림을 확인하세요",
+    "markAllRead": "모두 읽음으로 표시",
+    "emptyTitle": "알림 없음",
+    "emptyMessage": "새로운 시스템 알림이 없습니다",
+    "unreadBadge": "읽지 않음"
   }
 }

@@ -10,6 +10,7 @@ import StatusBadge from '../../components/medical/StatusBadge';
 import SearchBar from '../../components/form/SearchBar';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
+import ErrorState from '../../components/common/ErrorState';
 import type { Session } from '../../types';
 import type { SessionStatus } from '../../types/enums';
 import { formatDate, formatDuration } from '../../utils/format';
@@ -33,6 +34,7 @@ export default function SessionListPage() {
   const { on, off } = useDashboardWebSocket();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -57,12 +59,20 @@ export default function SessionListPage() {
     try {
       const response = await sessionsApi.getSessions({ limit: 50 });
       setSessions(response.data);
+      setHasError(false);
     } catch {
-      // 靜默
+      // 三態化：不再靜默吞成「無場次」空狀態，改記錄錯誤以顯示錯誤態 + 重試。
+      // 僅在完全沒有既有資料時才會覆蓋畫面（見下方 render），背景 WS 重載失敗不會抹掉已載入列表。
+      setHasError(true);
     } finally {
       setIsLoading(false);
     }
   }, []);
+
+  const handleRetry = useCallback(() => {
+    setIsLoading(true);
+    void reloadSessions();
+  }, [reloadSessions]);
 
   useEffect(() => {
     reloadSessions();
@@ -138,9 +148,11 @@ export default function SessionListPage() {
         </div>
       </div>
 
-      {/* 列表 */}
+      {/* 列表（三態：載入中 / 錯誤+重試 / 空 / 已載入） */}
       {isLoading ? (
         <LoadingSpinner fullPage />
+      ) : hasError && sessions.length === 0 ? (
+        <ErrorState message={t('doctor.detail.loadError')} onRetry={handleRetry} />
       ) : visibleSessions.length === 0 ? (
         <EmptyState title={t('doctor.list.emptyTitle')} message={t('doctor.list.emptyMessage')} />
       ) : (
