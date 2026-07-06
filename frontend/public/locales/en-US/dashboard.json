@@ -60,7 +60,8 @@
       "acknowledging": "Processing...",
       "acknowledgeButton": "Mark as Acknowledged",
       "goToSession": "Go to Session Details"
-    }
+    },
+    "newAlertToast": "{{count}} new red-flag alert(s) awaiting review"
   },
   "transcript": {
     "title": "Consultation transcript",

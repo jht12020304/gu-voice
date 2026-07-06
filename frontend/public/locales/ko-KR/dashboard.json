@@ -60,7 +60,8 @@
       "acknowledging": "처리 중...",
       "acknowledgeButton": "처리됨으로 표시",
       "goToSession": "세션 상세로 이동"
-    }
+    },
+    "newAlertToast": "처리 대기 중인 레드플래그 경고 {{count}}건"
   },
   "transcript": {
     "title": "문진 대화 전사본",

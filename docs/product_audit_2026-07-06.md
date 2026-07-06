@@ -30,7 +30,9 @@
 - 本 session **A3（目錄 severity floor）已修「偵測到就 floor 回 critical」**（e2e downplay run1 已驗 high→critical→abort→er_now）。但**極度淡化下語意層 recall 不穩**（downplay 兩跑一次 critical、一次 0 偵測）——沒偵測到就無從 floor。這是最需要安全網的族群（隱私敏感部位病患最會淡化）。
 - **建議**：需臨床決策——特定高風險主訴（年輕男性陰囊腫脹一律 torsion rule-out）強制篩查，或降低該類偵測門檻。
 
-### 1c. 送達層（醫師）：新 critical 紅旗在多數頁面「零信號」→ 醫師極可能漏看（P0，未修）
+### 1c. 送達層（醫師）：新 critical 紅旗在多數頁面「零信號」→ 醫師極可能漏看（🟡 部分修 2026-07-06 批3c）
+> **已修（低風險版）**：新增 `DoctorAlertPoller`（掛醫師 shell `MainLayout`）——每 20s 輪詢未處理紅旗數 → **Sidebar 徽章 app-wide 即時更新**、數字增加即**全域 toast**（5 語 `alert.newAlertToast`）+ 選配音效（接既有 `soundEnabled`，Web Audio beep 免音檔）。醫師在任何頁都會於 ≤20s 內收到新紅旗信號。**未採完整 WS 常駐**：因共用 singleton dashboard WS 的多消費者生命週期（`off(event)` 移除該事件所有 handler）在無 runtime 測試下風險高，留作後續（需 runtime QA）。以下為原始描述：
+
 - 紅旗 WebSocket 只綁在 `AlertListPage`/`SessionListPage`（`useWebSocket.ts:132-165`，cleanup 即 disconnect）。醫師在審 SOAP、看病患、Dashboard、設定頁時**沒有任何開著的紅旗 WS**。Sidebar 未讀徽章只 mount 抓一次（無 WS/interval）。設定頁「聲音提示」開關的 `soundEnabled` **從未被讀取＝死設定**；全 repo 無 `new Audio`/`Notification`。
 - **影響**：候診情境下，醫師審 A 病患 SOAP 時，B 病患的 er_now 紅旗**無徽章/聲音/toast/banner**，直到主動切 `/alerts` 且剛好重抓。**核心安全功能最大缺口。**
 - **建議**：紅旗 WS 提升到 app-shell 常駐；critical 到來全域 toast/banner +（接上既有 soundEnabled）音效；Sidebar 徽章改 WS 驅動。

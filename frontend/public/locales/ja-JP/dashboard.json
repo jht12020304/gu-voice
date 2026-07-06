@@ -60,7 +60,8 @@
       "acknowledging": "処理中...",
       "acknowledgeButton": "対応済みにする",
       "goToSession": "セッション詳細へ移動"
-    }
+    },
+    "newAlertToast": "未対応の赤旗アラートが {{count}} 件あります"
   },
   "transcript": {
     "title": "問診会話の逐語記録",
