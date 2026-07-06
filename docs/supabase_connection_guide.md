@@ -4,7 +4,12 @@
 > **未來的語言模型 (AI Agent) 若要處理後端資料庫或部署工作，請務必先閱讀此文件。**
 
 ## 1. Supabase 專案資訊
-- **Project Ref**: `udydlelmkusyjmegtviq`
+- **生產 Project**: `gu-voice-prod`，**Project Ref `xobxnlvtilezridrekdm`**，region **ap-southeast-1（Singapore）**，compute `micro`（DB max_connections ≈ 60）。
+- **真相來源＝Railway `DATABASE_URL` 環境變數**（`railway variables --service gu-voice-app --kv`）。生產實際：`postgresql://postgres.xobxnlvtilezridrekdm:<pw>@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres`（session-mode pooler，見 §2）。
+- **⚠️ Project Ref 漂移警告（2026-07-06 踩過的雷）**：專案曾重建、ref 換過但沒同步更新到處。目前散落三個 ref：
+  - ✅ **`xobxnlvtilezridrekdm`** — 現行生產（Railway 用的、Dashboard 上的 `gu-voice-prod`）。**只信這個。**
+  - ❌ `udydlelmkusyjmegtviq` — 本文與 `deployment_guide.md` 舊版寫的，**已過期**。
+  - ❌ `nydhmqtogqlwhuuolzos`（ap-northeast-2、port 6543）— **本地 `backend/.env` 裡的舊 ref，該帳號已無此專案存取權**。本機若直接用 `.env` 連 DB 會連到死專案；跑後端 / E2E 一律用 `scripts/e2e_realopenai/local.env` 覆寫成本機 docker（或改指 `xobxnlvtilezridrekdm`）。診斷連線問題時**務必先確認你連的是哪個 ref**（我 2026-07-06 就是被 `.env` 舊 ref 誤導、以為 pooler 壞了）。
 - **資料庫版本**: PostgreSQL 17.6
 
 ---
@@ -18,10 +23,10 @@
 DB_HOST=aws-1-ap-southeast-1.pooler.supabase.com
 DB_PORT=6543
 DB_NAME=postgres
-DB_USER=postgres.udydlelmkusyjmegtviq
+DB_USER=postgres.xobxnlvtilezridrekdm
 DB_PASSWORD=<你的密碼>
 ```
-*注意：`DB_USER` 必須包含 `.udydlelmkusyjmegtviq` 這個後綴，因為走的是 Pooler (PgBouncer)。*
+*注意：`DB_USER` 必須包含 `.xobxnlvtilezridrekdm` 這個後綴，因為走的是 Pooler (PgBouncer)。*
 
 > 🚨 **生產環境（Railway 常駐容器）必須改用 Session-mode Pooler（port 5432）**
 > 上面的 6543 是 **Transaction-mode**，適合本機開發 / 短連線與 Alembic 遷移。但**常駐容器**若用 6543，PgBouncer 會讓 `asyncpg` 為 JSONB codec 型別 introspection 建立的 prepared statement 在不同 backend 間失效，造成特定端點偶發 500（錯誤訊息：`prepared statement "__asyncpg_stmt_*__" does not exist`）。
@@ -70,3 +75,18 @@ python3 -m alembic upgrade head
 ## 4. 未來部署要點
 - 請記得將取得的 `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`SUPABASE_ANON_KEY` 等環境變數配置在 Railway / Vercel 的專案設定上。
 - **不要**將 JWT keys 寫死在任何程式碼內，只能放環境變數。
+
+---
+
+## 5. 連線故障排除 / Supabase 事故 runbook（2026-07-06 事故學到的）
+
+**症狀**：Railway app 起得來（基本 `GET /api/v1/health` 回 200），但 `GET /api/v1/healthz/deep` 的 **db check `timeout >2.0s`** 或 `sqlalchemy.exc.PendingRollbackError: Can't reconnect until invalid transaction is rolled back`；生產零星/全面 DB 錯誤。
+
+**先分辨三種根因（別急著動手）**：
+1. **Supabase 平台事故**（最先排除）：到 **Supabase Dashboard 專案首頁**看 **Status 是否 `Unhealthy`** + 頂部有無 **「We are investigating a technical issue」橫幅**；再看 **status.supabase.com** 事故是否列到本專案 region（**ap-southeast-1**）。若 Dashboard 的 DB metrics 顯示 **CPU/RAM 低、連線數遠未滿（如 17/60）**，代表 **DB 本身健康、是連線 pooler(Supavisor) 被平台事故拖累** → **不是我們的碼、也不是連線飽和**。
+   - **⚠️ 事故期間絕對不要重啟 / resize 這個 Supabase 專案**：Supabase 事故常正是影響 **project restart/resize/branch/restore** 這類操作；官方原文「existing projects 除非在事故期間被 restart/resize 否則不受影響」。此時重啟反而可能卡進容量不足的復原佇列更久。**做法＝等平台恢復容量、retry**。
+   - **Railway `railway redeploy` 只重啟 app 容器、不會重啟 Supabase 專案**：對 Supabase 端 pooler 問題無效，還多一次連線 churn，事故期間別亂重啟。
+2. **Pooler 連線飽和**（我方）：DB metrics 顯示連線數逼近上限 / idle 佔死。見 §急救。**注意**：`direct connection`（`db.<ref>.supabase.co:5432`）**現在 DNS 已不解析（此專案 IPv4 直連已停用）**，無法再用它繞過 pooler 清 idle——舊記憶的「direct 清 idle 急救法」已失效。要清 idle 只能經 pooler（session-mode 5432）用該專案憑證跑 `pg_terminate_backend(... where state='idle')`，或到 Dashboard → Database → Roles/Connections 處理。
+3. **我方程式碼**：只有在近期改了 DB 連線 / 交易 / pool 設定才可能。純業務邏輯改動（如問診/紅旗 pipeline）**不會**造成連線層 timeout；別誤把平台事故歸咎於自己的部署（部署時間點常與事故撞在一起）。
+
+**分辨口訣**：`/health` 200 + `/healthz/deep` db timeout + Dashboard 連線數沒滿 + status.supabase.com 有事故 → **Supabase 平台事故，等它恢復，別重啟專案**。
