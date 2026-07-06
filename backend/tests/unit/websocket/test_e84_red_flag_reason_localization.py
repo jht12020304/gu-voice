@@ -194,10 +194,16 @@ def test_hard_cap_inline_late_critical_reason_uses_localized_title(monkeypatch):
         HARD_CAP_DRAIN_AWAIT_SECONDS=0.2,
         MAX_HARD_CAP_DRAIN_DEFERS=2,
     )
+    # §3b：主訴須為「無風險因子群」者，否則 cap 動態加成（血尿 K=3 → effective=base+5）
+    # 會讓單輪(base=1)不達硬上限、測不到 inline 路徑。此處以 dysuria 呈現、gross hematuria
+    # 紅旗於對話中浮現的情境（drain 機制由 StubDetector 驅動、與主訴語意無關）。
+    ctx = _session_context("en-US")
+    ctx["chief_complaint"] = "排尿疼痛"
+    ctx["chief_complaint_display"] = "Dysuria"
     res = run_text_turn(
         monkeypatch,
         settings=settings,
-        session_context=_session_context("en-US"),
+        session_context=ctx,
         detector=StubDetector(
             alerts=[
                 make_alert(

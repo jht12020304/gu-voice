@@ -20,7 +20,9 @@ import pytest
 from app.core.config import Settings
 from app.websocket.conversation_handler import (
     _coerce_hpi_pct,
+    _effective_hard_cap,
     _hard_cap_reached,
+    _session_risk_factor_count,
     _should_auto_conclude,
     _should_conclude_now,
 )
@@ -147,6 +149,82 @@ def test_hard_cap_reached_respects_kill_switch():
     assert _hard_cap_reached(99, s) is False
 
 
+# ── §3b：高風險主訴動態硬上限（_effective_hard_cap / 風險因子加成） ─────
+def test_effective_hard_cap_unchanged_for_ordinary_complaint():
+    """K=0（一般主訴）：cap 維持 base，行為完全不變。"""
+    s = _settings(MAX_PATIENT_TURNS_HARD_CAP=10, RISK_FACTOR_HARD_CAP_BUFFER=2)
+    assert _effective_hard_cap(s, 0) == 10
+    assert _effective_hard_cap(s) == 10  # default risk_factor_count=0
+
+
+def test_effective_hard_cap_extends_for_high_risk_complaint():
+    """K>0（血尿/PSA/ED，3 風險因子）：cap = base + K + BUFFER。"""
+    s = _settings(MAX_PATIENT_TURNS_HARD_CAP=10, RISK_FACTOR_HARD_CAP_BUFFER=2)
+    assert _effective_hard_cap(s, 3) == 15  # 10 + 3 + 2
+
+
+def test_hard_cap_reached_respects_risk_factor_extension():
+    """血尿(K=3)：base=10 時 turn 12 不該收尾（effective=15），turn 15 才到。"""
+    s = _settings(MAX_PATIENT_TURNS_HARD_CAP=10, RISK_FACTOR_HARD_CAP_BUFFER=2)
+    # 一般主訴 (K=0) turn 12 早已過 base 10 → 收尾
+    assert _hard_cap_reached(12, s, 0) is True
+    # 高風險主訴 (K=3) turn 12 仍在窗內、不收尾（讓風險因子問得到）
+    assert _hard_cap_reached(12, s, 3) is False
+    assert _hard_cap_reached(15, s, 3) is True
+
+
+def test_should_auto_conclude_threads_risk_factor_count():
+    """硬上限路徑：高風險主訴在 base 之後、effective cap 之前不強制收尾。"""
+    s = _settings(MAX_PATIENT_TURNS_HARD_CAP=10, RISK_FACTOR_HARD_CAP_BUFFER=2)
+    # fallback 指導（軟門檻不可信）→ 只剩硬上限路徑
+    g = {"fallback": True, "hpi_completion_percentage": 0}
+    assert _should_auto_conclude(g, 12, s, 0) is True   # 一般主訴：已過 base
+    assert _should_auto_conclude(g, 12, s, 3) is False  # 高風險：窗內不收尾
+    assert _should_auto_conclude(g, 15, s, 3) is True   # 高風險：達 effective cap
+
+
+def test_soft_conclude_floor_raised_for_high_risk_complaint():
+    """§3b 確定性 backstop：高風險主訴(K=3)即使 supervisor 早報 hpi>=80，也要等到
+    軟門檻回合下限(base+K-1)才可軟收尾——防 supervisor gate 偶發早放行漏問風險因子。"""
+    s = _settings(
+        MAX_PATIENT_TURNS_HARD_CAP=10,
+        HPI_COMPLETION_TERMINATION_THRESHOLD=80,
+        MIN_PATIENT_TURNS_BEFORE_AUTO_END=4,
+    )
+    g = {"hpi_completion_percentage": 95}  # supervisor 早報高完整度
+    floor = 10 + 3 - 1  # base + K - 1 = 12
+    # 一般主訴(K=0)：達 MIN(4) 即可軟收尾
+    assert _should_auto_conclude(g, 5, s, 0) is True
+    # 高風險主訴(K=3)：floor-1 之前不軟收尾（即使 hpi=95）
+    assert _should_auto_conclude(g, floor - 1, s, 3) is False
+    # 達 floor 才軟收尾
+    assert _should_auto_conclude(g, floor, s, 3) is True
+
+
+def test_session_risk_factor_count_from_context():
+    """用 raw chief_complaint 判定（與 build_system_prompt / supervisor §3b 注入一致）；
+    刻意**不看 display**——display 可能不含關鍵字（實測 ED display 漂移致 K=0，但 raw
+    「勃起功能障礙」為 K=3），否則 gating 與注入端矛盾。"""
+    # 血尿 3 因子（吸菸/抗凝血/家族史）
+    assert _session_risk_factor_count({"chief_complaint": "血尿持續三天"}) == 3
+    # raw 為準：raw 匹配即 K>0，即使 display 不匹配（"ED"→0）也以 raw 為準
+    assert (
+        _session_risk_factor_count(
+            {"chief_complaint_display": "ED", "chief_complaint": "勃起功能障礙"}
+        )
+        == 3
+    )
+    # raw 不匹配 → 0，即使 display 匹配也不誤觸（避免與注入端漂移）
+    assert (
+        _session_risk_factor_count(
+            {"chief_complaint_display": "Hematuria", "chief_complaint": "頻尿"}
+        )
+        == 0
+    )
+    assert _session_risk_factor_count({"chief_complaint": "頻尿"}) == 0
+    assert _session_risk_factor_count({}) == 0
+
+
 # ── A2 [D1+D5]：_should_conclude_now 閘門矩陣（純函式） ──────────
 @pytest.mark.parametrize(
     "should_conclude, hard_cap, soft_defer, drain_unresolved, expected",
@@ -189,12 +267,30 @@ def _drain_settings():
     )
 
 
+def _drain_ctx():
+    """drain 測試用 K=0 主訴（睪丸扭轉情境，與注入的 critical 紅旗一致）。
+
+    conftest 預設主訴為「血尿」(K=3)，會觸發 §3b 風險因子 cap 動態加成
+    (effective=base+3+2)，破壞這些測試「單輪即達硬上限(base=1)」的意圖。drain 機制
+    本身由 StubDetector 驅動、與主訴語意無關，改用無風險因子群的主訴隔離即可。
+    """
+    return {
+        "session_id": "11111111-1111-4111-8111-111111111111",
+        "user_id": "user-1",
+        "chief_complaint": "睪丸疼痛",
+        "chief_complaint_display": "睪丸疼痛",
+        "patient_info": {"name": "測試病患"},
+        "language": "zh-TW",
+    }
+
+
 def test_hard_cap_late_critical_inline_abort(monkeypatch):
     """偵測 0.05s 後回 critical（> gate 0.01s、< inline 0.2s）→ inline 解析
     先 aborted_red_flag（帶 red_flag_reason）再結束；絕不 completed。"""
     res = run_text_turn(
         monkeypatch,
         settings=_drain_settings(),
+        session_context=_drain_ctx(),
         detector=StubDetector(
             alerts=[
                 make_alert(
@@ -227,6 +323,7 @@ def test_hard_cap_late_benign_resolves_then_concludes(monkeypatch):
     res = run_text_turn(
         monkeypatch,
         settings=_drain_settings(),
+        session_context=_drain_ctx(),
         detector=StubDetector(
             alerts=[make_alert(severity="medium", canonical_id="mild_lut_symptom")],
             delay=0.05,
@@ -242,13 +339,7 @@ def test_hard_cap_drain_stuck_defers_then_forces_conclude(monkeypatch):
     """偵測器真卡死（永久 pending）：第 1、2 輪延後（defers=1、2），
     第 3 輪（defers=3 > MAX=2）走絕對保命線強制收尾 completed（E7 決策 2）。"""
     settings = _drain_settings()
-    session_context = {
-        "session_id": "11111111-1111-4111-8111-111111111111",
-        "user_id": "user-1",
-        "chief_complaint": "血尿",
-        "patient_info": {"name": "測試病患"},
-        "language": "zh-TW",
-    }
+    session_context = _drain_ctx()
     history: list = []
 
     for expected_defers in (1, 2):

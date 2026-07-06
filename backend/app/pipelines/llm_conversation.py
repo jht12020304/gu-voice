@@ -18,6 +18,7 @@ from app.core.openai_client import (
 )
 from app.pipelines.prompts.shared import (
     SINGLE_QUESTION_RULE,
+    render_critical_risk_factor_items,
     render_hpi_checklist,
     render_red_flags_for_conversation,
 )
@@ -125,6 +126,24 @@ class LLMConversationEngine:
         hpi_section = render_hpi_checklist()
         red_flags_section = render_red_flags_for_conversation(chief_complaint)
 
+        # §3b：特定高風險主訴(血尿 / PSA / ED)的關鍵風險因子提升為「與 HPI 同級必問」,
+        # 不再淪為只在十欄達 7 成才問的「次要補問」→ 避免核心十欄填滿就收尾、觸不到
+        # 吸菸史 / 抗凝血 / 泌尿癌家族史(血尿惡性分層)、心血管風險(ED)。無匹配主訴回空字串,
+        # critical_risk_section 保持 ""（其他主訴完全不受影響）。
+        risk_factor_items = render_critical_risk_factor_items(chief_complaint)
+        critical_risk_section = ""
+        if risk_factor_items:
+            critical_risk_section = (
+                "## 本主訴的關鍵風險因子（與 HPI 十欄同級，收尾前必問）\n"
+                f"根據病患主訴「{chief_complaint}」，下列風險因子屬**必問**，重要性與 HPI 十欄相同，\n"
+                "**不得**歸入下方「次要補問」而延到 HPI 達 7 成後才問，也不得因核心十欄已填滿就略過：\n"
+                f"{risk_factor_items}\n"
+                "規則：每輪仍只問一題，**應在 HPI 中後段就開始穿插詢問這些風險因子、不要全部延到"
+                "最後**（避免問診回合用盡時仍沒問到）；問診收尾前必須都問到。"
+                "病患已於 intake 提供、或已明確表示不知道／沒有／記不得，即視為已問到，"
+                "不得換句話對同一項再重問（遵守 don't-know 不重問規則）。\n\n"
+            )
+
         # 把「輸出語言」規則放在最前面 — LLM 對 prompt 開頭權重最高,
         # 尾段的規則容易被中間大量中文內容稀釋,造成 en-US 場次偶發以中文回覆。
         system_prompt = f"""{output_language_rule.lstrip()}
@@ -146,7 +165,7 @@ class LLMConversationEngine:
 根據病患的主訴「{chief_complaint}」，依序收集下列十個 HPI 面向：
 {hpi_section}
 
-## 次要補問（HPI 完整度較高後才進入）
+{critical_risk_section}## 次要補問（HPI 完整度較高後才進入）
 當上述 HPI 十欄已大致問完（約 7 成以上），請視對話狀況補問下列臨床文件需要的資訊，
 每次仍只問一題，且只在與主訴相關時才問：
 - 過往泌尿科相關疾病或手術史
@@ -195,6 +214,21 @@ class LLMConversationEngine:
 
         return system_prompt
 
+    def build_wrap_up_prompt(self, language: str | None = None) -> str:
+        """收尾專用「極簡」系統提示：只含輸出語言規則 + 角色定位，**刻意不含** HPI 十欄 /
+        次要補問 / 風險因子等任何 questioning 框架。
+
+        根因（實測 ED 場）：即使把收尾指示前後夾擊、文案強化到「不得問任何臨床問題」，
+        中段龐大的 questioning 框架仍會讓 LLM 在收尾輪硬問一題（反覆問次要用藥問題、
+        留下懸空問句才結束）。移除競爭指令、只留收尾語境，是唯一可靠解。實際收尾規則由
+        format_messages(conclude=True) 前後夾擊注入，故此處不重複附加。
+        """
+        output_language_rule = _i18n_get(
+            "llm.conversation_output_language_rule", language
+        )
+        role_language_line = _i18n_get("llm.conversation_language_rule", language)
+        return f"{output_language_rule.lstrip()}\n\n{role_language_line}"
+
     def format_messages(
         self,
         history: list[dict[str, Any]],
@@ -223,7 +257,9 @@ class LLMConversationEngine:
         # next_focus 常仍指向 AI 剛問過的題目 → 偶發重複提問。對策：(a) 逾時 fallback 佔位不注入；
         # (b) 注入指導時附「已答過或已表示不知道就別重問」硬性護欄（優先級高於指導本身）。
         # 不改指導管線本身，純消費端 prompt。
-        if supervisor_guidance and not supervisor_guidance.get("fallback"):
+        # 收尾輪（conclude）**完全跳過** next_focus 注入——next_focus 本質是「下一題要問什麼」，
+        # 在收尾輪注入等於再塞一個發問指令與收尾規則打架（實測會讓 LLM 收尾輪硬問一題）。
+        if not conclude and supervisor_guidance and not supervisor_guidance.get("fallback"):
             next_focus = supervisor_guidance.get("next_focus", "")
             if next_focus:
                 section_title = _i18n_get(
@@ -232,9 +268,13 @@ class LLMConversationEngine:
                 no_repeat = _i18n_get("llm.supervisor_guidance_no_repeat", language)
                 final_system_prompt += f"\n\n{section_title}\n{next_focus}\n{no_repeat}"
 
-        # 收尾指示放在最後（覆蓋前面 Supervisor 的 next_focus），確保本輪不再發問。
+        # 收尾指示「三明治」：同時置於系統提示最前（最高優先）與最後（最高 recency），
+        # 覆蓋前面 Supervisor 的 next_focus。單靠尾段附加時，中段龐大的 HPI/次要補問/
+        # 風險因子 questioning 框架仍會讓 LLM 在收尾輪硬問一題（實測 ED 場問了次要用藥
+        # 問題、留下懸空問句才結束）→ 前後夾擊強化「本輪零發問、只講收尾語」的遵從。
         if conclude:
-            final_system_prompt += _i18n_get("llm.conversation_wrap_up_rule", language)
+            wrap_rule = _i18n_get("llm.conversation_wrap_up_rule", language)
+            final_system_prompt = wrap_rule + "\n" + final_system_prompt + wrap_rule
 
         messages: list[dict[str, str]] = [
             {"role": "system", "content": final_system_prompt}

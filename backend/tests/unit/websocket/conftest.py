@@ -245,6 +245,10 @@ class StubLLMEngine:
         self.programs = list(programs)
         self.calls = 0
 
+    def build_wrap_up_prompt(self, language: str | None = None) -> str:
+        # 收尾輪極簡 prompt（stub：回固定字串即可，handler 只是把它當 system_prompt 傳下）
+        return "WRAP_UP"
+
     def format_messages(
         self,
         conversation_history: list[dict[str, Any]],

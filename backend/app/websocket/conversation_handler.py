@@ -24,6 +24,7 @@ from app.core.config import Settings
 from app.core.exceptions import RateLimitExceededException
 from app.core.rate_limit import enforce_llm_per_user_rate_limit
 from app.pipelines.llm_conversation import LLMConversationEngine
+from app.pipelines.prompts.shared import count_critical_risk_factors_for_complaint
 from app.pipelines.red_flag_detector import RedFlagDetector
 from app.pipelines.stt_pipeline import STTPipeline, to_whisper_language
 from app.pipelines.tts_pipeline import TTSPipeline
@@ -267,13 +268,16 @@ def _should_auto_conclude(
     supervisor_guidance: Any,
     patient_turns: int,
     settings: Settings,
+    risk_factor_count: int = 0,
 ) -> bool:
     """是否該自動結束問診（純函式，便於單元測試）。
 
     兩條獨立路徑、皆受 ENABLED 總開關控制：
       - 軟門檻：Supervisor HPI 完整度 >= THRESHOLD 且病患回合 >= MIN（且該指導非
-        fallback 佔位 — 降級時 hpi 不可信）。
-      - 硬上限：病患回合 >= HARD_CAP，不依賴 Supervisor（降級時的保命線）。
+        fallback 佔位 — 降級時 hpi 不可信）。§3b 的 supervisor gate 會在關鍵風險因子
+        問到前壓住完整度 < THRESHOLD，故軟門檻天然等到風險因子問完才觸發。
+      - 硬上限：病患回合 >= effective HARD_CAP，不依賴 Supervisor（降級時的保命線）。
+        §3b：有 K>0 風險因子的高風險主訴，effective cap = base + K + BUFFER。
     紅旗/drain/compare-and-set 等 turn-state 守衛留在呼叫端，不在此函式。
     """
     if not getattr(settings, "HPI_COMPLETION_TERMINATION_ENABLED", True):
@@ -281,12 +285,21 @@ def _should_auto_conclude(
     hpi_pct: float | None = None
     if isinstance(supervisor_guidance, dict) and not supervisor_guidance.get("fallback"):
         hpi_pct = _coerce_hpi_pct(supervisor_guidance.get("hpi_completion_percentage"))
+    # §3b：高風險主訴(K>0)的軟門檻回合下限抬高——確保對話跑夠久，讓 conversation LLM
+    # 問到全部 K 個風險因子。這是 supervisor gate 的**確定性 backstop**：supervisor 是
+    # LLM，偶發會在只問到 1/K 個風險因子時就早放行 hpi>=80（實測 ED 場），純語意 gate
+    # 不足以保證。下限 = base + K - 1（< effective hard cap = base+K+buffer，仍留 backstop
+    # 空間），與 don't-know 無關（病患表示不知道仍算問到、由 supervisor gate 處理）。
+    soft_min_turns = getattr(settings, "MIN_PATIENT_TURNS_BEFORE_AUTO_END", 5)
+    if risk_factor_count > 0:
+        base_cap = getattr(settings, "MAX_PATIENT_TURNS_HARD_CAP", 10)
+        soft_min_turns = max(soft_min_turns, base_cap + risk_factor_count - 1)
     soft_ready = (
         hpi_pct is not None
         and hpi_pct >= getattr(settings, "HPI_COMPLETION_TERMINATION_THRESHOLD", 80)
-        and patient_turns >= getattr(settings, "MIN_PATIENT_TURNS_BEFORE_AUTO_END", 5)
+        and patient_turns >= soft_min_turns
     )
-    hard_ready = _hard_cap_reached(patient_turns, settings)
+    hard_ready = _hard_cap_reached(patient_turns, settings, risk_factor_count)
     return bool(soft_ready or hard_ready)
 
 
@@ -299,11 +312,45 @@ _SESSION_EMITTED_RED_FLAGS_KEY = "gu:session:{session_id}:emitted_red_flags"
 _RED_FLAG_SEVERITY_RANK = {"medium": 0, "high": 1, "critical": 2}
 
 
-def _hard_cap_reached(patient_turns: int, settings: Settings) -> bool:
-    """A2 [D1]：硬上限是否已到（獨立於軟門檻的旗標；受總開關控制）。"""
+def _effective_hard_cap(settings: Settings, risk_factor_count: int = 0) -> int:
+    """§3b：本場次的病患回合硬上限。
+
+    base = MAX_PATIENT_TURNS_HARD_CAP。無關鍵風險因子（K=0）的一般主訴維持 base
+    不變；有 K>0 風險因子的高風險主訴（血尿/PSA/ED）需容納 opening(1)+HPI 十欄(10)+
+    K 個必問風險因子，故 effective = base + K + BUFFER。BUFFER 吸收 opening 與少量
+    margin，確保 HPI 問完後仍有回合能問到風險因子（不再被 base=10 砍掉）。
+    """
+    base = getattr(settings, "MAX_PATIENT_TURNS_HARD_CAP", 10)
+    if risk_factor_count <= 0:
+        return base
+    buffer = getattr(settings, "RISK_FACTOR_HARD_CAP_BUFFER", 2)
+    return base + risk_factor_count + buffer
+
+
+def _session_risk_factor_count(session_context: dict[str, Any]) -> int:
+    """§3b：本場次「與 HPI 十欄同級必問」的關鍵風險因子題數（K）。
+
+    **必須用 raw `chief_complaint`**（非顯示名稱）——build_system_prompt（line 546）與
+    supervisor.analyze_next_step（line 1715）注入 §3b 風險因子清單時都用 raw
+    `session_context["chief_complaint"]`。cap 加成 / 軟門檻下限的 gating 必須基於「與
+    這兩處注入相同的主訴字串」，否則會漂移：實測 ED 場 chief_complaint_display 不含
+    「勃起」→ 用 display 算成 K=0、軟門檻下限沒抬高，但 conversation/supervisor 用 raw
+    「勃起功能障礙」→ K=3 確實把風險因子列為必問，兩者矛盾導致收尾邏輯漏問。
+    """
+    return count_critical_risk_factors_for_complaint(
+        session_context.get("chief_complaint", "")
+    )
+
+
+def _hard_cap_reached(
+    patient_turns: int, settings: Settings, risk_factor_count: int = 0
+) -> bool:
+    """A2 [D1]：硬上限是否已到（獨立於軟門檻的旗標；受總開關控制）。
+
+    §3b：cap 對高風險主訴動態抬高（見 _effective_hard_cap）。"""
     if not getattr(settings, "HPI_COMPLETION_TERMINATION_ENABLED", True):
         return False
-    return patient_turns >= getattr(settings, "MAX_PATIENT_TURNS_HARD_CAP", 10)
+    return patient_turns >= _effective_hard_cap(settings, risk_factor_count)
 
 
 def _should_conclude_now(
@@ -1478,17 +1525,30 @@ async def _handle_text_message(
     # 完整跑完 LLM 與紅旗偵測後，才在函式尾端真正結束（見尾端結束區塊）。
     #   - 軟門檻：HPI 完整度達標 + 已問滿最低題數（且該指導非 fallback 佔位）。
     #   - 硬上限：病患回合數達上限即收尾，不依賴 Supervisor（降級時的保命線）。
-    # patient_turns 此時已含剛 append 的本輪病患訊息；硬上限(15) 遠小於歷史摘要門檻
-    # (CONVERSATION_HISTORY_MAX_TURNS=50)，故由 conversation_history 計數準確。
+    # patient_turns 此時已含剛 append 的本輪病患訊息；硬上限（一般 10、§3b 高風險主訴
+    # 最多約 15）遠小於歷史摘要門檻(CONVERSATION_HISTORY_MAX_TURNS=50)，故由
+    # conversation_history 計數準確。
     patient_turns = sum(
         1 for e in conversation_history if e.get("role") in ("patient", "user")
     )
-    should_conclude = _should_auto_conclude(supervisor_guidance, patient_turns, settings)
+    # §3b：高風險主訴（血尿/PSA/ED）把 cap 動態抬高，讓 HPI 十欄問完後仍有回合問到
+    # 關鍵風險因子；一般主訴 K=0、cap 不變。
+    risk_factor_count = _session_risk_factor_count(session_context)
+    should_conclude = _should_auto_conclude(
+        supervisor_guidance, patient_turns, settings, risk_factor_count
+    )
 
-    # 格式化訊息並呼叫 LLM
+    # 格式化訊息並呼叫 LLM。收尾輪改用「極簡收尾 prompt」——移除 HPI/次要補問/風險因子
+    # 等 questioning 框架，避免它們在收尾輪與收尾指示競爭而讓 LLM 硬問一題（實測 ED 場
+    # 反覆問次要用藥問題）。收尾規則由 format_messages(conclude=True) 前後夾擊注入。
+    active_system_prompt = (
+        llm_engine.build_wrap_up_prompt(session_context.get("language"))
+        if should_conclude
+        else system_prompt
+    )
     messages = llm_engine.format_messages(
         conversation_history,
-        system_prompt,
+        active_system_prompt,
         supervisor_guidance,
         language=session_context.get("language"),
         conclude=should_conclude,
@@ -2153,7 +2213,7 @@ async def _handle_text_message(
         str(a.get("severity", "")).lower() in ("critical", "high")
         for a in red_flag_alerts
     )
-    hard_cap_reached = _hard_cap_reached(patient_turns, settings)
+    hard_cap_reached = _hard_cap_reached(patient_turns, settings, risk_factor_count)
     # A2：soft_defer 只否決軟門檻收尾；空回應 fallback 輪也不軟收尾（病患還沒真的被
     # 問到問題）。硬上限不受 soft_defer 否決（D1 修復核心：持續 high 紅旗的主訴
     # 如肉眼血尿，不可再把硬上限「永久延後」）。
