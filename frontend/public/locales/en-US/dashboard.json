@@ -63,6 +63,38 @@
     },
     "newAlertToast": "{{count}} new red-flag alert(s) awaiting review"
   },
+  "alertList": {
+    "eyebrow": "Triage Workspace",
+    "subtitle": "Handle unacknowledged alerts first, then dig into the session and transcript. This page is designed to surface who needs attention first, rather than flattening every alert into the same layer.",
+    "unacknowledgedBanner": "{{count}} unacknowledged",
+    "filters": {
+      "all": "All",
+      "unacknowledged": "Unacknowledged",
+      "acknowledged": "Acknowledged"
+    },
+    "summary": {
+      "totalTitle": "Total Alerts",
+      "totalHelper": "Total alerts currently in the system",
+      "unacknowledgedHelper": "Still awaiting physician acknowledgment",
+      "acknowledgedHelper": "Already acknowledged by a physician",
+      "currentTitle": "Current Results",
+      "currentHelperFiltered": "Search filter applied",
+      "currentHelperDefault": "Number of items under the current filter"
+    },
+    "searchPlaceholder": "Search patient, chief complaint, or alert title",
+    "updating": "Refreshing alert data...",
+    "emptyTitle": "No Alerts",
+    "emptyMessage": "No red-flag alerts match the current filters",
+    "groupCount": "{{count}} alerts",
+    "unknownComplaintFetchFailed": "Chief complaint unavailable",
+    "sessionStatus": {
+      "waiting": "Waiting",
+      "inProgress": "In Consultation",
+      "completed": "Completed",
+      "abortedRedFlag": "Aborted (Red Flag)",
+      "cancelled": "Cancelled"
+    }
+  },
   "transcript": {
     "title": "Consultation transcript",
     "emptyTitle": "No conversation content to display",

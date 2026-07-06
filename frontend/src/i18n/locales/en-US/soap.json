@@ -21,7 +21,85 @@
     "empty": "No data available",
     "none": "None",
     "abnormal": "Abnormal",
-    "normal": "Normal"
+    "normal": "Normal",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "processing": "Processing..."
+  },
+  "page": {
+    "reviewEyebrow": "Report Review",
+    "title": "SOAP Report",
+    "loadingReport": "Loading report...",
+    "notGenerated": "Report has not been generated yet",
+    "clinicalSummaryEyebrow": "Clinical Summary",
+    "noSummary": "No summary available yet."
+  },
+  "actions": {
+    "viewSession": "View Session",
+    "viewPatient": "Patient Info"
+  },
+  "reportStatus": {
+    "generated": "Generated",
+    "generating": "Generating",
+    "failed": "Failed"
+  },
+  "reviewStatus": {
+    "approved": "Approved",
+    "revisionNeeded": "Revision Needed",
+    "pending": "Pending Review"
+  },
+  "meta": {
+    "redFlagSession": "Red-Flag Session",
+    "redFlagLoadFailedBadge": "⚠ Failed to load red-flag status"
+  },
+  "metaCard": {
+    "patient": "Patient",
+    "complaint": "Chief Complaint",
+    "sessionStatus": "Session Status",
+    "report": "Report",
+    "createdHelper": "Session created {{date}}",
+    "completedAt": "Completed at {{date}}",
+    "startedAt": "Started at {{date}}",
+    "noTimeInfo": "Time information not available yet",
+    "notGeneratedTime": "Not generated yet",
+    "reviewStatusHelper": "Review status: {{status}}",
+    "awaitingReview": "Awaiting physician review"
+  },
+  "highlights": {
+    "positive": { "title": "Key Positive Findings", "empty": "No clear positive findings identified yet." },
+    "negative": { "title": "Key Negative Findings", "empty": "No clear negative findings identified yet." },
+    "riskFactors": { "title": "Risk Factors", "empty": "No significant risk factors identified." },
+    "impression": { "title": "Preliminary Impression", "empty": "No clear impression identified yet." }
+  },
+  "diagnosis": {
+    "title": "Diagnosis Codes",
+    "empty": "No ICD-10 codes yet."
+  },
+  "redFlag": {
+    "title": "Red-Flag Note",
+    "defaultReason": "This session previously triggered a red-flag alert. Please cross-check the summary and transcript carefully during review.",
+    "loadFailedTitle": "Failed to Load Red-Flag Status",
+    "loadFailedDescription": "Unable to load the red-flag status for this session. Please refresh the page and check again — do not assume there is no red flag."
+  },
+  "reviewNotesCard": {
+    "title": "Review Notes",
+    "reviewedAtLabel": "Reviewed at: {{date}}"
+  },
+  "tabs": {
+    "report": "SOAP Structured Report",
+    "transcript": "Conversation Transcript"
+  },
+  "review": {
+    "actionEyebrow": "Review Action",
+    "instructions": "Please confirm that the summary, assessment, and plan can be traced back to the transcript before approving or requesting revisions.",
+    "approveButton": "Approve Report",
+    "rejectButton": "Request Revision",
+    "approveDescription": "Confirm this SOAP report as the official clinical summary? You may add notes if needed.",
+    "rejectDescription": "Please describe why revisions are needed. This will serve as the basis for the requested changes.",
+    "approveNotesPlaceholder": "Enter review notes (optional)...",
+    "rejectNotesPlaceholder": "Enter the reason for requesting revision...",
+    "notesRequiredError": "A reason is required when requesting revisions.",
+    "submitError": "Failed to submit review. Please try again later."
   },
   "subjective": {
     "chiefComplaint": "Chief Complaint",
@@ -133,6 +211,13 @@
     "abdomen": "Abdomen",
     "costovertebral": "Costovertebral angle",
     "genitourinary": "Genitourinary"
+  },
+  "labels": {
+    "testResult": "{{test}}: {{result}}",
+    "smokingHistory": "Smoking history: {{value}}",
+    "alcoholUse": "Alcohol use: {{value}}",
+    "redFlagReason": "Red-flag reason: {{value}}",
+    "recommendedTest": "Recommended: {{value}}"
   },
   "export": {
     "button": "Export PDF",

@@ -21,7 +21,85 @@
     "empty": "Chưa có dữ liệu",
     "none": "Không",
     "abnormal": "Bất thường",
-    "normal": "Bình thường"
+    "normal": "Bình thường",
+    "cancel": "Hủy",
+    "confirm": "Xác nhận",
+    "processing": "Đang xử lý..."
+  },
+  "page": {
+    "reviewEyebrow": "Xem xét báo cáo",
+    "title": "Báo cáo SOAP",
+    "loadingReport": "Đang tải báo cáo...",
+    "notGenerated": "Báo cáo chưa được tạo",
+    "clinicalSummaryEyebrow": "Tóm tắt lâm sàng",
+    "noSummary": "Hiện chưa có tóm tắt để hiển thị."
+  },
+  "actions": {
+    "viewSession": "Xem phiên khám",
+    "viewPatient": "Thông tin bệnh nhân"
+  },
+  "reportStatus": {
+    "generated": "Đã tạo",
+    "generating": "Đang tạo",
+    "failed": "Thất bại"
+  },
+  "reviewStatus": {
+    "approved": "Đã duyệt",
+    "revisionNeeded": "Cần chỉnh sửa",
+    "pending": "Chờ xem xét"
+  },
+  "meta": {
+    "redFlagSession": "Phiên có cờ đỏ",
+    "redFlagLoadFailedBadge": "⚠ Tải trạng thái cờ đỏ thất bại"
+  },
+  "metaCard": {
+    "patient": "Bệnh nhân",
+    "complaint": "Lý do khám",
+    "sessionStatus": "Trạng thái phiên",
+    "report": "Báo cáo",
+    "createdHelper": "Phiên được tạo {{date}}",
+    "completedAt": "Hoàn tất lúc {{date}}",
+    "startedAt": "Bắt đầu lúc {{date}}",
+    "noTimeInfo": "Chưa có thông tin thời gian",
+    "notGeneratedTime": "Chưa có thời gian tạo",
+    "reviewStatusHelper": "Trạng thái xem xét: {{status}}",
+    "awaitingReview": "Đang chờ bác sĩ xem xét"
+  },
+  "highlights": {
+    "positive": { "title": "Dấu hiệu dương tính quan trọng", "empty": "Chưa xác định được triệu chứng dương tính rõ ràng." },
+    "negative": { "title": "Dấu hiệu âm tính quan trọng", "empty": "Chưa xác định được triệu chứng âm tính rõ ràng." },
+    "riskFactors": { "title": "Yếu tố nguy cơ", "empty": "Không có yếu tố nguy cơ rõ ràng." },
+    "impression": { "title": "Nhận định sơ bộ", "empty": "Chưa có nhận định rõ ràng." }
+  },
+  "diagnosis": {
+    "title": "Mã chẩn đoán",
+    "empty": "Chưa có mã ICD-10."
+  },
+  "redFlag": {
+    "title": "Ghi chú cờ đỏ",
+    "defaultReason": "Phiên này từng kích hoạt cảnh báo cờ đỏ. Vui lòng đối chiếu kỹ tóm tắt và biên bản hội thoại khi xem xét.",
+    "loadFailedTitle": "Tải trạng thái cờ đỏ thất bại",
+    "loadFailedDescription": "Không thể tải trạng thái cờ đỏ của phiên này. Vui lòng tải lại trang và kiểm tra lại — không được tự ý coi là không có cờ đỏ."
+  },
+  "reviewNotesCard": {
+    "title": "Ghi chú xem xét",
+    "reviewedAtLabel": "Thời gian xem xét: {{date}}"
+  },
+  "tabs": {
+    "report": "Báo cáo SOAP có cấu trúc",
+    "transcript": "Biên bản hội thoại"
+  },
+  "review": {
+    "actionEyebrow": "Hành động xem xét",
+    "instructions": "Vui lòng xác nhận tóm tắt, đánh giá và kế hoạch đều có căn cứ từ biên bản hội thoại trước khi quyết định duyệt hoặc yêu cầu chỉnh sửa.",
+    "approveButton": "Duyệt báo cáo",
+    "rejectButton": "Trả lại để chỉnh sửa",
+    "approveDescription": "Xác nhận báo cáo SOAP này là tóm tắt lâm sàng chính thức? Bạn có thể ghi chú thêm nếu cần.",
+    "rejectDescription": "Vui lòng nhập lý do cần chỉnh sửa. Đây sẽ là căn cứ để trả lại chỉnh sửa.",
+    "approveNotesPlaceholder": "Nhập ghi chú xem xét (tùy chọn)...",
+    "rejectNotesPlaceholder": "Vui lòng nhập lý do yêu cầu chỉnh sửa...",
+    "notesRequiredError": "Phải nhập lý do khi yêu cầu chỉnh sửa.",
+    "submitError": "Gửi kết quả xem xét thất bại. Vui lòng thử lại sau."
   },
   "subjective": {
     "chiefComplaint": "Lý do khám Chief Complaint",
@@ -133,6 +211,13 @@
     "abdomen": "Bụng",
     "costovertebral": "Góc sườn cột sống",
     "genitourinary": "Tiết niệu sinh dục"
+  },
+  "labels": {
+    "testResult": "{{test}}: {{result}}",
+    "smokingHistory": "Tiền sử hút thuốc: {{value}}",
+    "alcoholUse": "Uống rượu: {{value}}",
+    "redFlagReason": "Lý do cờ đỏ: {{value}}",
+    "recommendedTest": "Đề nghị: {{value}}"
   },
   "export": {
     "button": "Xuất PDF",

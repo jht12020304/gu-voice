@@ -63,6 +63,38 @@
     },
     "newAlertToast": "Có {{count}} cảnh báo cờ đỏ mới cần xử lý"
   },
+  "alertList": {
+    "eyebrow": "Không gian phân loại",
+    "subtitle": "Xử lý các cảnh báo chưa xử lý trước, sau đó xem thêm phiên khám và biên bản hội thoại. Trang này được thiết kế để giúp bạn tìm ra người cần ưu tiên xử lý trước, thay vì liệt kê mọi cảnh báo trên cùng một lớp.",
+    "unacknowledgedBanner": "Hiện có {{count}} cảnh báo chưa xử lý",
+    "filters": {
+      "all": "Tất cả",
+      "unacknowledged": "Chưa xử lý",
+      "acknowledged": "Đã xử lý"
+    },
+    "summary": {
+      "totalTitle": "Tổng cảnh báo",
+      "totalHelper": "Tổng số cảnh báo hiện có trong hệ thống",
+      "unacknowledgedHelper": "Vẫn đang chờ bác sĩ xác nhận hoặc ghi chú",
+      "acknowledgedHelper": "Đã được bác sĩ xác nhận xử lý",
+      "currentTitle": "Kết quả hiện tại",
+      "currentHelperFiltered": "Đã áp dụng bộ lọc tìm kiếm",
+      "currentHelperDefault": "Số lượng theo bộ lọc hiện tại"
+    },
+    "searchPlaceholder": "Tìm theo bệnh nhân, lý do khám hoặc tiêu đề cảnh báo",
+    "updating": "Đang cập nhật dữ liệu cảnh báo...",
+    "emptyTitle": "Không có cảnh báo",
+    "emptyMessage": "Không có cảnh báo cờ đỏ nào khớp với điều kiện",
+    "groupCount": "{{count}} cảnh báo",
+    "unknownComplaintFetchFailed": "Không lấy được lý do khám",
+    "sessionStatus": {
+      "waiting": "Đang chờ",
+      "inProgress": "Đang khám",
+      "completed": "Đã hoàn tất",
+      "abortedRedFlag": "Dừng do cờ đỏ",
+      "cancelled": "Đã hủy"
+    }
+  },
   "transcript": {
     "title": "Biên bản hội thoại khám",
     "emptyTitle": "Hiện chưa có nội dung hội thoại để xem",

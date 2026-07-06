@@ -21,7 +21,85 @@
     "empty": "尚無資料",
     "none": "無",
     "abnormal": "異常",
-    "normal": "正常"
+    "normal": "正常",
+    "cancel": "取消",
+    "confirm": "確認",
+    "processing": "處理中..."
+  },
+  "page": {
+    "reviewEyebrow": "報告審閱",
+    "title": "SOAP 報告",
+    "loadingReport": "載入報告...",
+    "notGenerated": "報告尚未產生",
+    "clinicalSummaryEyebrow": "臨床摘要",
+    "noSummary": "目前尚無可顯示的摘要。"
+  },
+  "actions": {
+    "viewSession": "查看場次",
+    "viewPatient": "病患資料"
+  },
+  "reportStatus": {
+    "generated": "已產生",
+    "generating": "產生中",
+    "failed": "失敗"
+  },
+  "reviewStatus": {
+    "approved": "已核准",
+    "revisionNeeded": "需修改",
+    "pending": "待審閱"
+  },
+  "meta": {
+    "redFlagSession": "紅旗場次",
+    "redFlagLoadFailedBadge": "⚠ 紅旗狀態載入失敗"
+  },
+  "metaCard": {
+    "patient": "病患",
+    "complaint": "主訴",
+    "sessionStatus": "場次狀態",
+    "report": "報告",
+    "createdHelper": "場次建立 {{date}}",
+    "completedAt": "完成於 {{date}}",
+    "startedAt": "開始於 {{date}}",
+    "noTimeInfo": "尚未取得時間資訊",
+    "notGeneratedTime": "尚未產生時間",
+    "reviewStatusHelper": "審閱狀態：{{status}}",
+    "awaitingReview": "等待醫師審閱"
+  },
+  "highlights": {
+    "positive": { "title": "重要陽性", "empty": "目前沒有整理出明確的陽性症狀。" },
+    "negative": { "title": "重要陰性", "empty": "目前沒有整理出明確的陰性症狀。" },
+    "riskFactors": { "title": "風險因子", "empty": "目前沒有明顯風險因子。" },
+    "impression": { "title": "初步判斷", "empty": "目前沒有整理出明確判斷。" }
+  },
+  "diagnosis": {
+    "title": "診斷索引",
+    "empty": "目前沒有 ICD-10 編碼。"
+  },
+  "redFlag": {
+    "title": "紅旗註記",
+    "defaultReason": "此場次曾觸發紅旗警示，建議審閱時特別核對摘要與逐字稿。",
+    "loadFailedTitle": "紅旗狀態載入失敗",
+    "loadFailedDescription": "無法載入此場次的紅旗狀態，請重新整理頁面後再核對，切勿逕自當作「無紅旗」。"
+  },
+  "reviewNotesCard": {
+    "title": "審閱備註",
+    "reviewedAtLabel": "審閱時間：{{date}}"
+  },
+  "tabs": {
+    "report": "SOAP 結構化報告",
+    "transcript": "對話逐字稿"
+  },
+  "review": {
+    "actionEyebrow": "審閱動作",
+    "instructions": "請先確認摘要、評估與計畫能回到逐字稿找到依據，再決定核准或退回修改。",
+    "approveButton": "確認報告",
+    "rejectButton": "退回修改",
+    "approveDescription": "確認此 SOAP 報告可作為正式臨床摘要？如有補充可留下備註。",
+    "rejectDescription": "請填寫需要修改的原因，這會作為退回修正的依據。",
+    "approveNotesPlaceholder": "輸入審閱備註（選填）...",
+    "rejectNotesPlaceholder": "請輸入退回修改原因...",
+    "notesRequiredError": "退回修改時必須填寫原因。",
+    "submitError": "審閱送出失敗，請稍後再試。"
   },
   "subjective": {
     "chiefComplaint": "主訴 Chief Complaint",
@@ -133,6 +211,13 @@
     "abdomen": "腹部",
     "costovertebral": "肋脊角",
     "genitourinary": "泌尿生殖"
+  },
+  "labels": {
+    "testResult": "{{test}}：{{result}}",
+    "smokingHistory": "吸菸史：{{value}}",
+    "alcoholUse": "飲酒：{{value}}",
+    "redFlagReason": "紅旗原因：{{value}}",
+    "recommendedTest": "建議：{{value}}"
   },
   "export": {
     "button": "匯出 PDF",

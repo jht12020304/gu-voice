@@ -21,7 +21,85 @@
     "empty": "데이터가 없습니다",
     "none": "없음",
     "abnormal": "이상",
-    "normal": "정상"
+    "normal": "정상",
+    "cancel": "취소",
+    "confirm": "확인",
+    "processing": "처리 중..."
+  },
+  "page": {
+    "reviewEyebrow": "보고서 검토",
+    "title": "SOAP 보고서",
+    "loadingReport": "보고서를 불러오는 중...",
+    "notGenerated": "보고서가 아직 생성되지 않았습니다",
+    "clinicalSummaryEyebrow": "임상 요약",
+    "noSummary": "표시할 요약이 아직 없습니다."
+  },
+  "actions": {
+    "viewSession": "세션 보기",
+    "viewPatient": "환자 정보"
+  },
+  "reportStatus": {
+    "generated": "생성됨",
+    "generating": "생성 중",
+    "failed": "실패"
+  },
+  "reviewStatus": {
+    "approved": "승인됨",
+    "revisionNeeded": "수정 필요",
+    "pending": "검토 대기"
+  },
+  "meta": {
+    "redFlagSession": "레드플래그 세션",
+    "redFlagLoadFailedBadge": "⚠ 레드플래그 상태 로드 실패"
+  },
+  "metaCard": {
+    "patient": "환자",
+    "complaint": "주호소",
+    "sessionStatus": "세션 상태",
+    "report": "보고서",
+    "createdHelper": "세션 생성 {{date}}",
+    "completedAt": "{{date}}에 완료",
+    "startedAt": "{{date}}에 시작",
+    "noTimeInfo": "시간 정보를 아직 가져오지 못했습니다",
+    "notGeneratedTime": "생성 시각 없음",
+    "reviewStatusHelper": "검토 상태: {{status}}",
+    "awaitingReview": "의사 검토 대기 중"
+  },
+  "highlights": {
+    "positive": { "title": "주요 양성 소견", "empty": "명확한 양성 증상이 정리되지 않았습니다." },
+    "negative": { "title": "주요 음성 소견", "empty": "명확한 음성 증상이 정리되지 않았습니다." },
+    "riskFactors": { "title": "위험 요인", "empty": "뚜렷한 위험 요인이 없습니다." },
+    "impression": { "title": "초기 소견", "empty": "명확한 소견이 정리되지 않았습니다." }
+  },
+  "diagnosis": {
+    "title": "진단 코드",
+    "empty": "ICD-10 코드가 없습니다."
+  },
+  "redFlag": {
+    "title": "레드플래그 메모",
+    "defaultReason": "이 세션은 이전에 레드플래그 경고가 발생했습니다. 검토 시 요약과 전사본을 특히 꼼꼼히 대조해 주세요.",
+    "loadFailedTitle": "레드플래그 상태 로드 실패",
+    "loadFailedDescription": "이 세션의 레드플래그 상태를 불러올 수 없습니다. 페이지를 새로고침한 후 다시 확인하고, 임의로 '레드플래그 없음'으로 간주하지 마세요."
+  },
+  "reviewNotesCard": {
+    "title": "검토 메모",
+    "reviewedAtLabel": "검토 시각: {{date}}"
+  },
+  "tabs": {
+    "report": "SOAP 구조화 보고서",
+    "transcript": "대화 전사본"
+  },
+  "review": {
+    "actionEyebrow": "검토 작업",
+    "instructions": "승인 또는 반려를 결정하기 전에 요약, 평가, 계획이 전사본에서 근거를 찾을 수 있는지 먼저 확인해 주세요.",
+    "approveButton": "보고서 승인",
+    "rejectButton": "반려 후 수정 요청",
+    "approveDescription": "이 SOAP 보고서를 공식 임상 요약으로 확정하시겠습니까? 필요 시 메모를 남길 수 있습니다.",
+    "rejectDescription": "수정이 필요한 이유를 입력해 주세요. 이는 반려 사유의 근거가 됩니다.",
+    "approveNotesPlaceholder": "검토 메모 입력 (선택 사항)...",
+    "rejectNotesPlaceholder": "반려 사유를 입력해 주세요...",
+    "notesRequiredError": "반려할 때는 사유를 반드시 입력해야 합니다.",
+    "submitError": "검토 제출에 실패했습니다. 잠시 후 다시 시도해 주세요."
   },
   "subjective": {
     "chiefComplaint": "주호소 Chief Complaint",
@@ -133,6 +211,13 @@
     "abdomen": "복부",
     "costovertebral": "늑척추각",
     "genitourinary": "비뇨생식기계"
+  },
+  "labels": {
+    "testResult": "{{test}}: {{result}}",
+    "smokingHistory": "흡연력: {{value}}",
+    "alcoholUse": "음주: {{value}}",
+    "redFlagReason": "레드플래그 사유: {{value}}",
+    "recommendedTest": "권장: {{value}}"
   },
   "export": {
     "button": "PDF 내보내기",

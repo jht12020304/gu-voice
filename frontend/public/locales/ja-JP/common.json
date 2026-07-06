@@ -63,7 +63,8 @@
     "in_progress": "問診中",
     "completed": "完了",
     "aborted_red_flag": "レッドフラグによる中止",
-    "cancelled": "キャンセル済み"
+    "cancelled": "キャンセル済み",
+    "unknown": "セッション状態を取得できません"
   },
   "severity": {
     "critical": "危急",

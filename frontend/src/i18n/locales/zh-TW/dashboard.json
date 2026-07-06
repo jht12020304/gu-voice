@@ -63,6 +63,38 @@
     },
     "newAlertToast": "有 {{count}} 筆新紅旗警示待處理"
   },
+  "alertList": {
+    "eyebrow": "檢傷工作台",
+    "subtitle": "先處理未處理警示，再進一步查看場次與逐字稿。這一頁應該先幫你找出需要優先處理的人，而不是把所有警示平鋪成同一層。",
+    "unacknowledgedBanner": "目前未處理 {{count}} 筆",
+    "filters": {
+      "all": "全部",
+      "unacknowledged": "未處理",
+      "acknowledged": "已處理"
+    },
+    "summary": {
+      "totalTitle": "全部警示",
+      "totalHelper": "目前系統中的警示總量",
+      "unacknowledgedHelper": "仍待醫師確認或註記",
+      "acknowledgedHelper": "已被醫師確認處理",
+      "currentTitle": "當前結果",
+      "currentHelperFiltered": "已套用搜尋條件",
+      "currentHelperDefault": "目前篩選條件下的清單數量"
+    },
+    "searchPlaceholder": "搜尋病患、主訴或警示標題",
+    "updating": "警示資料更新中...",
+    "emptyTitle": "無警示",
+    "emptyMessage": "目前沒有符合條件的紅旗警示",
+    "groupCount": "{{count}} 筆警示",
+    "unknownComplaintFetchFailed": "未取得主訴",
+    "sessionStatus": {
+      "waiting": "等待中",
+      "inProgress": "問診中",
+      "completed": "已完成",
+      "abortedRedFlag": "紅旗中止",
+      "cancelled": "已取消"
+    }
+  },
   "transcript": {
     "title": "問診對話逐字稿",
     "emptyTitle": "目前沒有可檢視的對話內容",
