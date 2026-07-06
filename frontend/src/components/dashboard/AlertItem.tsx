@@ -158,7 +158,10 @@ export default function AlertItem({
                 className="btn-danger shrink-0 px-3 py-1.5 text-tiny"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onAcknowledge();
+                  // 安全：ack 不可復原，誤點一次即永久標為已處理 → 加確認。
+                  if (window.confirm(t('alert.acknowledgeConfirm'))) {
+                    onAcknowledge();
+                  }
                 }}
               >
                 {t('alert.acknowledge')}

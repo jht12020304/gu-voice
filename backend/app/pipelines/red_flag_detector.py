@@ -71,8 +71,22 @@ _CONTRAST_MARKERS: tuple[str, ...] = (
 _NEG_MAX_LOOKBACK = 120
 
 
+# 後置否定（ja/ko 為 SOV，否定接在名詞之後：「血尿はありません」「혈뇨는 없어요」）。
+# 這些線索出現在關鍵字「之後」的短視窗內才算。⚠️ ja/ko 語言特定，上線前建議母語者覆核。
+_POST_NEGATION_CUES: tuple[str, ...] = (
+    # ja-JP（含否定連用形「なく」：体重減少はなく）
+    "ありません", "ません", "ない", "なく", "無く", "なし", "無い", "見られません", "陰性",
+    # ko-KR
+    "없", "아니",
+)
+# 後置否定前掃停止字元：句尾/子句標點、list 分隔、ja 接續助詞 て/で（引入新謂語）。
+# 短視窗＋停止字元避免把遠處（別的子句）的否定誤套到本關鍵字（保守，避免過度抑制）。
+_POST_NEG_STOPS: str = "。！？!?\n．;；:：、，,てで"
+_POST_NEG_MAX_AHEAD = 10
+
+
 def _clause_before(text_lower: str, start: int) -> str:
-    """取關鍵字出現位置 start 前、同一子句範圍的文字（供否定判定）。"""
+    """取關鍵字出現位置 start 前、同一子句範圍的文字（供前置否定判定）。"""
     i = start - 1
     n = 0
     while i >= 0 and n < _NEG_MAX_LOOKBACK and text_lower[i] not in _NEG_SCOPE_BREAKS:
@@ -87,6 +101,25 @@ def _clause_before(text_lower: str, start: int) -> str:
     return clause
 
 
+def _clause_after(text_lower: str, end: int) -> str:
+    """取關鍵字結束位置 end 後、同一子句短視窗的文字（供 ja/ko 後置否定判定）。"""
+    j = end
+    n = 0
+    while j < len(text_lower) and n < _POST_NEG_MAX_AHEAD and text_lower[j] not in _POST_NEG_STOPS:
+        j += 1
+        n += 1
+    return text_lower[end:j]
+
+
+def _occurrence_negated(text_lower: str, start: int, kw_len: int) -> bool:
+    """單一關鍵字出現位置是否被否定（前置 zh/en/vi 或後置 ja/ko）。"""
+    before = _clause_before(text_lower, start)
+    if any(cue in before for cue in _NEGATION_CUES):
+        return True
+    after = _clause_after(text_lower, start + kw_len)
+    return any(cue in after for cue in _POST_NEGATION_CUES)
+
+
 def _keyword_present_non_negated(keyword: str, text_lower: str) -> bool:
     """關鍵字是否有「非否定」出現。全部出現都被否定 → False（抑制誤觸）。"""
     kw = keyword.lower()
@@ -96,11 +129,18 @@ def _keyword_present_non_negated(keyword: str, text_lower: str) -> bool:
     if idx == -1:
         return False
     while idx != -1:
-        clause = _clause_before(text_lower, idx)
-        if not any(cue in clause for cue in _NEGATION_CUES):
+        if not _occurrence_negated(text_lower, idx, len(kw)):
             return True  # 有一個非否定出現即觸發（保留 fail-open）
         idx = text_lower.find(kw, idx + 1)
     return False  # 每個出現都被否定
+
+
+def _keyword_negated_only(keyword: str, text_lower: str) -> bool:
+    """關鍵字有出現、但每個出現都被否定 → True（供語意層否定幻覺後過濾）。"""
+    kw = (keyword or "").lower()
+    if not kw or kw not in text_lower:
+        return False
+    return not _keyword_present_non_negated(keyword, text_lower)
 
 
 # ── 目錄 severity floor（防語意層把 critical 自評降級）──────────
@@ -121,6 +161,36 @@ def _floor_severity_to_catalog(canonical_id: str, llm_severity: str) -> str:
     if catalog and _SEVERITY_RANK.get(catalog, 0) > _SEVERITY_RANK.get(llm, 0):
         return catalog
     return llm
+
+
+# ── 否定幻覺後過濾（涵蓋語意層，A1 只修規則層的延伸）────────────
+# 問題：規則層 A1 已否定感知，但語意層(LLM)仍會對「病患明確否認的症狀」幻覺紅旗
+# （沒有血尿 → gross_hematuria、血尿はありません → 肉眼的血尿），且 merge 不會用否定
+# 邏輯反向抑制語意層。修法：merge 後，若某 alert 的 canonical 關鍵字在文中「出現但全被
+# 否定、且無任一非否定出現」→ 該 alert 是否定幻覺 → 抑制。
+# 安全性（fail-open）：(a) 規則層真命中一定有非否定出現 → 不被抑制；(b) 語意層純情境推論
+# （關鍵字根本不在文中，如描述睪丸扭轉未說「扭轉」）→ 關鍵字不在文中 → 不被抑制；
+# 只殺「病患把該症狀名講出來、但每次都在否定句裡」的幻覺。
+def _canonical_keywords(flag: dict[str, Any]) -> list[str]:
+    kws: list[str] = [kw for kw in flag.get("triggers", []) if kw]
+    for lang_kws in (flag.get("triggers_by_lang") or {}).values():
+        kws.extend(kw for kw in lang_kws if kw)
+    return kws
+
+
+_CANONICAL_KEYWORDS: dict[str, list[str]] = {
+    flag["canonical_id"]: _canonical_keywords(flag) for flag in URO_RED_FLAGS
+}
+
+
+def _canonical_denied_in_text(canonical_id: str, text_lower: str) -> bool:
+    """canonical 的關鍵字在文中出現但全被否定（且無任一非否定出現）→ 是否定幻覺。"""
+    kws = _CANONICAL_KEYWORDS.get(canonical_id) or []
+    if not kws:
+        return False
+    if any(_keyword_present_non_negated(k, text_lower) for k in kws):
+        return False  # 有非否定出現 → 症狀被肯定 → 不抑制
+    return any(_keyword_negated_only(k, text_lower) for k in kws)
 
 
 # ── 語意分析系統提示詞 ───────────────────────────────────
@@ -656,6 +726,24 @@ class RedFlagDetector:
 
         # 合併並去重
         merged = self._merge_and_deduplicate(rule_alerts, semantic_alerts, language)
+
+        # 否定幻覺後過濾（涵蓋語意層）：病患明確否認的症狀不應成為紅旗。
+        # 規則層真命中(有非否定出現)與語意層情境推論(關鍵字不在文中)皆不受影響。
+        text_lower = text.lower()
+        kept: list[dict[str, Any]] = []
+        for alert in merged:
+            cid = alert.get("canonical_id")
+            if cid and _canonical_denied_in_text(cid, text_lower):
+                logger.warning(
+                    "紅旗否定幻覺抑制 | session=%s, canonical=%s, alert_type=%s, severity=%s",
+                    session_id,
+                    cid,
+                    alert.get("alert_type"),
+                    alert.get("severity"),
+                )
+                continue
+            kept.append(alert)
+        merged = kept
 
         # TODO-M8:對仍為 semantic_only 的 alert,若 session.language 沒有
         # 該 canonical_id 的 trigger keywords 覆蓋 → 降級為 uncovered_locale

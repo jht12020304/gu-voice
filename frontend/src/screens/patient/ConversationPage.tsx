@@ -664,6 +664,13 @@ export default function ConversationPage() {
       }
       if (data.status === 'completed') {
         navigate(`/patient/session/${sessionId}/thank-you`, { replace: true });
+      } else if (data.status === 'aborted_red_flag') {
+        // 紅旗中止：導離對話頁——否則畫面停在「使用中」且後端關連線後前端無限重連。
+        // 帶 abortedRedFlag state 讓感謝頁改顯示「請立即告知現場醫護」而非一般感謝。
+        navigate(`/patient/session/${sessionId}/thank-you`, {
+          replace: true,
+          state: { abortedRedFlag: true },
+        });
       } else if (data.status === 'failed') {
         setError(t('conversation:error.sessionInterrupted'));
       } else if (data.code) {
@@ -912,9 +919,14 @@ export default function ConversationPage() {
         </div>
       </header>
 
-      {/* 紅旗警示橫幅（最多 3 張疊起，依嚴重度排序） */}
+      {/* 紅旗警示橫幅（最多 3 張疊起，依嚴重度排序）
+          role=alert + aria-live=assertive：最關鍵臨床安全訊息，螢幕報讀須主動播報。 */}
       {visibleFlags.length > 0 && (
-        <div className="flex flex-col gap-1 border-b border-red-700 bg-alert-critical/5 px-4 py-2 animate-slide-down">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="flex flex-col gap-1 border-b border-red-700 bg-alert-critical/5 px-4 py-2 animate-slide-down"
+        >
           {visibleFlags.map((alert) => {
             const bg =
               alert.severity === 'critical'
@@ -942,7 +954,7 @@ export default function ConversationPage() {
                     />
                   </svg>
                   <div className="flex-1 min-w-0">
-                    <p className="text-body font-medium truncate">{alert.title}</p>
+                    <p className="text-body font-medium line-clamp-2">{alert.title}</p>
                     {alert.description && (
                       <p className="mt-0.5 text-small opacity-90 line-clamp-2">
                         {alert.description}

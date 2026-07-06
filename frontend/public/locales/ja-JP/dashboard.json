@@ -30,6 +30,7 @@
     "suggestedActions": "推奨対応 {{count}} 件",
     "viewDetail": "詳細を表示",
     "acknowledge": "対応を確認",
+    "acknowledgeConfirm": "この赤旗アラートを「対応済み」にしますか？この操作は取り消せません。",
     "acknowledgedBadge": "✓ 確認済み",
     "detail": {
       "loadError": "アラート詳細を読み込めませんでした",

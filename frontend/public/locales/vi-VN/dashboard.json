@@ -30,6 +30,7 @@
     "suggestedActions": "Đề xuất {{count}} hành động",
     "viewDetail": "Xem chi tiết",
     "acknowledge": "Xác nhận xử lý",
+    "acknowledgeConfirm": "Đánh dấu cảnh báo cờ đỏ này là đã xử lý? Thao tác này không thể hoàn tác.",
     "acknowledgedBadge": "✓ Đã xác nhận",
     "detail": {
       "loadError": "Không thể tải chi tiết cảnh báo",

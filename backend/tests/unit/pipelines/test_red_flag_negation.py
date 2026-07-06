@@ -97,6 +97,32 @@ class TestViNegation:
         assert present("tiểu ra máu", "tôi bị tiểu ra máu") is True
 
 
+class TestJaKoPostNegation:
+    """ja/ko 為 SOV，否定接名詞之後：血尿はありません / 혈뇨는 없어요。"""
+
+    def test_ja_arimasen_suppressed(self):
+        assert present("血尿", "血尿はありません") is False
+
+    def test_ja_nai_suppressed(self):
+        assert present("体重減少", "体重減少はない") is False
+
+    def test_ja_miraremasen_suppressed(self):
+        assert present("血尿", "血尿は見られません") is False
+
+    def test_ja_affirmative_fires(self):
+        assert present("血尿", "血尿があります") is True
+
+    def test_ja_continuation_te_does_not_over_suppress(self):
+        """「血尿があって心配ない」→ 血尿被肯定（て 停止，遠處 ない 不誤套）。"""
+        assert present("血尿", "血尿があって心配ない") is True
+
+    def test_ko_eopseoyo_suppressed(self):
+        assert present("혈뇨", "혈뇨는 없어요") is False
+
+    def test_ko_affirmative_fires(self):
+        assert present("혈뇨", "혈뇨가 있어요") is True
+
+
 class TestSafetyFailOpen:
     def test_ambiguous_defaults_to_fire(self):
         """不確定/無否定線索 → 觸發（fail-open，寧可誤報不漏急症）。"""

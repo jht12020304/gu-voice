@@ -30,6 +30,7 @@
     "suggestedActions": "{{count}} suggested actions",
     "viewDetail": "View detail",
     "acknowledge": "Acknowledge",
+    "acknowledgeConfirm": "Mark this red-flag alert as acknowledged? This cannot be undone.",
     "acknowledgedBadge": "✓ Acknowledged",
     "detail": {
       "loadError": "Failed to load alert details",

@@ -223,28 +223,36 @@ export default function AlertListPage() {
   }, [alerts, searchQuery, sessionMeta]);
 
   const groupedAlerts = useMemo(() => {
+    // §1e 安全：日期分組內以「未處理優先 → 嚴重度(critical>high>medium) → 較新」排序，
+    // 避免較舊但未處理的 critical 被當日較新的 medium/high 推到看不見的位置。
+    const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2 };
+    const priority = (a: (typeof visibleAlerts)[number], b: (typeof visibleAlerts)[number]) => {
+      const ackA = a.acknowledgedAt ? 1 : 0;
+      const ackB = b.acknowledgedAt ? 1 : 0;
+      if (ackA !== ackB) return ackA - ackB; // 未處理在前
+      const sevA = severityRank[a.severity] ?? 9;
+      const sevB = severityRank[b.severity] ?? 9;
+      if (sevA !== sevB) return sevA - sevB; // 嚴重度高在前
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(); // 較新在前
+    };
     const sorted = [...visibleAlerts].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
-    return sorted.reduce<Array<{ key: string; label: string; items: typeof visibleAlerts }>>(
-      (groups, alert) => {
-        const key = getDateKey(alert.createdAt);
-        const existing = groups.find((group) => group.key === key);
-        if (existing) {
-          existing.items.push(alert);
-          return groups;
-        }
-
-        groups.push({
-          key,
-          label: getDateLabel(alert.createdAt),
-          items: [alert],
-        });
-        return groups;
-      },
-      [],
-    );
+    const groups = sorted.reduce<
+      Array<{ key: string; label: string; items: typeof visibleAlerts }>
+    >((acc, alert) => {
+      const key = getDateKey(alert.createdAt);
+      const existing = acc.find((group) => group.key === key);
+      if (existing) {
+        existing.items.push(alert);
+        return acc;
+      }
+      acc.push({ key, label: getDateLabel(alert.createdAt), items: [alert] });
+      return acc;
+    }, []);
+    groups.forEach((g) => g.items.sort(priority));
+    return groups;
   }, [visibleAlerts]);
 
   const totalAlerts = allTotalCount || alerts.length;
