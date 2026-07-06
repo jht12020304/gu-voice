@@ -18,6 +18,7 @@ from app.core.openai_client import (
 )
 from app.pipelines.prompts.shared import (
     SINGLE_QUESTION_RULE,
+    render_critical_risk_factor_items,
     render_hpi_checklist,
     render_red_flags_for_conversation,
 )
@@ -125,6 +126,23 @@ class LLMConversationEngine:
         hpi_section = render_hpi_checklist()
         red_flags_section = render_red_flags_for_conversation(chief_complaint)
 
+        # §3b：特定高風險主訴(血尿 / PSA / ED)的關鍵風險因子提升為「與 HPI 同級必問」,
+        # 不再淪為只在十欄達 7 成才問的「次要補問」→ 避免核心十欄填滿就收尾、觸不到
+        # 吸菸史 / 抗凝血 / 泌尿癌家族史(血尿惡性分層)、心血管風險(ED)。無匹配主訴回空字串,
+        # critical_risk_section 保持 ""（其他主訴完全不受影響）。
+        risk_factor_items = render_critical_risk_factor_items(chief_complaint)
+        critical_risk_section = ""
+        if risk_factor_items:
+            critical_risk_section = (
+                "## 本主訴的關鍵風險因子（與 HPI 十欄同級，收尾前必問）\n"
+                f"根據病患主訴「{chief_complaint}」，下列風險因子屬**必問**，重要性與 HPI 十欄相同，\n"
+                "**不得**歸入下方「次要補問」而延到 HPI 達 7 成後才問，也不得因核心十欄已填滿就略過：\n"
+                f"{risk_factor_items}\n"
+                "規則：每輪仍只問一題，可穿插在 HPI 十欄之間或緊接其後詢問，問診收尾前必須都問到；"
+                "病患已於 intake 提供、或已明確表示不知道／沒有／記不得，即視為已問到，"
+                "不得換句話對同一項再重問（遵守 don't-know 不重問規則）。\n\n"
+            )
+
         # 把「輸出語言」規則放在最前面 — LLM 對 prompt 開頭權重最高,
         # 尾段的規則容易被中間大量中文內容稀釋,造成 en-US 場次偶發以中文回覆。
         system_prompt = f"""{output_language_rule.lstrip()}
@@ -146,7 +164,7 @@ class LLMConversationEngine:
 根據病患的主訴「{chief_complaint}」，依序收集下列十個 HPI 面向：
 {hpi_section}
 
-## 次要補問（HPI 完整度較高後才進入）
+{critical_risk_section}## 次要補問（HPI 完整度較高後才進入）
 當上述 HPI 十欄已大致問完（約 7 成以上），請視對話狀況補問下列臨床文件需要的資訊，
 每次仍只問一題，且只在與主訴相關時才問：
 - 過往泌尿科相關疾病或手術史
