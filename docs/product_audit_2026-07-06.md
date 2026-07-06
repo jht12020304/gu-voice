@@ -84,7 +84,9 @@
 ## 3. P1 — 問答/臨床品質（問答稽核，未修）
 
 - **3a. 矛盾陳述被靜默覆蓋未標記**：`contradiction` 對抗場病患前段「10/10 劇痛、幾乎每次血尿」中途翻供「上個月、偶爾、不太痛」，SOAP **只採後段**、無任何「陳述前後不一致」標註（違反 soap prompt 自身第 5 條）。醫師不知病患曾矛盾。
-- **3b. 關鍵風險因子問不到**：血尿 cooperative 場（5 語言）**全部沒問吸菸史/抗凝血劑/泌尿癌家族史**（無痛血尿最重要的惡性風險分層）；ED 場 4/5 語言未問心血管風險。根因：這些被 prompt 歸為「次要補問」只在 HPI 十欄達 7 成才問（`llm_conversation.py:145-159`），而 Supervisor 又「不因次要未問完壓低分數」（`supervisor.py:100-105`）→ 核心十欄快填滿就收尾，觸不到次要補問。
+- **3b. 關鍵風險因子問不到**（✅ 已修：重新設計，真實 e2e 過，PR#29，已部署 2026-07-06）：血尿 cooperative 場（5 語言）**全部沒問吸菸史/抗凝血劑/泌尿癌家族史**（無痛血尿最重要的惡性風險分層）；ED 場 4/5 語言未問心血管風險。根因：這些被 prompt 歸為「次要補問」只在 HPI 十欄達 7 成才問（`llm_conversation.py:145-159`），而 Supervisor 又「不因次要未問完壓低分數」（`supervisor.py:100-105`）→ 核心十欄快填滿就收尾，觸不到次要補問。
+  - **首版（PR#28 內）Fable NO-GO**：把風險因子升為「與 HPI 同級必問」但 base cap=10 連 opening+HPI 十欄都塞不下 → 風險因子仍被砍；且收尾輪 conversation LLM 硬問一題留懸空問句。已回退重做。
+  - **重新設計（PR#29）四機制**：(1) 動態硬上限 effective cap=base+K+`RISK_FACTOR_HARD_CAP_BUFFER`(2)（K>0 才加，血尿/ED 10→15）；(2) 確定性軟門檻下限 base+K-1(12) 回合，作 supervisor gate 偶發早放行的 backstop；(3) 極簡收尾 prompt `build_wrap_up_prompt`（收尾輪移除整個 questioning 框架、跳過 next_focus，恢復收尾不發問）；(4) `_session_risk_factor_count` 用 raw chief_complaint（非 display，與 §3b 注入端一致，修 ED display 漂移 K=0 漏問）。另強化 supervisor gate 為逐項嚴格。**真實 OpenAI e2e：血尿(en)/ED(zh) 各 2/2 過**（3 風險因子全問到 + 收尾乾淨），後端 919 pytest；場景在 `scripts/e2e_realopenai/driver.py`（hematuria_3b_en/ed_3b_zh）。權威不變式見 `docs/app_architecture.md` §2.2.1。
 - **3c. HPI 十欄系統性偏空**（40 場統計）：`relieving_factors` ~60% 空、`context` ~52%、`aggravating_factors` ~48%、`location` ~42% 空（characteristics/associated_symptoms <5% 空）→ OPQRST 後段維度常被跳過。
 - **3d. 危急升級後部分語言仍追問例行問題**：zh/ko 偵測危急後只說「請立即告知醫護」不再追問；en/ja/vi 卻在同句又追問一個 OPQRST 問題 → 稀釋緊急訊號、5 語言不一致。
 - **3e. confidence_score 自評、無 grounding**（先前提案已列，未修）。

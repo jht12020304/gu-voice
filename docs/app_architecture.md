@@ -135,6 +135,21 @@
   `_update_session_status` 採 **compare-and-set**（只在仍 `in_progress` 才轉 `completed`），
   避免把 `aborted_red_flag` 降級；`_generate_soap_report_async` 雙重存在性檢查 +
   `soap_reports.session_id` UNIQUE → 任何結束路徑都不會重複報告。
+- **§3b 高風險主訴風險因子必問（2026-07-06，PR#29，真實 e2e 血尿/ED 各 2/2）**：血尿/PSA/ED 的關鍵
+  風險因子（吸菸/抗凝血/泌尿癌家族史；ED 心血管/糖尿病/吸菸）升為與 HPI 十欄同級必問
+  （`shared.CRITICAL_RISK_FACTORS`，多語聯集、明確匹配才注入）。收尾邏輯對這類主訴（K=風險因子
+  題數）動態調整，缺一不可：
+  - **動態硬上限**：effective cap = `MAX_PATIENT_TURNS_HARD_CAP` + K + `RISK_FACTOR_HARD_CAP_BUFFER`(2)
+    （K>0 才加；血尿/ED 10→15）。base=10 連 opening+HPI 十欄都塞不下，風險因子必被砍。
+  - **確定性軟門檻下限**：K>0 主訴 soft-conclude 需病患回合 ≥ base+K-1(12)——作 supervisor gate
+    （LLM，偶發只問到 1/K 就早放行 hpi≥80）的**語言無關 backstop**。
+  - **極簡收尾 prompt**：收尾輪改用 `build_wrap_up_prompt`（只留輸出語言+角色+收尾規則，**移除整個
+    HPI/次要/風險因子 questioning 框架**）且**跳過 supervisor next_focus 注入**——單靠強化文案+前後
+    夾擊壓不住 LLM 在收尾輪硬問一題（實測 ED 反覆問次要用藥、留懸空問句），移除競爭指令才可靠。
+  - **一致性陷阱**：`_session_risk_factor_count` 必須用 **raw `chief_complaint`**（非 display）——
+    build_system_prompt/supervisor §3b 注入都用 raw，ED 的 display 漂移為 K=0 會讓 cap/floor gating
+    與注入端矛盾漏問。另強化 supervisor gate 為逐項嚴格（任一未問到回報 60、next_focus 指向該項）。
+    e2e 場景在 `scripts/e2e_realopenai/driver.py`（hematuria_3b_en/ed_3b_zh + analyzers）。
 - **D1–D6 已修復（2026-07-04，`a92a23f`，真 OpenAI E2E 驗收 13/13 PASS）**：原「critical/high 紅旗
   當輪不收尾」的 deferral 對每輪再觸發 high 的主訴（肉眼血尿）會永久延後收尾。修復後的不變式：
   - **硬上限不再被紅旗 deferral 否決**：收尾閘門是純函式 `_should_conclude_now(should_conclude,
