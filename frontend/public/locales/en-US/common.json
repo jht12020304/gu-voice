@@ -63,7 +63,8 @@
     "in_progress": "In progress",
     "completed": "Completed",
     "aborted_red_flag": "Red-flag aborted",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "unknown": "Session status unavailable"
   },
   "severity": {
     "critical": "Critical",

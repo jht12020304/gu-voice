@@ -63,7 +63,8 @@
     "in_progress": "Đang khám",
     "completed": "Hoàn tất",
     "aborted_red_flag": "Ngừng do cờ đỏ",
-    "cancelled": "Đã hủy"
+    "cancelled": "Đã hủy",
+    "unknown": "Không lấy được trạng thái phiên"
   },
   "severity": {
     "critical": "Nguy kịch",

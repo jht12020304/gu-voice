@@ -63,7 +63,8 @@
     "in_progress": "對話中",
     "completed": "已完成",
     "aborted_red_flag": "紅旗中止",
-    "cancelled": "已取消"
+    "cancelled": "已取消",
+    "unknown": "未取得場次狀態"
   },
   "severity": {
     "critical": "危急",

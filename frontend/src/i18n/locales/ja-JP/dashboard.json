@@ -63,6 +63,38 @@
     },
     "newAlertToast": "未対応の赤旗アラートが {{count}} 件あります"
   },
+  "alertList": {
+    "eyebrow": "トリアージ・ワークスペース",
+    "subtitle": "まず未対応の警告を処理してから、セッションと逐語記録を確認してください。このページは、すべての警告を同列に並べるのではなく、優先的に対応すべき人をまず見つけられるように設計されています。",
+    "unacknowledgedBanner": "現在未対応 {{count}} 件",
+    "filters": {
+      "all": "すべて",
+      "unacknowledged": "未対応",
+      "acknowledged": "対応済み"
+    },
+    "summary": {
+      "totalTitle": "全警告",
+      "totalHelper": "現在システム内にある警告の総数",
+      "unacknowledgedHelper": "医師の確認・記録待ち",
+      "acknowledgedHelper": "医師によって対応済みと確認済み",
+      "currentTitle": "現在の結果",
+      "currentHelperFiltered": "検索条件を適用中",
+      "currentHelperDefault": "現在のフィルター条件での件数"
+    },
+    "searchPlaceholder": "患者名・主訴・警告タイトルで検索",
+    "updating": "警告データを更新中...",
+    "emptyTitle": "警告なし",
+    "emptyMessage": "条件に一致するレッドフラグ警告はありません",
+    "groupCount": "{{count}} 件の警告",
+    "unknownComplaintFetchFailed": "主訴を取得できません",
+    "sessionStatus": {
+      "waiting": "待機中",
+      "inProgress": "問診中",
+      "completed": "完了",
+      "abortedRedFlag": "レッドフラグにより中断",
+      "cancelled": "キャンセル済み"
+    }
+  },
   "transcript": {
     "title": "問診会話の逐語記録",
     "emptyTitle": "表示できる会話内容はありません",

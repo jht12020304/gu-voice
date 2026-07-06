@@ -21,7 +21,85 @@
     "empty": "データがありません",
     "none": "なし",
     "abnormal": "異常",
-    "normal": "正常"
+    "normal": "正常",
+    "cancel": "キャンセル",
+    "confirm": "確認",
+    "processing": "処理中..."
+  },
+  "page": {
+    "reviewEyebrow": "レポート審査",
+    "title": "SOAPレポート",
+    "loadingReport": "レポートを読み込み中...",
+    "notGenerated": "レポートはまだ生成されていません",
+    "clinicalSummaryEyebrow": "臨床サマリー",
+    "noSummary": "表示できる要約はまだありません。"
+  },
+  "actions": {
+    "viewSession": "セッションを表示",
+    "viewPatient": "患者情報"
+  },
+  "reportStatus": {
+    "generated": "生成済み",
+    "generating": "生成中",
+    "failed": "失敗"
+  },
+  "reviewStatus": {
+    "approved": "承認済み",
+    "revisionNeeded": "要修正",
+    "pending": "審査待ち"
+  },
+  "meta": {
+    "redFlagSession": "レッドフラグ・セッション",
+    "redFlagLoadFailedBadge": "⚠ レッドフラグ状態の読み込みに失敗"
+  },
+  "metaCard": {
+    "patient": "患者",
+    "complaint": "主訴",
+    "sessionStatus": "セッション状態",
+    "report": "レポート",
+    "createdHelper": "セッション作成日 {{date}}",
+    "completedAt": "{{date}} に完了",
+    "startedAt": "{{date}} に開始",
+    "noTimeInfo": "時間情報はまだありません",
+    "notGeneratedTime": "生成時刻未定",
+    "reviewStatusHelper": "審査状態：{{status}}",
+    "awaitingReview": "医師の審査待ち"
+  },
+  "highlights": {
+    "positive": { "title": "重要な陽性所見", "empty": "明確な陽性症状は整理されていません。" },
+    "negative": { "title": "重要な陰性所見", "empty": "明確な陰性症状は整理されていません。" },
+    "riskFactors": { "title": "リスク因子", "empty": "明らかなリスク因子はありません。" },
+    "impression": { "title": "初期所見", "empty": "明確な所見は整理されていません。" }
+  },
+  "diagnosis": {
+    "title": "診断コード",
+    "empty": "ICD-10コードはまだありません。"
+  },
+  "redFlag": {
+    "title": "レッドフラグ注記",
+    "defaultReason": "このセッションは以前レッドフラグ警告を発生させました。審査時は要約と逐語記録を特に念入りに確認してください。",
+    "loadFailedTitle": "レッドフラグ状態の読み込みに失敗",
+    "loadFailedDescription": "このセッションのレッドフラグ状態を読み込めませんでした。ページを再読み込みして再確認してください。「レッドフラグなし」と勝手に判断しないでください。"
+  },
+  "reviewNotesCard": {
+    "title": "審査メモ",
+    "reviewedAtLabel": "審査時刻：{{date}}"
+  },
+  "tabs": {
+    "report": "SOAP構造化レポート",
+    "transcript": "会話の逐語記録"
+  },
+  "review": {
+    "actionEyebrow": "審査アクション",
+    "instructions": "承認または差し戻しを決める前に、要約・評価・計画が逐語記録に基づいていることを確認してください。",
+    "approveButton": "レポートを承認",
+    "rejectButton": "差し戻して修正",
+    "approveDescription": "このSOAPレポートを正式な臨床サマリーとして確定しますか？補足があればメモを残せます。",
+    "rejectDescription": "修正が必要な理由を入力してください。これが差し戻しの根拠になります。",
+    "approveNotesPlaceholder": "審査メモを入力（任意）...",
+    "rejectNotesPlaceholder": "差し戻し理由を入力してください...",
+    "notesRequiredError": "差し戻す場合は理由の入力が必須です。",
+    "submitError": "審査の送信に失敗しました。しばらくしてから再度お試しください。"
   },
   "subjective": {
     "chiefComplaint": "主訴 Chief Complaint",
@@ -133,6 +211,13 @@
     "abdomen": "腹部",
     "costovertebral": "肋骨脊柱角",
     "genitourinary": "泌尿生殖器"
+  },
+  "labels": {
+    "testResult": "{{test}}：{{result}}",
+    "smokingHistory": "喫煙歴：{{value}}",
+    "alcoholUse": "飲酒：{{value}}",
+    "redFlagReason": "レッドフラグ理由：{{value}}",
+    "recommendedTest": "推奨：{{value}}"
   },
   "export": {
     "button": "PDFを書き出す",

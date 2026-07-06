@@ -72,7 +72,7 @@ function extractNegativeFindings(report: SOAPReport): string[] {
   ).slice(0, 4);
 }
 
-function extractPositiveFindings(report: SOAPReport): string[] {
+function extractPositiveFindings(report: SOAPReport, t: TFunction): string[] {
   const subjective = report.subjective;
   const labs = report.objective?.labResults ?? [];
 
@@ -82,31 +82,31 @@ function extractPositiveFindings(report: SOAPReport): string[] {
     ...(subjective?.hpi.associatedSymptoms ?? []),
     ...labs
       .filter((lab) => lab.isAbnormal)
-      .map((lab) => `${lab.testName}：${lab.result}`),
+      .map((lab) => t('soap:labels.testResult', { test: lab.testName, result: lab.result })),
   ]).slice(0, 5);
 }
 
-function extractRiskFactors(report: SOAPReport, session: Session | null): string[] {
+function extractRiskFactors(report: SOAPReport, session: Session | null, t: TFunction): string[] {
   const subjective = report.subjective;
   const social = subjective?.socialHistory ?? {};
   const conditions = subjective?.pastMedicalHistory?.conditions ?? [];
 
   return uniqueStrings([
     ...conditions,
-    social.smoking ? `吸菸史：${social.smoking}` : null,
-    social.alcohol ? `飲酒：${social.alcohol}` : null,
-    session?.redFlagReason ? `紅旗原因：${session.redFlagReason}` : null,
+    social.smoking ? t('soap:labels.smokingHistory', { value: social.smoking }) : null,
+    social.alcohol ? t('soap:labels.alcoholUse', { value: social.alcohol }) : null,
+    session?.redFlagReason ? t('soap:labels.redFlagReason', { value: session.redFlagReason }) : null,
   ]).slice(0, 5);
 }
 
-function extractImpression(report: SOAPReport): string[] {
+function extractImpression(report: SOAPReport, t: TFunction): string[] {
   const assessment = report.assessment;
   const plan = report.plan;
 
   return uniqueStrings([
     assessment?.clinicalImpression,
     ...(assessment?.differentialDiagnoses ?? []).slice(0, 2).map((item) => item.diagnosis),
-    ...(plan?.recommendedTests ?? []).slice(0, 2).map((item) => `建議：${item.testName}`),
+    ...(plan?.recommendedTests ?? []).slice(0, 2).map((item) => t('soap:labels.recommendedTest', { value: item.testName })),
   ]).slice(0, 5);
 }
 
@@ -187,10 +187,10 @@ export default function SOAPReportPage() {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [activeTab, setActiveTab] = useState<'report' | 'transcript'>('report');
   const report = selectedReport;
-  const positiveFindings = useMemo(() => (report ? extractPositiveFindings(report) : []), [report]);
+  const positiveFindings = useMemo(() => (report ? extractPositiveFindings(report, t) : []), [report, t]);
   const negativeFindings = useMemo(() => (report ? extractNegativeFindings(report) : []), [report]);
-  const riskFactors = useMemo(() => (report ? extractRiskFactors(report, session) : []), [report, session]);
-  const impressionItems = useMemo(() => (report ? extractImpression(report) : []), [report]);
+  const riskFactors = useMemo(() => (report ? extractRiskFactors(report, session, t) : []), [report, session, t]);
+  const impressionItems = useMemo(() => (report ? extractImpression(report, t) : []), [report, t]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -221,7 +221,7 @@ export default function SOAPReportPage() {
     if (selectedReport.status !== 'generated') return;
 
     if (reviewAction === 'revision_needed' && !reviewNotes.trim()) {
-      setReviewError('退回修改時必須填寫原因。');
+      setReviewError(t('soap:review.notesRequiredError', '退回修改時必須填寫原因。'));
       return;
     }
 
@@ -235,7 +235,7 @@ export default function SOAPReportPage() {
       setShowReviewModal(false);
       setReviewNotes('');
     } catch {
-      setReviewError('審閱送出失敗，請稍後再試。');
+      setReviewError(t('soap:review.submitError', '審閱送出失敗，請稍後再試。'));
     } finally {
       setIsSubmitting(false);
     }
@@ -283,7 +283,7 @@ export default function SOAPReportPage() {
     }
   };
 
-  if (isLoading) return <LoadingSpinner fullPage message="載入報告..." />;
+  if (isLoading) return <LoadingSpinner fullPage message={t('soap:page.loadingReport', '載入報告...')} />;
   if (error) {
     return (
       <ErrorState
@@ -296,19 +296,22 @@ export default function SOAPReportPage() {
       />
     );
   }
-  if (!report) return <ErrorState message="報告尚未產生" />;
+  if (!report) return <ErrorState message={t('soap:page.notGenerated', '報告尚未產生')} />;
 
   const isReviewed = report.reviewStatus !== 'pending';
-  const patientName = session?.patientName ?? session?.patient?.name ?? '未知病患';
+  const patientName =
+    session?.patientName ??
+    session?.patient?.name ??
+    t('dashboard:alert.detail.unknownPatient', '未知病患');
   const complaint =
     session?.chiefComplaintText ||
     session?.chiefComplaint?.name ||
     report.subjective?.chiefComplaint ||
-    '未填寫主訴';
+    t('doctor.patient.noComplaint', '未填寫主訴');
   const sessionStatus = session?.status ? (
     <StatusBadge status={session.status as SessionStatus} size="sm" />
   ) : (
-    <span className="text-small text-ink-muted">未取得場次狀態</span>
+    <span className="text-small text-ink-muted">{t('status.unknown', '未取得場次狀態')}</span>
   );
 
   return (
@@ -326,8 +329,8 @@ export default function SOAPReportPage() {
             </button>
 
             <div>
-              <p className="text-small font-semibold uppercase tracking-[0.18em] text-ink-muted">Report Review</p>
-              <h1 className="mt-2 text-h1 text-ink-heading dark:text-white">SOAP 報告</h1>
+              <p className="text-small font-semibold uppercase tracking-[0.18em] text-ink-muted">{t('soap:page.reviewEyebrow', '報告審閱')}</p>
+              <h1 className="mt-2 text-h1 text-ink-heading dark:text-white">{t('soap:page.title', 'SOAP 報告')}</h1>
               <p className="mt-2 text-body text-ink-secondary">
                 {patientName} · {complaint}
               </p>
@@ -341,7 +344,11 @@ export default function SOAPReportPage() {
                         : 'badge-red-flag'
                   }`}
                 >
-                  {report.status === 'generated' ? '已產生' : report.status === 'generating' ? '產生中' : '失敗'}
+                  {report.status === 'generated'
+                    ? t('soap:reportStatus.generated', '已產生')
+                    : report.status === 'generating'
+                      ? t('soap:reportStatus.generating', '產生中')
+                      : t('soap:reportStatus.failed', '失敗')}
                 </span>
                 <span
                   className={`badge ${
@@ -353,23 +360,23 @@ export default function SOAPReportPage() {
                   }`}
                 >
                   {report.reviewStatus === 'approved'
-                    ? '已核准'
+                    ? t('soap:reviewStatus.approved', '已核准')
                     : report.reviewStatus === 'revision_needed'
-                      ? '需修改'
-                      : '待審閱'}
+                      ? t('soap:reviewStatus.revisionNeeded', '需修改')
+                      : t('soap:reviewStatus.pending', '待審閱')}
                 </span>
                 {report.aiConfidenceScore !== undefined ? (
                   <span className="rounded-pill bg-primary-50 px-3 py-1 text-small font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
-                    AI 信心 {Math.round(report.aiConfidenceScore * 100)}%
+                    {t('session:complete.aiConfidence', { percent: Math.round(report.aiConfidenceScore * 100) })}
                   </span>
                 ) : null}
                 {session?.redFlag ? (
                   <span className="rounded-pill bg-red-50 px-3 py-1 text-small font-semibold text-red-600 dark:bg-red-500/10 dark:text-red-400">
-                    紅旗場次
+                    {t('soap:meta.redFlagSession', '紅旗場次')}
                   </span>
                 ) : sessionLoadFailed ? (
                   <span className="rounded-pill bg-amber-50 px-3 py-1 text-small font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-                    ⚠ 紅旗狀態載入失敗
+                    {t('soap:meta.redFlagLoadFailedBadge', '⚠ 紅旗狀態載入失敗')}
                   </span>
                 ) : null}
               </div>
@@ -422,7 +429,7 @@ export default function SOAPReportPage() {
               className="btn-secondary"
               onClick={() => sessionId && navigate(`/sessions/${sessionId}`)}
             >
-              查看場次
+              {t('soap:actions.viewSession', '查看場次')}
             </button>
             {session?.patientId ? (
               <button
@@ -430,7 +437,7 @@ export default function SOAPReportPage() {
                 className="btn-secondary"
                 onClick={() => navigate(`/patients/${session.patientId}`)}
               >
-                病患資料
+                {t('soap:actions.viewPatient', '病患資料')}
               </button>
             ) : null}
           </div>
@@ -438,7 +445,7 @@ export default function SOAPReportPage() {
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetaCard
-            label="病患"
+            label={t('soap:metaCard.patient', '病患')}
             value={patientName}
             helper={[
               session?.patient?.medicalRecordNumber ? formatMRN(session.patient.medicalRecordNumber) : null,
@@ -446,25 +453,34 @@ export default function SOAPReportPage() {
             ].filter(Boolean).join(' · ')}
           />
           <MetaCard
-            label="主訴"
+            label={t('soap:metaCard.complaint', '主訴')}
             value={complaint}
-            helper={session?.createdAt ? `場次建立 ${formatDate(session.createdAt)}` : undefined}
+            helper={session?.createdAt ? t('soap:metaCard.createdHelper', { date: formatDate(session.createdAt) }) : undefined}
           />
           <MetaCard
-            label="場次狀態"
+            label={t('soap:metaCard.sessionStatus', '場次狀態')}
             value={sessionStatus}
             helper={
               session?.completedAt
-                ? `完成於 ${formatDate(session.completedAt)}`
+                ? t('soap:metaCard.completedAt', { date: formatDate(session.completedAt) })
                 : session?.startedAt
-                  ? `開始於 ${formatDate(session.startedAt)}`
-                  : '尚未取得時間資訊'
+                  ? t('soap:metaCard.startedAt', { date: formatDate(session.startedAt) })
+                  : t('soap:metaCard.noTimeInfo', '尚未取得時間資訊')
             }
           />
           <MetaCard
-            label="報告"
-            value={report.generatedAt ? formatDate(report.generatedAt) : '尚未產生時間'}
-            helper={isReviewed ? `審閱狀態：${report.reviewStatus === 'approved' ? '已核准' : '需修改'}` : '等待醫師審閱'}
+            label={t('soap:metaCard.report', '報告')}
+            value={report.generatedAt ? formatDate(report.generatedAt) : t('soap:metaCard.notGeneratedTime', '尚未產生時間')}
+            helper={
+              isReviewed
+                ? t('soap:metaCard.reviewStatusHelper', {
+                    status:
+                      report.reviewStatus === 'approved'
+                        ? t('soap:reviewStatus.approved', '已核准')
+                        : t('soap:reviewStatus.revisionNeeded', '需修改'),
+                  })
+                : t('soap:metaCard.awaitingReview', '等待醫師審閱')
+            }
           />
         </div>
       </section>
@@ -472,23 +488,23 @@ export default function SOAPReportPage() {
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,0.8fr)]">
         <div className="space-y-4">
           <div className="rounded-panel border border-primary-100 bg-primary-50/70 p-5 dark:border-primary-900/50 dark:bg-primary-950/20">
-            <p className="text-small font-semibold uppercase tracking-[0.16em] text-primary-700 dark:text-primary-300">Clinical Summary</p>
+            <p className="text-small font-semibold uppercase tracking-[0.16em] text-primary-700 dark:text-primary-300">{t('soap:page.clinicalSummaryEyebrow', '臨床摘要')}</p>
             <p className="mt-3 text-body-lg leading-relaxed text-ink-body dark:text-white/85">
-              {report.summary || report.assessment?.clinicalImpression || '目前尚無可顯示的摘要。'}
+              {report.summary || report.assessment?.clinicalImpression || t('soap:page.noSummary', '目前尚無可顯示的摘要。')}
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <HighlightList title="重要陽性" items={positiveFindings} emptyLabel="目前沒有整理出明確的陽性症狀。" />
-            <HighlightList title="重要陰性" items={negativeFindings} emptyLabel="目前沒有整理出明確的陰性症狀。" />
-            <HighlightList title="風險因子" items={riskFactors} emptyLabel="目前沒有明顯風險因子。" />
-            <HighlightList title="初步判斷" items={impressionItems} emptyLabel="目前沒有整理出明確判斷。" />
+            <HighlightList title={t('soap:highlights.positive.title', '重要陽性')} items={positiveFindings} emptyLabel={t('soap:highlights.positive.empty', '目前沒有整理出明確的陽性症狀。')} />
+            <HighlightList title={t('soap:highlights.negative.title', '重要陰性')} items={negativeFindings} emptyLabel={t('soap:highlights.negative.empty', '目前沒有整理出明確的陰性症狀。')} />
+            <HighlightList title={t('soap:highlights.riskFactors.title', '風險因子')} items={riskFactors} emptyLabel={t('soap:highlights.riskFactors.empty', '目前沒有明顯風險因子。')} />
+            <HighlightList title={t('soap:highlights.impression.title', '初步判斷')} items={impressionItems} emptyLabel={t('soap:highlights.impression.empty', '目前沒有整理出明確判斷。')} />
           </div>
         </div>
 
         <aside className="space-y-4">
           <div className="card">
-            <h2 className="text-h3 text-ink-heading dark:text-white">診斷索引</h2>
+            <h2 className="text-h3 text-ink-heading dark:text-white">{t('soap:diagnosis.title', '診斷索引')}</h2>
             {report.icd10Codes && report.icd10Codes.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-2">
                 {report.icd10Codes.map((code) => (
@@ -501,32 +517,32 @@ export default function SOAPReportPage() {
                 ))}
               </div>
             ) : (
-              <p className="mt-3 text-body text-ink-muted">目前沒有 ICD-10 編碼。</p>
+              <p className="mt-3 text-body text-ink-muted">{t('soap:diagnosis.empty', '目前沒有 ICD-10 編碼。')}</p>
             )}
           </div>
 
           {session?.redFlag ? (
             <div className="card border-red-200 bg-red-50/70 dark:border-red-900/50 dark:bg-red-950/10">
-              <h2 className="text-h3 text-red-700 dark:text-red-400">紅旗註記</h2>
+              <h2 className="text-h3 text-red-700 dark:text-red-400">{t('soap:redFlag.title', '紅旗註記')}</h2>
               <p className="mt-3 text-body leading-relaxed text-red-700/90 dark:text-red-300/85">
-                {session.redFlagReason || '此場次曾觸發紅旗警示，建議審閱時特別核對摘要與逐字稿。'}
+                {session.redFlagReason || t('soap:redFlag.defaultReason', '此場次曾觸發紅旗警示，建議審閱時特別核對摘要與逐字稿。')}
               </p>
             </div>
           ) : sessionLoadFailed ? (
             <div className="card border-amber-200 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/10">
-              <h2 className="text-h3 text-amber-700 dark:text-amber-400">紅旗狀態載入失敗</h2>
+              <h2 className="text-h3 text-amber-700 dark:text-amber-400">{t('soap:redFlag.loadFailedTitle', '紅旗狀態載入失敗')}</h2>
               <p className="mt-3 text-body leading-relaxed text-amber-800/90 dark:text-amber-300/85">
-                無法載入此場次的紅旗狀態，請重新整理頁面後再核對，切勿逕自當作「無紅旗」。
+                {t('soap:redFlag.loadFailedDescription', '無法載入此場次的紅旗狀態，請重新整理頁面後再核對，切勿逕自當作「無紅旗」。')}
               </p>
             </div>
           ) : null}
 
           {isReviewed && report.reviewNotes ? (
             <div className="card">
-              <h2 className="text-h3 text-ink-heading dark:text-white">審閱備註</h2>
+              <h2 className="text-h3 text-ink-heading dark:text-white">{t('soap:reviewNotesCard.title', '審閱備註')}</h2>
               <p className="mt-3 text-body leading-relaxed text-ink-body dark:text-white/85">{report.reviewNotes}</p>
               {report.reviewedAt ? (
-                <p className="mt-3 text-small text-ink-muted">審閱時間：{formatDate(report.reviewedAt)}</p>
+                <p className="mt-3 text-small text-ink-muted">{t('soap:reviewNotesCard.reviewedAtLabel', { date: formatDate(report.reviewedAt) })}</p>
               ) : null}
             </div>
           ) : null}
@@ -543,7 +559,7 @@ export default function SOAPReportPage() {
             }`}
             onClick={() => setActiveTab('report')}
           >
-            SOAP 結構化報告
+            {t('soap:tabs.report', 'SOAP 結構化報告')}
           </button>
           <button
             className={`flex-1 rounded-card px-4 py-2 text-body font-medium transition-colors ${
@@ -553,7 +569,7 @@ export default function SOAPReportPage() {
             }`}
             onClick={() => setActiveTab('transcript')}
           >
-            對話逐字稿
+            {t('soap:tabs.transcript', '對話逐字稿')}
           </button>
         </div>
       </div>
@@ -596,9 +612,9 @@ export default function SOAPReportPage() {
           <div className="rounded-panel border border-edge bg-white/95 p-4 shadow-lg backdrop-blur dark:border-dark-border dark:bg-dark-card/95">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p className="text-small font-semibold uppercase tracking-[0.16em] text-ink-muted">Review Action</p>
+                <p className="text-small font-semibold uppercase tracking-[0.16em] text-ink-muted">{t('soap:review.actionEyebrow', '審閱動作')}</p>
                 <p className="mt-1 text-body text-ink-body dark:text-white/85">
-                  請先確認摘要、評估與計畫能回到逐字稿找到依據，再決定核准或退回修改。
+                  {t('soap:review.instructions', '請先確認摘要、評估與計畫能回到逐字稿找到依據，再決定核准或退回修改。')}
                 </p>
               </div>
 
@@ -614,7 +630,7 @@ export default function SOAPReportPage() {
                   <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  確認報告
+                  {t('soap:review.approveButton', '確認報告')}
                 </button>
                 <button
                   className="btn-primary bg-alert-high hover:bg-orange-700"
@@ -627,7 +643,7 @@ export default function SOAPReportPage() {
                   <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                   </svg>
-                  退回修改
+                  {t('soap:review.rejectButton', '退回修改')}
                 </button>
               </div>
             </div>
@@ -641,11 +657,11 @@ export default function SOAPReportPage() {
           setShowReviewModal(false);
           setReviewError('');
         }}
-        title={reviewAction === 'approved' ? '確認報告' : '退回修改'}
+        title={reviewAction === 'approved' ? t('soap:review.approveButton', '確認報告') : t('soap:review.rejectButton', '退回修改')}
         footer={
           <>
             <button className="btn-secondary" onClick={() => setShowReviewModal(false)}>
-              取消
+              {t('soap:common.cancel', '取消')}
             </button>
             <button
               className={`btn-primary ${
@@ -656,7 +672,7 @@ export default function SOAPReportPage() {
               onClick={handleReview}
               disabled={isSubmitting || (reviewAction === 'revision_needed' && !reviewNotes.trim())}
             >
-              {isSubmitting ? '處理中...' : '確認'}
+              {isSubmitting ? t('soap:common.processing', '處理中...') : t('soap:common.confirm', '確認')}
             </button>
           </>
         }
@@ -664,13 +680,17 @@ export default function SOAPReportPage() {
         <div className="space-y-4">
           <p className="text-body text-ink-body">
             {reviewAction === 'approved'
-              ? '確認此 SOAP 報告可作為正式臨床摘要？如有補充可留下備註。'
-              : '請填寫需要修改的原因，這會作為退回修正的依據。'}
+              ? t('soap:review.approveDescription', '確認此 SOAP 報告可作為正式臨床摘要？如有補充可留下備註。')
+              : t('soap:review.rejectDescription', '請填寫需要修改的原因，這會作為退回修正的依據。')}
           </p>
           <textarea
             value={reviewNotes}
             onChange={(event) => setReviewNotes(event.target.value)}
-            placeholder={reviewAction === 'approved' ? '輸入審閱備註（選填）...' : '請輸入退回修改原因...'}
+            placeholder={
+              reviewAction === 'approved'
+                ? t('soap:review.approveNotesPlaceholder', '輸入審閱備註（選填）...')
+                : t('soap:review.rejectNotesPlaceholder', '請輸入退回修改原因...')
+            }
             className="input-base min-h-[120px] resize-y"
             rows={5}
           />
