@@ -72,6 +72,9 @@ export default function ConversationPage() {
   // TTS 世代：clearTTSQueue（靜音/打斷）會 +1；已排入但尚未播的句子比對 epoch 不符即跳過，
   // 避免「在句子間隙靜音時，下一句仍照播」（光重設 ttsChainRef 擋不掉已 chain 的 callback）。
   const ttsEpochRef = useRef(0);
+  // S4：紅旗安全語音是否已主動播報（一次即可，避免多個 red_flag_alert 事件重播 / 打斷）。
+  // 亦作為卸載清理的閘：已播報時不在導頁時 cancel()，讓安全語音延續播到感謝頁。
+  const redFlagAnnouncedRef = useRef(false);
 
   const {
     currentSession,
@@ -523,6 +526,43 @@ export default function ConversationPage() {
     };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // S4：紅旗中止 / critical 紅旗時，除了螢幕文字，主動用瀏覽器語音播「請立即告知現場醫護」。
+  // 長者安靜等待時也能「聽到」而非只靠看。用既有 5 語齊全的 ws:events.session.aborted_red_flag。
+  // 防禦：speechSynthesis 不支援就靜默略過（螢幕文字仍在），任何例外都不得中斷安全流程；一次即可。
+  const speakRedFlagAlert = useCallback(() => {
+    try {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+      const synth = window.speechSynthesis;
+      if (!synth) return;
+      if (redFlagAnnouncedRef.current) return;
+      const text = t('events.session.aborted_red_flag', { ns: 'ws' }) as string;
+      if (!text) return;
+      redFlagAnnouncedRef.current = true;
+      const utter = new SpeechSynthesisUtterance(text);
+      // 場次語言（zh-TW/en-US/ja-JP/ko-KR/vi-VN）即為合法 BCP-47 lang tag；缺省則交瀏覽器預設。
+      const lang = currentSession?.language;
+      if (lang) utter.lang = lang;
+      synth.cancel(); // 清掉任何殘留佇列，確保安全語音立即開口
+      synth.speak(utter);
+    } catch {
+      // 語音僅為輔助，任何例外（瀏覽器策略 / 未支援）都靜默吞掉，不影響導頁與警示流程
+    }
+  }, [t, currentSession]);
+
+  // S4：卸載清理——一般導頁離開時停掉殘留語音（避免 bleed 到下一頁）；
+  // 但紅旗安全語音（redFlagAnnouncedRef）要延續播到感謝頁，故已播報時不 cancel。
+  useEffect(() => {
+    return () => {
+      try {
+        if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+        if (redFlagAnnouncedRef.current) return;
+        window.speechSynthesis.cancel();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
   // WebSocket 事件處理
   useEffect(() => {
     // STT 最終結果（後端僅送 stt_final，無 stt_partial）
@@ -636,6 +676,10 @@ export default function ConversationPage() {
         suggestedActions: data.suggestedActions,
         isAcknowledged: false,
       });
+      // S4：critical 紅旗 → 主動播語音安全提醒（螢幕紅旗橫幅之外，長者也聽得到）
+      if (data.severity === 'critical') {
+        speakRedFlagAlert();
+      }
     });
 
     // CONV-2：Supervisor 動態問診指導（後端 snake_case payload → 前端 camelCase）
@@ -665,6 +709,9 @@ export default function ConversationPage() {
       if (data.status === 'completed') {
         navigate(`/patient/session/${sessionId}/thank-you`, { replace: true });
       } else if (data.status === 'aborted_red_flag') {
+        // S4：中止當下先主動播語音提醒（導頁前觸發；已播報時的卸載清理刻意不 cancel，
+        // 讓安全語音延續到感謝頁——感謝頁本身無語音，只有 aria-live 文字）。
+        speakRedFlagAlert();
         // 紅旗中止：導離對話頁——否則畫面停在「使用中」且後端關連線後前端無限重連。
         // 帶 abortedRedFlag state 讓感謝頁改顯示「請立即告知現場醫護」而非一般感謝。
         navigate(`/patient/session/${sessionId}/thank-you`, {
