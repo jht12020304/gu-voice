@@ -65,6 +65,23 @@ export function useConversationWebSocket(sessionId: string | null) {
         return null;
       }
     });
+    // §2b：對話 WS 靠 reconnectSession 的 401 觸發 client.ts refresh 續期，但若
+    // refresh token 也失效，WS 會一直帶同一顆過期 token 撞 4001 無限重連、UI 永遠
+    // 停在「連線中斷，重新連線中…」。比照 dashboardWS：4001 時主動 refresh（單飛去重），
+    // 徹底失敗 → _auth_exhausted → logout（RequireAuth 導回 /login，停止無限重連）。
+    conversationWS.setAuthFailureHandler(async () => {
+      try {
+        await refreshAccessToken();
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    const handleAuthExhausted = () => {
+      void useAuthStore.getState().logout();
+    };
+    conversationWS.on('_auth_exhausted', handleAuthExhausted);
+
     // token 用 provider 而非快取值：refresh 後重連 handshake 永遠拿當下最新
     // access token；token 輪換不觸發本 effect（避免問診中無謂斷線重連）。
     conversationWS.connect(url, () =>
@@ -72,6 +89,7 @@ export function useConversationWebSocket(sessionId: string | null) {
     );
 
     return () => {
+      conversationWS.off('_auth_exhausted', handleAuthExhausted);
       conversationWS.disconnect();
     };
   }, [sessionId, hasToken]);
