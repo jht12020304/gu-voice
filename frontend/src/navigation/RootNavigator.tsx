@@ -9,6 +9,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'rea
 import { useAuthStore } from '../stores/authStore';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import LanguageLayout from '../components/layout/LanguageLayout';
+import KioskIdleGuard from '../components/KioskIdleGuard';
 import { detectInitialLanguage, useCurrentLng } from '../i18n/paths';
 
 // ---- 頁面 lazy load ----
@@ -120,6 +121,8 @@ function SuspenseWrapper({ children }: { children: ReactNode }) {
 export default function RootNavigator() {
   return (
     <BrowserRouter>
+      {/* Kiosk 閒置自動登出（env 開關 VITE_KIOSK_IDLE_TIMEOUT_MS，預設停用） */}
+      <KioskIdleGuard />
       <SuspenseWrapper>
         <Routes>
           {/* 根路徑 → 依偵測結果 redirect 到 `/:lng` */}

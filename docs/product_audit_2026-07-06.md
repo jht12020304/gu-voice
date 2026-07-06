@@ -62,11 +62,15 @@
 
 ## 2. P0 — Kiosk 隱私（患者端，未修）
 
-### 2a. 無自動登出、結束問診不 logout → 個資殘留給下一位
+### 2a. 無自動登出、結束問診不 logout → 個資殘留給下一位（🟡 部分修 2026-07-06 批3b）
+> **已修**：新增 `KioskIdleGuard`（掛 RootNavigator 內）——**env 開關 `VITE_KIOSK_IDLE_TIMEOUT_MS`（預設停用，不影響非 kiosk）**、限 patient 角色、排除 `/conversation`（問診閒置由後端處理），閒置逾時 → `resetSession()` + `logout()`，RequireAuth 自動導回 `/login`。kiosk 於 Vercel env 設如 180000（3 分）啟用。**仍可加強**：結束問診「換下一位」單鍵登出、logout 時一併清 report/complaint store。以下為原始描述：
+
 - 全 repo 無 idle timeout/auto-logout；token 存 **localStorage**、`App.tsx` mount 自動復原登入；`SessionComplete`/`ThankYou` **零 logout 呼叫**（複驗）。→ 上一位 token 未過期時，下一位開同台平板即以上一位身份登入。`PatientHomePage.tsx:96,170-183` 首頁直接顯示 `user.name` + 最近主訴（如「血尿持續三天」）+ redFlagReason。
 - **建議**：(a) 全域 idle timer → logout+清 store+回歡迎頁；(b) 結束流程主動 logout+清 conversation/complaint/report store；(c) 工作人員「結束並清空給下一位」單鍵。
 
-### 2b. 對話 WS 無 auth-failure 續期 → refresh 過期時無限 4001 迴圈
+### 2b. 對話 WS 無 auth-failure 續期 → refresh 過期時無限 4001 迴圈（✅ 已修 2026-07-06 批3b）
+> **已修**：`useConversationWebSocket` 比照 dashboardWS 註冊 `setAuthFailureHandler`（4001→主動 refresh、單飛去重）+ `_auth_exhausted`→`logout()`（RequireAuth 導回 /login），不再無限重連「連線中斷」轉圈。tsc 0 錯。以下為原始描述：
+
 - `useConversationWebSocket` **從未註冊 `setAuthFailureHandler`**（只有 dashboardWS 有，複驗）。長問診 access token 過期是常態；refresh 也失效時無限重連（`maxRetries:0`）每 30s 撞 4001，UI 只顯示「重新連線中…」**永不出現「請重新登入/洽工作人員」**。
 - **建議**：conversationWS 比照註冊 authFailureHandler；徹底失敗 emit 終止事件、UI 明確文案 + `closeMic()`。
 
