@@ -2356,6 +2356,34 @@ async def _generate_soap_report_async(
             ).scalar_one_or_none()
             symptom_id = resolve_symptom_id(_session_obj)
 
+            # 安全關鍵（修死代碼）：取本場次即時偵測並持久化的紅旗注入 SOAP 生成，
+            # 讓 _enforce_red_flag_urgency 能把 critical/high 紅旗強制反映到
+            # plan.urgency（只升不降），避免 LLM 自逐字稿重新推導時 under-triage。
+            # 先前此路徑未傳 red_flags → generate() red_flags=None → 安全底線恆 no-op
+            # （即時生成路徑漏接；Celery 重生路徑 report_queue.py 已正確傳，此處對齊）。
+            from app.models.red_flag_alert import RedFlagAlert
+
+            _rf_rows = (
+                await _check_db.execute(
+                    select(RedFlagAlert).where(
+                        RedFlagAlert.session_id == UUID(session_id)
+                    )
+                )
+            ).scalars().all()
+            red_flags = [
+                {
+                    "severity": (
+                        rf.severity.value
+                        if hasattr(rf.severity, "value")
+                        else str(rf.severity)
+                    ),
+                    "canonical_id": getattr(rf, "canonical_id", None),
+                    "trigger_reason": rf.trigger_reason or "",
+                    "suggested_actions": rf.suggested_actions or [],
+                }
+                for rf in _rf_rows
+            ]
+
         generator = SOAPGenerator(settings)
         soap_data = await generator.generate(
             transcript=conversation_history,
@@ -2363,6 +2391,7 @@ async def _generate_soap_report_async(
             chief_complaint=session_context.get("chief_complaint", ""),
             language=session_context.get("language"),
             symptom_id=symptom_id,
+            red_flags=red_flags,
         )
 
         # 格式化對話逐字稿——與 Celery 重生路徑（report_queue._async_generate）
