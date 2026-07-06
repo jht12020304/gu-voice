@@ -103,6 +103,10 @@ def test_second_turn_blocked_after_immediate_critical_abort(monkeypatch):
 def test_second_turn_blocked_after_normal_completion(monkeypatch):
     """正常 HPI 收尾（非紅旗）也要設旗標，下一輪一樣被攔下並回覆對應語氣。"""
     session_context = _shared_session_context(language="en-US")
+    # 用 K=0 主訴（一般主訴軟門檻下限 = MIN），避免預設「血尿」的 §3b 風險因子 cap/floor
+    # 加成擋掉「單輪即軟門檻收尾」的測試意圖；本測試驗正常 HPI 收尾、與風險因子無關。
+    session_context["chief_complaint"] = "頻尿"
+    session_context["chief_complaint_display"] = "Frequent urination"
     history: list = []
     redis = FakeRedis()
     settings = make_settings(

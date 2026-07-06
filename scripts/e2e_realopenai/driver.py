@@ -207,6 +207,21 @@ SCENARIOS = {
         "farewell_after_turn": 12,
         "farewell_text": "I think we've covered everything, thank you.",
     },
+    # §3b 驗收：血尿 cooperative，驗證 AI 收尾前必問 3 個惡性風險因子（吸菸 / 抗凝血 /
+    # 泌尿癌家族史）→ 進 SOAP；且收尾輪不發問。farewell=None 讓病患全程配合，由後端
+    # 自動收尾結束（動態硬上限 = 10 + 3 + 2 = 15，給 HPI 十欄問完後仍有回合問風險因子）。
+    "hematuria_3b_en": {
+        "language": "en-US",
+        "chief_complaint_id": CC_HEMATURIA,
+        "chief_complaint_text": "Hematuria",
+        "patient_name": "E2E Hematuria 3b",
+        "gender": "male",
+        "dob": "1964-08-02",
+        "persona": HEMATURIA_EN_PERSONA,
+        "farewell_after_turn": None,
+        "farewell_text": None,
+        "max_patient_turns": 18,
+    },
     # 睪丸扭轉 critical：預期第 1 輪 aborted_red_flag + SOAP +
     # sessions.red_flag=true 且 red_flag_reason 非空（A4）。
     # 上限收緊到 4 回合：若未在第 1 輪中止即為 FAIL，不必燒滿 18 輪。
@@ -239,6 +254,20 @@ SCENARIOS = {
         "farewell_after_turn": None,
         "farewell_text": None,
         "max_patient_turns": 12,
+    },
+    # §3b 驗收：ED cooperative，驗證 AI 收尾前必問心血管風險因子（心血管疾病史 / 糖尿病 /
+    # 吸菸）→ 進 SOAP；且收尾輪不發問。動態硬上限 = 10 + 3 + 2 = 15。
+    "ed_3b_zh": {
+        "language": "zh-TW",
+        "chief_complaint_id": CC_ED,
+        "chief_complaint_text": "勃起功能障礙",
+        "patient_name": "E2E心血管黃先生",
+        "gender": "male",
+        "dob": "1971-02-11",
+        "persona": ED_ZH_PERSONA,
+        "farewell_after_turn": None,
+        "farewell_text": None,
+        "max_patient_turns": 18,
     },
 }
 
@@ -1186,8 +1215,111 @@ def analyze_ed(result: dict, db_state: dict) -> dict:
     return assertions
 
 
+def _ai_turns_joined(transcript: list[dict]) -> str:
+    """把所有 AI（assistant）輪的全文串起來（小寫），供『AI 是否問到 X』掃描。"""
+    return " ".join(
+        (e.get("content") or "") for e in transcript if e.get("role") == "assistant"
+    ).lower()
+
+
+def _wrapup_has_no_question(transcript: list[dict]) -> bool:
+    """收尾輪（最後一則 AI 全文）不含問號 → 恢復『收尾不發問』不變式。"""
+    last = _last_ai_fulltext(transcript)
+    return "?" not in last and "？" not in last
+
+
+def analyze_hematuria_3b(result: dict, db_state: dict) -> dict:
+    """§3b 血尿：AI 收尾前必問 3 惡性風險因子（吸菸 / 抗凝血 / 泌尿癌家族史）+ 收尾不發問。
+
+    對照 Fable 首版 NO-GO（10 回合 hard cap 擠掉風險因子 + 收尾發問回歸）：
+    重新設計後動態硬上限 = base(10)+K(3)+buffer(2)=15，讓 HPI 十欄問完後仍有回合問到。
+    """
+    completed = result["completed_event"] is not None and (
+        result["completed_event"]["payload"].get("status") == "completed"
+    )
+    ai_text = _ai_turns_joined(result.get("transcript", []))
+    soap = db_state.get("soap_report") or {}
+    # 動態硬上限 15 + 至多 DRAIN_DEFERS 輪
+    cap_limit = 10 + 3 + 2 + DRAIN_DEFERS
+    asked_smoking = any(k in ai_text for k in ("smok", "cigarette", "tobacco"))
+    asked_anticoag = any(
+        k in ai_text
+        for k in ("blood thinner", "thinner", "anticoagul", "warfarin", "aspirin", "clopidogrel")
+    )
+    asked_family = "family" in ai_text
+
+    assertions = {
+        "r1_completed_within_extended_cap": {
+            "pass": completed and result["patient_turns"] <= cap_limit,
+            "patient_turns": result["patient_turns"],
+            "limit": cap_limit,
+            "final_session_status_db": db_state["session_status"],
+        },
+        "r2_asked_smoking": {"pass": asked_smoking},
+        "r3_asked_anticoagulant": {"pass": asked_anticoag},
+        "r4_asked_family_cancer_history": {"pass": asked_family},
+        "r5_wrapup_no_new_question": {
+            "pass": _wrapup_has_no_question(result.get("transcript", [])),
+            "last_ai_head": _last_ai_fulltext(result.get("transcript", []))[:160],
+        },
+        "r6_soap_exists_en": {
+            "pass": db_state["soap_report"] is not None and soap.get("language") == "en-US",
+            "soap_language": soap.get("language"),
+            "subjective_head": db_state.get("soap_report", {}).get("subjective_head")
+            if isinstance(db_state.get("soap_report"), dict)
+            else None,
+        },
+    }
+    assertions["overall_pass"] = all(
+        v["pass"] for v in assertions.values() if isinstance(v, dict)
+    )
+    return assertions
+
+
+def analyze_ed_3b(result: dict, db_state: dict) -> dict:
+    """§3b ED：AI 收尾前必問心血管風險因子（心血管疾病史 / 糖尿病 / 吸菸）+ 收尾不發問。"""
+    completed = result["completed_event"] is not None and (
+        result["completed_event"]["payload"].get("status") == "completed"
+    )
+    ai_text = _ai_turns_joined(result.get("transcript", []))
+    soap = db_state.get("soap_report") or {}
+    cap_limit = 10 + 3 + 2 + DRAIN_DEFERS
+    asked_cv = any(
+        k in ai_text
+        for k in ("心血管", "高血壓", "血壓", "心臟", "冠狀", "中風", "心肌")
+    )
+    asked_diabetes = any(k in ai_text for k in ("糖尿", "血糖"))
+    asked_smoking = any(k in ai_text for k in ("菸", "煙", "抽菸", "吸菸", "抽煙"))
+
+    assertions = {
+        "r1_completed_within_extended_cap": {
+            "pass": completed and result["patient_turns"] <= cap_limit,
+            "patient_turns": result["patient_turns"],
+            "limit": cap_limit,
+            "final_session_status_db": db_state["session_status"],
+        },
+        "r2_asked_cardiovascular": {"pass": asked_cv},
+        "r3_asked_diabetes": {"pass": asked_diabetes},
+        "r4_asked_smoking": {"pass": asked_smoking},
+        "r5_wrapup_no_new_question": {
+            "pass": _wrapup_has_no_question(result.get("transcript", [])),
+            "last_ai_head": _last_ai_fulltext(result.get("transcript", []))[:160],
+        },
+        "r6_soap_exists_zh": {
+            "pass": db_state["soap_report"] is not None and soap.get("language") == "zh-TW",
+            "soap_language": soap.get("language"),
+        },
+    }
+    assertions["overall_pass"] = all(
+        v["pass"] for v in assertions.values() if isinstance(v, dict)
+    )
+    return assertions
+
+
 ANALYZERS = {
     "dontknow_zh": analyze_dontknow,
+    "hematuria_3b_en": analyze_hematuria_3b,
+    "ed_3b_zh": analyze_ed_3b,
     "hematuria_coop_en": analyze_hematuria_baseline,
     "hematuria_coop_en_fixed": analyze_hematuria_fixed,
     "torsion_critical_zh": analyze_torsion,

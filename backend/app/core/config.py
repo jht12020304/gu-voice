@@ -311,6 +311,13 @@ class Settings(BaseSettings):
     HPI_COMPLETION_TERMINATION_THRESHOLD: int = 80          # 0-100；HPI 完整度達此值即可收尾
     MIN_PATIENT_TURNS_BEFORE_AUTO_END: int = 5              # 軟門檻最低回合，防 Supervisor 過早判定
     MAX_PATIENT_TURNS_HARD_CAP: int = 10                    # 病患回合硬上限，無論 Supervisor 狀態都收尾
+    # §3b：高風險主訴（血尿/PSA/ED）的硬上限「動態加成」。這些主訴把 K 個關鍵風險因子
+    # 提升為與 HPI 十欄同級必問（見 shared.CRITICAL_RISK_FACTORS），但 base=10 連
+    # opening(1)+HPI 十欄(10) 都塞不下，風險因子必被砍。故對有 K>0 風險因子的主訴，
+    # effective cap = base + K + BUFFER（吸收 opening 與少量 margin）。K=0 的主訴 cap 不變。
+    # 注意：這只抬「backstop 上限」；合作病患在風險因子問到後 Supervisor 完整度即達門檻、
+    # 走軟門檻在 ~11 輪就收尾，cap 只在不合作（含糊/離題）時才咬住。
+    RISK_FACTOR_HARD_CAP_BUFFER: int = 2
 
     # ── E2E 稽核修復 kill-switch（docs/e2e_realopenai_audit_2026-06-28.md §三；無 migration）─
     # A1 [D5]：LLM 空回應時是否做單次重試（仍空則送 ws.ai_empty_retry_fallback 在地化訊息）。
