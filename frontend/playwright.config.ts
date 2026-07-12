@@ -1,12 +1,12 @@
 // =============================================================================
 // Playwright 設定 — e2e 測試
-// 啟動 vite dev server (port 5173)，以 chromium 為唯一 browser。
+// 啟動 vite dev server (port 5175)，以 chromium 為唯一 browser。
 // 預設語系 en-US，i18n spec 會各自切換語系驗證。
 // =============================================================================
 
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = Number(process.env.PW_PORT || 5173);
+const PORT = Number(process.env.PW_PORT || 5175);
 const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({

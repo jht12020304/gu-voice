@@ -198,7 +198,7 @@ DELETE FROM users WHERE email = 'test_probe_delete@gu-voice.com';
 
 修復：
 ```bash
-railway variables set CORS_ORIGINS='["https://project-9w0vq.vercel.app","http://localhost:3000","http://localhost:5173"]'
+railway variables set CORS_ORIGINS='["https://project-9w0vq.vercel.app","http://localhost:3000","http://localhost:5175"]'
 ```
 
 ---

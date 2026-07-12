@@ -43,6 +43,7 @@ Thumbs.db
 !frontend/public/logo.png
 
 # Misc design/integration notes
+agent-skills-main/
 awesome-design-md-main/
 cal/
 intercom/
@@ -64,8 +65,12 @@ htmlcov/
 .idea/
 *.swp
 
-# Local tool caches / scratch
-.claude/
+# graphify 知識圖譜產物（用 graphify CLI 重建即可，不入庫）
+graphify-out/
+
+# Local tool caches / scratch（.claude/skills 是專案技能，要入庫；其餘 .claude 內容不入庫）
+.claude/*
+!.claude/skills/
 .playwright-cli/
 .playwright-mcp/
 output/

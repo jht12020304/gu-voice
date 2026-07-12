@@ -105,7 +105,7 @@ export default defineConfig(({ mode }) => {
     // 本地開發伺服器設定
     server: {
       host: '127.0.0.1',
-      port: 5173,
+      port: 5175,
       open: true,
       // 本地開發時代理 API 請求到後端
       proxy: {

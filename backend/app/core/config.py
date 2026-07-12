@@ -385,7 +385,7 @@ class Settings(BaseSettings):
     # 直接 SettingsError 導致容器啟動即崩潰，故跳過解碼改由 validator 處理。
     CORS_ORIGINS: Annotated[list[str], NoDecode] = [
         "http://localhost:3000",
-        "http://localhost:5173",
+        "http://localhost:5175",
     ]
 
     @field_validator("CORS_ORIGINS", mode="before")
