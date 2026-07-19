@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
@@ -84,7 +84,7 @@ def decode_token(token: str) -> dict[str, Any]:
     解碼並驗證 JWT token
 
     Raises:
-        JWTError: token 無效或已過期
+        jwt.InvalidTokenError: token 無效或已過期
     """
     return jwt.decode(
         token,
@@ -98,11 +98,11 @@ def verify_access_token(token: str) -> dict[str, Any]:
     驗證 Access Token 並回傳 payload
 
     Raises:
-        JWTError: token 無效、已過期或非 access 類型
+        jwt.InvalidTokenError: token 無效、已過期或非 access 類型
     """
     payload = decode_token(token)
     if payload.get("type") != "access":
-        raise JWTError("Invalid token type: expected access token")
+        raise jwt.InvalidTokenError("Invalid token type: expected access token")
     return payload
 
 
@@ -111,9 +111,9 @@ def verify_refresh_token(token: str) -> dict[str, Any]:
     驗證 Refresh Token 並回傳 payload
 
     Raises:
-        JWTError: token 無效、已過期或非 refresh 類型
+        jwt.InvalidTokenError: token 無效、已過期或非 refresh 類型
     """
     payload = decode_token(token)
     if payload.get("type") != "refresh":
-        raise JWTError("Invalid token type: expected refresh token")
+        raise jwt.InvalidTokenError("Invalid token type: expected refresh token")
     return payload
