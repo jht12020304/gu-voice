@@ -38,6 +38,8 @@ description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§
 13. SOAP 生成單一路徑（2026-07-19 架構修復）：`_generate_soap_report_async` 只是「建 GENERATING row → 派 Celery」的觸發器，生成本體只在 `tasks/report_queue`。不得在 WS 路徑重新 inline 生成（會回歸行程重啟遺失＋雙路徑漂移）；本機 e2e 必須起 celery worker。
 14. 問診 WS 必過 `_authorize_ws_session_access`（row-level 授權，與 REST 同模型）；未授權回 4004 與不存在同碼。不得移除或繞過。
 15. 紅旗/場次狀態 dashboard 事件必走 `broadcast_dashboard_event`（Redis 橋接）：生產 4 個 uvicorn 行程，退回 in-memory `broadcast_dashboard` 會讓 3/4 醫師收不到即時紅旗。
+16. 場次狀態機單一權威（2026-07-19）：合法轉移只定義在 `app/core/session_state.py`（`VALID_TRANSITIONS`/`is_valid_transition`），REST 與 WS 共用。改轉移規則只改這一處；WS `_update_session_status` 送 DB 前先過 `is_valid_transition(..., allow_noop=True)`（放行 resume 自轉移），不得繞過。
+17. 自動結束政策與紅旗去重已抽到 `app/pipelines/conclusion_policy.py` 與 `app/pipelines/alert_dedup.py`——**這兩個新模組仍是問診保護區**，改動視同改管線、要 e2e。conversation_handler 以底線別名 re-import，不得把邏輯改回 inline。
 
 ## 修改流程
 
