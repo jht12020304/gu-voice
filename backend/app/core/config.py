@@ -237,7 +237,7 @@ class Settings(BaseSettings):
     OPENAI_STT_TIMEOUT_SECONDS: float = 120.0
 
     # ── Multi-language (i18n) ────────────────────────────
-    # 見 docs/i18n_plan.md；SupportedLanguage enum (app/models/enums.py) 為 locale 清單的單一來源；
+    # 見 docs/archive/i18n_plan.md；SupportedLanguage enum (app/models/enums.py) 為 locale 清單的單一來源；
     # LANGUAGE_MAP 則負責把 BCP-47 → Whisper / TTS voice / 顯示名稱。
     #
     # status:
@@ -253,6 +253,11 @@ class Settings(BaseSettings):
         "ko-KR": {"whisper": "ko", "tts_voice": "shimmer", "display": "Korean",   "native": "한국어",   "status": "beta"},
         "vi-VN": {"whisper": "vi", "tts_voice": "shimmer", "display": "Vietnamese","native": "Tiếng Việt","status": "beta"},
     }
+
+    # SOAP 報告固定輸出語言（2026-07-19 產品決策）：問診可為五語言之一，
+    # 但報告讀者是院內中文醫護，故 SOAP 生成/顯示一律 zh-TW，不跟 session 語言。
+    # 覆寫此值即可恢復「報告跟問診語言」的舊行為。
+    SOAP_REPORT_LANGUAGE: str = "zh-TW"
 
     # TODO-O1 feature flag 分層（上線後可用 env / Redis 動態覆寫）。
     # Phase 3 已完整驗收（pytest 283 / Alembic round-trip / E2E），
@@ -319,7 +324,7 @@ class Settings(BaseSettings):
     # 走軟門檻在 ~11 輪就收尾，cap 只在不合作（含糊/離題）時才咬住。
     RISK_FACTOR_HARD_CAP_BUFFER: int = 2
 
-    # ── E2E 稽核修復 kill-switch（docs/e2e_realopenai_audit_2026-06-28.md §三；無 migration）─
+    # ── E2E 稽核修復 kill-switch（docs/archive/e2e_realopenai_audit_2026-06-28.md §三；無 migration）─
     # A1 [D5]：LLM 空回應時是否做單次重試（仍空則送 ws.ai_empty_retry_fallback 在地化訊息）。
     LLM_EMPTY_RESPONSE_RETRY: bool = True
     # A3 [D1]：硬上限收尾時，inline 等待遲到紅旗偵測結果的上限秒數（有界解析）。

@@ -85,6 +85,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     initialize_firebase()
     await init_redis()
 
+    # 分區兜底：每次部署/啟動補建 conversations / audit_logs 的未來月份分區，
+    # 防 Celery beat 失效跨月 → 新月份 INSERT 撞「no partition of relation」。
+    # 失敗只 log 不阻擋啟動（ensure_partitions_on_startup 內部已吞例外）。
+    try:
+        from app.tasks.partition_manager import ensure_partitions_on_startup
+
+        await ensure_partitions_on_startup()
+    except Exception as exc:  # noqa: BLE001 — 兜底失敗不可中斷 app 啟動
+        logger.error("啟動時分區補建 hook 失敗（非致命） | error=%s", str(exc))
+
     # H-8：啟動跨行程儀表板事件 subscriber（背景 task）。
     # report 完成點在 Celery worker 行程，無法用 in-memory 廣播觸及本 API 行程持有
     # 的 dashboard WS 連線；改由各行程 publish 到 Redis 頻道，本 task 收到後做本地

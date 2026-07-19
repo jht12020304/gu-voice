@@ -6,6 +6,8 @@
 - login failure tracker：5 次失敗鎖 10 分鐘；成功清鎖
 - LLM per-user：20/min/user 邊界
 - 鎖定檢查：ttl > 0 擋；ttl=-2/-1 不擋
+- Redis 故障 fail-open：RedisError（ConnectionError/TimeoutError）時放行不拋錯；
+  RateLimitExceededException 是業務例外，照常拋
 
 純 in-memory FakeRedis stub；不起 FastAPI、不連真 Redis。
 """
@@ -17,6 +19,8 @@ import time
 from typing import Any, Optional
 
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from app.core import rate_limit as rl
 from app.core.exceptions import RateLimitExceededException
@@ -256,3 +260,102 @@ def test_llm_per_user_policy_skips_when_user_none():
     fake = _FakeRedis()
     for _ in range(100):
         _run(rl.enforce_llm_per_user_rate_limit(fake, None))
+
+
+# ──────────────────────────────────────────────────────────
+# Redis 故障 fail-open（RedisError 放行；業務例外照常拋）
+# ──────────────────────────────────────────────────────────
+
+class _DownPipeline(_FakePipeline):
+    """execute() 一律 raise，模擬 Redis 連線故障。"""
+
+    def __init__(self, redis: "_DownRedis") -> None:
+        super().__init__(redis)
+        self.exc = redis.exc
+
+    async def execute(self) -> list[Any]:
+        raise self.exc
+
+
+class _DownRedis(_FakeRedis):
+    """所有會打 Redis 的操作一律 raise 指定的 redis.exceptions 例外。"""
+
+    def __init__(self, exc: Exception | None = None) -> None:
+        super().__init__()
+        self.exc = exc if exc is not None else RedisConnectionError("connection refused")
+
+    def pipeline(self, transaction: bool = False) -> _DownPipeline:  # noqa: ARG002
+        return _DownPipeline(self)
+
+    async def zrange(self, key, start, stop, withscores=False):  # noqa: ARG002
+        raise self.exc
+
+    async def incr(self, key):  # noqa: ARG002
+        raise self.exc
+
+    async def setex(self, key, ttl, value):  # noqa: ARG002
+        raise self.exc
+
+    async def expire(self, key, seconds):  # noqa: ARG002
+        raise self.exc
+
+    async def ttl(self, key):  # noqa: ARG002
+        raise self.exc
+
+    async def delete(self, *keys):  # noqa: ARG002
+        raise self.exc
+
+
+def test_sliding_window_fails_open_on_connection_error():
+    down = _DownRedis()
+    ok, retry = _run(rl.SlidingWindowLimiter.check(down, "k", limit=5, window_seconds=60))
+    assert ok is True, "Redis 掛掉時應放行（fail-open）"
+    assert retry == 0
+
+
+def test_sliding_window_fails_open_on_timeout_error():
+    down = _DownRedis(RedisTimeoutError("timeout"))
+    ok, retry = _run(rl.SlidingWindowLimiter.check(down, "k", limit=5, window_seconds=60))
+    assert ok is True
+    assert retry == 0
+
+
+def test_enforce_policies_fail_open_when_redis_down():
+    """所有走 SlidingWindowLimiter 的 enforce_* 在 Redis 故障時都不該 raise。"""
+    down = _DownRedis()
+    _run(rl.enforce_login_ip_rate_limit(down, "1.2.3.4"))
+    _run(rl.enforce_register_ip_rate_limit(down, "1.2.3.4"))
+    _run(rl.enforce_refresh_ip_rate_limit(down, "1.2.3.4"))
+    _run(rl.enforce_password_reset_ip_rate_limit(down, "1.2.3.4"))
+    _run(rl.enforce_llm_per_user_rate_limit(down, "user-a"))
+
+
+def test_account_lockout_fails_open_when_redis_down():
+    down = _DownRedis()
+    _run(rl.enforce_account_not_locked(down, "u@example.com"))  # 不該 raise
+    assert _run(rl.record_login_failure(down, "u@example.com")) == 0
+    _run(rl.clear_login_failures(down, "u@example.com"))  # 不該 raise
+
+
+def test_fail_open_logs_warning_with_key_and_exc_type(caplog):
+    down = _DownRedis()
+    with caplog.at_level("WARNING", logger="app.core.rate_limit"):
+        _run(rl.SlidingWindowLimiter.check(down, "gu:rl:login_ip:1.2.3.4", limit=5, window_seconds=60))
+    assert any(
+        "fail-open" in r.message and "gu:rl:login_ip:1.2.3.4" in r.message
+        and "ConnectionError" in r.message
+        for r in caplog.records
+    ), f"warning 應含 limiter key 與例外類型：{[r.message for r in caplog.records]}"
+
+
+def test_rate_limit_exceeded_still_raised_when_redis_healthy():
+    """fail-open 不可吞掉業務例外：Redis 正常、超限時 429 照常拋。"""
+    fake = _FakeRedis()
+    for _ in range(rl.LOGIN_IP_LIMIT):
+        _run(rl.enforce_login_ip_rate_limit(fake, "9.9.9.9"))
+    with pytest.raises(RateLimitExceededException):
+        _run(rl.enforce_login_ip_rate_limit(fake, "9.9.9.9"))
+    # 帳號鎖定同理
+    _run(fake.setex(f"{rl.RL_LOGIN_LOCKED_PREFIX}x@example.com", 300, "1"))
+    with pytest.raises(RateLimitExceededException):
+        _run(rl.enforce_account_not_locked(fake, "x@example.com"))
