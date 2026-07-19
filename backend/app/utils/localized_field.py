@@ -1,5 +1,5 @@
 """
-Localized JSONB 欄位讀取 helper（docs/i18n_plan.md TODO-A2 / A3）。
+Localized JSONB 欄位讀取 helper（docs/archive/i18n_plan.md TODO-A2 / A3）。
 
 `pick(by_lang, lang, legacy_value, default_lang)` 從 `*_by_lang` JSONB
 以下列順序取值：

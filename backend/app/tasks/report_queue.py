@@ -1,7 +1,7 @@
 """
 SOAP 報告生成 Celery 任務
 - 從 Session + Patient + Conversation 取得完整上下文
-- 依 session.language 呼叫 SOAPGenerator
+- 以 SOAP_REPORT_LANGUAGE（固定 zh-TW，2026-07-19 產品決策）呼叫 SOAPGenerator
 - 將結果寫回 SOAPReport（含 language 欄位）
 """
 
@@ -210,7 +210,8 @@ async def _async_generate(session_id: str) -> dict:
                 for rf in rf_rows
             ]
 
-            language = session_obj.language
+            # 報告固定中文，不跟 session 語言（讀者是中文醫護）
+            language = settings.SOAP_REPORT_LANGUAGE
             generator = SOAPGenerator(settings)
             soap_data = await generator.generate(
                 transcript=transcript,

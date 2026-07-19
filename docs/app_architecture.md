@@ -133,8 +133,23 @@
   AI 換句話重問到硬上限。
 - **不變式（醫療安全）**：自動結束區塊放在**紅旗 gate 之後**且 critical/high 紅旗當輪不收尾；
   `_update_session_status` 採 **compare-and-set**（只在仍 `in_progress` 才轉 `completed`），
-  避免把 `aborted_red_flag` 降級；`_generate_soap_report_async` 雙重存在性檢查 +
+  避免把 `aborted_red_flag` 降級；`_generate_soap_report_async` 早期存在性檢查 +
   `soap_reports.session_id` UNIQUE → 任何結束路徑都不會重複報告。
+- **2026-07-19 架構修復（P0 三件）**：
+  - **WS row-level 授權**：問診 WS 於 `_validate_session` 後、connect 前必過
+    `_authorize_ws_session_access`（與 REST `_authorize_session_access` 同模型：admin／
+    指派醫師或未指派／本人病患），未授權回與不存在相同的 4004（不洩漏場次存在性）。
+    先前 WS 只驗 JWT 不驗擁有權（IDOR）。
+  - **紅旗與場次狀態事件跨行程橋接**：`new_red_flag` 與 `broadcast_localized_dashboard`
+    （session_status_changed 等）改走 `broadcast_dashboard_event`（Redis publish→各行程
+    subscriber→本地 fan-out）。生產 4 個 uvicorn worker 行程，舊 in-memory broadcast 只有
+    同行程醫師收得到即時紅旗（3/4 機率漏接）。
+  - **SOAP 生成單一路徑（耐久）**：`_generate_soap_report_async` 改為「建 GENERATING row →
+    派 Celery `generate_soap_report`」純觸發器；生成本體只在 `tasks/report_queue`
+    （acks_late + retry ×2 + on_failure 標 FAILED + `report_generated` 事件 + REPORT_READY
+    通知）。舊 inline 生成在行程重啟時無聲消失且無 FAILED 可追，並與 Celery 重生路徑
+    存在 transcript／summary 漂移；單一路徑後一併消滅。**部署前提：celery worker 必須在跑**
+    （本機 e2e 也要起 worker）。
 - **§3b 高風險主訴風險因子必問（2026-07-06，PR#29，真實 e2e 血尿/ED 各 2/2）**：血尿/PSA/ED 的關鍵
   風險因子（吸菸/抗凝血/泌尿癌家族史；ED 心血管/糖尿病/吸菸）升為與 HPI 十欄同級必問
   （`shared.CRITICAL_RISK_FACTORS`，多語聯集、明確匹配才注入）。收尾邏輯對這類主訴（K=風險因子
@@ -165,12 +180,14 @@
     `red_flag_alerts`）。
   - **空回應守衛（A1/D5）**：LLM 空串流 → try/except 單次 retry → 仍空送
     `ws.ai_empty_retry_fallback`（5 語）並直接 `_spawn_tts_task`；每分支唯一 `ai_response_end`。
-  - **SOAP metadata（B 群/D4+D6）**：`soap.language` 依場次語言（`or DEFAULT_LANGUAGE` 承重防
-    IntegrityError 靜默掉 SOAP）；WS 路徑補傳 `symptom_id` 使 `icd10_verified` 真的可為 true；
-    ICD 白名單含 N52/R97（R97 接受 prefix-3 粗粒度）。
+  - **SOAP metadata（B 群/D6）**：`soap.language` 一律 `SOAP_REPORT_LANGUAGE`（固定 zh-TW，
+    2026-07-19 產品決策——報告讀者是中文醫護，取代舊 D4「跟場次語言」；常數保證
+    nullable=False 欄位絕不收 None，舊 fallback 防的 IntegrityError 路徑免疫）；
+    問診對話與病患端 WS 訊息仍走場次語言。WS 路徑補傳 `symptom_id` 使
+    `icd10_verified` 真的可為 true；ICD 白名單含 N52/R97（R97 接受 prefix-3 粗粒度）。
   - E7 臨床決策採保守預設（high 不升級 abort 等，見 TODO §E E7），kill-switch：
     `LLM_EMPTY_RESPONSE_RETRY`、`HARD_CAP_DRAIN_AWAIT_SECONDS`、`MAX_HARD_CAP_DRAIN_DEFERS`。
-  原始根因與修法計畫見 [`e2e_realopenai_audit_2026-06-28.md`](./e2e_realopenai_audit_2026-06-28.md)。
+  原始根因與修法計畫見 [`e2e_realopenai_audit_2026-06-28.md`](archive/e2e_realopenai_audit_2026-06-28.md)。
 
 ---
 

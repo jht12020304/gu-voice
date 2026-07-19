@@ -20,11 +20,7 @@
     "i18n:extract:check": "node scripts/i18n-extract-check.mjs"
   },
   "dependencies": {
-    "@headlessui/react": "^2.2.0",
-    "@heroicons/react": "^2.2.0",
-    "@supabase/supabase-js": "^2.47.12",
     "axios": "^1.7.9",
-    "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "i18next": "^26.0.4",
     "i18next-browser-languagedetector": "^8.2.1",
@@ -41,6 +37,7 @@
   "devDependencies": {
     "@playwright/test": "^1.48.0",
     "@sentry/react": "^8.45.0",
+    "@types/node": "^26.1.1",
     "@types/react": "^18.3.14",
     "@types/react-dom": "^18.3.3",
     "@types/uuid": "^10.0.0",
@@ -51,6 +48,7 @@
     "eslint": "^9.16.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.16",
+    "globals": "^14.0.0",
     "i18next-parser": "^9.4.0",
     "postcss": "^8.4.49",
     "prettier": "^3.4.2",

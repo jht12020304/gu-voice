@@ -83,8 +83,6 @@ jobs:
   # Frontend checks (React/Vite/TS, Node 20)
   # `npm run build` already runs `tsc -b` first, so typecheck is implicit,
   # but we keep an explicit type-check step for faster failure surfacing.
-  # `npm run lint` is intentionally NOT run here — repo has no eslint
-  # config file yet (see frontend/ listing). Re-enable once added.
   # ──────────────────────────────────────────────────────────────────────
   frontend-checks:
     name: frontend-checks
@@ -103,6 +101,10 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
 
       - name: Type-check
         working-directory: frontend

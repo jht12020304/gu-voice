@@ -29,12 +29,14 @@ def test_format_tolerates_missing_keys():
     assert format_raw_transcript([]) == ""
 
 
-def test_both_generation_paths_use_shared_formatter():
-    """WS 與 Celery 兩條 SOAP 路徑的原始碼都必須引用 format_raw_transcript。"""
+def test_single_generation_path_uses_shared_formatter():
+    """P0-2 架構修復後 SOAP 生成單一路徑：WS 觸發器必須委派 Celery 任務
+    （不得自己格式化 transcript），Celery 路徑必須用共用 format_raw_transcript。
+    先前的漂移根因正是 WS/Celery 各自 inline 格式化。"""
     import app.tasks.report_queue as report_queue
     import app.websocket.conversation_handler as ch
 
-    assert "format_raw_transcript" in inspect.getsource(
-        ch._generate_soap_report_async
-    )
+    ws_src = inspect.getsource(ch._generate_soap_report_async)
+    assert "generate_soap_report" in ws_src  # 委派 Celery，單一生成路徑
+    assert "format_raw_transcript" not in ws_src  # WS 不得再自帶格式化
     assert "format_raw_transcript" in inspect.getsource(report_queue._async_generate)

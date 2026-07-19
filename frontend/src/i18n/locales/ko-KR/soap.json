@@ -73,7 +73,8 @@
   },
   "diagnosis": {
     "title": "진단 코드",
-    "empty": "ICD-10 코드가 없습니다."
+    "empty": "ICD-10 코드가 없습니다.",
+    "unverified": "ICD-10 미검증: 의사 확인이 필요합니다"
   },
   "redFlag": {
     "title": "레드플래그 메모",
@@ -183,9 +184,10 @@
       "title": "권장 검사"
     },
     "urgency": {
-      "urgent": "긴급",
-      "routine": "일반",
-      "elective": "선택"
+      "er_now": "즉시 응급실",
+      "24h": "24시간 이내",
+      "this_week": "이번 주 내",
+      "routine": "일반"
     },
     "treatments": {
       "title": "치료 처치"

@@ -61,7 +61,7 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.session_timeout.check_session_timeouts",
         "schedule": 300.0,  # 每 5 分鐘
     },
-    # 每月 25 日凌晨 3 點自動建立下月分區
+    # 每月 25 日凌晨 3 點確保「當月起共 4 個月」分區 runway（API 啟動時也會補跑兜底）
     "ensure-monthly-partitions": {
         "task": "app.tasks.partition_manager.ensure_monthly_partitions",
         "schedule": crontab(hour=3, minute=0, day_of_month=25),

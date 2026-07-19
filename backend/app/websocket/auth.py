@@ -8,6 +8,10 @@ WebSocket 認證 handshake。
        超過 `HANDSHAKE_TIMEOUT_SECONDS` 未收到即視為失敗
 - 失敗統一 `close(code=4001, reason=...)` 並回傳 None；成功回傳 JWT payload dict
 - 已 accept 的 WebSocket，後續 manager.connect_* 必須傳 `already_accepted=True`
+- 簽章驗過後比照 REST 層 `get_current_user`（app/core/dependencies.py）做身分檢查：
+    1. Redis 黑名單（logout 過的 token 拒絕；Redis 掛 → fail-open 放行，與全系統一致）
+    2. DB 載入 User，不存在或 `is_active=False` 拒絕（DB 掛 → fail-closed 拒絕）
+    3. `payload["role"]` 以 DB 為準覆蓋 token claim（防止降權後舊 token 提權）
 
 擇日完全淘汰 query-param 模式時：只需把步驟 1 刪掉、檢查 log 數量歸零即可。
 """
@@ -18,11 +22,17 @@ import asyncio
 import json
 import logging
 from typing import Any
+from uuid import UUID
 
 from fastapi import WebSocket
 from jose import JWTError
+from sqlalchemy import select
 
+from app.cache.redis_client import get_redis as get_cache_redis
+from app.core.database import get_db_session
+from app.core.dependencies import BLACKLIST_KEY_PREFIX
 from app.core.security import verify_access_token
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -112,4 +122,55 @@ async def _verify_and_close_on_fail(
         logger.warning("%s Token 驗證失敗：%s", context, str(exc))
         await _close_with_code(websocket, 4001, "errors.ws.invalid_token")
         return None
+
+    # ── 黑名單檢查（對齊 REST get_current_user；Redis 掛 → fail-open） ──
+    jti = payload.get("jti")
+    if jti:
+        try:
+            redis = await get_cache_redis()
+            revoked = bool(await redis.exists(f"{BLACKLIST_KEY_PREFIX}{jti}"))
+        except Exception as exc:
+            logger.warning(
+                "%s 黑名單檢查失敗（Redis 不可用），fail-open 放行：%s",
+                context,
+                str(exc),
+            )
+            revoked = False
+        if revoked:
+            logger.warning("%s Token 已撤銷（黑名單命中） | jti=%s", context, jti)
+            await _close_with_code(websocket, 4001, "errors.ws.invalid_token")
+            return None
+
+    # ── 載入 User，驗證存在與 is_active（DB 掛 → fail-closed） ──
+    user_id = payload.get("sub")
+    try:
+        user_uuid = UUID(str(user_id))
+    except (TypeError, ValueError):
+        logger.warning("%s Token sub 非合法 UUID | sub=%s", context, user_id)
+        await _close_with_code(websocket, 4001, "errors.ws.invalid_token")
+        return None
+
+    try:
+        async with get_db_session() as db:
+            result = await db.execute(select(User).where(User.id == user_uuid))
+            user = result.scalar_one_or_none()
+    except Exception as exc:
+        logger.error(
+            "%s 使用者查詢失敗（DB 不可用），fail-closed 拒絕：%s", context, str(exc)
+        )
+        await _close_with_code(websocket, 1011, "errors.ws.internal_error")
+        return None
+
+    if user is None:
+        logger.warning("%s Token sub 對應使用者不存在 | sub=%s", context, user_id)
+        await _close_with_code(websocket, 4001, "errors.ws.invalid_token")
+        return None
+
+    if not user.is_active:
+        logger.warning("%s 使用者帳號已停用 | sub=%s", context, user_id)
+        await _close_with_code(websocket, 4001, "errors.ws.invalid_token")
+        return None
+
+    # 角色以 DB 為準覆蓋 token claim（降權後舊 token 不得沿用舊角色）
+    payload["role"] = user.role.value
     return payload

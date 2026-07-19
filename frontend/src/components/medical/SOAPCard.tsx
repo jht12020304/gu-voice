@@ -489,10 +489,12 @@ function AssessmentContent({ data, t }: { data: SOAPAssessment; t: SoapT }) {
 
 // ── P 計畫 ────────────────────────────────────────────────
 
+// 對齊後端 Urgency enum：er_now / 24h / this_week / routine
 const urgConfig: Record<string, { cls: string }> = {
-  urgent:   { cls: 'bg-red-50 text-red-600 ring-1 ring-red-500/15 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-400/20' },
-  routine:  { cls: 'bg-surface-tertiary text-ink-muted ring-1 ring-edge dark:bg-dark-border dark:text-white/50 dark:ring-dark-border' },
-  elective: { cls: 'bg-surface-tertiary text-ink-placeholder ring-1 ring-edge dark:bg-dark-border dark:text-white/40 dark:ring-dark-border' },
+  er_now:    { cls: 'bg-red-50 text-red-600 ring-1 ring-red-500/15 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-400/20' },
+  '24h':     { cls: 'bg-orange-50 text-orange-600 ring-1 ring-orange-500/15 dark:bg-orange-500/10 dark:text-orange-400 dark:ring-orange-400/20' },
+  this_week: { cls: 'bg-amber-50 text-amber-700 ring-1 ring-amber-500/15 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-400/20' },
+  routine:   { cls: 'bg-surface-tertiary text-ink-muted ring-1 ring-edge dark:bg-dark-border dark:text-white/50 dark:ring-dark-border' },
 };
 
 function PlanContent({ data, t }: { data: SOAPPlan; t: SoapT }) {

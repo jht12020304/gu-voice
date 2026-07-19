@@ -126,6 +126,15 @@ def test_manager_broadcast_localized_dashboard_merges_extra():
         mgr = ConnectionManager()
         ws = _FakeWebSocket()
         await mgr.connect_dashboard(ws, already_accepted=True)  # type: ignore[arg-type]
+
+        # P0-1 橋接後 broadcast_localized_dashboard 走 publish→subscriber→本地；
+        # 單元測試無 Redis，改攔 broadcast_dashboard_event 模擬 subscriber 回送，
+        # 本測試的受測標的（extra 併入 + canonical 欄位保護）不變。
+        async def _bridge_roundtrip(event_type, payload=None):
+            await mgr.local_broadcast_dashboard_event(event_type, payload)
+
+        mgr.broadcast_dashboard_event = _bridge_roundtrip  # type: ignore[method-assign]
+
         await mgr.broadcast_localized_dashboard(
             msg_type="session_status_changed",
             code="events.session.completed_normal",

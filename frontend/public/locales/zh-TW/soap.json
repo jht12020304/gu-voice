@@ -73,7 +73,8 @@
   },
   "diagnosis": {
     "title": "診斷索引",
-    "empty": "目前沒有 ICD-10 編碼。"
+    "empty": "目前沒有 ICD-10 編碼。",
+    "unverified": "ICD-10 未驗證，請醫師確認"
   },
   "redFlag": {
     "title": "紅旗註記",
@@ -183,9 +184,10 @@
       "title": "建議檢查"
     },
     "urgency": {
-      "urgent": "急",
-      "routine": "常規",
-      "elective": "擇期"
+      "er_now": "立即急診",
+      "24h": "24 小時內",
+      "this_week": "本週內",
+      "routine": "常規"
     },
     "treatments": {
       "title": "治療處置"
