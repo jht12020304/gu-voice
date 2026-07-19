@@ -73,7 +73,8 @@
   },
   "diagnosis": {
     "title": "診断コード",
-    "empty": "ICD-10コードはまだありません。"
+    "empty": "ICD-10コードはまだありません。",
+    "unverified": "ICD-10未検証：医師による確認が必要です"
   },
   "redFlag": {
     "title": "レッドフラグ注記",
@@ -183,9 +184,10 @@
       "title": "推奨検査"
     },
     "urgency": {
-      "urgent": "緊急",
-      "routine": "通常",
-      "elective": "待機的"
+      "er_now": "直ちに救急",
+      "24h": "24 時間以内",
+      "this_week": "今週中",
+      "routine": "通常"
     },
     "treatments": {
       "title": "治療"

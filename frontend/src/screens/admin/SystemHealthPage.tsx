@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, Server, Database, Globe, Clock, RefreshCw, Sparkles } from 'lucide-react';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -11,7 +11,7 @@ export default function SystemHealthPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadHealth = async () => {
+  const loadHealth = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
@@ -22,11 +22,11 @@ export default function SystemHealthPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     loadHealth();
-  }, []);
+  }, [loadHealth]);
 
   if (isLoading) return <LoadingSpinner fullPage message={t('systemHealth.loading', '載入系統健康狀態...')} />;
   if (error || !health)

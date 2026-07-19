@@ -140,8 +140,6 @@ export default defineConfig(({ mode }) => {
             'vendor-react': ['react', 'react-dom', 'react-router-dom'],
             // 狀態管理
             'vendor-state': ['zustand'],
-            // UI 元件庫
-            'vendor-ui': ['@headlessui/react'],
             // HTTP 與工具
             'vendor-utils': ['axios'],
           },

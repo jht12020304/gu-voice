@@ -28,7 +28,7 @@ description: GU Voice 生產部署（git push 自動部署到 Vercel + Railway +
 
 1. commit 後 `git push origin main` → Vercel 建 frontend、Railway 建 backend，無手動步驟
 2. 若改了 `backend/scripts/start.sh`：push 前 `git update-index --chmod=+x backend/scripts/start.sh`，否則 Railway 起不來
-3. 驗證：`curl https://gu-voice-api-production.up.railway.app/api/v1/health` + Vercel/Railway dashboard build log
+3. 驗證：`curl https://gu-voice-app-production.up.railway.app/api/v1/health` + Vercel/Railway dashboard build log
 
 ## 生產 DB 除錯順序
 

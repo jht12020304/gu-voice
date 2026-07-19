@@ -8,7 +8,8 @@
 backend/            → FastAPI + Celery。app/pipelines/ 問診管線（llm_conversation、red_flag_detector、
                       supervisor、soap_generator、prompts/）、app/websocket/、alembic/ migrations
 frontend/           → React + Vite + TS。src/i18n/locales/ 是翻譯源頭；public/locales/ 是 build 鏡像
-docs/               → 規格、audit、runbook（單一真相來源；docs/AGENTS.md 為部署細節指南）
+docs/               → 現行文件（入口 docs/README.md；docs/AGENTS.md 為部署細節指南；
+                      docs/archive/ 為歷史 audit 與舊規格，勿當現行讀）
 scripts/            → check_translations.py、e2e_realopenai/（真 OpenAI E2E 工具，見其 README.md）
 supabase/           → 本機 supabase CLI 設定（untracked）
 .claude/skills/     → 專案技能（入庫，載入時機見各 skill description）

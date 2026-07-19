@@ -1,3 +1,5 @@
+> ⚠️ **AS-DESIGNED（2026-04 規劃稿，已歸檔）**：本文件描述 2026-04 pivot 前的設計（Claude API / Google STT・TTS / React Native / S3 / 多環境 CI 等），與現行實作不符。現行架構見 [app_architecture.md](../../app_architecture.md)。
+
 > **本文件的型別定義、Enum 值、資料模型以 shared_types.md 為準。**
 
 # 泌尿科 AI 語音問診助手 -- 前端規格書

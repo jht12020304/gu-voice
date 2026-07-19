@@ -17,33 +17,19 @@
 
 ## 一、部署流程（最重要）
 
-> ⚠️ **前端與後端的部署方式不同：**
-> - **前端（Vercel）會在 push 到 `main` 時自動部署。**
-> - **後端（Railway）未連接 GitHub source，`git push` 不會觸發後端部署**，必須用 `railway up` 手動上傳 Docker image（見下方）。
-
-### 前端（Vercel，push 即自動部署）
+**前端與後端都是 push 到 `main` 即自動部署**，不需要任何手動 release 步驟：
 
 ```bash
-# 修改前端程式碼後
 git add <修改的檔案>
 git commit -m "描述你做了什麼"
 git push origin main
 ```
 
-- **Vercel** 自動抓 `frontend/` 目錄重新 build 並部署。
-
-### 後端（Railway，手動 `railway up`）
-
-Railway service `gu-voice-app` 採 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`），但**沒有連 GitHub source**，所以 push 不會自動部署後端。改了後端程式碼後要手動上傳 image：
-
-```bash
-# 在含 Dockerfile 的後端目錄執行
-railway up            # 上傳 build context、觸發 build，並串流 log
-railway up --detach   # headless／非 TTY 環境用：觸發 build 後不等 log 串流
-```
-
-- Docker layer 有快取：`requirements.txt` 沒變時只重建 app code 的 COPY 層。
+- **Vercel** 自動抓 `frontend/` 目錄重新 build 並部署前端。
+- **Railway** service `gu-voice-app` 已連接 GitHub source，push 後自動用 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`）重建並部署後端。
 - 只改環境變數（不改程式碼）時**不需重新 build**：Railway 會用既有 image 觸發 redeploy（約 1 分鐘）。
+
+> 歷史註記：2026-06 時後端曾未連 GitHub、需手動 `railway up`；現已接上自動部署。`railway up` 只在 incident 時作為強制換容器的手段使用。
 
 > ⚠️ 特別注意：如果修改了 `backend/scripts/start.sh`，每次編輯後都必須重新設定執行權限，否則 Railway 部署會失敗：
 > ```bash
