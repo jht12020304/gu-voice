@@ -22,7 +22,8 @@ description: GU Voice 生產部署（git push 自動部署到 Vercel + Railway +
 - **環境變數真相 = Railway 的 `DATABASE_URL`**。docs 裡的舊 ref（udydl…）、.env 裡的舊 ref（nydhm…）都已過期，看到不符就是文件舊了，不是設定壞了
 - 連線池：pool 2 + max_overflow 1（pooler idle 連線曾佔滿額度；直連 IPv4 add-on 已停用，無法靠直連清 idle）
 - `COOKIE_SAMESITE` 必須 `lax`（跨站 refresh 雙路徑修復的一部分）
-- backend 啟動腳本會自動跑 alembic migrate
+- backend 啟動腳本會自動跑 alembic migrate + 補建月分區（`ensure_partitions_on_startup`）
+- ⚠️ **celery worker service 必須在跑**：2026-07-19 起 SOAP 生成改「建 GENERATING row → 派 Celery 任務」單一路徑，worker 掛掉 → 報告停在 GENERATING 出不來（不會像舊 inline 版無聲消失，但一樣看不到報告）。部署後除了 API/beat，確認 worker service 也 healthy
 
 ## 部署流程
 

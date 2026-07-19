@@ -217,3 +217,26 @@ def test_no_transition_skips_timestamp_write_too():
     ok = _run(db, redis, "completed", "in_progress")
     assert ok is False
     assert redis.hset_calls == []
+
+
+# ── 單一權威狀態機：WS 端也擋表外轉移（followups 2026-07-19）──────────────
+
+
+def test_illegal_transition_rejected_without_db_write():
+    """WS 過去只靠 CAS 的 WHERE 擋、不查 VALID_TRANSITIONS；現在表外轉移
+    （如 completed → in_progress 降級終態）在送 DB 前就被擋，回 False 不執行
+    任何 UPDATE、不動 Redis。"""
+    db = StubDB(rowcount=1)  # 即使 DB 會回 rowcount=1，也不該走到 execute
+    redis = FakeRedis()
+    ok = _run(db, redis, "in_progress", "completed")
+    assert ok is False
+    assert db.executed == []
+    assert redis.hset_calls == []
+
+
+def test_noop_self_transition_allowed_for_resume():
+    """resume 重連的 in_progress → in_progress 自轉移必須放行（allow_noop）。"""
+    db = StubDB(rowcount=1)
+    ok = _run(db, FakeRedis(), "in_progress", "in_progress")
+    assert ok is True
+    assert len(db.executed) == 1

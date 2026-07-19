@@ -25,7 +25,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import WebSocket
-from jose import JWTError
+import jwt
 from sqlalchemy import select
 
 from app.cache.redis_client import get_redis as get_cache_redis
@@ -118,7 +118,7 @@ async def _verify_and_close_on_fail(
 ) -> dict[str, Any] | None:
     try:
         payload = verify_access_token(token)
-    except JWTError as exc:
+    except jwt.InvalidTokenError as exc:
         logger.warning("%s Token 驗證失敗：%s", context, str(exc))
         await _close_with_code(websocket, 4001, "errors.ws.invalid_token")
         return None

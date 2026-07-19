@@ -25,7 +25,7 @@ alembic==1.14.1
 greenlet==3.1.1
 
 # --- 認證與安全 ---
-python-jose[cryptography]==3.3.0
+PyJWT==2.12.1
 passlib[bcrypt]==1.7.4
 bcrypt==4.2.1
 cryptography==44.0.0

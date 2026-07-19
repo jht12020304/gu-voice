@@ -217,21 +217,9 @@ def _apply_cursor_keyset(
     )
 
 
-# ── 合法狀態轉移表 ───────────────────────────────────────
-VALID_TRANSITIONS: dict[SessionStatus, list[SessionStatus]] = {
-    SessionStatus.WAITING: [
-        SessionStatus.IN_PROGRESS,
-        SessionStatus.CANCELLED,
-    ],
-    SessionStatus.IN_PROGRESS: [
-        SessionStatus.COMPLETED,
-        SessionStatus.ABORTED_RED_FLAG,
-        SessionStatus.CANCELLED,
-    ],
-    SessionStatus.COMPLETED: [],
-    SessionStatus.ABORTED_RED_FLAG: [],
-    SessionStatus.CANCELLED: [],
-}
+# 合法狀態轉移表已抽到 app/core/session_state.py 作為單一權威（REST + WS 共用）；
+# 此處 re-export 保持既有 import 相容。
+from app.core.session_state import VALID_TRANSITIONS, is_valid_transition  # noqa: E402
 
 
 class SessionService:
@@ -396,9 +384,9 @@ class SessionService:
         session = await SessionService.get_by_id(db, session_id)
         current_status = session.status
 
-        # 驗證狀態轉移合法性
+        # 驗證狀態轉移合法性（單一權威 is_valid_transition，REST 維持嚴格：不允許 no-op）
         allowed = VALID_TRANSITIONS.get(current_status, [])
-        if new_status not in allowed:
+        if not is_valid_transition(current_status, new_status):
             raise InvalidStatusTransitionException(
                 "errors.status_transition_not_allowed",
                 details={

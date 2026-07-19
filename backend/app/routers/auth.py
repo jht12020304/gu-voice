@@ -8,7 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request, Response, status
 from fastapi.responses import JSONResponse
-from jose import JWTError
+import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -103,7 +103,7 @@ async def _get_optional_current_user(
     token = authorization[7:]
     try:
         payload = verify_access_token(token)
-    except JWTError:
+    except jwt.InvalidTokenError:
         return None
     from app.models.user import User
     from sqlalchemy import select
