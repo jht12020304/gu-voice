@@ -621,6 +621,17 @@ voice-pipeline-invariants 列管的 TTS epoch 取消與 VAD deadlock 目前無�
 - **不要再提議設 SENDGRID_API_KEY / SMTP**。程式碼路徑保留即可（`is_delivery_configured()`
   已備），日後若真有遠端問診情境才需要，設了就會自動切回 email 文案、零改碼。
 
+### [ ] H2. 🟢 儀表板 `monthLabel` 後端硬寫中文（前後端都中招）
+
+- `backend/app/services/dashboard_service.py:109`：`f"{year} 年 {month} 月"` 硬寫中文，
+  由 API 回傳、前端直接顯示（`dashboard_page.dart:75,83`；React 版同理）
+- 後果：en-US／ja／ko／vi 的醫師看到「Monthly consultation overview … 2026 年 7 月」中英混雜
+  （2026-07-26 iOS simulator 目視發現）
+- **與不變式 #12 無關**：那條是「SOAP 報告固定中文」的刻意決策；儀表板標籤不在其列
+- 修法二選一：(a) 後端改回傳 `month_key`（`2026-07`）讓前端各自用 `DateFormat.yM(lng)` 格式化
+  ——比較對，日期格式本來就該跟隨語系；(b) 後端依 `Accept-Language` 產生標籤（已有
+  `resolve_language` 與 `i18n_messages` 機制）
+
 ### [ ] G36. i18n 不變式在切換期變成「兩份 locales 要同步」
 
 - `flutter_app/assets/locales/` 與 `frontend/src/i18n/locales/` 目前**逐檔位元相同**，純靠人手維持
