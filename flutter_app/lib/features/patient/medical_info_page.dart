@@ -26,6 +26,11 @@ class _History {
   bool stillHas = true;
 }
 
+class _Family {
+  final ctrl = TextEditingController();
+  String relation = 'father';
+}
+
 class MedicalInfoPage extends ConsumerStatefulWidget {
   const MedicalInfoPage({super.key, required this.args});
   final Map args; // {complaintId, complaintName, complaintText}
@@ -49,6 +54,20 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
   final List<_Allergy> _allergies = [];
   final List<_Medication> _medications = [];
   final List<_History> _histories = [];
+  final List<_Family> _families = [];
+
+  // Optional section: no "none" checkbox, matching the React page (family history is
+  // 選填 there too). Backend shape is {relation, condition}.
+  static const _relationKeys = [
+    'father',
+    'mother',
+    'brother',
+    'sister',
+    'paternalGrandfather',
+    'paternalGrandmother',
+    'maternalGrandfather',
+    'maternalGrandmother',
+  ];
 
   static const _frequencyKeys = ['onceDaily', 'twiceDaily', 'thriceDaily', 'asNeeded', 'weekly', 'other'];
   static const _yearsAgoKeys = ['within1', 'oneToFive', 'overFive', 'unsure'];
@@ -65,6 +84,9 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
     }
     for (final h in _histories) {
       h.ctrl.dispose();
+    }
+    for (final f in _families) {
+      f.ctrl.dispose();
     }
     super.dispose();
   }
@@ -132,7 +154,13 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
         'currentMedications': medications,
         'noPastMedicalHistory': _noHistory || history.isEmpty,
         'medicalHistory': history,
-        'familyHistory': [],
+        // Was hardcoded `[]`, so prostate-cancer family history was ALWAYS blank and the
+        // doctor could not tell "never asked" from "patient denied it" (TODO G13).
+        'familyHistory': [
+          for (final f in _families)
+            if (f.ctrl.text.trim().isNotEmpty)
+              {'relation': f.relation, 'condition': f.ctrl.text.trim()},
+        ],
       },
     };
     try {
@@ -214,6 +242,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
             _medicationSection(context),
             const Divider(height: 32),
             _historySection(context),
+            const Divider(height: 32),
+            _familySection(context),
             if (_error != null) ...[
               const SizedBox(height: 16),
               Text(_error!, style: TextStyle(color: err)),
@@ -301,6 +331,56 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
             onPressed: () => setState(() => _medications.add(_Medication())),
           ),
         ],
+      ]);
+
+  // Optional, collapsible-free (kept flat to match the other sections here). Relation
+  // dropdown + free-text condition; empty rows are dropped on submit.
+  Widget _familySection(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 4),
+          child: Row(children: [
+            Text(t('intake.medicalInfo.family.title'),
+                style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(width: 8),
+            Text(t('intake.medicalInfo.family.optional'),
+                style: Theme.of(context).textTheme.bodySmall),
+          ]),
+        ),
+        Text(t('intake.medicalInfo.family.hint'), style: Theme.of(context).textTheme.bodySmall),
+        for (var i = 0; i < _families.length; i++)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(children: [
+              DropdownButton<String>(
+                value: _families[i].relation,
+                items: [
+                  for (final r in _relationKeys)
+                    DropdownMenuItem(value: r, child: Text(t('intake.medicalInfo.relations.$r')))
+                ],
+                onChanged: (v) => setState(() => _families[i].relation = v ?? 'father'),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _families[i].ctrl,
+                  maxLength: 100,
+                  decoration: InputDecoration(
+                    labelText: t('intake.medicalInfo.family.conditionPlaceholder'),
+                    counterText: '',
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.remove_circle_outline),
+                onPressed: () => setState(() => _families.removeAt(i)),
+              ),
+            ]),
+          ),
+        TextButton.icon(
+          icon: const Icon(Icons.add),
+          label: Text(t('intake.medicalInfo.family.add')),
+          onPressed: () => setState(() => _families.add(_Family())),
+        ),
       ]);
 
   Widget _historySection(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

@@ -151,5 +151,9 @@
     "emptyTitle": "No notifications",
     "emptyMessage": "There are no new system notifications",
     "unreadBadge": "Unread"
+  },
+  "alerts": {
+    "newAlertToast": "{{count}} new red-flag alert(s)",
+    "newAlertToastAction": "View"
   }
 }

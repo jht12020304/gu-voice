@@ -151,5 +151,9 @@
     "emptyTitle": "Không có thông báo",
     "emptyMessage": "Hiện không có thông báo hệ thống mới",
     "unreadBadge": "Chưa đọc"
+  },
+  "alerts": {
+    "newAlertToast": "Có {{count}} cảnh báo cờ đỏ mới",
+    "newAlertToastAction": "Xem"
   }
 }

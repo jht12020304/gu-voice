@@ -151,5 +151,9 @@
     "emptyTitle": "沒有通知",
     "emptyMessage": "目前沒有新的系統通知",
     "unreadBadge": "未讀"
+  },
+  "alerts": {
+    "newAlertToast": "偵測到 {{count}} 筆新的紅旗警示",
+    "newAlertToastAction": "查看"
   }
 }

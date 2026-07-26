@@ -151,5 +151,9 @@
     "emptyTitle": "알림 없음",
     "emptyMessage": "새로운 시스템 알림이 없습니다",
     "unreadBadge": "읽지 않음"
+  },
+  "alerts": {
+    "newAlertToast": "새로운 레드플래그 경고 {{count}}건",
+    "newAlertToastAction": "보기"
   }
 }
