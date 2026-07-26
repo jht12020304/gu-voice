@@ -98,6 +98,20 @@ class ToggleActiveResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ResetPasswordResponse(BaseModel):
+    """
+    管理員代為重設密碼的回應。
+
+    ⚠️ `temp_password` 是**明文憑證且只出現這一次**：伺服器只存 hash、不寫 log。
+    呼叫端（admin UI）負責顯示給管理員當面轉達，關掉就再也拿不回來，只能再重設一次。
+    """
+    id: UUID
+    email: str
+    temp_password: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # 別名（供 router 匯入相容）
 CreateUserRequest = AdminUserCreate
 UpdateUserRequest = AdminUserUpdate

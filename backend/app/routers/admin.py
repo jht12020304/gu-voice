@@ -14,6 +14,7 @@ from app.core.exceptions import AppException
 from app.schemas.admin import (
     CreateUserRequest,
     SystemHealthResponse,
+    ResetPasswordResponse,
     ToggleActiveResponse,
     UpdateUserRequest,
     UserDetail,
@@ -114,6 +115,33 @@ async def toggle_user_active(
         db,
         user_id=user_id,
         toggled_by=current_user.id,
+    )
+
+
+@router.post(
+    "/users/{user_id}/reset-password",
+    response_model=ResetPasswordResponse,
+    status_code=status.HTTP_200_OK,
+    summary="管理員代為重設使用者密碼",
+)
+async def reset_user_password(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> ResetPasswordResponse:
+    """管理員代為重設密碼，回傳一次性臨時密碼；同時撤銷該使用者所有 refresh token。
+
+    存在的理由（TODO H1）：生產未設 email transport，`/auth/forgot-password` 的信
+    寄不出去，前端因此引導使用者「告知現場醫護或系統管理員」——這條端點就是讓那句話
+    成真。院內 kiosk 情境下病患人在現場，當面重設比 email 直接。
+
+    ⚠️ 回應含**明文臨時密碼且只出現一次**（伺服器只存 hash、不寫 log）。
+    不可對自己操作（改自己密碼走 `/auth/change-password`，那條要驗舊密碼）。
+    """
+    return await admin_service.reset_user_password(
+        db,
+        user_id=user_id,
+        reset_by=current_user.id,
     )
 
 

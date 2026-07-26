@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 import asyncio
+import logging
 import os
 from uuid import UUID
 from sqlalchemy import func, or_, select
@@ -13,11 +14,12 @@ from app.core.exceptions import (
     ForbiddenException,
     NotFoundException,
 )
-from app.core.security import hash_password
+from app.core.security import generate_temp_password, hash_password
 from app.models.enums import AuditAction
 from app.models.user import User
 from app.schemas.admin import (
     CreateUserRequest,
+    ResetPasswordResponse,
     SystemHealthResponse,
     ToggleActiveResponse,
     UpdateUserRequest,
@@ -27,6 +29,8 @@ from app.schemas.admin import (
 from app.schemas.common import CursorPagination
 from app.services.audit_log_service import AuditLogService
 from app.utils.datetime_utils import utc_now
+
+logger = logging.getLogger(__name__)
 
 class AdminService:
     async def list_users(
@@ -252,6 +256,71 @@ class AdminService:
             id=user_id,
             is_active=new_state,
             message="使用者已啟用" if new_state else "使用者已停用",
+        )
+
+    async def reset_user_password(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        reset_by: UUID,
+    ) -> ResetPasswordResponse:
+        """管理員代為重設使用者密碼，回傳一次性臨時密碼。
+
+        存在的理由（H1）：生產沒有設定 email transport，`/auth/forgot-password`
+        的信永遠寄不出去，前端因此顯示「請告知現場醫護或系統管理員」——但管理員
+        原本沒有任何重設他人密碼的能力，那句話等於空話。院內 kiosk 情境下病患人
+        就在現場，當面由醫護重設本來就比 email 直接。
+
+        - 臨時密碼用 `secrets` 生成，**只在這次回應裡出現一次**，不寫 log、不存明文
+        - 產生的密碼保證通過 `RegisterRequest` 的強度規則（大小寫 + 數字 + ≥8）
+        - **撤銷該使用者所有 refresh token**：重設密碼常見情境就是帳號可能已外洩，
+          舊 session 必須一起失效，否則攻擊者手上的 refresh token 還能續命 7 天
+        - 禁止對自己用（管理員改自己密碼走 `/auth/change-password`，那條要驗舊密碼）
+        - 寫 audit log；**details 不含密碼**
+        """
+        if user_id == reset_by:
+            # 對自己重設會繞過「須驗舊密碼」的保護 → 導回 change-password
+            raise ForbiddenException("errors.cannot_reset_own_password")
+
+        result = await db.execute(
+            select(User).where(User.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise NotFoundException("errors.user_not_found")
+
+        temp_password = generate_temp_password()
+        user.password_hash = hash_password(temp_password)
+        user.updated_at = utc_now()
+        await db.flush()
+
+        # 舊 session 一起失效（Redis 掛掉不該讓重設失敗——密碼已經換掉了）
+        revoked = 0
+        try:
+            from app.cache.redis_client import get_redis
+            from app.services.auth_service import _revoke_all_refresh_tokens
+
+            redis = await get_redis()
+            revoked = await _revoke_all_refresh_tokens(redis, str(user_id))
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "reset_user_password: 撤銷 refresh token 失敗（密碼已重設）| user=%s",
+                user_id,
+            )
+
+        await AuditLogService.log(
+            db,
+            user_id=reset_by,
+            action=AuditAction.UPDATE,
+            resource_type="user",
+            resource_id=str(user.id),
+            details={"password_reset": True, "refresh_tokens_revoked": revoked},
+        )
+
+        return ResetPasswordResponse(
+            id=user_id,
+            email=user.email,
+            temp_password=temp_password,
         )
 
     async def system_health_check(self, db: AsyncSession) -> SystemHealthResponse:

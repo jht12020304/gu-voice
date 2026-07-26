@@ -122,6 +122,8 @@ _AUDIT_RULES: list[tuple[str, re.Pattern[str], AuditAction, str]] = [
     # admin 使用者管理（HIPAA：建立 / 更新 / 啟用停用都必須留痕）
     # toggle-active 須排在通用 /users/{id} 規則之前，避免被前者誤吞
     ("PUT",    re.compile(rf"^/api/v1/admin/users/(?P<rid>{_UUID_RE})/toggle-active/?$"), AuditAction.UPDATE, "user"),
+    # 管理員代為重設密碼（H1）——比 toggle-active 更敏感，務必留稽核軌跡
+    ("POST",   re.compile(rf"^/api/v1/admin/users/(?P<rid>{_UUID_RE})/reset-password/?$"), AuditAction.UPDATE, "user"),
     ("POST",   re.compile(r"^/api/v1/admin/users/?$"),                          AuditAction.CREATE,      "user"),
     ("PUT",    re.compile(rf"^/api/v1/admin/users/(?P<rid>{_UUID_RE})/?$"),     AuditAction.UPDATE,      "user"),
     ("PATCH",  re.compile(rf"^/api/v1/admin/users/(?P<rid>{_UUID_RE})/?$"),     AuditAction.UPDATE,      "user"),

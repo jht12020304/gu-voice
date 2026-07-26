@@ -85,7 +85,16 @@
     "createSuccess": "ユーザーを作成しました",
     "activateSuccess": "アカウントを有効化しました",
     "deactivateSuccess": "アカウントを無効化しました",
-    "toggleFailed": "アカウント状態の更新に失敗しました"
+    "toggleFailed": "アカウント状態の更新に失敗しました",
+    "resetPassword": "パスワード再設定",
+    "resetPasswordConfirm": "{{email}} のパスワードを再設定しますか？一時パスワードを発行し、このアカウントの現在のログイン状態はすべて無効になります。",
+    "resetPasswordFailed": "パスワードの再設定に失敗しました",
+    "tempPasswordTitle": "一時パスワードを発行しました",
+    "tempPasswordFor": "{{email}} の一時パスワード：",
+    "tempPasswordCopy": "コピー",
+    "tempPasswordCopied": "コピーしました",
+    "tempPasswordWarning": "このパスワードは一度だけ表示され、閉じると再取得できません（再度リセットが必要です）。本人に直接お渡しし、ログイン後すぐに変更するようお伝えください。このアカウントの既存のログイン状態はすべて無効になりました。",
+    "tempPasswordDone": "確認しました"
   },
   "audit": {
     "title": "監査ログ (Audit Logs)",

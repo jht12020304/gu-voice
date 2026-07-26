@@ -46,6 +46,9 @@ export default function UserManagementPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+  // 一次性臨時密碼；null = 不顯示。刻意只存在記憶體中。
+  const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
 
   // 表單狀態
   const [formData, setFormData] = useState({
@@ -158,6 +161,32 @@ export default function UserManagementPage() {
       toast.error(message);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // 代為重設密碼：臨時密碼只在這次回應出現一次，關掉就拿不回來（只能再重設）
+  const handleResetPassword = async (user: User) => {
+    if (resettingUserId) return;
+    if (
+      !window.confirm(
+        t('admin:users.resetPasswordConfirm', {
+          defaultValue:
+            '確定要重設 {{email}} 的密碼嗎？系統會產生一組臨時密碼，並讓該帳號目前所有登入狀態失效。',
+          email: user.email,
+        }),
+      )
+    ) {
+      return;
+    }
+    setResettingUserId(user.id);
+    try {
+      const result = await adminApi.resetUserPassword(user.id);
+      // 刻意只放在 state：不寫 localStorage、不進 log / Sentry
+      setTempPasswordInfo({ email: result.email, password: result.tempPassword });
+    } catch {
+      toast.error(t('admin:users.resetPasswordFailed', '重設密碼失敗'));
+    } finally {
+      setResettingUserId(null);
     }
   };
 
@@ -284,6 +313,21 @@ export default function UserManagementPage() {
                         onClick={() => openEditModal(user)}
                       >
                         {t('admin:users.edit', '編輯')}
+                      </button>
+                      <button
+                        className="inline-flex items-center gap-1.5 rounded-btn px-2.5 py-1 text-small font-medium text-alert-medium hover:bg-alert-medium-bg transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => handleResetPassword(user)}
+                        disabled={resettingUserId === user.id}
+                      >
+                        {resettingUserId === user.id && (
+                          <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                        )}
+                        {resettingUserId === user.id
+                          ? t('admin:users.processing', '處理中...')
+                          : t('admin:users.resetPassword', '重設密碼')}
                       </button>
                       <button
                         className={`inline-flex items-center gap-1.5 rounded-btn px-2.5 py-1 text-small font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
@@ -423,6 +467,49 @@ export default function UserManagementPage() {
             </label>
           </div>
         </div>
+      </Modal>
+
+      {/* 一次性臨時密碼 — 關掉就拿不回來（後端只存 hash） */}
+      <Modal
+        visible={tempPasswordInfo !== null}
+        onClose={() => setTempPasswordInfo(null)}
+        title={t('admin:users.tempPasswordTitle', '臨時密碼已產生')}
+      >
+        {tempPasswordInfo && (
+          <div className="space-y-4">
+            <p className="text-body text-ink-body">
+              {t('admin:users.tempPasswordFor', { defaultValue: '{{email}} 的臨時密碼：', email: tempPasswordInfo.email })}
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 select-all rounded-input bg-surface-secondary px-3 py-2 font-mono text-h3 tracking-wider text-ink-heading dark:bg-dark-surface dark:text-white">
+                {tempPasswordInfo.password}
+              </code>
+              <button
+                type="button"
+                className="btn-secondary shrink-0"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(tempPasswordInfo.password);
+                  toast.success(t('admin:users.tempPasswordCopied', '已複製'));
+                }}
+              >
+                {t('admin:users.tempPasswordCopy', '複製')}
+              </button>
+            </div>
+            <div className="rounded-card border border-alert-medium-border bg-alert-medium-bg p-3">
+              <p className="text-small text-alert-medium-text">
+                {t(
+                  'admin:users.tempPasswordWarning',
+                  '這組密碼只顯示一次，關閉後無法再取得（只能再重設一次）。請當面交給本人，並請他登入後立即自行變更密碼。該帳號原有的登入狀態已全部失效。',
+                )}
+              </p>
+            </div>
+            <div className="flex justify-end">
+              <button type="button" className="btn-primary" onClick={() => setTempPasswordInfo(null)}>
+                {t('admin:users.tempPasswordDone', '我已記下')}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
