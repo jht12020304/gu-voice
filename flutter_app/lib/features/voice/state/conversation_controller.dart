@@ -107,7 +107,10 @@ class ConversationController extends Notifier<ConversationState> {
   late final AudioStreamService _audio;
   late final TtsPlaybackController _tts;
   late final WebSocketManager _ws;
-  final _sessions = SessionsApi();
+  // Lazy: `SessionsApi()` reaches for `ApiClient.dio`, which needs platform channels.
+  // Building it eagerly made the controller unconstructible in unit tests (and did
+  // no work until `start()` anyway).
+  late final _sessions = SessionsApi();
 
   bool _pendingAiUnmute = false;
   bool _pendingReplayUnmute = false;
@@ -122,13 +125,20 @@ class ConversationController extends Notifier<ConversationState> {
   }
 
   Future<void> start(Session session) async {
+    // Re-entrancy guard for ONE controller instance (e.g. `_init` firing twice).
+    // It is NOT a cross-session guard: the provider is autoDispose, so leaving the
+    // page throws this instance away and the next patient gets a fresh one with
+    // `_started == false`. See the provider declaration for why that matters.
     if (_started) return;
-    _started = true;
     state = state.copyWith(session: session);
 
     _tts = TtsPlaybackController(speed: () => ref.read(settingsProvider).ttsSpeed);
     _audio = AudioStreamService();
     _ws = WebSocketManager();
+    // Only now is `_started` true: `_teardown` keys off it before touching these
+    // `late final` fields, so flipping it earlier would let a dispose racing an
+    // early `start()` hit a LateInitializationError instead of a clean no-op.
+    _started = true;
 
     _registerWsHandlers();
     _ws.resumeTokenProvider = () => _sessions.reconnectResumeToken(session.id);
@@ -443,8 +453,21 @@ class ConversationController extends Notifier<ConversationState> {
   }
 }
 
+/// autoDispose is load-bearing, not a micro-optimisation.
+///
+/// Without it the notifier outlives the page: leaving the conversation leaves the
+/// mic open and the WebSocket connected (`ref.onDispose(_teardown)` never fires),
+/// and the `_started` latch makes the next `start()` a no-op — so on a shared clinic
+/// kiosk the SECOND patient inherits the first patient's session, transcript, red
+/// flags and mute state. autoDispose tears the instance down when the page unmounts,
+/// giving every patient a clean controller.
+///
+/// Keep it autoDispose. If something ever needs to survive navigation, hold that
+/// state in a separate provider rather than making this one long-lived.
 final conversationControllerProvider =
-    NotifierProvider<ConversationController, ConversationState>(ConversationController.new);
+    NotifierProvider.autoDispose<ConversationController, ConversationState>(
+  ConversationController.new,
+);
 
 extension _FirstOrNull<E> on Iterable<E> {
   E? get firstOrNull => isEmpty ? null : first;

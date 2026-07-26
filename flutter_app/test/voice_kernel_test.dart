@@ -1,9 +1,11 @@
 import 'dart:typed_data';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gu_voice/features/voice/services/audio_stream_service.dart';
 import 'package:gu_voice/features/voice/services/pcm_ring_buffer.dart';
 import 'package:gu_voice/features/voice/services/wav_encoder.dart';
+import 'package:gu_voice/features/voice/state/conversation_controller.dart';
 import 'package:gu_voice/features/voice/state/vad_logic.dart';
 
 // Independent expected-table (mirrors shouldUnmuteVAD.test.mts) so the test doesn't
@@ -18,6 +20,7 @@ bool _expected(VadResumeTrigger t, VadResumeContext c) {
 }
 
 void main() {
+  _blockerRegressions();
   group('shouldUnmuteVAD matrix', () {
     test('exhaustive 8 triggers x 2^3 ctx = 64 combinations', () {
       var count = 0;
@@ -101,5 +104,63 @@ void main() {
     expect(view.getUint32(40, Endian.little), 6); // data bytes = 3 samples * 2
     expect(wav.length, 44 + 6);
     expect(view.getInt16(44 + 2, Endian.little), 100); // second sample round-trips
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Regressions for docs/TODO.md §G1 / §G2 (blockers found in the intake audit).
+// ---------------------------------------------------------------------------
+
+void _blockerRegressions() {
+  group('G2: conversation controller must not outlive the page', () {
+    test('provider is autoDispose, so each patient gets a fresh controller', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      final sub = container.listen(
+        conversationControllerProvider,
+        (_, __) {},
+        fireImmediately: true,
+      );
+      final first = container.read(conversationControllerProvider.notifier);
+
+      // Patient leaves the page: the last listener goes away.
+      sub.close();
+      await Future<void>.delayed(Duration.zero);
+
+      // Next patient walks up to the same kiosk.
+      final second = container.read(conversationControllerProvider.notifier);
+
+      expect(
+        second,
+        isNot(same(first)),
+        reason: 'controller survived page teardown → second patient would inherit '
+            'the first patient session/transcript/red flags, and _started would '
+            'make their start() a no-op. Keep the provider autoDispose.',
+      );
+      expect(container.read(conversationControllerProvider).session, isNull);
+      expect(container.read(conversationControllerProvider).completed, isFalse);
+    });
+  });
+
+  group('G1: red-flag abort must be observable with completion', () {
+    test('the aborted transition carries both flags in one state', () {
+      const running = ConversationState();
+      expect(running.completed, isFalse);
+      expect(running.abortedRedFlag, isFalse);
+
+      // Mirrors _onSessionStatus's aborted_red_flag branch.
+      final aborted = running.copyWith(completed: true, abortedRedFlag: true);
+
+      // The page selects this exact projection; both fields must come off the same
+      // emission, otherwise the listener reads a stale snapshot where
+      // abortedRedFlag is still false and the patient gets the generic thank-you
+      // page (+ its 8s auto-redirect home) instead of "tell the staff here".
+      (bool, bool) project(ConversationState v) => (v.completed, v.abortedRedFlag);
+      expect(project(aborted), (true, true));
+
+      // A plain completion must NOT look like an abort.
+      expect(project(running.copyWith(completed: true)), (true, false));
+    });
   });
 }
