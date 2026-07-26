@@ -1,7 +1,8 @@
 # docs/ 導覽 — 先讀這裡
 
 > 三件最常被舊文件誤導的事，先釘死：
-> **部署 = `git push origin main` 前後端全自動**（Vercel + Railway，無手動步驟）・
+> **部署是手動的**——merge 到 main 不會上線，要自己跑 `railway up`（後端）與 `vercel --prod`（前端），
+> 詳見 [deployment_guide.md](deployment_guide.md) 一、（2026-07-26 更正，先前文件寫「全自動」是錯的）・
 > **生產 DB = Supabase `gu-voice-prod`，ref `xobxnlvtilezridrekdm`（ap-southeast-1）**・
 > **前端 dev port = 5175**。
 
@@ -13,7 +14,7 @@
 | 問診端到端流程 | [consultation_flow.md](consultation_flow.md) |
 | 一場問診的資料落地 | [session_data_inventory.md](session_data_inventory.md) |
 | /research 研究分析 | [research_analytics.md](research_analytics.md) |
-| 部署方法（自動部署） | [AGENTS.md](AGENTS.md) + `.claude/skills/deploy-production` |
+| 部署方法（手動兩步） | [deployment_guide.md](deployment_guide.md) 一、＋ `.claude/skills/deploy-production`；env/dashboard 操作細節見 [AGENTS.md](AGENTS.md) |
 | env 變數 / dashboard 操作 | [deployment_guide.md](deployment_guide.md) |
 | DB 連線與事故 runbook | [supabase_connection_guide.md](supabase_connection_guide.md) |
 | Celery worker/beat 建置 | [railway_celery_runbook.md](railway_celery_runbook.md) |

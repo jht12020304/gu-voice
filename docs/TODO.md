@@ -3,8 +3,10 @@
 > 依據 [`system_issues_and_risks.md`](archive/system_issues_and_risks.md) 整理的可執行待辦事項。
 > 完成一項就把 `[ ]` 改成 `[x]`，並在後面加上完成日期與 commit hash。
 >
-> 最後更新：2026-07-04（P0–P2、§E E1–E9、§F F1–F7 全部完成並部署生產；
-> 未結案：E10 譯名母語覆核、F8 隱藏主訴開放與 E7 翻案（臨床拍板）、P3 長期項 #22 #23 #24 #27 #32）
+> 最後更新：2026-07-26。P0–P2、§E E1–E9、§F F1–F7 全部完成並部署生產。
+> 本次變動：Flutter 遷移使 P3 的 #22／#24／#32 作廢（理由見各條）、#23／#27 縮成單行工程項；
+> 新增 §G＝flutter_app 基線入庫審查的 2 blocker + 11 high。
+> 未結案：§G 全部、E10 譯名母語覆核、F8 隱藏主訴開放與 E7 翻案（臨床拍板）、#23、#27。
 
 ---
 
@@ -252,21 +254,27 @@
 
 ## P3 — 技術債 / 長期改善
 
-### [ ] 22. 前端型別補齊 + zod runtime validation
+### [~] 22. ~~前端型別補齊 + zod runtime validation~~ — 2026-07-26 作廢（Flutter 遷移）
 
-- `frontend/src/types/api.ts` 把 `unknown[]` 換成具體 interface
-- 新裝 `zod`，關鍵 API response 加 schema 驗證
+- 原內容：`frontend/src/types/api.ts` 的 `unknown[]` 換具體 interface、新裝 `zod` 驗 API response
+- **作廢理由**：這是 TS 生態的技術債，Flutter 端由語言本身解掉——Dart 靜態型別 + `flutter_app/lib/data/models/*.dart`
+  的 `fromJson` 已是邊界轉型層。**不要因此在 Flutter 引入 freezed / json_serializable**，現行手寫 fromJson 夠用。
+- React `frontend/` 下線前若仍要動，就當它是遺留碼庫的舊債，不要新投入
 
-### [ ] 23. 前端 404 / loading / RoleGuard 改善
+### [ ] 23. GoRouter 補 `onException`（原「前端 404 / loading / RoleGuard 改善」，2026-07-26 縮編）
 
-- `RootNavigator.tsx` 加 `<Route path="*" element={<NotFoundPage />} />`
-- `RoleRedirect` 處理 `isLoading` 狀態
-- `useAuthStore` 的 token 儲存統一以 localStorage 為 source of truth
+- **剩這一條**：`flutter_app/lib/core/router/app_router.dart:54` 無 `onException`/`errorBuilder`，
+  醫師端或 `/patient/bogus` 之類無效路徑會露出 go_router 未在地化的英文錯誤頁——kiosk 上不可接受。
+  修法：`onException: (_, s, r) => r.go(prefixLngToPath('/', currentLng))`
+- **已由 Flutter 結構性解決、不需再做**：loading 閘（`main.dart:17` bootstrap-before-runApp）、
+  token 單一權威（`TokenStore` 單例取代 localStorage 之爭）
 
-### [ ] 24. 前端表單驗證
+### [~] 24. ~~前端表單驗證~~ — 2026-07-26 作廢（Flutter 遷移）
 
-- Login / Register / 主訴選擇：接 `react-hook-form` + `zod`
-- 密碼強度：至少 8 字、含數字 + 字母
+- 原內容：Login / Register / 主訴選擇接 `react-hook-form` + `zod`；密碼至少 8 字含數字+字母
+- **作廢理由**：`flutter_app/lib/features/auth/password_rules.dart:6-29` 的純函式驗證比原要求更嚴，
+  且錯誤訊息天生走 `t()`（i18n 不用另接）。表單驗證在 Flutter 是 `TextFormField.validator`，
+  不需要等價於 react-hook-form 的套件
 
 ### [x] 25. Mock mode 在 production 強制關閉 (2026-04-18)
 
@@ -283,10 +291,12 @@
   - [x] `npm run type-check` + `npm run build` 雙雙通過
 - **驗收**：iOS Safari 建立 MediaRecorder 不再拋 `Unsupported MIME type`；桌面 Chrome / Edge / Firefox 仍走 opus 最佳路徑
 
-### [ ] 27. i18n 英文翻譯補齊
+### [ ] 27. 補一個硬編碼中文（原「i18n 英文翻譯補齊」，2026-07-26 縮編）
 
-- `frontend/src/i18n/locales/en/*.json` 缺 key 補齊
-- 搜尋硬編碼中文抽到 i18n
+- **剩這一條**：`flutter_app/lib/features/admin/screens/complaint_management_page.dart:349` 的
+  `'顯示順序'` 是全碼庫唯一硬編碼中文，en-US admin 會看到中文標籤。
+  補 `admin.complaints.fieldDisplayOrder` 到 5 語系（兩份 locales 都要，見 §G 最後一條）
+- **原目標已達成**：en 缺 key 實測 0（525 個 `t()` key 在 5 語言全部命中），掛未結案會誤導
 
 ### [x] 28. E2E 測試 + GitHub Actions CI (2026-04-18)
 
@@ -331,10 +341,11 @@
   - [x] 5 項單元測試（valid email 寫 Redis + 送信、不存在 email 仍回同訊息且不送信、正確 token 重設成功 + 清 key、錯 token 拋錯、過期 token 拋錯）
 - **驗收**：單元 168 passed；本機未設 SENDGRID / SMTP 時走 `_LoggingEmailClient` 印出模擬 email，方便前端 QA 流程
 
-### [ ] 32. `archive/專案開發進度.md` 更新
+### [x] 32. ~~`archive/專案開發進度.md` 更新~~ → 改成寫 `flutter_app/README.md` — 2026-07-26 完成
 
-- Prompt chain upgrade 已完成（Phase 4，41 tests）但未反映
-- 加「最後更新日期」與「狀態」欄位
+- **作廢理由**：`docs/archive/` 已明文宣告「勿當現行文件讀」（見 `docs/archive/README.md`），
+  更新歸檔文件是白做工
+- **取代物**：`flutter_app/README.md` 寫遷移現況（原本是 `flutter create` 樣板，新人看不出兩套前端關係）
 
 ---
 
@@ -452,6 +463,10 @@
 
 ### [ ] E10. 🟢 紅旗譯名待母語臨床者最終覆核（AI 稽核標 medium/uncertain 的 8 筆）
 
+> **後端專屬，與 Flutter 遷移無關。擋在「母語 + 泌尿科背景」覆核者身上，工程與 AI 不該拍板**——
+> 這些詞影響規則層召回率與 critical abort（誤判會誤中止問診或漏掉真紅旗）。
+> 底下兩條工程項已拆出獨立追蹤（見本節末），E10 本體純粹等人。
+
 - ko `산통과 발열`→建議 `신산통과 발열`（산통日常語感=分娩陣痛，混淆風險）
 - en urosepsis trigger `fever with dysuria`→`fever with painful urination`（病患不講術語）
 - en cauda_equina 建議增補口語 `numbness down there / in my private area`（saddle anesthesia 是教科書詞）
@@ -487,6 +502,83 @@
 
 - 病患現僅見 5 個選項（血尿/頻尿/排尿疼痛/腰痛/其他），痛點「找不到符合症狀」部分仍在，
   開放與否屬臨床分流決策
+- **後端 `is_default` 決策，前端框架無關**（React 與 Flutter 都是讀 API，零改動）。實作成本＝一句 UPDATE
+- 拍板前先確認的具體前置：(1) ED/PSA 的 ICD-10 對照與紅旗清單是否已備（E6 已補 N52/R97）；
+  (2) 開放後變 11 個選項，kiosk 單頁是否需要分類分組
+
+### [ ] E11. 紅旗規則層否定語意誤報（從 E10 拆出的工程項）
+
+- 規則層是子字串比對、無否定語意判斷：病患說「沒有注意到體重減輕」會命中 `unexplained_weight_loss` high
+- fail-open 取捨下先接受、生產觀察誤報率。**若 critical 級出現否定誤報（誤 abort 問診）就必須處理**——
+  選項：規則層加否定詞窗口防護／critical 降為僅語意層可 abort／`RED_FLAG_BUILTIN_RULES_FALLBACK=false` 退關
+
+### [ ] E12. `red_flag_rules.keywords` 缺 `keywords_by_lang` 欄位（從 E10 拆出的工程項）
+
+- DB 欄位仍是扁平 ARRAY，多語靠塞同一陣列。若日後要讓管理者從 admin 精細管理各語言關鍵字才需加欄位
+
+---
+
+## G — flutter_app 基線入庫審查（2026-07-26，17-agent 六視角 + 對抗式驗證）
+
+> 來源：`flutter_app/` 10,686 行入庫前審查（58 筆存活發現，1 筆被反駁剔除）。
+> 入庫判定 GO 且已入庫（`feat/flutter-app-baseline`）：analyze 0 issue、test 17/17、零 secret、
+> `build/` 與 `.dart_tool/` 已正確排除。以下是入庫後要修的。
+> **動任何 voice/ 下的檔案前先讀 `voice-pipeline-invariants` skill**——G1/G3/G4/G14/G15 都是它列管的行為。
+
+### [ ] G1. 🔴 紅旗中止導向錯頁（病患拿不到「告知現場醫護」）
+
+- `flutter_app/lib/features/voice/screens/conversation_page.dart:49`：`ref.listen` callback 讀 build 期快照，
+  紅旗中止時傳出 `abortedRedFlag: false` → 病患看到一般感謝頁、8 秒後自動導回首頁
+- 修法：callback 內改讀 `ref.read(conversationControllerProvider).abortedRedFlag`（一行）
+- 與 G14（無語音播報）疊加＝三層告知同時失效，先修這條
+
+### [ ] G2. 🔴 跨病患 session 污染（同一 kiosk 第二位病患沿用前一位場次）
+
+- `flutter_app/lib/features/voice/state/conversation_controller.dart:446`：provider 非 autoDispose ＋ `_started`
+  閂鎖 → 離頁不關麥、不關 WS
+- 修法：改 `NotifierProvider.autoDispose(...)` 並移除 `_started`（或 `start()` 開頭重設 state）
+
+### [ ] G3–G13. 🟡 high（11 筆）
+
+| # | 檔案:行 | 問題 | 最小修法 |
+|---|---|---|---|
+| G3 | `voice/state/conversation_controller.dart:156` | `onSpeechEnd` 缺 hard-mute，段落結束到 AI 回應間麥仍活；空辨識會在 TTS 播放中 unmute → 喇叭回授被當答案（已修 bug 回歸） | 送完 isFinal 後補 `_muteVad();` |
+| G4 | `voice/services/tts_playback_controller.dart:46` | `stopActive()` 在 `await _player.stop()` 之後才讀 `_activeStep`，誤 complete 新 step → replay 提前解鎖、舊 completer 洩漏 | 捕獲移到 await 前 |
+| G5 | `lib/main.dart:9` | Web 未套 path URL strategy → `/vi-VN/patient` 語言段被整段忽略，URL 語言權威在 web 失效 | `usePathUrlStrategy()`（web-only conditional import） |
+| G6 | `core/router/app_router.dart:67` | redirect 只帶 `uri.path`，query 全丟 → 重設密碼信的 `?token=` 消失，流程整條死 | `state.uri.replace(path: ...)` |
+| G7 | `android/app/src/main/AndroidManifest.xml:8` | release manifest 全域開 `usesCleartextTraffic`，env 預設又是 `http://`／`ws://` → token 與 PHI 可明文走院內 Wi-Fi | 該行移到 `src/debug/AndroidManifest.xml` |
+| G8 | `data/api/auth_api.dart:39` | logout 遇 401 重試送輪換前的舊 refresh token → 新 token 殘活 7 天（React F7 #1 修法漏移植） | 重試前以 `await _tokens.readRefresh()` 覆寫 body |
+| G9 | `data/api/dio_client.dart:108` | refresh 用的裸 Dio 無 `receiveTimeout`，一次 hang 讓共享 `_refreshInFlight` 永久卡死 → 全 app 靜默鎖死 | 加 `receiveTimeout`／`sendTimeout` 30s |
+| G10 | `voice/screens/conversation_page.dart:217` | 逐字稿無自動捲動，第 4 輪後最新問題落在畫面外 | `ListView` 改 `reverse: true` |
+| G11 | `core/router/app_router.dart:54` | 無 kiosk 閒置自動登出（React KioskIdleGuard 未移植）→ 上一位病患姓名/主訴留給下一位看 | `Listener(onPointerDown)` + Timer；逾時秒數讀 Env（0＝停用）**待院方定** |
+| G12 | `features/doctor/screens/doctor_shell.dart:18` | 醫師端無全域紅旗 toast，且 /patients、/reports、/research、/admin/* 未包 shell → 審報告時新 critical 紅旗零信號 | App 層 `ref.listen` unacknowledgedCount → SnackBar；補包路由 |
+| G13 | `features/patient/medical_info_page.dart:135` | `familyHistory` 硬寫空陣列、UI 無輸入 → 攝護腺癌家族史永遠空白，醫師無法分辨「沒問」或「否認」 | 照 `_allergySection` 複製 `_familySection` |
+
+### [ ] G14–G35. 🟢 medium（22 筆）
+
+摘要（完整清單見本次審查輸出）：`pause()` 順序反了讓半句症狀消失、硬鎖無 re-assert、狀態列缺
+userPaused 分支、「我說完了」按鈕是空殼（`forceEndSegment()` 零呼叫但翻譯已入庫）、`sendText` 離線
+靜默丟棄（假氣泡不經紅旗篩檢）、G14＝紅旗與中止皆無語音播報、切語言丟 query／無進行中場次守衛／
+入口只在 4 頁、病史 `stillHas` 永遠 true、主訴「其他」未填無說明文字、/research 缺語言子群表與
+Methods 卡與 caption/n= 與圖匯出（i18n key 全已入庫未用）、醫師 /settings 直接掛病患頁、SOAP 頁
+無逐字稿分頁、生成失敗的 SOAP 無法重跑（死局）、web PDF 匯出被 catch 吞掉、`TokenStore.load()` 在
+try 外會讓非 secure context 白屏、Web secure_storage 實質等同明文 localStorage、GoRouter 缺
+onException（＝#23）、`'顯示順序'` 硬編碼（＝#27）。
+
+**測試深度是獨立一條**：17 個測試只涵蓋 5 支純函式（179 行測試對 10,686 行 lib），
+`conversation_controller` / `ws_manager` / `tts_playback_controller` 零斷言——
+voice-pipeline-invariants 列管的 TTS epoch 取消與 VAD deadlock 目前無回歸防護。
+最小補法：3 條純 Dart 測試（clearQueue 後舊 epoch 不播、stopActive 讓 chain 前進、WS backoff 序列）。
+
+### [ ] G36. i18n 不變式在切換期變成「兩份 locales 要同步」
+
+- `flutter_app/assets/locales/` 與 `frontend/src/i18n/locales/` 目前**逐檔位元相同**，純靠人手維持
+- 切換期新增或修改任何 key 都要同步兩份；`scripts/check_translations.py` 未涵蓋 flutter 那份，建議加 `diff -r`
+- React `frontend/` 下線後，把「public/locales 是 build 鏡像」這條不變式改寫成「assets/locales 為唯一來源」
+
+### [ ] G37. Android release 仍用 debug 簽章
+
+- `flutter_app/android/app/build.gradle.kts:37` — 上架前必補正式 keystore（**keystore 與 key.properties 不可入庫**）
 
 ---
 

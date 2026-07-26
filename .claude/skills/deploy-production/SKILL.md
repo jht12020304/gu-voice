@@ -1,17 +1,17 @@
 ---
 name: deploy-production
-description: GU Voice 生產部署（git push 自動部署到 Vercel + Railway + Supabase）與生產環境除錯守則（DB 連線、pooler、環境變數真相）。Use when 部署到生產、修改部署設定檔（railway.toml/vercel.json/Dockerfile/start.sh）、除錯生產 DB timeout 或連線問題、或驗證上線結果時。
+description: GU Voice 生產部署（手動 railway up + vercel --prod，merge main 不會自動上線）與生產環境除錯守則（DB 連線、pooler、環境變數真相）。Use when 部署到生產、修改部署設定檔（railway.toml/vercel.json/Dockerfile/start.sh）、除錯生產 DB timeout 或連線問題、或驗證上線結果時。
 ---
 
 # 生產部署與環境除錯
 
 ## Overview
 
-部署是 GitHub 觸發的全自動流程，但有幾個一踩就炸的雷（start.sh 執行位、pooler idle、過期的 DB ref 文件）。本 skill 收斂部署動作與除錯順序；操作細節見 [docs/AGENTS.md](../../../docs/AGENTS.md) 與 [docs/supabase_connection_guide.md](../../../docs/supabase_connection_guide.md)。
+**部署是手動兩步，merge 到 main 不會上線**——外加幾個一踩就炸的雷（start.sh 執行位、Vercel team 走錯、pooler idle、過期的 DB ref 文件）。本 skill 收斂部署動作與除錯順序；操作細節見 [docs/AGENTS.md](../../../docs/AGENTS.md) 與 [docs/supabase_connection_guide.md](../../../docs/supabase_connection_guide.md)。
 
 ## When to Use
 
-- push 到 main 觸發生產部署、或驗證部署結果
+- 要把 main 上的程式碼送上生產、或驗證部署結果
 - 改 `backend/railway.toml`、`frontend/vercel.json`、兩邊 Dockerfile、`backend/scripts/start.sh`
 - 生產 DB timeout / 連線 / cookie / CORS 問題
 - NOT for：本機 docker compose 問題
@@ -27,9 +27,13 @@ description: GU Voice 生產部署（git push 自動部署到 Vercel + Railway +
 
 ## 部署流程
 
-1. commit 後 `git push origin main` → Vercel 建 frontend、Railway 建 backend，無手動步驟
-2. 若改了 `backend/scripts/start.sh`：push 前 `git update-index --chmod=+x backend/scripts/start.sh`，否則 Railway 起不來
-3. 驗證：`curl https://gu-voice-app-production.up.railway.app/api/v1/health` + Vercel/Railway dashboard build log
+> ⚠️ **merge 到 main 不會部署任何東西。** Railway 與 Vercel 的 GitHub App 裝在 repo 上，但它們的 check suite 在每一次 main merge 都永遠停在 `queued`、從不收斂（2026-07-26 對 #29/#30/#31/#32 逐一查證），Railway 每筆歷史部署的 `meta.cliCaller` 都是手動 CLI。舊文件寫「全自動」是錯的判斷；過去那些「已部署生產」成立是因為當天有人手動補跑。查證法：`gh api repos/jht12020304/gu-voice/commits/<sha>/check-suites`。
+
+1. 程式碼先進 main（PR merge）
+2. 若改了 `backend/scripts/start.sh`：`git update-index --chmod=+x backend/scripts/start.sh`，否則 Railway 起不來
+3. 後端：`cd backend && railway up --detach --service gu-voice-app`（Dockerfile 在 `backend/`，cwd 錯會失敗；非互動 link 要在 repo 根目錄跑 `railway link -p gu-voice-api -s gu-voice-app -e production`）
+4. 前端：`cd frontend && npm run build && vercel --prod`。⚠️ Vercel 專案在 team **`7696s-projects`**，不是個人 team `chuns-projects-068de742`——先 `vercel switch`，否則部署到錯地方
+5. 驗證：`curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep` 回 `{"status":"ok"}` + Railway 部署 log。事故復原用 `railway up` 不要用 `railway redeploy`（實測後者不換容器）
 
 ## 生產 DB 除錯順序
 
@@ -41,6 +45,8 @@ description: GU Voice 生產部署（git push 自動部署到 Vercel + Railway +
 
 | 藉口 | 現實 |
 |---|---|
+| 「PR merge 進 main 了，所以已經上線」 | 沒有。要跑 `railway up` + `vercel --prod`。main 與生產可以差好幾週（2026-07-26 發現生產跑的是 07-06 的 build） |
+| 「CI 綠了就等於部署成功」 | GitHub Actions 只跑測試；`railway-app`／`vercel` 的 check suite 永遠停在 `queued`，那不是部署 |
 | 「DB timeout，先重啟 Supabase 專案試試」 | 多次事故根因是 Supabase 平台端；事故期間重啟只會延長不可用 |
 | 「docs 寫的 DB ref 跟 Railway 不一樣，改 Railway 對齊 docs」 | 方向反了：Railway 是真相，docs 是過期的 |
 | 「pool 開大一點就不會 timeout」 | pooler 額度曾被 idle 連線佔滿，2+1 是刻意壓低的，加大會復發 |
@@ -48,5 +54,6 @@ description: GU Voice 生產部署（git push 自動部署到 Vercel + Railway +
 ## Verification
 
 - [ ] health endpoint 回 200
+- [ ] `railway up` 與 `vercel --prod` **都真的跑過**（沒跑就是沒上線，不論 main 上有什麼）
 - [ ] Vercel 與 Railway build log 無錯、rollout 完成
 - [ ] 若動了 migration：Railway 啟動 log 顯示 alembic 升級成功

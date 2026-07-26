@@ -26,10 +26,11 @@
 2. **Settings → Source** 選同一個 GitHub repo、同一分支，root 設為 `backend/`
 
    > 主 API service（專案 `gu-voice-api` / service `gu-voice-app`，
-   > https://gu-voice-app-production.up.railway.app）已連 GitHub source，
-   > push 到 main 即自動 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`）部署
-   > （2026-06 時曾為手動 `railway up`，現已接上自動部署）。
-   > `railway up --detach` 保留為 incident 時強制換容器的手段。
+   > https://gu-voice-app-production.up.railway.app）用 Docker build
+   > （`RAILWAY_DOCKERFILE_PATH=Dockerfile`）。
+   > ⚠️ **2026-07-26 更正：部署是手動的**——`cd backend && railway up --detach --service gu-voice-app`。
+   > GitHub App 的 check suite 在每次 main merge 都永遠停在 `queued`、從不觸發部署
+   > （舊文件寫「已接上自動部署」是錯的，見 `deployment_guide.md` 一、）。
    > 改任一環境變數則會用既有 image 觸發 redeploy（約 1 分鐘、免重建）。
 3. **Settings → Deploy**
    - **Start Command**: `/app/scripts/start_worker.sh`

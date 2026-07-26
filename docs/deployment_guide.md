@@ -17,19 +17,29 @@
 
 ## 一、部署流程（最重要）
 
-**前端與後端都是 push 到 `main` 即自動部署**，不需要任何手動 release 步驟：
+> ⚠️ **2026-07-26 更正：部署是手動的。merge 到 `main` 不會讓任何東西上線。**
+> Railway 與 Vercel 的 GitHub App 裝在 repo 上，但它們的 check suite 在**每一次** main merge 都永遠停在 `queued`（對 #29／#30／#31／#32 逐一查證），從不收斂成部署；Railway 每一筆歷史部署的 `meta.cliCaller` 都是手動 CLI。
+> 過去文件寫的「已接上自動部署」是錯的判斷——那些「已部署生產」之所以成立，是因為當天有人手動補跑 `railway up`。
+> 自己查證：`gh api repos/jht12020304/gu-voice/commits/<sha>/check-suites`
+
+**程式碼上線 = merge 到 main，然後手動部署兩邊。**
 
 ```bash
-git add <修改的檔案>
-git commit -m "描述你做了什麼"
+# 1. 程式碼進 main（PR merge 或 push）
 git push origin main
+
+# 2. 後端 → Railway
+cd backend && railway up --detach --service gu-voice-app
+curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep   # 期待 {"status":"ok",...}
+
+# 3. 前端 → Vercel
+cd frontend && npm run build && vercel --prod
 ```
 
-- **Vercel** 自動抓 `frontend/` 目錄重新 build 並部署前端。
-- **Railway** service `gu-voice-app` 已連接 GitHub source，push 後自動用 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`）重建並部署後端。
+- **Railway** 用 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`，Dockerfile 在 `backend/`，所以 `railway up` 要從 `backend/` 跑）。非互動 link：`railway link -p gu-voice-api -s gu-voice-app -e production`（**要在 repo 根目錄跑**）。
+- **Vercel** 專案在 team **`7696s-projects`**，不是個人 team——先 `vercel switch` 切過去，否則會部署到錯的地方或找不到專案。
 - 只改環境變數（不改程式碼）時**不需重新 build**：Railway 會用既有 image 觸發 redeploy（約 1 分鐘）。
-
-> 歷史註記：2026-06 時後端曾未連 GitHub、需手動 `railway up`；現已接上自動部署。`railway up` 只在 incident 時作為強制換容器的手段使用。
+- 事故復原時用 `railway up` 而非 `railway redeploy`——後者實測不會真的換容器（見 `supabase_connection_guide.md` §5a）。
 
 > ⚠️ 特別注意：如果修改了 `backend/scripts/start.sh`，每次編輯後都必須重新設定執行權限，否則 Railway 部署會失敗：
 > ```bash
