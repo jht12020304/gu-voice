@@ -150,6 +150,19 @@
     通知）。舊 inline 生成在行程重啟時無聲消失且無 FAILED 可追，並與 Celery 重生路徑
     存在 transcript／summary 漂移；單一路徑後一併消滅。**部署前提：celery worker 必須在跑**
     （本機 e2e 也要起 worker）。
+- **2026-07-19 架構後續（refactor followups）**：
+  - **狀態機單一權威**：`VALID_TRANSITIONS` 與 `is_valid_transition()` 抽到
+    `app/core/session_state.py`，REST（`update_status_static`，嚴格）與 WS
+    （`_update_session_status`，`allow_noop=True` 放行 resume 的 in_progress→in_progress
+    自轉移）共用同一份規則。先前 WS 只靠 compare-and-set 的 WHERE 擋、不查轉移表，
+    可執行表外轉移；現在送 DB 前先擋、非法轉移 log warning 後 no-op（不 raise）。
+  - **god file 拆分**：自動結束政策（6 純函式）→ `app/pipelines/conclusion_policy.py`、
+    紅旗跨輪去重（3 函式）→ `app/pipelines/alert_dedup.py`；conversation_handler 以
+    底線別名 re-import 保持既有呼叫端與測試相容（行為零變更，e2e 驗證）。
+  - **JWT 遷移**：python-jose（停維護，CVE-2024-33663/33664）→ PyJWT 2.12.1，
+    `jwt.decode` 顯式 `algorithms=[JWT_ALGORITHM]` 白名單防演算法混淆。
+  - **Redis 連線單一權威**：`dependencies.get_redis` 收斂為 re-export
+    `cache/redis_client.get_redis`，消滅兩套並存連線池單例。
 - **§3b 高風險主訴風險因子必問（2026-07-06，PR#29，真實 e2e 血尿/ED 各 2/2）**：血尿/PSA/ED 的關鍵
   風險因子（吸菸/抗凝血/泌尿癌家族史；ED 心血管/糖尿病/吸菸）升為與 HPI 十欄同級必問
   （`shared.CRITICAL_RISK_FACTORS`，多語聯集、明確匹配才注入）。收尾邏輯對這類主訴（K=風險因子

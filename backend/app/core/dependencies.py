@@ -11,14 +11,16 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Any, Optional
 from uuid import UUID
 
-import redis.asyncio as aioredis
 from fastapi import Depends, Header, Query, Request
-from jose import JWTError
+import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.cache.redis_client import get_redis as get_cache_redis
-from app.core.config import settings
+# Redis 客戶端單一權威：app.cache.redis_client（懶初始化 _redis_pool）。
+# 此處僅 re-export，讓 `Depends(get_redis)` 與既有
+# `from app.core.dependencies import get_redis` 呼叫端保持不變，同時
+# 保證全 backend 共用同一連線池。
+from app.cache.redis_client import get_redis as get_redis
 from app.core.database import async_session_factory
 from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.security import verify_access_token
@@ -26,35 +28,6 @@ from app.models.user import User
 
 # JWT 黑名單 Redis key 前綴（與 services.auth_service.BLACKLIST_KEY_PREFIX 一致）
 BLACKLIST_KEY_PREFIX = "gu:token_blacklist:"
-
-# ── Redis 單例 ─────────────────────────────────────────
-_redis_client: Optional[aioredis.Redis] = None
-
-
-async def init_redis() -> aioredis.Redis:
-    """初始化 Redis 連線（cache DB，P3 #29）"""
-    global _redis_client
-    _redis_client = aioredis.from_url(
-        settings.REDIS_URL_CACHE,
-        decode_responses=True,
-    )
-    return _redis_client
-
-
-async def close_redis() -> None:
-    """關閉 Redis 連線"""
-    global _redis_client
-    if _redis_client:
-        await _redis_client.close()
-        _redis_client = None
-
-
-async def get_redis() -> aioredis.Redis:
-    """取得 Redis 客戶端（依賴注入用）"""
-    if _redis_client is None:
-        raise RuntimeError("Redis client not initialized. Call init_redis() first.")
-    return _redis_client
-
 
 # ── Database Session ───────────────────────────────────
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -90,7 +63,7 @@ async def get_current_user(
 
     try:
         payload = verify_access_token(token)
-    except JWTError:
+    except jwt.InvalidTokenError:
         raise UnauthorizedException(message="errors.token_invalid_or_expired")
 
     user_id = payload.get("sub")
@@ -100,7 +73,7 @@ async def get_current_user(
     # 黑名單檢查：logout 過的 access token 即使未過期也要拒絕
     jti = payload.get("jti")
     if jti:
-        redis = await get_cache_redis()
+        redis = await get_redis()
         if await redis.exists(f"{BLACKLIST_KEY_PREFIX}{jti}"):
             raise UnauthorizedException(message="errors.token_revoked")
 

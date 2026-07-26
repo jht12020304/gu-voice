@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import engine
-from app.core.dependencies import close_redis, init_redis
+from app.cache.redis_client import close_redis, init_redis
 from app.core.exceptions import register_exception_handlers
 from app.core.firebase import initialize_firebase
 from app.core.language_middleware import LanguageMiddleware

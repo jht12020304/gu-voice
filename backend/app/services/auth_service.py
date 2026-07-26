@@ -12,7 +12,7 @@ import time
 from typing import Any, Optional
 from uuid import UUID
 
-from jose import JWTError
+import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,7 +81,7 @@ async def _register_refresh_token(redis: Any, user_id: Any, refresh_token: str) 
     """Decode 並在 Redis 登記 refresh jti（TTL = exp - now）。"""
     try:
         payload = verify_refresh_token(refresh_token)
-    except JWTError:
+    except jwt.InvalidTokenError:
         return
     jti = payload.get("jti")
     exp = payload.get("exp")
@@ -278,7 +278,7 @@ class AuthService:
         """
         try:
             payload = verify_refresh_token(refresh_token)
-        except JWTError:
+        except jwt.InvalidTokenError:
             raise UnauthorizedException("errors.refresh_token_invalid")
 
         user_id = payload.get("sub")
@@ -354,7 +354,7 @@ class AuthService:
 
         try:
             await _blacklist(verify_access_token(access_token))
-        except JWTError:
+        except jwt.InvalidTokenError:
             logger.debug("logout: access token 已失效，跳過黑名單 user=%s", user_id)
 
         if refresh_token:
@@ -365,7 +365,7 @@ class AuthService:
                 if ref_jti:
                     # 同時移除 rotation 登記，阻斷後續 refresh 交換
                     await _consume_refresh_jti(redis, str(user_id), ref_jti)
-            except JWTError:
+            except jwt.InvalidTokenError:
                 logger.debug("logout: refresh token 已失效，跳過黑名單 user=%s", user_id)
         else:
             # 未帶 refresh token：撤銷該 user 所有 rotation 登記，等同強制重新登入
