@@ -23,6 +23,7 @@
 | 監控告警 | [observability/](observability/) |
 | UI 設計系統 | [DESIGN.md](DESIGN.md)；參考分析見 [design_references/](design_references/) |
 | 活的 backlog | [TODO.md](TODO.md) |
+| Flutter 前端（未上生產） | [../flutter_app/README.md](../flutter_app/README.md)；缺口清單見 [TODO.md](TODO.md) §G |
 
 ## 歷史文件
 

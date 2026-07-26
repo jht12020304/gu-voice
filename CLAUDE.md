@@ -7,7 +7,11 @@
 ```
 backend/            → FastAPI + Celery。app/pipelines/ 問診管線（llm_conversation、red_flag_detector、
                       supervisor、soap_generator、prompts/）、app/websocket/、alembic/ migrations
-frontend/           → React + Vite + TS。src/i18n/locales/ 是翻譯源頭；public/locales/ 是 build 鏡像
+frontend/           → React + Vite + TS，**目前的生產前端**。src/i18n/locales/ 是翻譯源頭；
+                      public/locales/ 是 build 鏡像
+flutter_app/        → Flutter 單一碼庫前端（web+iOS+Android），要取代 frontend/。**已入 main
+                      但未上生產**，沒有部署管道。assets/locales/ 是同一份翻譯的第三份拷貝，
+                      切換期要與 frontend 兩份同步。已知缺口見 docs/TODO.md §G
 docs/               → 現行文件（入口 docs/README.md；docs/AGENTS.md 為部署細節指南；
                       docs/archive/ 為歷史 audit 與舊規格，勿當現行讀）
 scripts/            → check_translations.py、e2e_realopenai/（真 OpenAI E2E 工具，見其 README.md）
@@ -20,6 +24,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 
 - Frontend（在 `frontend/`）：`npm run dev`、`npm run build`（tsc + vite，翻譯改動後必跑）、`npm run lint`、`npm run type-check`、`npm run test:e2e`（Playwright）、`npm run i18n:extract:check`
 - Backend（在 `backend/`）：`venv/bin/pytest tests/`（unit / integration / e2e 分層）、`venv/bin/uvicorn app.main:app --reload`
+- Flutter（在 `flutter_app/`）：`flutter analyze`（**info 級也 exit 1**）、`flutter test`（只跑 `test/`）、`flutter run -d chrome`。dart-define 是 `API_BASE`／`WS_BASE` 且值含 path 後綴（`/api/v1`、`/api/v1/ws`）。iOS simulator 與 `integration_test/`（打真後端、需真 simulator、不在 CI）用法見 `flutter_app/README.md`
 - 本機全端：`docker compose up -d`（frontend :80、backend :8000、postgres :5432、redis :6379）
 - 翻譯完整性：`python scripts/check_translations.py`
 - 碼庫探索：`graphify query "<問題>"`／`graphify path A B`／`graphify explain <符號>`（對 `graphify-out/graph.json` 查詢，涵蓋 code＋docs；程式碼大幅改動後用 `/graphify . --update` 增量重建）
@@ -49,6 +54,9 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 - Always：改 `backend/scripts/start.sh` 後保留 executable bit（`git update-index --chmod=+x`），否則 Railway 部署失敗
 - Always：動語音管線或 SOAP prompt 前先讀 `voice-pipeline-invariants`；改完跑 `e2e-real-openai` 驗證
 - Always：病患面措辭用「請稍候等看診」「請告知現場醫護」——部署情境是院內 kiosk，病患已在現場，禁用含糊的「盡速就醫」
+- Always：改 `frontend/src/i18n/locales/` 的 key 時，切換期要同步 `flutter_app/assets/locales/`（`check_translations.py` 不涵蓋 flutter 那份）
+- Always：`flutter_app` 新增路由要用 `_lngKeyed()` 包住，否則只切語言時頁面文字不會變（`t()` 讀全域 `currentLng`，非 reactive）
+- Never：把 `conversationControllerProvider` 從 `autoDispose` 改回長生命週期——會造成同一 kiosk 跨病患 session 污染（TODO G2）
 - Never：commit `.env*`、`vercel_*.yml`（含 live secrets，.gitignore 已擋）
 - Never：用 URL 以外的來源（cookie、navigator、後端偏好）當前端語言權威
 - Never：research analytics 的比例指標讓分子不是分母的子集（Wilson CI 會 sqrt 負數 → 500）
