@@ -25,6 +25,22 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
 
   String get _month => '${_selected.year.toString().padLeft(4, '0')}-${_selected.month.toString().padLeft(2, '0')}';
 
+  /// 月份標題：一律在前端依 URL 語系（currentLng）組出來，不用後端的 month_label——
+  /// 那是硬寫中文，非中文語系的醫師會看到中英混雜的標題。
+  ///
+  /// 走 t('…monthFormat') 而不是 intl 的 DateFormat.yM：月份寫法在五語系都已定義在
+  /// 共用的 i18next JSON（React 端同一支 key），用同一份模板兩邊輸出才一致，
+  /// 也不必依賴 intl locale data 是否已初始化。
+  String get _monthLabel {
+    // 舊版後端沒回 month_key → 退回本地選中的月份，標題不能因此壞掉
+    final key = _summary?.month ?? _month;
+    final parts = key.split('-');
+    final year = parts.length == 2 ? int.tryParse(parts[0]) : null;
+    final month = parts.length == 2 ? int.tryParse(parts[1]) : null;
+    if (year == null || month == null) return key; // 非預期格式就原樣顯示
+    return t('common.doctor.dashboard.monthFormat', args: {'year': year, 'month': month});
+  }
+
   @override
   void initState() {
     super.initState();
@@ -72,7 +88,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           Text(t('common.doctor.dashboard.title'),
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 4),
-          Text('${user?.name ?? ''} · ${_summary?.monthLabel ?? _month}'),
+          Text('${user?.name ?? ''} · $_monthLabel'),
           const SizedBox(height: 12),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             IconButton(
@@ -80,7 +96,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
               tooltip: t('common.doctor.dashboard.prevMonth'),
               onPressed: _loading ? null : () => _shiftMonth(-1),
             ),
-            Text(_summary?.monthLabel ?? _month, style: Theme.of(context).textTheme.titleMedium),
+            Text(_monthLabel, style: Theme.of(context).textTheme.titleMedium),
             IconButton(
               icon: const Icon(Icons.chevron_right),
               tooltip: t('common.doctor.dashboard.nextMonth'),
@@ -92,7 +108,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
             const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
           else
             Row(children: [
-              Expanded(child: _statCard(context, tk.alertCritical, t('common.doctor.dashboard.monthlyTotal', args: {'month': _month}), '${s?.totalSessions ?? 0}', t('common.doctor.dashboard.monthlyTotalHint'))),
+              Expanded(child: _statCard(context, tk.alertCritical, t('common.doctor.dashboard.monthlyTotal', args: {'month': _monthLabel}), '${s?.totalSessions ?? 0}', t('common.doctor.dashboard.monthlyTotalHint'))),
               const SizedBox(width: 12),
               Expanded(child: _statCard(context, tk.alertMedium, t('common.doctor.dashboard.redFlagMetric'), '${s?.totalRedFlagAlerts ?? 0}', t('common.doctor.dashboard.redFlagMetricHint'))),
             ]),

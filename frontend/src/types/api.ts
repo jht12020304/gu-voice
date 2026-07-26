@@ -234,7 +234,13 @@ export interface DailyTrendItem {
 
 export interface MonthlySummaryResponse {
   month: string;
-  monthLabel: string;
+  /**
+   * 機器可讀的 `YYYY-MM`（與 `month` 同值），月份標題請用它在前端依當前語系格式化。
+   *
+   * 後端同時還有 `month_label`（硬寫中文的「2026 年 7 月」），刻意**不**納入型別：
+   * 直接顯示它會讓非中文語系的醫師看到中英混雜的標題。
+   * optional 是因為舊版後端沒有這個欄位，呼叫端必須有 fallback。
+   */
   totalSessions: number;
   completedSessions: number;
   abortedRedFlagSessions: number;

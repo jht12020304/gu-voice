@@ -2,7 +2,8 @@
 M16：SessionService.end_for_language_switch 行為守護。
 
 - active session (waiting / in_progress) → 狀態轉 CANCELLED + 寫 audit log
-- 已 completed / aborted / cancelled → 409 ConflictException
+- 已 completed / aborted / cancelled → 冪等回成功（G35b 改自原本的 409：切語言守衛
+  會被重試 / 連點，此時「沒有孤兒 in_progress 場次」的目的已達成，不該讓語言切不掉）
 - user.preferred_language 會被更新
 - audit log 帶 from_lang / to_lang / session_id
 """
@@ -17,7 +18,6 @@ from typing import Any, Optional
 
 import pytest
 
-from app.core.exceptions import ConflictException
 from app.models.enums import AuditAction, SessionStatus, UserRole
 from app.services.session_service import SessionService
 
@@ -151,25 +151,32 @@ def test_waiting_session_also_endable(monkeypatch, _patch_audit_and_authorize):
     "terminal_status",
     [SessionStatus.COMPLETED, SessionStatus.CANCELLED, SessionStatus.ABORTED_RED_FLAG],
 )
-def test_terminal_session_rejects_with_409(monkeypatch, _patch_audit_and_authorize, terminal_status):
+def test_terminal_session_is_idempotent_success(
+    monkeypatch, _patch_audit_and_authorize, terminal_status
+):
+    """終態場次 → 不重複轉移、不 raise；語言偏好仍要生效。"""
     session = _FakeSession(status=terminal_status, language="zh-TW")
     user = _FakeUser()
     db = _FakeDB(user=user)
 
     _install_get_by_id(monkeypatch, session)
 
-    with pytest.raises(ConflictException) as excinfo:
-        _run(
-            SessionService.end_for_language_switch(
-                db, session_id=session.id, to_language="en-US", current_user=user
-            )
+    result = _run(
+        SessionService.end_for_language_switch(
+            db, session_id=session.id, to_language="en-US", current_user=user
         )
+    )
 
-    assert excinfo.value.message == "errors.session_not_switchable"
-    # 不應呼叫 audit log
-    assert _patch_audit_and_authorize.calls == []
-    # 不應變更 user preference
-    assert user.preferred_language is None
+    # 狀態原封不動（沒有第二次轉移），completed_at 不被覆寫
+    assert result.status == terminal_status
+    assert result.completed_at is None
+    assert result.previous_status == terminal_status
+    # 語言偏好照樣更新 — 呼叫端收到 200 就會認為偏好已生效
+    assert user.preferred_language == "en-US"
+    # audit log 仍留痕，並標記這次沒有實際收場次
+    call = _patch_audit_and_authorize.calls[0]
+    assert call["details"]["session_already_terminal"] is True
+    assert call["details"]["previous_status"] == terminal_status.value
 
 
 def test_anonymous_user_skips_preference_update(monkeypatch, _patch_audit_and_authorize):

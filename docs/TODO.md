@@ -12,7 +12,12 @@
 > - 新增 §H（H1 忘記密碼路徑已結案／H2 儀表板 monthLabel 硬寫中文）
 > - E10 底下工程項拆成 E11／E12，讓 E10 純粹等母語臨床覆核
 >
-> 未結案：§G35（2 筆有外部依賴）、G36／G37、H2、E10（等母語臨床覆核）、E11／E12、F8（等臨床）。
+> **2026-07-27 ultracode 批次**：E11（紅旗否定守衛，含對抗式驗證找到的 ja/ko/vi/en critical 漏報）、
+> H2（儀表板年月）、G35b（切語言守衛＋不變式 #16 修正）、G36／G37、TTS 測試覆蓋、
+> H4（G36 抓到的兩個 Flutter 缺口）全數完成，**真 OpenAI e2e 兩情境通過**。
+>
+> 未結案 6 條：E10（等母語臨床覆核）、F8／G35a（等臨床拍板）、E12（投機 schema，無消費端，不做）、
+> H3（dashboard 其餘硬寫中文標籤）、H5（replay 未 await，推測性未驗證）。
 
 ---
 
@@ -521,11 +526,33 @@
 - 拍板前先確認的具體前置：(1) ED/PSA 的 ICD-10 對照與紅旗清單是否已備（E6 已補 N52/R97）；
   (2) 開放後變 11 個選項，kiosk 單頁是否需要分類分組
 
-### [ ] E11. 紅旗規則層否定語意誤報（從 E10 拆出的工程項）
+### [x] E11. 紅旗規則層否定語意 — 2026-07-27 修復（PR #46）
 
-- 規則層是子字串比對、無否定語意判斷：病患說「沒有注意到體重減輕」會命中 `unexplained_weight_loss` high
-- fail-open 取捨下先接受、生產觀察誤報率。**若 critical 級出現否定誤報（誤 abort 問診）就必須處理**——
-  選項：規則層加否定詞窗口防護／critical 降為僅語意層可 abort／`RED_FLAG_BUILTIN_RULES_FALLBACK=false` 退關
+⚠️ **原始描述有誤**：規則層**早就有**否定守衛（`_NEGATION_CUES` 等），不是「純子字串比對」。
+真正的問題比原描述嚴重——那個守衛有兩類**漏報**（under-triage）洞：
+
+1. **假朋友**：字面含否定詞、語意其實肯定的詞被當成否定線索。實測 main：
+   - 「我睪丸非常痛，尿不出來」→ **零紅旗**（「非常」的「非」吃掉整句）
+   - 「我沒有什麼特別的問題，就是尿不出來」→ **零紅旗**
+   - 「我無法排尿也睪丸劇痛」→ 只剩 `urinary_retention`，`testicular_pain_severe` 被吃掉
+   修法：`_CUE_FALSE_FRIENDS`（無力／無法／非常…）＋ `就是／只是` 重置詞
+2. **ja/ko/vi/en 缺轉折詞**（對抗式驗證找到，原 agent 未揭露）：`_CONTRAST_MARKERS`
+   只有中文＋`" but "`，導致「否認 A ＋ 轉折 ＋ 真的有 critical B」在那四種語言**全數漏報**：
+   「熱はないですが尿閉になりました」「열은 아니고 극심한 고환 통증이 있어요」
+   「denies fever, however he has testicular pain」皆 MISS。中文對照組一直正常，故肉眼難察。
+   修法：補 ja（ですが/けど/しかし/でも/ではなく…）、ko（지만/하지만/아니고/아니라…）、
+   vi（nhưng/mà）、en（however/though/although）。**不收裸「고」**（泛用連接詞，收了等於關守衛）
+
+**方向性（安全關鍵）**：轉折詞與假朋友都只會讓守衛**少抑制** → 紅旗**更容易**命中。
+過寬＝over-triage（護理師多走一趟，可逆）；過窄＝under-triage（不可逆）。取寬。
+
+**驗證**：17 組跨語言探針全過（7 個 critical 漏報修復 + 7 個抑制仍成立）；
+mutation test（拿掉轉折詞 → 7 failed）；backend unit 1041 passed；
+**真 OpenAI e2e `torsion_critical_zh` + `dontknow_zh` 皆通過**（紅旗鐵律的合併前置條件）。
+
+**仍待臨床拍板（未修）**：「不會痛，尿不出來」仍被抑制。兩種修法（時間副詞重置／
+list 分隔符切斷）實測都會製造新的 critical 誤報（「沒有高燒、寒顫」變命中 → 誤 abort），
+方向需要臨床決定。`RED_FLAG_NEGATION_GUARD` kill-switch 已備（預設開）。
 
 ### [ ] E12. `red_flag_rules.keywords` 缺 `keywords_by_lang` 欄位（從 E10 拆出的工程項）
 
@@ -687,12 +714,58 @@ autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，�
 導致沒有 router 祖先的 widget test 直接拋。改成**在 tap 那一刻才讀** router state——
 「router state 只在需要它的地方讀」這條教訓這輪出現第三次了。
 
-### [ ] G35. 🟢 medium 剩 2 筆（都有外部依賴，非前端可自足）
+### [x] G35b. 切語言的進行中場次守衛 — 2026-07-27 完成（PR #46）
 
-- **紅旗與中止無語音播報**：需要 flutter_tts 依賴，**且「是否為必要告知層」待臨床拍板**
-  （修完 G1 後文字告知已恢復，語音是第三層冗餘）
-- **切語言無進行中場次守衛**：缺後端 `POST /sessions/{id}/end-for-language-switch`，
-  否則切語言會留下 in_progress 孤兒場次。這也是 G34 不把入口加到 `/conversation` 的原因
+⚠️ **原始描述有誤**：後端端點 `POST /sessions/{id}/end-for-language-switch` **早就存在**
+（`sessions.py:150` / `session_service.py:460`，React 也早就在用），缺的只有 Flutter 接線。
+這個錯誤主張先前被我傳播到 PR #44 說明與 `LanguageAction` 的註解裡。
+
+- 後端順帶修一個**不變式 #16 違規**：原本自帶 `(WAITING, IN_PROGRESS)` 狀態白名單，
+  改為問 `is_valid_transition`（單一權威）。並改為**冪等**：已終態回 200 而非 409
+  ——切語言守衛可能被重試或連點，回 409 會讓「語言切不掉」，而此時「沒有孤兒場次」
+  的目的已達成。錯誤路徑的 HTTP 碼不變（`INVALID_STATUS_TRANSITION` 同為 409）
+- Flutter：`sessions_api` 加方法、切語言守衛與 5 語系確認文案。
+  **入口仍未掛進 ConversationPage**（是否在問診中提供切語言是產品決定）
+
+### [x] 測試深度（TTS） — 2026-07-27 完成（PR #46）
+
+`TtsPlaybackController` 的 player 改為可注入（production 行為不變），補 5 條回歸測試。
+**mutation 驗證**：還原 G4 修法（`stopActive` 在 await 後才捕獲 `_activeStep`）→ 測試會紅。
+這是不變式 #5 先前唯一沒有防護的地方。
+
+### [x] G36 / G37 — 2026-07-27 完成（PR #46）
+
+- **G36**：`check_translations.py` 涵蓋 `flutter_app/assets/locales`。政策：
+  **「React 有但 Flutter 沒有」＝ blocking**（真移植缺口）、**「Flutter 有但 React 沒有」＝ warning**
+  （不強迫往 React 塞死 key）。**這個檢查一加上就立刻抓到兩個真缺口**，見 H4
+- **G37**：`usesCleartextTraffic` 之外，release 簽章缺設定時**明確失敗**而非靜默用 debug 金鑰。
+  守衛放在 **task 層而非 configuration 層**（否則會連 debug build 一起擋）——已用實際
+  debug build 驗證區分成立。`key.properties`／`*.jks` 確認在 gitignore 內
+
+### [x] H4. Flutter 缺兩個 React 已有的功能（G36 抓到）— 2026-07-27 修復（PR #46）
+
+`check_translations.py` 的 mirror 檢查一加上就報 blocking，追下去是兩個真缺口——
+**若 Flutter 就這樣上線，H1 那整條修復會原地回歸**：
+
+1. **忘記密碼仍謊稱「已寄送重設連結」**：`delivery` flag 我先前只接在 React。已補（含 onsite 分支與圖示）
+2. **管理員無法重設密碼**：後端端點與 React UI 都有，Flutter 沒有。已補（按鈕＋一次性密碼 modal）
+
+### [ ] H3. 🟢 dashboard 其餘硬寫中文標籤
+
+`dashboard_service.py` 的 `STATUS_LABELS`／`ALERT_SEVERITY_LABELS`／`daily_trend.label`
+仍由後端回中文字串。與 H2 同類，修法同樣是「回機器可讀 key、前端依語系格式化」。
+
+### [ ] G35a. 🟢 紅旗與中止無語音播報（**待臨床拍板**）
+
+需要 flutter_tts 依賴，且「是否為必要告知層」是臨床決定——修完 G1 後文字告知已恢復，
+語音是第三層冗餘。
+
+### [ ] H5. 🟢 `replay()` 未 await `stopActive()`（推測性，未驗證）
+
+`conversation_controller.dart:443-449` 的 `replay()` 沒有 await `stopActive()` 就對同一個
+player `enqueue`。若 just_audio 未串行化 method call，`stop()` 可能落在 `setAudioSource()`
+之後 → 該 step 的 completer 永不解決 → chain 停住 → **VAD 永久硬靜音**（不變式 #5 的另一道門）。
+TTS agent 回報但**未驗證**，刻意未修。要確認需實機走一輪 replay。
 
 紅旗與中止無語音播報（flutter_tts，**且是否為必要告知層待臨床拍板**）、切語言無進行中場次守衛
 （缺後端 `POST /sessions/{id}/end-for-language-switch`）、切語言入口只在 4 頁、
@@ -728,7 +801,14 @@ caption/n= 與圖匯出（i18n key 全已入庫未用）、SOAP 頁無逐字稿�
 - **不要再提議設 SENDGRID_API_KEY / SMTP**。程式碼路徑保留即可（`is_delivery_configured()`
   已備），日後若真有遠端問診情境才需要，設了就會自動切回 email 文案、零改碼。
 
-### [ ] H2. 🟢 儀表板 `monthLabel` 後端硬寫中文（前後端都中招）
+### [x] H2. 儀表板年月標題 — 2026-07-27 修復（PR #46）
+
+前端改用既有的機器可讀 `month`（`YYYY-MM`）自行依當地語系格式化，兩份前端都改。
+simulator 目視確認：原本「2026 年 7 月」現在顯示 `7/2026`（跟隨 en 語系）。
+⚠️ 同一份 response 的 `STATUS_LABELS`／`ALERT_SEVERITY_LABELS`／`daily_trend.label`
+**仍硬寫中文**，是同類問題但不在本次範圍——見下方 H3。
+
+### [x] ~~H2 原始描述~~
 
 - `backend/app/services/dashboard_service.py:109`：`f"{year} 年 {month} 月"` 硬寫中文，
   由 API 回傳、前端直接顯示（`dashboard_page.dart:75,83`；React 版同理）
@@ -738,25 +818,3 @@ caption/n= 與圖匯出（i18n key 全已入庫未用）、SOAP 頁無逐字稿�
 - 修法二選一：(a) 後端改回傳 `month_key`（`2026-07`）讓前端各自用 `DateFormat.yM(lng)` 格式化
   ——比較對，日期格式本來就該跟隨語系；(b) 後端依 `Accept-Language` 產生標籤（已有
   `resolve_language` 與 `i18n_messages` 機制）
-
-### [ ] G36. i18n 不變式在切換期變成「兩份 locales 要同步」
-
-- `flutter_app/assets/locales/` 與 `frontend/src/i18n/locales/` 目前**逐檔位元相同**，純靠人手維持
-- 切換期新增或修改任何 key 都要同步兩份；`scripts/check_translations.py` 未涵蓋 flutter 那份，建議加 `diff -r`
-- React `frontend/` 下線後，把「public/locales 是 build 鏡像」這條不變式改寫成「assets/locales 為唯一來源」
-
-### [ ] G37. Android release 仍用 debug 簽章
-
-- `flutter_app/android/app/build.gradle.kts:37` — 上架前必補正式 keystore（**keystore 與 key.properties 不可入庫**）
-
----
-
-## 追蹤約定
-
-- PR 描述附上 TODO 編號（例如 `Fixes TODO #3`）
-- 合併後回此文件把 `[ ]` 改成 `[x]`，加完成日期 + commit：
-  ```
-  - [x] 3. Firebase Admin SDK 在 lifespan 初始化 — 2026-04-20 (abc1234)
-  ```
-- 新發現問題直接加到 P2 或 P3，P0/P1 保留現狀不擴編
-- 每週 review 一次優先級

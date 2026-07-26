@@ -82,7 +82,10 @@ export async function reconnectSession(sessionId: string): Promise<SessionReconn
 /**
  * M16：對話中切語言 → 結束當前 session，同時把使用者偏好語言更新為 toLanguage。
  * 後端會寫 audit_log (action=language_switch_end_session)。
- * 非 active（waiting/in_progress）狀態會回 409。
+ * 2026-07-27 起後端改為冪等：場次已在終態時回 200（不重複轉移），
+ * 只有「非終態但轉移表不允許 → cancelled」才回 409。理由：切語言守衛可能被
+ * 重試或連點，回 409 會讓使用者切不掉語言，而此時「沒有孤兒 in_progress 場次」
+ * 的目的已經達成。
  */
 export async function endSessionForLanguageSwitch(
   id: string,

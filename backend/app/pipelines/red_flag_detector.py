@@ -39,6 +39,8 @@ logger = logging.getLogger(__name__)
 # 修法：關鍵字只在「有任一非否定出現」時才觸發；若每個出現位置都被否定則不觸發。
 # 安全性：只抑制「全部出現都被否定」的關鍵字——真正的紅旗提及一定有非否定出現，
 # 不會被抑制，故不破壞 fail-open（寧可誤報不可漏急症）；語意層仍獨立運作為第二層。
+# 整組守衛受 `RED_FLAG_NEGATION_GUARD` kill-switch 控制（預設開，關掉＝退回裸
+# substring）；critical 另有更緊的散文視窗，見 `_NEG_CRITICAL_PROSE_LOOKBACK`。
 _NEGATION_CUES: tuple[str, ...] = (
     # zh-TW
     "沒有", "沒", "無", "未", "否認", "並無", "不會", "不曾", "不是", "非",
@@ -52,17 +54,63 @@ _NEGATION_CUES: tuple[str, ...] = (
     # vi-VN
     "không", "chưa",
 )
+# 否定詞的「假朋友」：字面含否定詞子字串、語意其實是肯定陳述的詞。不排除就會讓
+# 病患**自己講出來的症狀**變成否定線索 → 漏報（違反「守衛只能減少誤報」的鐵律）：
+#   「我無法排尿也睪丸劇痛」→「無法排尿」本身是 critical trigger，卻被當成「無」否定
+#     後面的睪丸劇痛；
+#   「我覺得下肢無力，也有會陰麻木」→「無力」是馬尾症候群的症狀，卻否定了會陰麻木；
+#   「我睪丸非常痛，尿不出來」→「非常」被當成「非」。
+# 只收「肯定語意」的詞；真要否認時病患仍會講沒有/無/否認等，不受影響。
+_CUE_FALSE_FRIENDS: tuple[str, ...] = (
+    "無力", "無法", "無論", "無數", "無比", "無意識",
+    "非常", "非但",
+    # 註：曾列過「不舒服／不適／不對勁／不明／不停／不斷／不止／不良」，但
+    # `_NEGATION_CUES` 並無裸「不」（只有 不會／不曾／不是），那些條目永遠命中不到
+    # ——是死碼，且會讓人誤以為裸「不」也被守護。2026-07-26 移除。
+    # 若日後把裸「不」加進 cue 列表，這些必須一併加回來。
+)
 # 否定範圍切斷：句尾/子句標點。list 分隔（、，,）不切斷，讓「沒有血尿、發燒、腰痛」整串被否定。
 _NEG_SCOPE_BREAKS: str = "。！？!?\n．;；:："
 # 轉折/接續詞：其後語義重置。避免「沒有發燒但有血尿」「沒力氣然後睪丸劇痛」
 # 把後段關鍵字誤當否定（保守：寧可少抑制→過度警示 over-triage 安全，也不過度
 # 抑制→漏報 under-triage 危險）。
-# 重置詞＝轉折(但/可是)＋接續(然後/接著)＋追加子句(而且/並且)。這些引入「新謂語」，
-# 其後的關鍵字不受前面否定涵蓋。**刻意不含 list 連接詞（、，,以及/及/和/與/或/還有）**，
-# 因為它們只是把同一否定下的並列項串起來（「沒有血尿、發燒以及腰痛」三者皆否定）。
+# 重置詞＝轉折(但/可是)＋接續(然後/接著)＋追加子句(而且/並且)＋肯定轉承(就是/只是)。
+# 這些引入「新謂語」，其後的關鍵字不受前面否定涵蓋；「就是/只是」尤其是門診口語裡
+# 「否認一串之後點出真正症狀」的標記（「我沒有什麼特別的問題，就是尿不出來」——沒有
+# 這個重置，critical 的尿滯留會被前半句的「沒有」吃掉，那是 under-triage）。
+# **刻意不含 list 連接詞（、，,以及/及/和/與/或/還有）**，因為它們只是把同一否定下
+# 的並列項串起來（「沒有血尿、發燒以及腰痛」三者皆否定）。
+# ⚠️ 方向性（安全關鍵）：重置詞只會讓否定範圍**變短** → 抑制變少 → 紅旗**更容易**命中。
+# 所以這個列表寧可過寬也不可過窄；過寬的代價是 over-triage（護理師多走一趟，可逆），
+# 過窄的代價是 under-triage（真急症漏掉，不可逆）。
+#
+# ja/ko/vi/en 原本缺席，導致「否認某症狀＋轉折＋真的有 critical 症狀」在那四種語言
+# 全數漏報（2026-07-26 對抗式驗證實測）：
+#   「熱はないですが尿閉になりました」→ urinary_retention(critical) MISS
+#   「열은 없지만 요폐가 생겼어요」→ urinary_retention(critical) MISS
+#   「denies fever, however he has testicular pain」→ MISS（"however" 不在列表）
+# 規則層是語意層漏判時的 fallback（不變式 #9），那條 fallback 在這些語言對 critical
+# 等於失效。中文對照組（「沒有發燒，但是尿不出來」）一直是正常的，所以肉眼難察覺。
+#
+# 日文的「が」刻意收錄：它同時是主格助詞，當轉折用時無法純字面區分。但依上面的方向性，
+# 誤判成重置只會多命中、不會漏掉，故取寬。
 _CONTRAST_MARKERS: tuple[str, ...] = (
+    # zh-TW
     "但", "可是", "不過", "然而", "但是", "反而",
-    "然後", "接著", "後來", "之後", "而且", "並且", " but ",
+    "然後", "接著", "後來", "之後", "而且", "並且",
+    "就是", "只是",
+    # en-US（前後留白避免命中 "although" 之類的子字串誤切；however/though 直接收）
+    " but ", "however", "though", "although", " yet ",
+    # ja-JP（ですが/けど/けれど/しかし/でも；「が」見上方註解）
+    # 「ではなく／じゃなくて」＝同上的日文對應（不是 X 而是 Y）。
+    "ですが", "けれど", "けど", "しかし", "でも", "が", "ではなく", "じゃなくて",
+    # ko-KR。「아니고 / 아니라」＝「不是 X 而是 Y」，後段才是真正的主訴，必須重置——
+    # 否則「열은 아니고 극심한 고환 통증이 있어요」（不是發燒，是睪丸劇痛）會被前面的
+    # `아니` cue 整句吃掉（2026-07-26 對抗式驗證實測 critical MISS）。
+    # 不收裸「고」：那是泛用連接詞，到處都是，收了等於關掉守衛。
+    "지만", "하지만", "그런데", "그러나", "아니고", "아니라",
+    # vi-VN
+    "nhưng", "mà",
 )
 # 往前回看上限（字元）：放寬到涵蓋長症狀否定列舉（「沒有血尿、發燒、畏寒、噁心、嘔吐、
 # 食慾不振、體重減輕、排尿疼痛…、尿滯留」整串在同一個「沒有」下）。安全考量：規則層
@@ -70,6 +118,27 @@ _CONTRAST_MARKERS: tuple[str, ...] = (
 # 分隔不切斷、只有句尾標點與上面的重置詞切斷。120 為 runaway 上限（超長 run-on 才觸及）。
 _NEG_MAX_LOOKBACK = 120
 
+# ── critical 專屬：較緊的「散文」否定視窗（E11 取捨）──────────────
+# 為什麼 critical 要跟 high/medium 不同：critical 一命中就 abort 問診（見
+# conversation_handler 的 has_critical 分支），**兩個方向的誤判成本都高**——
+#   誤報 → 誤中止問診、SOAP 資料不全、白叫護理師；
+#   漏報 → 真扭轉/尿滯留的病患繼續坐著等，且無第二次機會。
+# 取捨：在 kiosk 情境下這兩者仍不對稱。病患已經在現場，誤 abort 的代價是護理師
+# 走過來一趟（可逆、幾分鐘）；漏報的代價不可逆。所以 critical 選「更不願意抑制」，
+# 但**不是完全不抑制**——直接否認（「沒有睪丸劇痛」「denies testicular pain」）
+# 仍必須抑制，否則 E11 點名的誤 abort 又回來了。
+#
+# 具體做法：critical 的否定線索必須「離關鍵字很近」才算，其中「近」只計算**散文**
+# 字元——list 分隔符（、，,）會把預算歸零。理由：緊接在否認之後的並列症狀列舉
+# （「沒有血尿、發燒、…、尿滯留」）語意上明確是同一個否認，長度多長都該抑制；
+# 中間夾了一長段散文的「沒有…（16 字以上敘述）…尿不出來」則不可信，寧可命中。
+# 這對 STT 逐字稿特別重要：口語辨識常常整段沒有標點，舊的 120 字視窗會讓一個
+# 「沒有」吃掉後面整段話裡的 critical 關鍵字。
+# 安全性（單向性，重要）：本視窗只會讓 critical **更容易命中**，不可能更難命中
+# ——它是在既有 120 字視窗內再加一層限制，抑制條件只會變嚴、不會變鬆。
+_NEG_CRITICAL_PROSE_LOOKBACK = 16
+# list 分隔符（散文預算歸零點）。刻意只放標點：中文頓號/逗號與半形逗號。
+_NEG_LIST_SEPARATORS: str = "、，,"
 
 # 後置否定（ja/ko 為 SOV，否定接在名詞之後：「血尿はありません」「혈뇨는 없어요」）。
 # 這些線索出現在關鍵字「之後」的短視窗內才算。⚠️ ja/ko 語言特定，上線前建議母語者覆核。
@@ -85,11 +154,32 @@ _POST_NEG_STOPS: str = "。！？!?\n．;；:：、，,てで"
 _POST_NEG_MAX_AHEAD = 10
 
 
-def _clause_before(text_lower: str, start: int) -> str:
-    """取關鍵字出現位置 start 前、同一子句範圍的文字（供前置否定判定）。"""
+def _prose_lookback_for_severity(severity: str | None) -> int | None:
+    """critical → 緊的散文視窗；其餘 → None（沿用既有 120 字行為，不改已驗收的邏輯）。"""
+    if (severity or "").lower() == "critical":
+        return _NEG_CRITICAL_PROSE_LOOKBACK
+    return None
+
+
+def _clause_before(
+    text_lower: str, start: int, prose_lookback: int | None = None
+) -> str:
+    """取關鍵字出現位置 start 前、同一子句範圍的文字（供前置否定判定）。
+
+    prose_lookback 不為 None 時（critical），額外限制「距離最近 list 分隔符以來的
+    散文字元數」不得超過該預算，超過就截斷 → 遠處的否定線索構不到這個關鍵字。
+    """
     i = start - 1
     n = 0
+    prose_run = 0
     while i >= 0 and n < _NEG_MAX_LOOKBACK and text_lower[i] not in _NEG_SCOPE_BREAKS:
+        if prose_lookback is not None:
+            if text_lower[i] in _NEG_LIST_SEPARATORS:
+                prose_run = 0  # 並列列舉不吃預算（同一個否認下的多個症狀）
+            else:
+                prose_run += 1
+                if prose_run > prose_lookback:
+                    break
         i -= 1
         n += 1
     clause = text_lower[i + 1 : start]
@@ -111,16 +201,35 @@ def _clause_after(text_lower: str, end: int) -> str:
     return text_lower[end:j]
 
 
-def _occurrence_negated(text_lower: str, start: int, kw_len: int) -> bool:
+def _has_negation_cue(clause: str) -> bool:
+    """clause 內是否有「真的」否定線索——命中位置若正好是假朋友的開頭就跳過。
+
+    假朋友不可能跨到關鍵字裡：`_CUE_FALSE_FRIENDS` 的第二個字（力/法/常/舒/…）都不是
+    任何 trigger 的首字，所以只掃 clause 本身就夠，不必回頭看原文。
+    """
+    for cue in _NEGATION_CUES:
+        pos = clause.find(cue)
+        while pos != -1:
+            if not any(clause.startswith(ff, pos) for ff in _CUE_FALSE_FRIENDS):
+                return True
+            pos = clause.find(cue, pos + 1)
+    return False
+
+
+def _occurrence_negated(
+    text_lower: str, start: int, kw_len: int, prose_lookback: int | None = None
+) -> bool:
     """單一關鍵字出現位置是否被否定（前置 zh/en/vi 或後置 ja/ko）。"""
-    before = _clause_before(text_lower, start)
-    if any(cue in before for cue in _NEGATION_CUES):
+    before = _clause_before(text_lower, start, prose_lookback)
+    if _has_negation_cue(before):
         return True
     after = _clause_after(text_lower, start + kw_len)
     return any(cue in after for cue in _POST_NEGATION_CUES)
 
 
-def _keyword_present_non_negated(keyword: str, text_lower: str) -> bool:
+def _keyword_present_non_negated(
+    keyword: str, text_lower: str, prose_lookback: int | None = None
+) -> bool:
     """關鍵字是否有「非否定」出現。全部出現都被否定 → False（抑制誤觸）。"""
     kw = keyword.lower()
     if not kw:
@@ -129,18 +238,20 @@ def _keyword_present_non_negated(keyword: str, text_lower: str) -> bool:
     if idx == -1:
         return False
     while idx != -1:
-        if not _occurrence_negated(text_lower, idx, len(kw)):
+        if not _occurrence_negated(text_lower, idx, len(kw), prose_lookback):
             return True  # 有一個非否定出現即觸發（保留 fail-open）
         idx = text_lower.find(kw, idx + 1)
     return False  # 每個出現都被否定
 
 
-def _keyword_negated_only(keyword: str, text_lower: str) -> bool:
+def _keyword_negated_only(
+    keyword: str, text_lower: str, prose_lookback: int | None = None
+) -> bool:
     """關鍵字有出現、但每個出現都被否定 → True（供語意層否定幻覺後過濾）。"""
     kw = (keyword or "").lower()
     if not kw or kw not in text_lower:
         return False
-    return not _keyword_present_non_negated(keyword, text_lower)
+    return not _keyword_present_non_negated(keyword, text_lower, prose_lookback)
 
 
 # ── 目錄 severity floor（防語意層把 critical 自評降級）──────────
@@ -184,13 +295,19 @@ _CANONICAL_KEYWORDS: dict[str, list[str]] = {
 
 
 def _canonical_denied_in_text(canonical_id: str, text_lower: str) -> bool:
-    """canonical 的關鍵字在文中出現但全被否定（且無任一非否定出現）→ 是否定幻覺。"""
+    """canonical 的關鍵字在文中出現但全被否定（且無任一非否定出現）→ 是否定幻覺。
+
+    critical canonical 沿用與規則層同一組緊散文視窗（見
+    `_NEG_CRITICAL_PROSE_LOOKBACK`）：抑制門檻在兩層一致，才不會出現「規則層認為
+    病患有講、語意層的後過濾卻把它殺掉」這種層間不一致。
+    """
     kws = _CANONICAL_KEYWORDS.get(canonical_id) or []
     if not kws:
         return False
-    if any(_keyword_present_non_negated(k, text_lower) for k in kws):
+    prose = _prose_lookback_for_severity(_CANONICAL_CATALOG_SEVERITY.get(canonical_id))
+    if any(_keyword_present_non_negated(k, text_lower, prose) for k in kws):
         return False  # 有非否定出現 → 症狀被肯定 → 不抑制
-    return any(_keyword_negated_only(k, text_lower) for k in kws)
+    return any(_keyword_negated_only(k, text_lower, prose) for k in kws)
 
 
 # ── 語意分析系統提示詞 ───────────────────────────────────
@@ -295,6 +412,15 @@ class RedFlagDetector:
             self._model,
             self._temperature,
         )
+
+    def _negation_guard_enabled(self) -> bool:
+        """否定守衛 kill-switch（預設開）。
+
+        關閉時規則層退回裸 substring 比對、語意層的否定幻覺後過濾也一併停用——
+        兩者是同一個機制（同一組否定詞/視窗），只關一半會讓兩層的抑制門檻不一致，
+        維運要「退回加守衛前的行為」時反而更難推理。
+        """
+        return bool(getattr(self._settings, "RED_FLAG_NEGATION_GUARD", True))
 
     async def _load_rules(self) -> None:
         """從資料庫載入啟用中的紅旗規則
@@ -443,10 +569,13 @@ class RedFlagDetector:
         alerts: list[dict[str, Any]] = []
         text_lower = text.lower()
         unknown_title = get_message("alert.unknown_title", language)
+        guard_on = self._negation_guard_enabled()
 
         for rule in self._rules:
             matched = False
             trigger_reason = ""
+            # critical 用較緊的散文否定視窗（見 _NEG_CRITICAL_PROSE_LOOKBACK 的取捨說明）
+            prose_lookback = _prose_lookback_for_severity(rule.get("severity"))
 
             # 關鍵字比對
             # W1：keyword 也需 lower() 才能保證大小寫不敏感——text_lower 已
@@ -454,9 +583,32 @@ class RedFlagDetector:
             # 會導致 substring 比對失敗;英文/越南文等有大小寫的語言都靠
             # 這裡統一 normalize。
             for keyword in rule.get("keywords", []):
+                if not keyword:
+                    continue
                 # 否定感知比對：關鍵字若每個出現都被否定（如「血尿」只在「沒有血尿」）
                 # 則不觸發；有任一非否定出現才觸發（保留 fail-open）。
-                if keyword and _keyword_present_non_negated(keyword, text_lower):
+                # guard 關閉（kill-switch）→ 退回裸 substring，行為與加守衛前一模一樣。
+                if guard_on:
+                    hit = _keyword_present_non_negated(
+                        keyword, text_lower, prose_lookback
+                    )
+                    if (
+                        not hit
+                        and prose_lookback is not None
+                        and keyword.lower() in text_lower
+                    ):
+                        # critical 關鍵字在文中出現、但每個出現都被否定守衛判為否定。
+                        # 留下痕跡供生產觀察誤報/漏報率（E11 的驗收方式就是看生產
+                        # 資料）；只記 critical，避免病患每次否認症狀都刷 log。
+                        logger.info(
+                            "critical 紅旗關鍵字出現但被否定守衛抑制 | "
+                            "canonical=%s keyword=%s",
+                            rule.get("canonical_id") or rule.get("name"),
+                            keyword,
+                        )
+                else:
+                    hit = keyword.lower() in text_lower
+                if hit:
                     matched = True
                     trigger_reason = get_message(
                         "alert.rule_match_reason", language, keyword=keyword
@@ -729,21 +881,22 @@ class RedFlagDetector:
 
         # 否定幻覺後過濾（涵蓋語意層）：病患明確否認的症狀不應成為紅旗。
         # 規則層真命中(有非否定出現)與語意層情境推論(關鍵字不在文中)皆不受影響。
-        text_lower = text.lower()
-        kept: list[dict[str, Any]] = []
-        for alert in merged:
-            cid = alert.get("canonical_id")
-            if cid and _canonical_denied_in_text(cid, text_lower):
-                logger.warning(
-                    "紅旗否定幻覺抑制 | session=%s, canonical=%s, alert_type=%s, severity=%s",
-                    session_id,
-                    cid,
-                    alert.get("alert_type"),
-                    alert.get("severity"),
-                )
-                continue
-            kept.append(alert)
-        merged = kept
+        if self._negation_guard_enabled():
+            text_lower = text.lower()
+            kept: list[dict[str, Any]] = []
+            for alert in merged:
+                cid = alert.get("canonical_id")
+                if cid and _canonical_denied_in_text(cid, text_lower):
+                    logger.warning(
+                        "紅旗否定幻覺抑制 | session=%s, canonical=%s, alert_type=%s, severity=%s",
+                        session_id,
+                        cid,
+                        alert.get("alert_type"),
+                        alert.get("severity"),
+                    )
+                    continue
+                kept.append(alert)
+            merged = kept
 
         # TODO-M8:對仍為 semantic_only 的 alert,若 session.language 沒有
         # 該 canonical_id 的 trigger keywords 覆蓋 → 降級為 uncovered_locale

@@ -18,6 +18,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final _email = TextEditingController();
   bool _busy = false;
   bool _sent = false;
+  // 後端沒設 SENDGRID/SMTP 時為 'onsite'：信不會寄出，要引導找現場醫護／管理員。
+  String _delivery = 'onsite';
   String? _error;
 
   @override
@@ -33,8 +35,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     }
     setState(() { _busy = true; _error = null; });
     try {
-      await AuthApi().forgotPassword(_email.text.trim());
-      if (mounted) setState(() { _sent = true; _busy = false; });
+      final r = await AuthApi().forgotPassword(_email.text.trim());
+      if (mounted) setState(() { _sent = true; _delivery = r.delivery; _busy = false; });
     } catch (_) {
       if (mounted) setState(() { _error = t('auth.forgot.failed'); _busy = false; });
     }
@@ -51,11 +53,29 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             constraints: const BoxConstraints(maxWidth: 420),
             child: _sent
                 ? Column(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.mark_email_read, size: 48, color: Theme.of(context).colorScheme.primary),
+                    // onsite 沒有「完成」任何事，不該給信件圖示（與 React 版一致）
+                    Icon(
+                      _delivery == 'email' ? Icons.mark_email_read : Icons.info_outline,
+                      size: 48,
+                      color: _delivery == 'email'
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.tertiary,
+                    ),
                     const SizedBox(height: 12),
-                    Text(t('auth.forgot.sentTitle'), style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      t(_delivery == 'email'
+                          ? 'auth.forgot.sentTitle'
+                          : 'auth.forgot.onsiteTitle'),
+                      style: Theme.of(context).textTheme.titleMedium,
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: 8),
-                    Text('${t('auth.forgot.sentPrefix')} ${_email.text.trim()} ${t('auth.forgot.sentSuffix')}', textAlign: TextAlign.center),
+                    Text(
+                      _delivery == 'email'
+                          ? '${t('auth.forgot.sentPrefix')} ${_email.text.trim()} ${t('auth.forgot.sentSuffix')}'
+                          : t('auth.forgot.onsiteBody'),
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: 20),
                     FilledButton(onPressed: () => context.go(prefixLngToPath('/login', currentLng)), child: Text(t('auth.backToLogin'))),
                   ])

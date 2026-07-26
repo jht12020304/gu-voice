@@ -86,7 +86,16 @@
     "createSuccess": "使用者已建立",
     "activateSuccess": "帳號已啟用",
     "deactivateSuccess": "帳號已停用",
-    "toggleFailed": "更新帳號狀態失敗"
+    "toggleFailed": "更新帳號狀態失敗",
+    "resetPassword": "重設密碼",
+    "resetPasswordConfirm": "確定要重設 {{email}} 的密碼嗎？系統會產生一組臨時密碼，並讓該帳號目前所有登入狀態失效。",
+    "resetPasswordFailed": "重設密碼失敗",
+    "tempPasswordTitle": "臨時密碼已產生",
+    "tempPasswordFor": "{{email}} 的臨時密碼：",
+    "tempPasswordCopy": "複製",
+    "tempPasswordCopied": "已複製",
+    "tempPasswordWarning": "這組密碼只顯示一次，關閉後無法再取得（只能再重設一次）。請當面交給本人，並請他登入後立即自行變更密碼。該帳號原有的登入狀態已全部失效。",
+    "tempPasswordDone": "我已記下"
   },
   "audit": {
     "title": "稽核日誌 (Audit Logs)",

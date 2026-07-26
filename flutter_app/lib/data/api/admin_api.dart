@@ -41,6 +41,21 @@ class AdminApi {
     return ((res.data as Map)['isActive'] ?? false) as bool;
   }
 
+  /// 管理員代為重設密碼，回傳一次性臨時密碼；同時撤銷該使用者所有 refresh token。
+  ///
+  /// ⚠️ `tempPassword` 是明文憑證且**只出現這一次**（後端只存 hash、不寫 log）。
+  /// 不要寫進 localStorage、不要送進任何 log／錯誤追蹤。
+  /// 存在理由：生產未設 email transport，忘記密碼的信寄不出去，前端引導使用者
+  /// 「告知現場醫護或系統管理員」——這支就是讓那句話成真的途徑（TODO H1）。
+  Future<({String email, String tempPassword})> resetUserPassword(String id) async {
+    final res = await _dio.post('/admin/users/$id/reset-password');
+    final d = res.data as Map;
+    return (
+      email: (d['email'] ?? '') as String,
+      tempPassword: (d['tempPassword'] ?? '') as String,
+    );
+  }
+
   Future<Map> getSystemHealth() async {
     final res = await _dio.get('/admin/system/health');
     return res.data as Map;

@@ -55,7 +55,7 @@
       "cancel": "Cancel",
       "switching": "Switching…",
       "switchedEnded": "Session ended and switched to {{name}}",
-      "switchFailed": "Switch failed, please try again"
+      "switchFailed": "Could not switch. Your consultation is still in progress. Please try again, or let the staff here know."
     }
   },
   "status": {

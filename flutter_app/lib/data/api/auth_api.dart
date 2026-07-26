@@ -68,8 +68,19 @@ class AuthApi {
   Future<void> changePassword(String currentPassword, String newPassword) =>
       _dio.post('/auth/change-password', data: {'currentPassword': currentPassword, 'newPassword': newPassword});
 
-  Future<void> forgotPassword(String email) =>
-      _dio.post('/auth/forgot-password', data: {'email': email});
+  /// 忘記密碼。
+  ///
+  /// `delivery` 由後端環境有無 email transport 決定（與帳號是否存在無關）：
+  /// `'email'` = 信真的會寄出；`'onsite'` = 後端沒設 SENDGRID/SMTP，信不會寄出，
+  /// 呼叫端要改成引導使用者找現場醫護／管理員，別謊稱已寄信。
+  /// 與 React 版 `frontend/src/services/api/auth.ts` 同語意。
+  Future<({String delivery})> forgotPassword(String email) async {
+    final res = await _dio.post('/auth/forgot-password', data: {'email': email});
+    final data = res.data;
+    final delivery = data is Map ? data['delivery'] as String? : null;
+    // 舊版後端沒有這個欄位 → 保守當 onsite（寧可多叫人問現場，不要謊稱已寄出）
+    return (delivery: delivery == 'email' ? 'email' : 'onsite');
+  }
 
   Future<void> resetPassword(String token, String newPassword) =>
       _dio.post('/auth/reset-password', data: {'token': token, 'newPassword': newPassword});
