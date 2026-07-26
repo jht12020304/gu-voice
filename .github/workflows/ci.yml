@@ -115,6 +115,49 @@ jobs:
         run: npm run build
 
   # ──────────────────────────────────────────────────────────────────────
+  # Flutter checks (flutter_app/ — the single-codebase frontend replacing frontend/)
+  #
+  # Added 2026-07-26: CI had zero Flutter coverage, so an `unnecessary_underscores`
+  # info slipped through review. `flutter analyze` exits 1 on info-level issues too
+  # (verified), which is exactly what we want here.
+  #
+  # ubuntu is enough: analyze + unit tests need no Apple toolchain. iOS/Android
+  # builds and `integration_test/` (needs a real simulator/device) stay local —
+  # `flutter test` with no args only runs `test/`, so the integration suite is
+  # naturally excluded rather than needing an ignore.
+  # ──────────────────────────────────────────────────────────────────────
+  flutter-checks:
+    name: flutter-checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Third-party action (de-facto standard for Flutter CI). Mutable tag; this job
+      # has no secrets and only reads the repo, so the blast radius is a broken build.
+      # Pin to a full commit SHA if that ever stops being true.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          # Keep in step with the version used locally (`flutter --version`), so CI
+          # and dev machines fail on the same lints.
+          flutter-version: "3.41.3"
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: flutter_app
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: flutter_app
+        run: flutter analyze
+
+      - name: Test
+        working-directory: flutter_app
+        run: flutter test
+
+  # ──────────────────────────────────────────────────────────────────────
   # e2e-playwright — PLACEHOLDER
   # This job is intentionally disabled via `if: false` until `tests/e2e/`
   # exists and a Playwright config is wired up. Leaving the job shell here
