@@ -33,7 +33,7 @@ description: GU Voice 生產部署（手動 railway up + vercel --prod，merge m
 2. 若改了 `backend/scripts/start.sh`：`git update-index --chmod=+x backend/scripts/start.sh`，否則 Railway 起不來
 3. 後端：`cd backend && railway up --detach --service gu-voice-app`（Dockerfile 在 `backend/`，cwd 錯會失敗；非互動 link 要在 repo 根目錄跑 `railway link -p gu-voice-api -s gu-voice-app -e production`）
 4. 前端：`cd frontend && npm run build && vercel --prod`（專案 `gu-voice`，個人 team `chuns-projects-068de742`；新 clone 先 `vercel link --yes --project gu-voice`，`.vercel/` 不入庫）。
-   ⚠️ **前端有兩份**：kiosk 現在開的是**已停用帳號** scope 下的 `project-9w0vq` / `gu-voice-jht12020304y-7696s-projects`（進不去、無法再部署）；現帳號重建的是 `gu-voice-chuns-projects-068de742.vercel.app`（2026-07-26 端到端驗證過）。三個 origin 都在 CORS 白名單，**切換 kiosk 與 `FRONTEND_BASE_URL` 待拍板**。
+   ⚠️ **唯一活的前端網址＝`gu-voice-chuns-projects-068de742.vercel.app`**。舊 scope 的 `project-9w0vq` / `gu-voice-jht12020304y-7696s-projects` 在停用帳號下無法再部署，**2026-07-26 已從 CORS 移除 → 開了會「頁面載得出來但登入沒反應」**。⚠️ kiosk 裝置必須改指新網址；`FRONTEND_BASE_URL` 仍指舊網址待改。
    ⚠️ 新 Vercel 專案預設開 Deployment Protection → 全站 **302 到 `vercel.com/sso-api`**（不是 401）。關法見 `docs/deployment_guide.md` 一、（dashboard 或 API PATCH `ssoProtection:null`）
    ⚠️ **絕不要在 `frontend/` 直接 `vercel --prod --yes` 而不指定專案**——目錄名 `frontend` 會撞到個人 team 既有的 `frontend` 專案（那是 AI_Investing），等於拿病歷系統覆蓋掉別的線上專案
 5. 驗證：`curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep` 回 `{"status":"ok"}` + Railway 部署 log。事故復原用 `railway up` 不要用 `railway redeploy`（實測後者不換容器）

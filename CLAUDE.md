@@ -31,7 +31,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 - 後端：`railway up`（在 `backend/`，服務 `gu-voice-app`／專案 `gu-voice-api`）→ 驗 `curl <host>/api/v1/healthz/deep`
 - 前端：`cd frontend && npm run build && vercel --prod`（專案 `gu-voice`，在個人 team `chuns-projects-068de742`；新 clone 要先 `vercel link --yes --project gu-voice`，`.vercel/` 不入庫）
 
-活後端域名 = `gu-voice-app-production.up.railway.app`（`api-` 是死域名）。⚠️ **前端有兩份**：kiosk 目前開的是舊 scope 的 `project-9w0vq.vercel.app`／`gu-voice-jht12020304y-7696s-projects.vercel.app`（帳號已不用、進不去）；2026-07-26 在現帳號重建並驗證的是 `gu-voice-chuns-projects-068de742.vercel.app`——**切換 kiosk 與 `FRONTEND_BASE_URL` 待拍板**，三個 origin 都已在 CORS 白名單。生產 DB = Supabase `gu-voice-prod`（ref `xobxnlvtilezridrekdm`，ap-southeast-1）；環境變數真相 = Railway `DATABASE_URL`，docs 內舊 ref（udydl…/nydhm…）已過期。細節與除錯流程見 `deploy-production` skill 與 [docs/AGENTS.md](docs/AGENTS.md)。
+活後端域名 = `gu-voice-app-production.up.railway.app`（`api-` 是死域名）。⚠️ **前端唯一活的網址＝`gu-voice-chuns-projects-068de742.vercel.app`**（Vercel 專案 `gu-voice`，2026-07-26 在現帳號重建並端到端驗證）。舊 scope 的 `project-9w0vq.vercel.app`／`gu-voice-jht12020304y-7696s-projects.vercel.app` 在停用帳號下、無法再部署，且 **2026-07-26 已從 `CORS_ORIGINS` 移除——開那兩個網址會登入失敗（CORS 擋掉所有 API）**。⚠️ **kiosk 裝置必須改指新網址**；`FRONTEND_BASE_URL`（重設密碼信連結）仍指舊網址待改。生產 DB = Supabase `gu-voice-prod`（ref `xobxnlvtilezridrekdm`，ap-southeast-1）；環境變數真相 = Railway `DATABASE_URL`，docs 內舊 ref（udydl…/nydhm…）已過期。細節與除錯流程見 `deploy-production` skill 與 [docs/AGENTS.md](docs/AGENTS.md)。
 
 ## 專案技能（.claude/skills/）
 

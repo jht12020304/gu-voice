@@ -36,13 +36,19 @@ curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep   # 期�
 cd frontend && npm run build && vercel --prod
 ```
 
-> **前端有兩份，別搞混**（2026-07-26 釐清）：
-> - **kiosk 目前開的**＝`project-9w0vq.vercel.app`／`gu-voice-jht12020304y-7696s-projects.vercel.app`
->   （同一個 deployment 的兩個 alias）。在**已停用的舊 Vercel 帳號** scope 下，現帳號
->   `jht12020304@gmail.com` 完全進不去（dashboard 404、`vercel inspect` 找不到），**無法再部署**。
-> - **現帳號重建的**＝專案 `gu-voice` → `gu-voice-chuns-projects-068de742.vercel.app`，
->   2026-07-26 建立並端到端驗證通過（登入 → dashboard → /research 撈到真實生產資料）。
-> - 三個 origin 都已在 Railway `CORS_ORIGINS`；**切換 kiosk 與 `FRONTEND_BASE_URL` 尚待拍板**。
+> **前端唯一活的網址＝`https://gu-voice-chuns-projects-068de742.vercel.app`**（2026-07-26 釐清＋切換）
+>
+> - Vercel 專案 `gu-voice`，個人 team `chuns-projects-068de742`。2026-07-26 建立並端到端驗證通過
+>   （登入 → dashboard 解析出使用者 → /research 撈到真實生產資料）。
+> - **舊網址已停用**：`project-9w0vq.vercel.app` 與 `gu-voice-jht12020304y-7696s-projects.vercel.app`
+>   （同一 deployment 的兩個 alias）在**已停用的舊 Vercel 帳號** scope 下，現帳號完全進不去
+>   （dashboard 404、`vercel inspect` 找不到），**無法再部署**；且 2026-07-26 已從
+>   Railway `CORS_ORIGINS` 移除 → **那兩個網址現在打不到 API，開了會登入失敗**。
+>   HTML 還是會載出來（Vercel 仍在服務靜態檔），所以症狀是「頁面正常但登入沒反應」。
+> - ⚠️ **kiosk 裝置的書籤／首頁必須改指新網址**，否則現場無法問診。
+> - ⚠️ `FRONTEND_BASE_URL` 仍指舊網址（影響重設密碼信的連結），待改。
+> - 移除舊 origin 前先確認沒有 `in_progress` 場次（`select status, count(*) from sessions group by status`），
+>   否則會把正在問診的病患打斷。回滾＝把舊 origin 加回 `CORS_ORIGINS`（env 改動約 1 分鐘 redeploy）。
 >
 > 新 clone 第一次要先 link（`.vercel/` 不入庫）：
 > ```bash
