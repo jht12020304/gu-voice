@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -182,3 +183,53 @@ def test_persist_exception_does_not_break_response(app_with_audit, monkeypatch):
     client = TestClient(app_with_audit)
     resp = client.post("/api/v1/auth/login")
     assert resp.status_code == 200, "persist 失敗不該影響 response"
+
+
+# ──────────────────────────────────────────────────────
+# 回歸：detached ORM instance 不可讓稽核抽取炸掉（生產 500 事故）
+# ──────────────────────────────────────────────────────
+
+def test_extract_user_id_prefers_plain_state_user_id():
+    """有 state.user_id 純值時直接用，完全不碰 ORM 物件。"""
+    from app.core.middleware import _extract_user_id
+
+    uid = uuid.uuid4()
+
+    class _Exploding:
+        @property
+        def id(self):  # pragma: no cover - 只要被讀到就是 bug
+            raise AssertionError("不該讀 ORM 物件的 .id")
+
+    req = SimpleNamespace(state=SimpleNamespace(user_id=uid, user=_Exploding()))
+    assert _extract_user_id(req) == uid
+
+
+def test_extract_user_id_survives_detached_instance_error():
+    """
+    endpoint 拋例外後 session 已 close，state.user 是 detached instance，
+    讀 .id 會拋 DetachedInstanceError。稽核抽取必須吞掉並回 None，
+    否則本該是 403/404 的回應會變成 500（2026-07-26 生產實測：所有 admin
+    端點的 AppException 都變 500，i18n 錯誤訊息從未送達）。
+    """
+    from sqlalchemy.orm.exc import DetachedInstanceError
+
+    from app.core.middleware import _extract_user_id
+
+    class _Detached:
+        @property
+        def id(self):
+            raise DetachedInstanceError("not bound to a Session")
+
+    req = SimpleNamespace(state=SimpleNamespace(user=_Detached()))
+    assert _extract_user_id(req) is None
+
+
+def test_extract_user_id_accepts_str_uuid():
+    from app.core.middleware import _extract_user_id
+
+    uid = uuid.uuid4()
+    req = SimpleNamespace(state=SimpleNamespace(user_id=str(uid)))
+    assert _extract_user_id(req) == uid
+
+    req_bad = SimpleNamespace(state=SimpleNamespace(user_id="not-a-uuid"))
+    assert _extract_user_id(req_bad) is None
