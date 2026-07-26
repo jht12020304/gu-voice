@@ -117,6 +117,10 @@ class AudioStreamService {
     unawaited(_cleanup());
   }
 
+  /// Current mute mode. The controller needs it to tell a leaked hard lock (re-assert)
+  /// from a deliberate soft-mute barge-in (let it through).
+  MuteMode get muteMode => _muteMode;
+
   void setMuted(bool muted, {MuteMode mode = MuteMode.hard}) {
     final next = muted ? mode : MuteMode.none;
     if (next == _muteMode) return;

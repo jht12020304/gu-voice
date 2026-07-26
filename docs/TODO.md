@@ -539,7 +539,8 @@
 > 入庫判定 GO 且已入庫（`feat/flutter-app-baseline`）：analyze 0 issue、test 17/17、零 secret、
 > `build/` 與 `.dart_tool/` 已正確排除。以下是入庫後要修的。
 > **動任何 voice/ 下的檔案前先讀 `voice-pipeline-invariants` skill**——G1/G3/G4/G14/G15 都是它列管的行為。
-> 2026-07-26：2 blocker（G1/G2）+ **11 條 high 全部**（G3–G13）已修並附回歸測試；**剩 22 medium**。
+> 2026-07-26：2 blocker（G1/G2）+ **11 條 high 全部**（G3–G13）+ **5 條語音 medium**（G14–G18）
+> 已修並附回歸測試；**剩 17 medium**（清單見 §G19–G35）。
 
 ### [x] G1. 🔴 紅旗中止導向錯頁（病患拿不到「告知現場醫護」）— 2026-07-26 修復
 
@@ -625,21 +626,35 @@ autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，�
 在 simulator 上真等 12 秒驗證**病患確實被登出且 token 從 Keychain 清除**（需 `runAsync` 才能讓
 真實 Timer 觸發）；simulator 實跑 timeout=10s 等 30s 確認**醫師不被登出**。
 
-### [ ] G14–G35. 🟢 medium（22 筆）
+### [x] G14–G18. 語音管線 5 條 medium — 2026-07-26 修復（PR #41）
 
-摘要（完整清單見本次審查輸出）：`pause()` 順序反了讓半句症狀消失、硬鎖無 re-assert、狀態列缺
-userPaused 分支、「我說完了」按鈕是空殼（`forceEndSegment()` 零呼叫但翻譯已入庫）、`sendText` 離線
-靜默丟棄（假氣泡不經紅旗篩檢）、G14＝紅旗與中止皆無語音播報、切語言丟 query／無進行中場次守衛／
-入口只在 4 頁、病史 `stillHas` 永遠 true、主訴「其他」未填無說明文字、/research 缺語言子群表與
-Methods 卡與 caption/n= 與圖匯出（i18n key 全已入庫未用）、醫師 /settings 直接掛病患頁、SOAP 頁
-無逐字稿分頁、生成失敗的 SOAP 無法重跑（死局）、web PDF 匯出被 catch 吞掉、`TokenStore.load()` 在
-try 外會讓非 secure context 白屏、Web secure_storage 實質等同明文 localStorage、GoRouter 缺
-onException（＝#23）、`'顯示順序'` 硬編碼（＝#27）。
+| # | 問題 | 修法 |
+|---|---|---|
+| G14 | `pause()` 先送 `pause_recording` 才 `_muteVad()`。但 hard-mute 開啟中的段落會 `_endSegment(notify:true)` → `onSpeechEnd` → 送 final chunk，**後端已暫停故丟棄** → 病患講到一半的症狀消失，且 `sttProcessing` 永遠等不到結果、狀態列整場卡在「正在辨識」 | 兩行對調：先 flush 再送 pause，最後才設 `userPaused` |
+| G15 | `onSpeechStart` 無硬鎖 re-assert → AI 出聲期間若段落仍開出來，沒有人補鎖 | 開頭判 `userPaused \|\| _pendingAiUnmute \|\| _pendingReplayUnmute` → `_muteVad(); return;`。**排除 soft-mute**，不誤殺未來的 barge-in（`AudioStreamService` 新增 `muteMode` getter 供判斷） |
+| G16 | 狀態列無 `userPaused` 分支 → 暫停中仍顯示「請直接開始說話」，叫病患做唯一做不到的事 | `userPaused` 放最優先（使用者主動的狀態最該告知） |
+| G17 | 「我說完了」是空殼：`forceEndSegment()` **零呼叫**、翻譯 `voiceControl.finishSpeaking` 早已入庫 → 每輪都白等 2 秒靜音窗 | 加第四顆按鈕 + `finishSpeaking()`；非錄音中則 disabled 而非靜默無作用 |
+| G18 | `sendText` 離線時 `_ws.send` 靜默丟棄 → 假氣泡，且**該段文字不經紅旗篩檢** | 送出前檢查連線，顯示 `input.sendOffline`（key 早已入庫） |
 
-**測試深度是獨立一條**：17 個測試只涵蓋 5 支純函式（179 行測試對 10,686 行 lib），
-`conversation_controller` / `ws_manager` / `tts_playback_controller` 零斷言——
-voice-pipeline-invariants 列管的 TTS epoch 取消與 VAD deadlock 目前無回歸防護。
-最小補法：3 條純 Dart 測試（clearQueue 後舊 epoch 不播、stopActive 讓 chain 前進、WS backoff 序列）。
+### [~] 測試深度 — 2026-07-26 部分完成（PR #41）
+
+- **已補**：`ws_manager` 的 backoff 與永久關閉碼抽成純函式 `wsRetryDelayMs` /
+  `isPermanentCloseCode` + **9 項測試**（1s→2s→4s→8s→16s→clamp 30s、首次不可為 0
+  否則瘋狂重連、`1 << 63` 溢位負值守衛、4003 forbidden_role 永久不重連、null code 要重連）
+- **仍缺**：`tts_playback_controller` 的 epoch 取消與 chain 前進。`TtsPlaybackController`
+  自己 `new AudioPlayer()`，unit test 無平台通道無法建構 → 要測必須先讓 player 可注入。
+  這是 voice-pipeline-invariants #5 唯一沒有回歸防護的地方
+- **仍缺**：`conversation_controller` 的 WS 事件→state 轉換（同樣需要注入 `_audio`/`_ws`/`_tts`）
+
+### [ ] G19–G35. 🟢 medium 剩 17 筆
+
+紅旗與中止無語音播報（flutter_tts，**且是否為必要告知層待臨床拍板**）、切語言丟 query／
+無進行中場次守衛（缺後端 `POST /sessions/{id}/end-for-language-switch`）／入口只在 4 頁、
+病史 `stillHas` 永遠 true、主訴「其他」未填無說明文字、/research 缺語言子群表與 Methods 卡與
+caption/n= 與圖匯出（i18n key 全已入庫未用）、醫師 /settings 直接掛病患頁、SOAP 頁無逐字稿分頁、
+生成失敗的 SOAP 無法重跑（死局）、web PDF 匯出被 catch 吞掉、`TokenStore.load()` 在 try 外會讓
+非 secure context 白屏、Web secure_storage 實質等同明文 localStorage、GoRouter 缺 onException
+（＝#23）、`'顯示順序'` 硬編碼（＝#27）。
 
 ### [x] H1. 忘記密碼在生產無可行路徑 — 2026-07-26 結案（管理員當面重設；email 不採用）
 

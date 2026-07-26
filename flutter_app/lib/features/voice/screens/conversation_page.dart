@@ -274,7 +274,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   Widget _statusBar(BuildContext context, ConversationState s) {
     String key;
-    if (s.isAIResponding) {
+    // userPaused first: while paused the bar used to keep saying "請直接開始說話",
+    // telling the patient to do the one thing that cannot work (TODO G-medium).
+    if (s.userPaused) {
+      key = 'conversation.voiceControl.pausedBanner';
+    } else if (s.isAIResponding) {
       key = 'conversation.status.speaking';
     } else if (s.sttProcessing) {
       key = 'conversation.status.transcribing';
@@ -344,13 +348,22 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               label: t('conversation.tts.speedLabel', args: {'rate': settings.ttsSpeed}),
               onTap: () => ref.read(settingsProvider.notifier).cycleSpeed(),
             ),
+            // "我說完了" — skip the 2s silence window. Only useful while actually
+            // recording, so it is disabled otherwise rather than silently doing nothing.
+            _iconBtn(
+              icon: Icons.done_all,
+              label: t('conversation.voiceControl.finishSpeaking'),
+              onTap: s.isRecording && !s.userPaused ? ctrl.finishSpeaking : null,
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _iconBtn({required IconData icon, required String label, required VoidCallback onTap}) {
+  /// `onTap: null` renders the button disabled (Material greys it out) — used for
+  /// "我說完了", which only makes sense mid-utterance.
+  Widget _iconBtn({required IconData icon, required String label, VoidCallback? onTap}) {
     return TextButton.icon(onPressed: onTap, icon: Icon(icon), label: Text(label));
   }
 }
