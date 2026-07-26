@@ -1,0 +1,451 @@
+import 'dart:async';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
+
+import '../../../core/config/env.dart';
+import '../../../core/i18n/loc.dart';
+import '../../../data/api/dio_client.dart';
+import '../../../data/api/sessions_api.dart';
+import '../../../data/api/token_store.dart';
+import '../../../data/models/session.dart';
+import '../models/chat_message.dart';
+import '../services/audio_session_config.dart';
+import '../services/audio_stream_service.dart';
+import '../services/tts_playback_controller.dart';
+import '../services/ws_manager.dart';
+import 'settings_notifier.dart';
+import 'vad_logic.dart';
+
+const _uuid = Uuid();
+
+class ConversationState {
+  final Session? session;
+  final List<ChatMessage> messages;
+  final bool isRecording;
+  final bool isAIResponding;
+  final bool sttProcessing;
+  final bool userPaused;
+  final String aiStreamingText;
+  final double recordingDuration;
+  final List<double> waveform;
+  final List<RedFlagEvent> redFlags;
+  final SupervisorGuidance? guidance;
+  final bool supervisorDegraded;
+  final String? error;
+  final WsConnState connection;
+  final bool noSpeechHint;
+  final bool completed;
+  final bool abortedRedFlag;
+
+  const ConversationState({
+    this.session,
+    this.messages = const [],
+    this.isRecording = false,
+    this.isAIResponding = false,
+    this.sttProcessing = false,
+    this.userPaused = false,
+    this.aiStreamingText = '',
+    this.recordingDuration = 0,
+    this.waveform = const [],
+    this.redFlags = const [],
+    this.guidance,
+    this.supervisorDegraded = false,
+    this.error,
+    this.connection = WsConnState.connecting,
+    this.noSpeechHint = false,
+    this.completed = false,
+    this.abortedRedFlag = false,
+  });
+
+  ConversationState copyWith({
+    Session? session,
+    List<ChatMessage>? messages,
+    bool? isRecording,
+    bool? isAIResponding,
+    bool? sttProcessing,
+    bool? userPaused,
+    String? aiStreamingText,
+    double? recordingDuration,
+    List<double>? waveform,
+    List<RedFlagEvent>? redFlags,
+    SupervisorGuidance? guidance,
+    bool? supervisorDegraded,
+    String? error,
+    bool clearError = false,
+    WsConnState? connection,
+    bool? noSpeechHint,
+    bool? completed,
+    bool? abortedRedFlag,
+  }) =>
+      ConversationState(
+        session: session ?? this.session,
+        messages: messages ?? this.messages,
+        isRecording: isRecording ?? this.isRecording,
+        isAIResponding: isAIResponding ?? this.isAIResponding,
+        sttProcessing: sttProcessing ?? this.sttProcessing,
+        userPaused: userPaused ?? this.userPaused,
+        aiStreamingText: aiStreamingText ?? this.aiStreamingText,
+        recordingDuration: recordingDuration ?? this.recordingDuration,
+        waveform: waveform ?? this.waveform,
+        redFlags: redFlags ?? this.redFlags,
+        guidance: guidance ?? this.guidance,
+        supervisorDegraded: supervisorDegraded ?? this.supervisorDegraded,
+        error: clearError ? null : (error ?? this.error),
+        connection: connection ?? this.connection,
+        noSpeechHint: noSpeechHint ?? this.noSpeechHint,
+        completed: completed ?? this.completed,
+        abortedRedFlag: abortedRedFlag ?? this.abortedRedFlag,
+      );
+}
+
+// The interlock: WS events -> state + imperative mic-lock/TTS side effects. Port of the
+// ConversationPage WS wiring + conversationStore. The two hard-lock bools are plain
+// fields (React refs), NEVER derived from isAIResponding (which flips false at
+// ai_response_end while TTS still plays).
+class ConversationController extends Notifier<ConversationState> {
+  late final AudioStreamService _audio;
+  late final TtsPlaybackController _tts;
+  late final WebSocketManager _ws;
+  final _sessions = SessionsApi();
+
+  bool _pendingAiUnmute = false;
+  bool _pendingReplayUnmute = false;
+  bool _redFlagAnnounced = false;
+  Timer? _noSpeechTimer;
+  bool _started = false;
+
+  @override
+  ConversationState build() {
+    ref.onDispose(_teardown);
+    return const ConversationState();
+  }
+
+  Future<void> start(Session session) async {
+    if (_started) return;
+    _started = true;
+    state = state.copyWith(session: session);
+
+    _tts = TtsPlaybackController(speed: () => ref.read(settingsProvider).ttsSpeed);
+    _audio = AudioStreamService();
+    _ws = WebSocketManager();
+
+    _registerWsHandlers();
+    _ws.resumeTokenProvider = () => _sessions.reconnectResumeToken(session.id);
+    _ws.authFailureHandler = () => ApiClient.instance.forceRefresh();
+
+    try {
+      await configureVoiceAudioSession();
+      await _audio.openMic(_audioCallbacks());
+    } catch (e) {
+      state = state.copyWith(error: _micError(e));
+    }
+
+    _ws.connect('${Env.wsBase}/sessions/${session.id}/stream', () => TokenStore.instance.accessToken);
+  }
+
+  // ---- audio (mic) side ----
+
+  AudioStreamCallbacks _audioCallbacks() => AudioStreamCallbacks(
+        onChunk: (b64, idx) =>
+            _ws.send('audio_chunk', {'audioData': b64, 'chunkIndex': idx, 'isFinal': false}),
+        onSpeechStart: () {
+          state = state.copyWith(isRecording: true, noSpeechHint: false);
+          if (state.isAIResponding) _bargeIn(); // only reachable in soft-mute mode
+        },
+        onSpeechEnd: () {
+          // terminal marker -> backend joins buffer and runs STT
+          _ws.send('audio_chunk', {'audioData': '', 'chunkIndex': -1, 'isFinal': true});
+          state = state.copyWith(isRecording: false, sttProcessing: true);
+        },
+        onWaveformData: (bars) => state = state.copyWith(waveform: bars),
+        onDurationUpdate: (s) => state = state.copyWith(recordingDuration: s),
+        onError: (e) => state = state.copyWith(error: _micError(e)),
+      );
+
+  void _muteVad() => _audio.setMuted(true, mode: MuteMode.hard);
+
+  void _unmuteIfAllowed(VadResumeTrigger trigger) {
+    final ctx = VadResumeContext(
+      userPaused: state.userPaused,
+      aiTurnLocked: _pendingAiUnmute || _pendingReplayUnmute,
+      wsDown: _ws.connectionState != WsConnState.open, // SYNCHRONOUS state, never lagged
+    );
+    if (shouldUnmuteVAD(trigger, ctx)) _audio.setMuted(false);
+  }
+
+  void _bargeIn() {
+    _tts.stopActive();
+    _tts.clearQueue();
+  }
+
+  // ---- WS event wiring ----
+
+  void _registerWsHandlers() {
+    _ws.on('_statechange', (p, _) {
+      final s = WsConnState.values.firstWhere(
+        (e) => e.name == (p as Map)['state'],
+        orElse: () => WsConnState.closed,
+      );
+      state = state.copyWith(connection: s);
+    });
+    _ws.on('_connected', (_, _) => _onConnected());
+    _ws.on('_disconnected', (_, _) => _onDisconnected());
+    _ws.on('connection_ack', (_, _) {
+      if (state.session?.status == 'waiting') {
+        state = state.copyWith(session: state.session!.copyWith(status: 'in_progress'));
+      }
+    });
+    _ws.on('ai_response_start', (p, _) => _onAiStart(p as Map));
+    _ws.on('ai_response_chunk', (p, _) => _onAiChunk(p as Map));
+    _ws.on('ai_response_end', (p, _) => _onAiEnd(p as Map));
+    _ws.on('stt_final', (p, _) => _onSttFinal(p as Map));
+    _ws.on('red_flag_alert', (p, _) => _onRedFlag(p as Map));
+    _ws.on('supervisor_guidance', (p, _) =>
+        state = state.copyWith(guidance: normalizeSupervisorGuidance(p as Map), supervisorDegraded: false));
+    _ws.on('supervisor_degraded', (_, _) => state = state.copyWith(supervisorDegraded: true));
+    _ws.on('session_status', (p, _) => _onSessionStatus(p as Map));
+    _ws.on('error', (p, _) => _onWsError(p as Map));
+    _ws.on('_auth_exhausted', (_, _) => state = state.copyWith(error: t('conversation.error.sessionInterrupted')));
+  }
+
+  void _onAiStart(Map p) {
+    final messageId = (p['messageId'] ?? _uuid.v4()) as String;
+    state = state.copyWith(sttProcessing: false, isAIResponding: true, aiStreamingText: '');
+    _addMessage(ChatMessage(
+      id: messageId,
+      sessionId: state.session?.id ?? '',
+      sender: 'assistant',
+      content: '',
+      timestamp: _nowIso(),
+      isStreaming: true,
+    ));
+    if (ref.read(settingsProvider).ttsMuted) {
+      _pendingAiUnmute = false; // no TTS => no echo, open mic at normal threshold
+      _unmuteIfAllowed(VadResumeTrigger.aiStartTtsMuted);
+    } else {
+      _pendingAiUnmute = true; // hard-lock the WHOLE AI turn
+      _muteVad();
+    }
+  }
+
+  void _onAiChunk(Map p) {
+    final id = p['messageId'] as String?;
+    final text = (p['text'] ?? '') as String;
+    final audioB64 = p['audioB64'] as String?;
+    final ttsFailed = (p['ttsFailed'] ?? false) as bool;
+
+    state = state.copyWith(aiStreamingText: state.aiStreamingText + text);
+    _mutateMessage(id, (m) {
+      if (audioB64 != null && audioB64.isNotEmpty) m.ttsAudioChunks.add(audioB64); // cache always
+      return m.copyWith(content: m.content + text, hasTtsFailure: ttsFailed ? true : m.hasTtsFailure);
+    });
+    if (audioB64 != null && audioB64.isNotEmpty && !ref.read(settingsProvider).ttsMuted) {
+      _tts.enqueue(audioB64); // auto-play only when not muted
+    }
+  }
+
+  void _onAiEnd(Map p) {
+    final id = p['messageId'] as String?;
+    final fullText = (p['fullText'] ?? '') as String;
+    state = state.copyWith(isAIResponding: false, aiStreamingText: '');
+    _mutateMessage(id, (m) => m.copyWith(content: fullText.isNotEmpty ? fullText : m.content, isStreaming: false));
+    // Tail = LAST queue step: clear lock + unmute, but only if the epoch still matches
+    // (a barge-in/mute/replay that bumped the epoch means a new owner released instead).
+    final capturedEpoch = _tts.epoch;
+    _tts.appendTail(capturedEpoch, () {
+      _pendingAiUnmute = false;
+      _unmuteIfAllowed(VadResumeTrigger.aiTtsDone);
+    });
+  }
+
+  void _onSttFinal(Map p) {
+    final text = ((p['text'] ?? '') as String).trim();
+    state = state.copyWith(sttProcessing: false);
+    if (text.isEmpty) {
+      if (!state.userPaused) _flashNoSpeechHint();
+      _unmuteIfAllowed(VadResumeTrigger.emptyStt); // backend sends no AI reply for empty STT
+    } else {
+      final conf = p['confidence'];
+      _addMessage(ChatMessage(
+        id: (p['messageId'] ?? _uuid.v4()) as String,
+        sessionId: state.session?.id ?? '',
+        sender: 'patient',
+        content: text,
+        timestamp: _nowIso(),
+        sttConfidence: conf is num ? conf.toDouble() : null,
+      ));
+    }
+  }
+
+  void _onRedFlag(Map p) {
+    final actions = p['suggestedActions'];
+    state = state.copyWith(redFlags: [
+      ...state.redFlags,
+      RedFlagEvent(
+        id: (p['alertId'] ?? _uuid.v4()) as String,
+        title: (p['title'] ?? '') as String,
+        description: p['description'] as String?,
+        severity: (p['severity'] ?? 'medium') as String,
+        suggestedActions: actions is List ? actions.cast<String>() : const [],
+      ),
+    ]);
+    // ponytail: critical red-flag spoken alert (flutter_tts) deferred — the banner + the
+    // aborted_red_flag thank-you page already surface it. One-shot guard preserved so a
+    // future spoken alert fires exactly once per session.
+    if (p['severity'] == 'critical' && !_redFlagAnnounced) {
+      _redFlagAnnounced = true;
+      // TODO(voice): speak ws.events.session.aborted_red_flag once (flutter_tts).
+    }
+  }
+
+  void _onSessionStatus(Map p) {
+    final status = p['status'] as String?;
+    if (status == 'completed') {
+      state = state.copyWith(completed: true);
+    } else if (status == 'aborted_red_flag') {
+      state = state.copyWith(completed: true, abortedRedFlag: true);
+    } else if (status == 'failed') {
+      state = state.copyWith(error: _wsCode(p));
+    }
+  }
+
+  void _onWsError(Map p) {
+    state = state.copyWith(sttProcessing: false, error: _wsCode(p));
+    _pendingAiUnmute = false;
+    _pendingReplayUnmute = false;
+    _unmuteIfAllowed(VadResumeTrigger.wsError);
+  }
+
+  void _onConnected() {
+    _pendingAiUnmute = false;
+    _pendingReplayUnmute = false;
+    _tts.stopActive();
+    _tts.clearQueue();
+    if (state.userPaused) {
+      _ws.send('control', {'action': 'pause_recording'}); // backend is_paused resets per connection
+    } else {
+      _unmuteIfAllowed(VadResumeTrigger.reconnected);
+    }
+  }
+
+  void _onDisconnected() {
+    _tts.stopActive();
+    _tts.clearQueue();
+    _muteVad(); // mute LAST: the dead connection must not capture speaker echo
+    state = state.copyWith(sttProcessing: false);
+  }
+
+  // ---- user controls ----
+
+  void pause() {
+    state = state.copyWith(userPaused: true);
+    _ws.send('control', {'action': 'pause_recording'});
+    _muteVad();
+  }
+
+  void resume() {
+    state = state.copyWith(userPaused: false);
+    _ws.send('control', {'action': 'resume_recording'});
+    _unmuteIfAllowed(VadResumeTrigger.userResume);
+  }
+
+  void endSession() => _ws.send('control', {'action': 'end_session'});
+
+  // Text-input fallback (noisy kiosk / STT failure / speech impairment): runs the SAME
+  // red-flag/LLM/TTS pipeline as voice. Optimistically add the patient bubble.
+  void sendText(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    _addMessage(ChatMessage(
+      id: _uuid.v4(),
+      sessionId: state.session?.id ?? '',
+      sender: 'patient',
+      content: trimmed,
+      timestamp: _nowIso(),
+    ));
+    _ws.send('text_message', {'text': trimmed});
+    state = state.copyWith(sttProcessing: true);
+  }
+
+  void acknowledgeRedFlag(String id) {
+    state = state.copyWith(redFlags: [
+      for (final f in state.redFlags)
+        if (f.id == id) (f..isAcknowledged = true) else f,
+    ]);
+  }
+
+  // Called after settings.toggleTtsMuted(). Toggling INTO mute must let the patient keep
+  // talking: stop + flush the queue, drop the AI lock, and unmute.
+  void onTtsMuteToggled(bool nowMuted) {
+    if (nowMuted) {
+      _tts.stopActive();
+      _tts.clearQueue();
+      _pendingAiUnmute = false;
+      _unmuteIfAllowed(VadResumeTrigger.ttsMuteToggle);
+    }
+  }
+
+  void replay(String messageId) {
+    final msg = state.messages.where((m) => m.id == messageId).firstOrNull;
+    if (msg == null || msg.ttsAudioChunks.isEmpty) return;
+    _tts.stopActive();
+    _tts.clearQueue();
+    if (!state.isAIResponding) _pendingAiUnmute = false; // its stale tail was just invalidated
+    _pendingReplayUnmute = true;
+    _muteVad();
+    for (final chunk in msg.ttsAudioChunks) {
+      _tts.enqueue(chunk);
+    }
+    final capturedEpoch = _tts.epoch;
+    _tts.appendTail(capturedEpoch, () {
+      _pendingReplayUnmute = false;
+      _unmuteIfAllowed(VadResumeTrigger.replayEnd);
+    });
+  }
+
+  // ---- helpers ----
+
+  void _addMessage(ChatMessage m) => state = state.copyWith(messages: [...state.messages, m]);
+
+  void _mutateMessage(String? id, ChatMessage Function(ChatMessage) f) {
+    if (id == null) return;
+    state = state.copyWith(
+      messages: [for (final m in state.messages) if (m.id == id) f(m) else m],
+    );
+  }
+
+  void _flashNoSpeechHint() {
+    state = state.copyWith(noSpeechHint: true);
+    _noSpeechTimer?.cancel();
+    _noSpeechTimer = Timer(const Duration(seconds: 4), () {
+      state = state.copyWith(noSpeechHint: false);
+    });
+  }
+
+  String _wsCode(Map p) {
+    final code = p['code'] as String?;
+    if (code == null) return t('conversation.error.aiUnavailable');
+    return t('ws.$code', args: (p['params'] as Map?)?.cast<String, Object?>());
+  }
+
+  String _micError(Object e) => t('conversation.error.micGeneric', args: {'message': e.toString()});
+
+  String _nowIso() => DateTime.now().toUtc().toIso8601String();
+
+  Future<void> _teardown() async {
+    _noSpeechTimer?.cancel();
+    if (!_started) return;
+    _ws.disconnect();
+    _audio.closeMic();
+    await _tts.dispose();
+    await _audio.dispose();
+  }
+}
+
+final conversationControllerProvider =
+    NotifierProvider<ConversationController, ConversationState>(ConversationController.new);
+
+extension _FirstOrNull<E> on Iterable<E> {
+  E? get firstOrNull => isEmpty ? null : first;
+}

@@ -1,0 +1,155 @@
+{
+  "sidebar": {
+    "sections": {
+      "tools": "Công cụ",
+      "data": "Dữ liệu",
+      "admin": "Quản trị",
+      "other": "Khác"
+    },
+    "nav": {
+      "dashboard": "Bảng điều khiển",
+      "research": "Phân tích nghiên cứu",
+      "tryConversation": "Trải nghiệm luồng hội thoại",
+      "patients": "Danh sách bệnh nhân",
+      "soapReports": "Báo cáo SOAP",
+      "redFlagAlerts": "Cảnh báo cờ đỏ",
+      "userManagement": "Quản lý người dùng",
+      "complaintTemplates": "Quản lý mẫu lý do khám",
+      "systemHealth": "Trạng thái hệ thống",
+      "auditLogs": "Nhật ký kiểm tra",
+      "settings": "Cài đặt",
+      "sessions": "Hồ sơ khám"
+    }
+  },
+  "alert": {
+    "acknowledged": "Đã xử lý",
+    "pending": "Chờ xử lý",
+    "chiefComplaintLabel": "Lý do khám: {{value}}",
+    "sessionStatusLabel": "Trạng thái phiên: {{value}}",
+    "triggerLabel": "Kích hoạt: {{value}}",
+    "suggestedActions": "Đề xuất {{count}} hành động",
+    "viewDetail": "Xem chi tiết",
+    "acknowledge": "Xác nhận xử lý",
+    "acknowledgeConfirm": "Đánh dấu cảnh báo cờ đỏ này là đã xử lý? Thao tác này không thể hoàn tác.",
+    "acknowledgedBadge": "✓ Đã xác nhận",
+    "detail": {
+      "loadError": "Không thể tải chi tiết cảnh báo",
+      "acknowledgeSuccess": "Đã đánh dấu là đã xử lý",
+      "acknowledgeError": "Xác nhận cảnh báo thất bại",
+      "loading": "Đang tải chi tiết cảnh báo...",
+      "notFound": "Không tìm thấy cảnh báo",
+      "unknownPatient": "Bệnh nhân không xác định",
+      "title": "Chi tiết cảnh báo",
+      "acknowledgedBadge": "Đã xử lý",
+      "triggerKeywords": "Từ khóa kích hoạt",
+      "noKeywords": "Không có dữ liệu từ khóa cho cảnh báo này",
+      "llmAnalysis": "Phân tích ngữ nghĩa LLM",
+      "noLlmAnalysis": "Không có phân tích ngữ nghĩa bổ sung",
+      "suggestedActions": "Hành động đề xuất",
+      "noSuggestedActions": "Không có hành động đề xuất",
+      "trackingTitle": "Theo dõi sự kiện & bệnh nhân",
+      "affectedPatient": "Bệnh nhân liên quan",
+      "occurredAt": "Thời điểm xảy ra",
+      "sessionIdLabel": "ID phiên liên quan",
+      "acknowledgedHeading": "Đã xử lý",
+      "actionTakenLabel": "Hành động đã thực hiện",
+      "noActionRecorded": "Chưa ghi nhận hành động",
+      "actionTakenPlaceholder": "Ví dụ: Đã sắp xếp khám ngay và báo bác sĩ điều trị",
+      "notesLabel": "Ghi chú (tùy chọn)",
+      "notesPlaceholder": "Ghi chú bổ sung",
+      "acknowledging": "Đang xử lý...",
+      "acknowledgeButton": "Đánh dấu đã xử lý",
+      "goToSession": "Đến chi tiết phiên"
+    },
+    "newAlertToast": "Có {{count}} cảnh báo cờ đỏ mới cần xử lý"
+  },
+  "alertList": {
+    "eyebrow": "Không gian phân loại",
+    "subtitle": "Xử lý các cảnh báo chưa xử lý trước, sau đó xem thêm phiên khám và biên bản hội thoại. Trang này được thiết kế để giúp bạn tìm ra người cần ưu tiên xử lý trước, thay vì liệt kê mọi cảnh báo trên cùng một lớp.",
+    "unacknowledgedBanner": "Hiện có {{count}} cảnh báo chưa xử lý",
+    "filters": {
+      "all": "Tất cả",
+      "unacknowledged": "Chưa xử lý",
+      "acknowledged": "Đã xử lý"
+    },
+    "summary": {
+      "totalTitle": "Tổng cảnh báo",
+      "totalHelper": "Tổng số cảnh báo hiện có trong hệ thống",
+      "unacknowledgedHelper": "Vẫn đang chờ bác sĩ xác nhận hoặc ghi chú",
+      "acknowledgedHelper": "Đã được bác sĩ xác nhận xử lý",
+      "currentTitle": "Kết quả hiện tại",
+      "currentHelperFiltered": "Đã áp dụng bộ lọc tìm kiếm",
+      "currentHelperDefault": "Số lượng theo bộ lọc hiện tại"
+    },
+    "searchPlaceholder": "Tìm theo bệnh nhân, lý do khám hoặc tiêu đề cảnh báo",
+    "updating": "Đang cập nhật dữ liệu cảnh báo...",
+    "emptyTitle": "Không có cảnh báo",
+    "emptyMessage": "Không có cảnh báo cờ đỏ nào khớp với điều kiện",
+    "groupCount": "{{count}} cảnh báo",
+    "unknownComplaintFetchFailed": "Không lấy được lý do khám",
+    "sessionStatus": {
+      "waiting": "Đang chờ",
+      "inProgress": "Đang khám",
+      "completed": "Đã hoàn tất",
+      "abortedRedFlag": "Dừng do cờ đỏ",
+      "cancelled": "Đã hủy"
+    }
+  },
+  "transcript": {
+    "title": "Biên bản hội thoại khám",
+    "emptyTitle": "Hiện chưa có nội dung hội thoại để xem",
+    "loading": "Đang tải biên bản hội thoại...",
+    "messageCount": "{{count}} tin nhắn",
+    "summary": "{{patientCount}} bệnh nhân / {{assistantCount}} AI",
+    "viewFull": "Xem toàn bộ hội thoại (còn {{count}} tin)...",
+    "searchPlaceholder": "Tìm trong biên bản",
+    "filter": {
+      "all": "Tất cả",
+      "patient": "Bệnh nhân",
+      "assistant": "AI"
+    },
+    "visibleCount": "Hiển thị {{visible}} / {{total}} tin",
+    "noMatches": "Không có biên bản nào khớp với điều kiện",
+    "redFlag": "Cờ đỏ",
+    "lowConfidence": "Độ tin cậy thấp",
+    "sttConfidence": "Độ tin cậy STT: {{value}}%",
+    "roles": {
+      "patient": "Bệnh nhân",
+      "assistant": "Trợ lý AI",
+      "system": "Hệ thống"
+    }
+  },
+  "reportList": {
+    "eyebrow": "Không gian xét duyệt",
+    "subtitle": "Xem tập trung các bản tóm tắt hỏi bệnh AI, báo cáo chờ duyệt và hồ sơ trả về chỉnh sửa. Hãy bắt đầu từ mục chờ duyệt, sau đó quay lại biên bản để đối chiếu căn cứ nội dung.",
+    "displayCount": "Đang hiển thị {{count}} báo cáo",
+    "tabs": {
+      "all": "Tất cả",
+      "pending": "Chờ duyệt",
+      "approved": "Đã duyệt",
+      "revisionNeeded": "Cần chỉnh sửa"
+    },
+    "summaryTotal": "Tất cả báo cáo",
+    "groupCount": "{{count}} báo cáo",
+    "emptyTitle": "Không có báo cáo",
+    "emptyMessage": "Không có báo cáo SOAP nào khớp với điều kiện",
+    "redFlagBadge": "Phiên cờ đỏ",
+    "chiefComplaintLabel": "Lý do khám: {{value}}",
+    "sessionStatusLabel": "Trạng thái phiên: {{value}}",
+    "complaintEmpty": "Chưa nhập lý do khám",
+    "complaintFetchFailed": "Không lấy được lý do khám",
+    "summaryEmpty": "Chưa có nội dung tóm tắt AI.",
+    "aiConfidence": "Độ tin cậy AI {{percent}}%",
+    "revisionReason": "Lý do trả về",
+    "reportTime": "Thời gian báo cáo",
+    "searchPlaceholder": "Tìm theo tên bệnh nhân hoặc mã bệnh án"
+  },
+  "notifications": {
+    "title": "Trung tâm thông báo",
+    "subtitle": "Xem cảnh báo cờ đỏ, báo cáo hoàn tất và thông báo hệ thống",
+    "markAllRead": "Đánh dấu tất cả đã đọc",
+    "emptyTitle": "Không có thông báo",
+    "emptyMessage": "Hiện không có thông báo hệ thống mới",
+    "unreadBadge": "Chưa đọc"
+  }
+}

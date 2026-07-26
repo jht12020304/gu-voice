@@ -1,0 +1,80 @@
+{
+  "title": "AI 問診",
+  "endSession": "結束問診",
+  "loading": "載入對話...",
+  "onboarding": {
+    "hint": "直接說話就行，不用按按鈕"
+  },
+  "status": {
+    "notStarted": "問診尚未開始",
+    "aiResponding": "AI 回應中...",
+    "transcribing": "正在辨識你說的話…",
+    "noSpeechDetected": "剛才沒有聽清楚，請再說一次",
+    "listening": "正在聆聽你說話 {{duration}}",
+    "idle": "請直接開始說話，我會自動聽取",
+    "thinking": "AI 正在思考...",
+    "speaking": "說話中"
+  },
+  "scroll": {
+    "latest": "最新訊息",
+    "latestWithCount": "最新訊息 ({{count}})"
+  },
+  "tts": {
+    "failed": "語音合成失敗",
+    "replayAria": "重新播放 AI 語音",
+    "replayTitle": "點擊重新播放語音",
+    "muteLabel": "靜音 AI 語音",
+    "unmuteLabel": "開啟 AI 語音",
+    "speedLabel": "語速 {{rate}}x",
+    "play": "播放",
+    "playAria": "播放這則 AI 回覆的語音"
+  },
+  "voiceControl": {
+    "pause": "暫停收音",
+    "resume": "繼續收音",
+    "pausedBanner": "收音已暫停，現在說話不會被錄音。準備好後請點「繼續收音」。",
+    "finishSpeaking": "我說完了"
+  },
+  "input": {
+    "textPlaceholder": "聽不清楚？也可以直接打字",
+    "send": "送出",
+    "sendOffline": "連線中斷，訊息尚未送出，請待重新連線後再送"
+  },
+  "redFlag": {
+    "more": "+{{count}} 項其他警示"
+  },
+  "supervisor": {
+    "hintLabel": "接下來會問",
+    "missingLabel": "尚待了解：",
+    "degraded": "即時引導暫時無法使用，但您的問診仍照常進行。",
+    "hpi": {
+      "onset": "發生時間",
+      "location": "部位",
+      "duration": "持續時間",
+      "characteristics": "性質",
+      "severity": "嚴重程度",
+      "aggravating_factors": "加重因素",
+      "relieving_factors": "緩解因素",
+      "associated_symptoms": "伴隨症狀",
+      "timing": "時間規律",
+      "context": "情境"
+    }
+  },
+  "error": {
+    "loadFailed": "無法載入對話",
+    "sessionInterrupted": "問診中斷，請重新開始",
+    "aiUnavailable": "AI 服務暫時無法回應，請稍後再試",
+    "disconnected": "連線中斷，正在重新連線...",
+    "audioTooLong": "錄音時間過長，已自動結束",
+    "micPermission": "請在瀏覽器設定允許麥克風權限，然後重新載入頁面",
+    "micNotFound": "找不到麥克風裝置，請確認已連接麥克風",
+    "micGeneric": "麥克風發生錯誤：{{message}}"
+  },
+  "mockMessages": {
+    "systemStart": "問診開始 — 主訴: {{complaint}}"
+  },
+  "connection": {
+    "reconnecting": "連線中斷，重新連線中…",
+    "retry": "重試"
+  }
+}

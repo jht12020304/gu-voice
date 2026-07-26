@@ -1,0 +1,155 @@
+{
+  "sidebar": {
+    "sections": {
+      "tools": "Tools",
+      "data": "Data",
+      "admin": "Administration",
+      "other": "Other"
+    },
+    "nav": {
+      "dashboard": "Dashboard",
+      "research": "Research analytics",
+      "tryConversation": "Try conversation flow",
+      "patients": "Patients",
+      "soapReports": "SOAP reports",
+      "redFlagAlerts": "Red-flag alerts",
+      "userManagement": "User management",
+      "complaintTemplates": "Complaint templates",
+      "systemHealth": "System health",
+      "auditLogs": "Audit logs",
+      "settings": "Settings",
+      "sessions": "Consultation Records"
+    }
+  },
+  "alert": {
+    "acknowledged": "Acknowledged",
+    "pending": "Pending",
+    "chiefComplaintLabel": "Chief complaint: {{value}}",
+    "sessionStatusLabel": "Session status: {{value}}",
+    "triggerLabel": "Trigger: {{value}}",
+    "suggestedActions": "{{count}} suggested actions",
+    "viewDetail": "View detail",
+    "acknowledge": "Acknowledge",
+    "acknowledgeConfirm": "Mark this red-flag alert as acknowledged? This cannot be undone.",
+    "acknowledgedBadge": "✓ Acknowledged",
+    "detail": {
+      "loadError": "Failed to load alert details",
+      "acknowledgeSuccess": "Marked as acknowledged",
+      "acknowledgeError": "Failed to acknowledge alert",
+      "loading": "Loading alert details...",
+      "notFound": "Alert not found",
+      "unknownPatient": "Unknown patient",
+      "title": "Alert Details",
+      "acknowledgedBadge": "Acknowledged",
+      "triggerKeywords": "Trigger Keywords",
+      "noKeywords": "No keyword data for this alert",
+      "llmAnalysis": "LLM Semantic Analysis",
+      "noLlmAnalysis": "No additional semantic analysis",
+      "suggestedActions": "Suggested Actions",
+      "noSuggestedActions": "No suggested actions",
+      "trackingTitle": "Event Tracking & Patient",
+      "affectedPatient": "Affected Patient",
+      "occurredAt": "Occurred At",
+      "sessionIdLabel": "Related Session ID",
+      "acknowledgedHeading": "Acknowledged",
+      "actionTakenLabel": "Action Taken",
+      "noActionRecorded": "No action recorded",
+      "actionTakenPlaceholder": "e.g. Arranged immediate care and notified the attending physician",
+      "notesLabel": "Notes (optional)",
+      "notesPlaceholder": "Additional notes",
+      "acknowledging": "Processing...",
+      "acknowledgeButton": "Mark as Acknowledged",
+      "goToSession": "Go to Session Details"
+    },
+    "newAlertToast": "{{count}} new red-flag alert(s) awaiting review"
+  },
+  "alertList": {
+    "eyebrow": "Triage Workspace",
+    "subtitle": "Handle unacknowledged alerts first, then dig into the session and transcript. This page is designed to surface who needs attention first, rather than flattening every alert into the same layer.",
+    "unacknowledgedBanner": "{{count}} unacknowledged",
+    "filters": {
+      "all": "All",
+      "unacknowledged": "Unacknowledged",
+      "acknowledged": "Acknowledged"
+    },
+    "summary": {
+      "totalTitle": "Total Alerts",
+      "totalHelper": "Total alerts currently in the system",
+      "unacknowledgedHelper": "Still awaiting physician acknowledgment",
+      "acknowledgedHelper": "Already acknowledged by a physician",
+      "currentTitle": "Current Results",
+      "currentHelperFiltered": "Search filter applied",
+      "currentHelperDefault": "Number of items under the current filter"
+    },
+    "searchPlaceholder": "Search patient, chief complaint, or alert title",
+    "updating": "Refreshing alert data...",
+    "emptyTitle": "No Alerts",
+    "emptyMessage": "No red-flag alerts match the current filters",
+    "groupCount": "{{count}} alerts",
+    "unknownComplaintFetchFailed": "Chief complaint unavailable",
+    "sessionStatus": {
+      "waiting": "Waiting",
+      "inProgress": "In Consultation",
+      "completed": "Completed",
+      "abortedRedFlag": "Aborted (Red Flag)",
+      "cancelled": "Cancelled"
+    }
+  },
+  "transcript": {
+    "title": "Consultation transcript",
+    "emptyTitle": "No conversation content to display",
+    "loading": "Loading conversation...",
+    "messageCount": "{{count}} messages",
+    "summary": "{{patientCount}} patient / {{assistantCount}} AI",
+    "viewFull": "View full transcript ({{count}} more)...",
+    "searchPlaceholder": "Search transcript",
+    "filter": {
+      "all": "All",
+      "patient": "Patient",
+      "assistant": "AI"
+    },
+    "visibleCount": "Showing {{visible}} / {{total}} messages",
+    "noMatches": "No transcript matches the filters",
+    "redFlag": "Red flag",
+    "lowConfidence": "Low STT confidence",
+    "sttConfidence": "STT confidence: {{value}}%",
+    "roles": {
+      "patient": "Patient",
+      "assistant": "AI assistant",
+      "system": "System"
+    }
+  },
+  "reportList": {
+    "eyebrow": "Review Workspace",
+    "subtitle": "Review AI consultation summaries, reports awaiting review, and revision requests in one place. Start with the pending queue, then return to the transcript to verify the supporting evidence.",
+    "displayCount": "Showing {{count}} reports",
+    "tabs": {
+      "all": "All",
+      "pending": "Pending",
+      "approved": "Approved",
+      "revisionNeeded": "Revision needed"
+    },
+    "summaryTotal": "All reports",
+    "groupCount": "{{count}} reports",
+    "emptyTitle": "No reports",
+    "emptyMessage": "No SOAP reports match the current filters",
+    "redFlagBadge": "Red-flag session",
+    "chiefComplaintLabel": "Chief complaint: {{value}}",
+    "sessionStatusLabel": "Session status: {{value}}",
+    "complaintEmpty": "No chief complaint",
+    "complaintFetchFailed": "Chief complaint unavailable",
+    "summaryEmpty": "No AI summary available yet.",
+    "aiConfidence": "AI confidence {{percent}}%",
+    "revisionReason": "Revision reason",
+    "reportTime": "Report time",
+    "searchPlaceholder": "Search patient name or MRN"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "subtitle": "View red-flag alerts, completed reports, and system notifications",
+    "markAllRead": "Mark all as read",
+    "emptyTitle": "No notifications",
+    "emptyMessage": "There are no new system notifications",
+    "unreadBadge": "Unread"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "title": "AI 문진",
+  "endSession": "문진 종료",
+  "loading": "대화를 불러오는 중...",
+  "onboarding": {
+    "hint": "버튼을 누르지 않아도 그냥 말씀해 주세요"
+  },
+  "status": {
+    "notStarted": "문진이 아직 시작되지 않았습니다",
+    "aiResponding": "AI가 응답하는 중...",
+    "transcribing": "말씀하신 내용을 인식하는 중…",
+    "noSpeechDetected": "잘 듣지 못했습니다. 다시 한번 말씀해 주세요",
+    "listening": "듣고 있어요 {{duration}}",
+    "idle": "편하게 말씀해 주세요. 자동으로 듣고 있습니다",
+    "thinking": "AI가 생각하는 중...",
+    "speaking": "말하는 중"
+  },
+  "scroll": {
+    "latest": "최신 메시지",
+    "latestWithCount": "최신 메시지 ({{count}})"
+  },
+  "tts": {
+    "failed": "음성 합성에 실패했습니다",
+    "replayAria": "AI 음성 다시 재생",
+    "replayTitle": "클릭하여 음성을 다시 재생합니다",
+    "muteLabel": "AI 음성 음소거",
+    "unmuteLabel": "AI 음성 켜기",
+    "speedLabel": "속도 {{rate}}x",
+    "play": "재생",
+    "playAria": "이 AI 응답 재생"
+  },
+  "voiceControl": {
+    "pause": "음성 인식 일시정지",
+    "resume": "음성 인식 다시 시작",
+    "pausedBanner": "음성 인식이 일시정지되었습니다. 지금 말씀하시는 내용은 기록되지 않습니다. 준비되시면 \"음성 인식 다시 시작\"을 눌러 주세요.",
+    "finishSpeaking": "다 말했어요"
+  },
+  "input": {
+    "textPlaceholder": "잘 안 들리면 직접 입력할 수도 있습니다",
+    "send": "보내기",
+    "sendOffline": "연결이 끊겨 메시지가 전송되지 않았습니다. 재연결 후 다시 시도하세요."
+  },
+  "redFlag": {
+    "more": "+{{count}}건의 다른 경고"
+  },
+  "supervisor": {
+    "hintLabel": "다음에 여쭤볼 내용",
+    "missingLabel": "아직 확인할 항목:",
+    "degraded": "실시간 안내를 일시적으로 사용할 수 없지만, 문진은 평소와 같이 계속됩니다.",
+    "hpi": {
+      "onset": "발생 시점",
+      "location": "부위",
+      "duration": "지속 시간",
+      "characteristics": "양상",
+      "severity": "중증도",
+      "aggravating_factors": "악화 요인",
+      "relieving_factors": "완화 요인",
+      "associated_symptoms": "동반 증상",
+      "timing": "시간적 양상",
+      "context": "상황"
+    }
+  },
+  "error": {
+    "loadFailed": "대화를 불러올 수 없습니다",
+    "sessionInterrupted": "문진이 중단되었습니다. 다시 시작해 주세요",
+    "aiUnavailable": "AI 서비스가 일시적으로 응답할 수 없습니다. 잠시 후 다시 시도해 주세요",
+    "disconnected": "연결이 끊어졌습니다. 다시 연결 중...",
+    "audioTooLong": "녹음 시간이 너무 길어 자동으로 종료되었습니다",
+    "micPermission": "브라우저 설정에서 마이크 권한을 허용한 뒤 페이지를 새로고침해 주세요",
+    "micNotFound": "마이크 장치를 찾을 수 없습니다. 마이크가 연결되어 있는지 확인해 주세요",
+    "micGeneric": "마이크 오류가 발생했습니다: {{message}}"
+  },
+  "mockMessages": {
+    "systemStart": "문진 시작 — 주호소: {{complaint}}"
+  },
+  "connection": {
+    "reconnecting": "연결이 끊어졌습니다. 다시 연결하는 중…",
+    "retry": "다시 시도"
+  }
+}

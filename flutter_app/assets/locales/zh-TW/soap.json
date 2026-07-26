@@ -1,0 +1,240 @@
+{
+  "section": {
+    "subjective": {
+      "title": "主觀",
+      "subtitle": "Subjective"
+    },
+    "objective": {
+      "title": "客觀",
+      "subtitle": "Objective"
+    },
+    "assessment": {
+      "title": "評估",
+      "subtitle": "Assessment"
+    },
+    "plan": {
+      "title": "計畫",
+      "subtitle": "Plan"
+    }
+  },
+  "common": {
+    "empty": "尚無資料",
+    "none": "無",
+    "abnormal": "異常",
+    "normal": "正常",
+    "cancel": "取消",
+    "confirm": "確認",
+    "processing": "處理中..."
+  },
+  "page": {
+    "reviewEyebrow": "報告審閱",
+    "title": "SOAP 報告",
+    "loadingReport": "載入報告...",
+    "notGenerated": "報告尚未產生",
+    "clinicalSummaryEyebrow": "臨床摘要",
+    "noSummary": "目前尚無可顯示的摘要。"
+  },
+  "actions": {
+    "viewSession": "查看場次",
+    "viewPatient": "病患資料"
+  },
+  "reportStatus": {
+    "generated": "已產生",
+    "generating": "產生中",
+    "failed": "失敗"
+  },
+  "reviewStatus": {
+    "approved": "已核准",
+    "revisionNeeded": "需修改",
+    "pending": "待審閱"
+  },
+  "meta": {
+    "redFlagSession": "紅旗場次",
+    "redFlagLoadFailedBadge": "⚠ 紅旗狀態載入失敗"
+  },
+  "metaCard": {
+    "patient": "病患",
+    "complaint": "主訴",
+    "sessionStatus": "場次狀態",
+    "report": "報告",
+    "createdHelper": "場次建立 {{date}}",
+    "completedAt": "完成於 {{date}}",
+    "startedAt": "開始於 {{date}}",
+    "noTimeInfo": "尚未取得時間資訊",
+    "notGeneratedTime": "尚未產生時間",
+    "reviewStatusHelper": "審閱狀態：{{status}}",
+    "awaitingReview": "等待醫師審閱"
+  },
+  "highlights": {
+    "positive": { "title": "重要陽性", "empty": "目前沒有整理出明確的陽性症狀。" },
+    "negative": { "title": "重要陰性", "empty": "目前沒有整理出明確的陰性症狀。" },
+    "riskFactors": { "title": "風險因子", "empty": "目前沒有明顯風險因子。" },
+    "impression": { "title": "初步判斷", "empty": "目前沒有整理出明確判斷。" }
+  },
+  "diagnosis": {
+    "title": "診斷索引",
+    "empty": "目前沒有 ICD-10 編碼。",
+    "unverified": "ICD-10 未驗證，請醫師確認"
+  },
+  "redFlag": {
+    "title": "紅旗註記",
+    "defaultReason": "此場次曾觸發紅旗警示，建議審閱時特別核對摘要與逐字稿。",
+    "loadFailedTitle": "紅旗狀態載入失敗",
+    "loadFailedDescription": "無法載入此場次的紅旗狀態，請重新整理頁面後再核對，切勿逕自當作「無紅旗」。"
+  },
+  "reviewNotesCard": {
+    "title": "審閱備註",
+    "reviewedAtLabel": "審閱時間：{{date}}"
+  },
+  "tabs": {
+    "report": "SOAP 結構化報告",
+    "transcript": "對話逐字稿"
+  },
+  "review": {
+    "actionEyebrow": "審閱動作",
+    "instructions": "請先確認摘要、評估與計畫能回到逐字稿找到依據，再決定核准或退回修改。",
+    "approveButton": "確認報告",
+    "rejectButton": "退回修改",
+    "approveDescription": "確認此 SOAP 報告可作為正式臨床摘要？如有補充可留下備註。",
+    "rejectDescription": "請填寫需要修改的原因，這會作為退回修正的依據。",
+    "approveNotesPlaceholder": "輸入審閱備註（選填）...",
+    "rejectNotesPlaceholder": "請輸入退回修改原因...",
+    "notesRequiredError": "退回修改時必須填寫原因。",
+    "submitError": "審閱送出失敗，請稍後再試。"
+  },
+  "subjective": {
+    "chiefComplaint": "主訴 Chief Complaint",
+    "hpi": {
+      "title": "現病史 HPI",
+      "onset": "發病時間",
+      "location": "部位",
+      "duration": "持續時間",
+      "severity": "嚴重度",
+      "timing": "發作頻率",
+      "context": "情境",
+      "characteristics": "特徵描述",
+      "aggravatingFactors": "加重因素",
+      "relievingFactors": "緩解因素",
+      "associatedSymptoms": "伴隨症狀"
+    },
+    "pastMedicalHistory": {
+      "title": "過去病史",
+      "conditions": "疾病",
+      "surgeries": "手術史",
+      "hospitalizations": "住院史"
+    },
+    "medicationHistory": {
+      "title": "用藥史",
+      "current": "目前用藥",
+      "past": "過去用藥",
+      "otc": "非處方藥"
+    },
+    "systemReview": {
+      "title": "系統回顧"
+    },
+    "socialHistory": {
+      "title": "社會史"
+    }
+  },
+  "objective": {
+    "vitalSigns": {
+      "title": "生命徵象",
+      "labels": {
+        "bloodPressure": "血壓",
+        "heartRate": "心率",
+        "respiratoryRate": "呼吸速率",
+        "temperature": "體溫",
+        "spo2": "血氧"
+      },
+      "units": {
+        "bloodPressure": "mmHg",
+        "heartRate": "bpm",
+        "respiratoryRate": "次/分",
+        "temperature": "°C",
+        "spo2": "%"
+      }
+    },
+    "physicalExam": {
+      "title": "理學檢查"
+    },
+    "labResults": {
+      "title": "實驗室檢查",
+      "columns": {
+        "test": "項目",
+        "result": "結果",
+        "reference": "參考",
+        "status": "狀態"
+      }
+    }
+  },
+  "assessment": {
+    "clinicalImpression": "臨床印象",
+    "differentialDiagnoses": {
+      "title": "鑑別診斷"
+    },
+    "probability": {
+      "high": "高",
+      "medium": "中",
+      "low": "低"
+    }
+  },
+  "plan": {
+    "diagnosticReasoning": "臨床推理",
+    "recommendedTests": {
+      "title": "建議檢查"
+    },
+    "urgency": {
+      "er_now": "立即急診",
+      "24h": "24 小時內",
+      "this_week": "本週內",
+      "routine": "常規"
+    },
+    "treatments": {
+      "title": "治療處置"
+    },
+    "followUp": {
+      "title": "追蹤計畫",
+      "interval": "回診時間",
+      "reason": "追蹤原因"
+    },
+    "referrals": {
+      "title": "轉介"
+    },
+    "patientEducation": {
+      "title": "衛教指導"
+    }
+  },
+  "fieldLabels": {
+    "general": "一般狀態",
+    "urological": "泌尿系統",
+    "smoking": "吸菸",
+    "alcohol": "飲酒",
+    "occupation": "職業",
+    "abdomen": "腹部",
+    "costovertebral": "肋脊角",
+    "genitourinary": "泌尿生殖"
+  },
+  "labels": {
+    "testResult": "{{test}}：{{result}}",
+    "smokingHistory": "吸菸史：{{value}}",
+    "alcoholUse": "飲酒：{{value}}",
+    "redFlagReason": "紅旗原因：{{value}}",
+    "recommendedTest": "建議：{{value}}"
+  },
+  "export": {
+    "button": "匯出 PDF",
+    "loading": "匯出中...",
+    "success": "PDF 已開始下載",
+    "error": "PDF 匯出失敗，請稍後再試"
+  },
+  "regenerate": {
+    "button": "重新產生",
+    "loading": "重新產生中...",
+    "title": "重新產生報告",
+    "description": "重新產生會以最新逐字稿重新執行 AI 分析，並覆蓋現有 SOAP 報告內容，此動作無法復原。確定要繼續嗎？",
+    "cancel": "取消",
+    "confirm": "確認重新產生",
+    "success": "報告已重新產生",
+    "error": "報告重新產生失敗，請稍後再試"
+  }
+}
