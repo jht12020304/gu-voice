@@ -8,11 +8,11 @@
 > - 部署不變式更正——**merge 到 main 不會上線**，要手動 `railway up` / `vercel --prod`（見 deployment_guide.md 一、）
 > - #2 假記載更正（celery worker/beat service 不存在，改跑在主 API 容器內）
 > - Flutter 遷移使 P3 的 #22／#24／#32 作廢、#23／#27 縮成單行工程項
-> - 新增 §G（flutter_app 入庫審查：2 blocker 已修 + 11 high + 22 medium）
+> - 新增 §G（flutter_app 入庫審查：2 blocker + 8 high 已修，剩 G11–G13 + 22 medium）
 > - 新增 §H（H1 忘記密碼路徑已結案／H2 儀表板 monthLabel 硬寫中文）
 > - E10 底下工程項拆成 E11／E12，讓 E10 純粹等母語臨床覆核
 >
-> 未結案：§G 的 11 high + 22 medium、H2、E10（等人）、E11／E12、F8（等臨床）、#23、#27。
+> 未結案：§G 的 G11–G13 + 22 medium、H2、E10（等人）、E11／E12、F8（等臨床）、#23、#27。
 
 ---
 
@@ -539,7 +539,7 @@
 > 入庫判定 GO 且已入庫（`feat/flutter-app-baseline`）：analyze 0 issue、test 17/17、零 secret、
 > `build/` 與 `.dart_tool/` 已正確排除。以下是入庫後要修的。
 > **動任何 voice/ 下的檔案前先讀 `voice-pipeline-invariants` skill**——G1/G3/G4/G14/G15 都是它列管的行為。
-> 2026-07-26：兩個 blocker（G1/G2）已修並附回歸測試；其餘 11 high + 22 medium 未動。
+> 2026-07-26：2 blocker（G1/G2）+ 8 條 high（G3–G10）已修並附回歸測試；**剩 G11–G13 + 22 medium**。
 
 ### [x] G1. 🔴 紅旗中止導向錯頁（病患拿不到「告知現場醫護」）— 2026-07-26 修復
 
@@ -567,18 +567,23 @@
 autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，還原即全綠，
 確認不是永遠通過的空測試。
 
-### [ ] G3–G13. 🟡 high（11 筆）
+### [x] G3–G10 的 8 條 high — 2026-07-26 修復（PR #38）
+
+| # | 修法 | 驗證 |
+|---|---|---|
+| G5 | web 補 path URL strategy（conditional import，native 為 no-op stub）——原本路由躲在 `#` fragment 後，`/vi-VN/patient` 的語言段在 router 解析範圍外，URL 不再是語言權威 | **web + iOS build 皆過** |
+| G6 | redirect 改用 `state.uri.replace(path:...)`——原本只回 path，重設密碼信的 `?token=` 被吃掉，整條流程死在「連結無效」 | **4 項新回歸測試** |
+| G8 | logout 帶 `ApiClient.skipAuthRefresh`——原本 401 會觸發 refresh 輪換 token，再用**已捕獲的舊 token** 重試，後端黑名單舊 jti 而新 token 活 7 天（登出的反面） | analyze/test |
+| G9 | refresh 用的裸 Dio 補 `receiveTimeout`/`sendTimeout`——一次 hang 就讓共享的 `_refreshInFlight` 永不 settle，所有併發 401 一起卡死＝全 app 靜默鎖死 | analyze/test |
+| G10 | 逐字稿 `reverse: true` + 反向索引——原本第 4 輪後 AI 當前問題落在畫面外，病患看著過期畫面 | analyze/test |
+
+驗證：`flutter analyze` 0 issue、`flutter test` **23/23**（+4）、**web `--release` build 過**、
+**iOS simulator build 過**、**simulator integration test 對生產後端仍 1/1 pass**（G6/G8/G9 都在登入路徑上）。
+
+### [ ] G11–G13. 🟡 high 剩 3 筆（都要新增 UI／功能，非單點修）
 
 | # | 檔案:行 | 問題 | 最小修法 |
 |---|---|---|---|
-| G3 | `voice/state/conversation_controller.dart:156` | `onSpeechEnd` 缺 hard-mute，段落結束到 AI 回應間麥仍活；空辨識會在 TTS 播放中 unmute → 喇叭回授被當答案（已修 bug 回歸） | 送完 isFinal 後補 `_muteVad();` |
-| G4 | `voice/services/tts_playback_controller.dart:46` | `stopActive()` 在 `await _player.stop()` 之後才讀 `_activeStep`，誤 complete 新 step → replay 提前解鎖、舊 completer 洩漏 | 捕獲移到 await 前 |
-| G5 | `lib/main.dart:9` | Web 未套 path URL strategy → `/vi-VN/patient` 語言段被整段忽略，URL 語言權威在 web 失效 | `usePathUrlStrategy()`（web-only conditional import） |
-| G6 | `core/router/app_router.dart:67` | redirect 只帶 `uri.path`，query 全丟 → 重設密碼信的 `?token=` 消失，流程整條死 | `state.uri.replace(path: ...)` |
-| G7 | `android/app/src/main/AndroidManifest.xml:8` | release manifest 全域開 `usesCleartextTraffic`，env 預設又是 `http://`／`ws://` → token 與 PHI 可明文走院內 Wi-Fi | 該行移到 `src/debug/AndroidManifest.xml` |
-| G8 | `data/api/auth_api.dart:39` | logout 遇 401 重試送輪換前的舊 refresh token → 新 token 殘活 7 天（React F7 #1 修法漏移植） | 重試前以 `await _tokens.readRefresh()` 覆寫 body |
-| G9 | `data/api/dio_client.dart:108` | refresh 用的裸 Dio 無 `receiveTimeout`，一次 hang 讓共享 `_refreshInFlight` 永久卡死 → 全 app 靜默鎖死 | 加 `receiveTimeout`／`sendTimeout` 30s |
-| G10 | `voice/screens/conversation_page.dart:217` | 逐字稿無自動捲動，第 4 輪後最新問題落在畫面外 | `ListView` 改 `reverse: true` |
 | G11 | `core/router/app_router.dart:54` | 無 kiosk 閒置自動登出（React KioskIdleGuard 未移植）→ 上一位病患姓名/主訴留給下一位看 | `Listener(onPointerDown)` + Timer；逾時秒數讀 Env（0＝停用）**待院方定** |
 | G12 | `features/doctor/screens/doctor_shell.dart:18` | 醫師端無全域紅旗 toast，且 /patients、/reports、/research、/admin/* 未包 shell → 審報告時新 critical 紅旗零信號 | App 層 `ref.listen` unacknowledgedCount → SnackBar；補包路由 |
 | G13 | `features/patient/medical_info_page.dart:135` | `familyHistory` 硬寫空陣列、UI 無輸入 → 攝護腺癌家族史永遠空白，醫師無法分辨「沒問」或「否認」 | 照 `_allergySection` 複製 `_familySection` |

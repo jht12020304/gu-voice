@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gu_voice/features/voice/services/audio_stream_service.dart';
 import 'package:gu_voice/features/voice/services/pcm_ring_buffer.dart';
 import 'package:gu_voice/features/voice/services/wav_encoder.dart';
+import 'package:gu_voice/core/router/lng.dart';
 import 'package:gu_voice/features/voice/state/conversation_controller.dart';
 import 'package:gu_voice/features/voice/state/vad_logic.dart';
 
@@ -20,6 +21,7 @@ bool _expected(VadResumeTrigger t, VadResumeContext c) {
 }
 
 void main() {
+  _routerQueryPreservation();
   _blockerRegressions();
   group('shouldUnmuteVAD matrix', () {
     test('exhaustive 8 triggers x 2^3 ctx = 64 combinations', () {
@@ -161,6 +163,41 @@ void _blockerRegressions() {
 
       // A plain completion must NOT look like an abort.
       expect(project(running.copyWith(completed: true)), (true, false));
+    });
+  });
+}
+
+void _routerQueryPreservation() {
+  group('G6: lng redirect must preserve query', () {
+    // The redirect returns `state.uri.replace(path: prefixLngToPath(...)).toString()`.
+    // Reproduce that projection here: returning a bare path (the old behaviour)
+    // silently ate `?token=`, dead-ending the password-reset mail flow.
+    String redirectTarget(String rawUri, String seed) {
+      final uri = Uri.parse(rawUri);
+      final path = uri.path;
+      return uri.replace(path: prefixLngToPath(path == '/' ? '/' : path, seed)).toString();
+    }
+
+    test('reset-password token survives the lng prefix', () {
+      expect(
+        redirectTarget('/reset-password?token=abc123', 'zh-TW'),
+        '/zh-TW/reset-password?token=abc123',
+      );
+    });
+
+    test('multiple params and fragment survive', () {
+      expect(
+        redirectTarget('/patient?a=1&b=2#frag', 'en-US'),
+        '/en-US/patient?a=1&b=2#frag',
+      );
+    });
+
+    test('bare root still gets prefixed', () {
+      expect(redirectTarget('/', 'ja-JP'), '/ja-JP');
+    });
+
+    test('a path with no query is unchanged apart from the prefix', () {
+      expect(redirectTarget('/login', 'ko-KR'), '/ko-KR/login');
     });
   });
 }

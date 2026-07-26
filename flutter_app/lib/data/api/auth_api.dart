@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 import '../models/user.dart';
 import 'dio_client.dart';
 import 'token_store.dart';
@@ -38,7 +40,16 @@ class AuthApi {
   Future<void> logout() async {
     final refresh = await TokenStore.instance.readRefresh();
     try {
-      await _dio.post('/auth/logout', data: {'refreshToken': refresh});
+      await _dio.post(
+        '/auth/logout',
+        data: {'refreshToken': refresh},
+        // Never let logout go through the 401-refresh branch. It would rotate the
+        // refresh token and then retry with this ALREADY-CAPTURED old one, so the
+        // backend blacklists the stale jti while the freshly minted token stays
+        // valid for 7 days — the opposite of logging out (TODO G8).
+        // A 401 here needs no recovery anyway: we clear locally regardless.
+        options: Options(extra: {ApiClient.skipAuthRefresh: true}),
+      );
     } catch (_) {
       // ignore logout API errors — local clear happens regardless
     }
