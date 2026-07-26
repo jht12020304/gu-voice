@@ -4,6 +4,25 @@
 
 兩套前端目前並存：`frontend/` 仍是生產在跑的版本，這裡尚未經生產驗證。
 
+## ⚠️ 尚未驗證的部分（讀這份之前先看這裡）
+
+**醫師端大致可用、病患端未驗證——而病患端就是產品本身。**
+每一條都是「沒人試過」，不是「試過有問題」。`flutter analyze` 與 `flutter test` 全綠
+**不代表**這些能用（這輪就有兩次靜態全綠但 app 在真機一片紅）。
+
+| 未驗證 | 為什麼要緊 |
+|---|---|
+| **語音問診一次都沒跑過** | 這是 app 的存在理由。四條語音修法（AI 回音被當病患答話、TTS chain 洩漏→VAD 卡死、pause 順序讓半句症狀消失、硬鎖 re-assert）全靠單元測試與讀碼推論 |
+| **病患流程只走到 intake** | conversation→對話→SOAP→感謝頁整段沒跑；紅旗中止導向（該顯示「告知現場醫護」）也沒實測 |
+| **TTS 從未實機播過音** | 測試用 fake player；fake 是 broadcast stream 而真 player 是 `BehaviorSubject.seeded`，「陳舊 completed 被重播」整類 bug 結構性測不到 |
+| **Web 語音是未決策的 HIGH risk** | 麥克風原始 PCM 需手寫 AudioWorklet JS interop。「web 可用」目前只對非語音頁成立 |
+| **Android 完全沒碰** | 只跑過 iOS simulator；release 簽章缺 keystore 會刻意失敗，連 release 包都出不來 |
+| **`replay()` 未 await `stopActive()`** | 推測性：若 just_audio 未串行化 method call → completer 永不解決 → VAD 永久硬靜音。刻意未修（見 docs/TODO.md H5） |
+
+**最小驗證路徑**：iOS Simulator 可以用 Mac 的麥克風，不必實機。跑完整病患流程並特別驗——
+暫停時半句話有沒有進逐字稿、AI 講話時麥克風是否被鎖、TTS 中斷後 VAD 是否恢復、
+紅旗情境是否導到正確的感謝頁變體。會用到真 OpenAI 額度。
+
 ## 現況
 
 26 條路由與 React 版對齊（病患問診、醫師 dashboard／SOAP／紅旗／research、admin 四頁、auth 四頁）。語音管線核心（VAD 決策矩陣、TTS epoch 世代取消、PCM ring buffer）已移植並有單元測試。

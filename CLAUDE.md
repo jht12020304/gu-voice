@@ -11,7 +11,9 @@ frontend/           → React + Vite + TS，**目前的生產前端**。src/i18n
                       public/locales/ 是 build 鏡像
 flutter_app/        → Flutter 單一碼庫前端（web+iOS+Android），要取代 frontend/。**已入 main
                       但未上生產**，沒有部署管道。assets/locales/ 是同一份翻譯的第三份拷貝，
-                      切換期要與 frontend 兩份同步。已知缺口見 docs/TODO.md §G
+                      切換期要與 frontend 兩份同步。已知缺口見 docs/TODO.md §G；
+                      ⚠️ **語音問診與病患端流程從未被跑過**（§V1/V2）——醫師端大致可用、
+                      病患端未驗證，別因 analyze/test 全綠就當它可用
 docs/               → 現行文件（入口 docs/README.md；docs/AGENTS.md 為部署細節指南；
                       docs/archive/ 為歷史 audit 與舊規格，勿當現行讀）
 scripts/            → check_translations.py、e2e_realopenai/（真 OpenAI E2E 工具，見其 README.md）
