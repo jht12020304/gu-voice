@@ -117,6 +117,10 @@ class ConversationController extends Notifier<ConversationState> {
   bool _redFlagAnnounced = false;
   Timer? _noSpeechTimer;
   bool _started = false;
+  // 一旦 provider 開始 dispose 就不能再碰 `state`（Riverpod 會拋 UnmountedRefException）。
+  // 在飛的 mic frame 與 `_ws.disconnect()` 自己發出的 _statechange 都會晚於 dispose 抵達，
+  // 病患一離開對話頁就炸——這是 simulator 真跑才抓到的（TODO §V2）。
+  bool _disposed = false;
 
   @override
   ConversationState build() {
@@ -160,6 +164,7 @@ class ConversationController extends Notifier<ConversationState> {
         onChunk: (b64, idx) =>
             _ws.send('audio_chunk', {'audioData': b64, 'chunkIndex': idx, 'isFinal': false}),
         onSpeechStart: () {
+          if (_disposed) return;
           // Re-assert the lock. A segment opening while any gate is set means the mute
           // leaked (the gates ARE "the mic must not be open"): `userPaused` is an
           // independent gate no automatic flow may lift (invariant #4), and the two
@@ -176,6 +181,7 @@ class ConversationController extends Notifier<ConversationState> {
           if (state.isAIResponding) _bargeIn(); // only reachable in soft-mute mode
         },
         onSpeechEnd: () {
+          if (_disposed) return;
           // terminal marker -> backend joins buffer and runs STT
           _ws.send('audio_chunk', {'audioData': '', 'chunkIndex': -1, 'isFinal': true});
           state = state.copyWith(isRecording: false, sttProcessing: true);
@@ -187,9 +193,9 @@ class ConversationController extends Notifier<ConversationState> {
           // wsError / reconnected / userResume / ttsMuteToggle / replayEnd. (TODO G3)
           _muteVad();
         },
-        onWaveformData: (bars) => state = state.copyWith(waveform: bars),
-        onDurationUpdate: (s) => state = state.copyWith(recordingDuration: s),
-        onError: (e) => state = state.copyWith(error: _micError(e)),
+        onWaveformData: (bars) { if (!_disposed) state = state.copyWith(waveform: bars); },
+        onDurationUpdate: (s) { if (!_disposed) state = state.copyWith(recordingDuration: s); },
+        onError: (e) { if (!_disposed) state = state.copyWith(error: _micError(e)); },
       );
 
   void _muteVad() => _audio.setMuted(true, mode: MuteMode.hard);
@@ -210,32 +216,36 @@ class ConversationController extends Notifier<ConversationState> {
 
   // ---- WS event wiring ----
 
+  /// 所有 WS 回呼的唯一入口：dispose 後一律丟棄。
+  void _wsOn(String type, void Function(Object?, Object?) handler) =>
+      _ws.on(type, (p, m) { if (_disposed) return; handler(p, m); });
+
   void _registerWsHandlers() {
-    _ws.on('_statechange', (p, _) {
+    _wsOn('_statechange', (p, _) {
       final s = WsConnState.values.firstWhere(
         (e) => e.name == (p as Map)['state'],
         orElse: () => WsConnState.closed,
       );
       state = state.copyWith(connection: s);
     });
-    _ws.on('_connected', (_, _) => _onConnected());
-    _ws.on('_disconnected', (_, _) => _onDisconnected());
-    _ws.on('connection_ack', (_, _) {
+    _wsOn('_connected', (_, _) => _onConnected());
+    _wsOn('_disconnected', (_, _) => _onDisconnected());
+    _wsOn('connection_ack', (_, _) {
       if (state.session?.status == 'waiting') {
         state = state.copyWith(session: state.session!.copyWith(status: 'in_progress'));
       }
     });
-    _ws.on('ai_response_start', (p, _) => _onAiStart(p as Map));
-    _ws.on('ai_response_chunk', (p, _) => _onAiChunk(p as Map));
-    _ws.on('ai_response_end', (p, _) => _onAiEnd(p as Map));
-    _ws.on('stt_final', (p, _) => _onSttFinal(p as Map));
-    _ws.on('red_flag_alert', (p, _) => _onRedFlag(p as Map));
-    _ws.on('supervisor_guidance', (p, _) =>
+    _wsOn('ai_response_start', (p, _) => _onAiStart(p as Map));
+    _wsOn('ai_response_chunk', (p, _) => _onAiChunk(p as Map));
+    _wsOn('ai_response_end', (p, _) => _onAiEnd(p as Map));
+    _wsOn('stt_final', (p, _) => _onSttFinal(p as Map));
+    _wsOn('red_flag_alert', (p, _) => _onRedFlag(p as Map));
+    _wsOn('supervisor_guidance', (p, _) =>
         state = state.copyWith(guidance: normalizeSupervisorGuidance(p as Map), supervisorDegraded: false));
-    _ws.on('supervisor_degraded', (_, _) => state = state.copyWith(supervisorDegraded: true));
-    _ws.on('session_status', (p, _) => _onSessionStatus(p as Map));
-    _ws.on('error', (p, _) => _onWsError(p as Map));
-    _ws.on('_auth_exhausted', (_, _) => state = state.copyWith(error: t('conversation.error.sessionInterrupted')));
+    _wsOn('supervisor_degraded', (_, _) => state = state.copyWith(supervisorDegraded: true));
+    _wsOn('session_status', (p, _) => _onSessionStatus(p as Map));
+    _wsOn('error', (p, _) => _onWsError(p as Map));
+    _wsOn('_auth_exhausted', (_, _) => state = state.copyWith(error: t('conversation.error.sessionInterrupted')));
   }
 
   void _onAiStart(Map p) {
@@ -394,6 +404,10 @@ class ConversationController extends Notifier<ConversationState> {
     _audio.forceEndSegment();
   }
 
+  /// 導頁由伺服器確認驅動（`session_status` 帶 `status: completed`），**不要**在這裡本地設
+  /// `completed`：那會讓 ConversationPage 立刻導頁 → autoDispose 拆掉 controller →
+  /// `_ws.disconnect()` 在 end_session 送達前就關掉 socket，場次永遠停在 in_progress、
+  /// SOAP 不會生成（真跑抓到）。
   void endSession() => _ws.send('control', {'action': 'end_session'});
 
   // Text-input fallback (noisy kiosk / STT failure / speech impairment): runs the SAME
@@ -485,6 +499,7 @@ class ConversationController extends Notifier<ConversationState> {
   String _nowIso() => DateTime.now().toUtc().toIso8601String();
 
   Future<void> _teardown() async {
+    _disposed = true;
     _noSpeechTimer?.cancel();
     if (!_started) return;
     _ws.disconnect();

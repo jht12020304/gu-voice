@@ -16,7 +16,7 @@
 > H2（儀表板年月）、G35b（切語言守衛＋不變式 #16 修正）、G36／G37、TTS 測試覆蓋、
 > H4（G36 抓到的兩個 Flutter 缺口）全數完成，**真 OpenAI e2e 兩情境通過**。
 >
-> 未結案：**§V 六條 Flutter 未驗證項**（V1/V2 是紅字——語音與病患流程從未跑過）、
+> 未結案：**§V 五條 Flutter 未驗證項**（V1 是紅字——語音仍未跑過；V2 已於 2026-07-27 用文字代替語音驗畢）、
 > E10（等母語臨床覆核）、F8／G35a（等臨床拍板）、E12（投機 schema，無消費端，不做）、
 > H3（dashboard 其餘硬寫中文標籤）、H5（replay 未 await，推測性未驗證）。
 
@@ -506,9 +506,10 @@
 > `flutter analyze` + `flutter test` 全綠不代表這些能用——本輪就有兩次靜態全綠但 app
 > 在真機一片紅（`markNeedsBuild during build`、`GoError`）。
 >
-> **現況一句話：醫師端大致可用、病患端未驗證，而病患端就是產品本身。**
+> **現況一句話（2026-07-27 更新）：病患端非語音全流程已真跑驗畢（V2），
+> 但麥克風／VAD 路徑仍是零實測（V1）——而語音就是這個 app 的存在理由。**
 
-### [ ] V1. 🔴 語音問診從未在 Flutter 上跑過一次
+### [ ] V1. 🔴 麥克風路徑從未在 Flutter 上跑過一次
 
 app 的存在理由。§G 的四條語音修法**全部只靠單元測試與讀碼推論**，沒有任何一次真的對麥克風講過話：
 - G3 `onSpeechEnd` 缺 hard-mute → AI 自己的喇叭回音被當成病患下一句
@@ -521,12 +522,46 @@ app 的存在理由。§G 的四條語音修法**全部只靠單元測試與讀�
 暫停時半句話有沒有進逐字稿／AI 講話時麥克風是否被鎖／TTS 中斷後 VAD 是否恢復／
 紅旗情境是否導到正確的感謝頁變體（G1）。會用到真 OpenAI 額度。
 
-### [ ] V2. 🔴 病患端流程只驗到 intake
+### [x] V2. 病患端全流程已驗（2026-07-27，**文字代替語音**）
 
-選主訴→填基本資料驗過（widget test + simulator 目視）。
-**conversation 頁 → 對話 → SOAP 生成 → 感謝頁整段沒跑過。**
-`integration_test/` 目前只涵蓋登入（`login_smoke_test.dart`）與 kiosk 閒置登出
-（`kiosk_idle_logout_test.dart`），沒有任何問診流程。
+`integration_test/patient_text_flow_test.dart`，iOS Simulator 對本機後端＋真 OpenAI，
+兩情境都過並用 DB 佐證：
+
+| 情境 | 場次終態 | 逐字稿 | SOAP |
+|---|---|---|---|
+| `normal`（頻尿 4 輪） | `completed` | 9 則（病患 4／AI 5） | `generated`、`zh-TW`（不變式 #12） |
+| `redflag`（睪丸扭轉 1 句） | `aborted_red_flag` | — | `generated`，紅旗 1 筆 |
+
+涵蓋：登入→選主訴→intake→WS auth handshake→`text_message` 往返→AI 追問→
+紅旗中止＋G1 感謝頁變體→結束問診→SOAP（Celery 路徑）。
+
+**這一輪抓到 3 個只有真跑才會出現的缺陷**，都已修：
+
+1. `UnmountedRefException`／`_debugCallbackStack` assert——在飛的 mic frame 與
+   `_ws.disconnect()` 自己發的 `_statechange` 晚於 provider dispose 抵達，
+   **病患一離開對話頁就炸**。修法：`_disposed` 閘門 + `_wsOn` 統一入口。
+2. **按「結束問診」完全沒反應**——後端 `end_session` 回的 `session_status` 沒帶
+   終態 `status`（`extra` 沒填），前端 handler 認不出。修在後端（回歸測試
+   `tests/unit/websocket/test_end_session_status_extra.py`）。
+3. 前端若改成「送出即本地設 completed」會**丟掉整場**：導頁 → autoDispose →
+   `_ws.disconnect()` 早於 `end_session` 送達，場次停在 `in_progress`、SOAP 不生成。
+   已在 `endSession()` 註記為不可再犯。
+
+**仍未涵蓋**：麥克風路徑（見 V1）。文字輸入繞過 VAD，所以 G3／G14／G15 依然沒被驗過。
+
+跑法（每次都要重新授權——`flutter test` 重裝會重置 TCC）：
+
+```
+xcrun simctl privacy <udid> grant microphone com.guvoice.guVoice
+flutter test integration_test/patient_text_flow_test.dart -d <udid> \
+  --dart-define=API_BASE=http://127.0.0.1:8000/api/v1 \
+  --dart-define=WS_BASE=ws://127.0.0.1:8000/api/v1/ws \
+  --dart-define=E2E_PATIENT_EMAIL=... --dart-define=E2E_PATIENT_PASSWORD=... \
+  --dart-define=E2E_SCENARIO=normal|redflag
+```
+
+⚠️ 沒先授權麥克風的話 `start()` 會卡在 `await openMic()`，**WS 永遠不連**
+（`_ws.connect` 排在它後面），症狀是 `WsConnState.connecting` 逾時。
 
 ### [ ] V3. 🟡 TTS 從未實機播過音
 
