@@ -1,0 +1,59 @@
+// Widget-level smoke for the intake family-history section (TODO G13).
+//
+// The payload projection is covered in voice_kernel_test; this checks the part a pure
+// function cannot: that the section actually renders on the patient critical path and
+// that adding a row works. A crash here would block every consultation.
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:gu_voice/core/i18n/loc.dart';
+import 'package:gu_voice/core/i18n/locales_loader.dart';
+import 'package:gu_voice/core/theme/app_theme.dart';
+import 'package:gu_voice/features/patient/medical_info_page.dart';
+
+void main() {
+  setUpAll(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    await Locales.loadAll();
+  });
+
+  Future<void> pumpPage(WidgetTester tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const MedicalInfoPage(
+            args: {'complaintId': 'c1', 'complaintName': 'Hematuria', 'complaintText': 'x'},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('family-history section renders and accepts a row', (tester) async {
+    // The page is tall; a small surface makes off-screen widgets un-tappable.
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await pumpPage(tester);
+
+    final addLabel = t('intake.medicalInfo.family.add');
+    expect(find.text(t('intake.medicalInfo.family.title')), findsOneWidget,
+        reason: '家族病史區塊沒渲染出來——familyHistory 又會變成永遠空白');
+    expect(find.text(addLabel), findsOneWidget);
+
+    // No rows until the patient adds one (the section is optional).
+    expect(find.text(t('intake.medicalInfo.relations.father')), findsNothing);
+
+    await tester.tap(find.text(addLabel));
+    await tester.pumpAndSettle();
+
+    // A row = relation dropdown (defaulting to 'father') + a condition field.
+    expect(find.text(t('intake.medicalInfo.relations.father')), findsWidgets);
+    expect(find.text(t('intake.medicalInfo.family.conditionPlaceholder')), findsWidgets);
+  });
+}

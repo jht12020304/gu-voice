@@ -8,11 +8,11 @@
 > - 部署不變式更正——**merge 到 main 不會上線**，要手動 `railway up` / `vercel --prod`（見 deployment_guide.md 一、）
 > - #2 假記載更正（celery worker/beat service 不存在，改跑在主 API 容器內）
 > - Flutter 遷移使 P3 的 #22／#24／#32 作廢、#23／#27 縮成單行工程項
-> - 新增 §G（flutter_app 入庫審查：2 blocker + 8 high 已修，剩 G11–G13 + 22 medium）
+> - 新增 §G（flutter_app 入庫審查：2 blocker + 10 high 已修，剩 G11 等院方參數 + 22 medium）
 > - 新增 §H（H1 忘記密碼路徑已結案／H2 儀表板 monthLabel 硬寫中文）
 > - E10 底下工程項拆成 E11／E12，讓 E10 純粹等母語臨床覆核
 >
-> 未結案：§G 的 G11–G13 + 22 medium、H2、E10（等人）、E11／E12、F8（等臨床）、#23、#27。
+> 未結案：§G 的 G11（等院方參數）+ 22 medium、H2、E10（等人）、E11／E12、F8（等臨床）、#23、#27。
 
 ---
 
@@ -539,7 +539,8 @@
 > 入庫判定 GO 且已入庫（`feat/flutter-app-baseline`）：analyze 0 issue、test 17/17、零 secret、
 > `build/` 與 `.dart_tool/` 已正確排除。以下是入庫後要修的。
 > **動任何 voice/ 下的檔案前先讀 `voice-pipeline-invariants` skill**——G1/G3/G4/G14/G15 都是它列管的行為。
-> 2026-07-26：2 blocker（G1/G2）+ 8 條 high（G3–G10）已修並附回歸測試；**剩 G11–G13 + 22 medium**。
+> 2026-07-26：2 blocker（G1/G2）+ 10 條 high（G3–G10、G12、G13）已修並附回歸測試；
+> **剩 G11（擋在院方參數）+ 22 medium**。
 
 ### [x] G1. 🔴 紅旗中止導向錯頁（病患拿不到「告知現場醫護」）— 2026-07-26 修復
 
@@ -580,13 +581,37 @@ autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，�
 驗證：`flutter analyze` 0 issue、`flutter test` **23/23**（+4）、**web `--release` build 過**、
 **iOS simulator build 過**、**simulator integration test 對生產後端仍 1/1 pass**（G6/G8/G9 都在登入路徑上）。
 
-### [ ] G11–G13. 🟡 high 剩 3 筆（都要新增 UI／功能，非單點修）
+### [x] G12. 醫師端全域紅旗提示 — 2026-07-26 修復（PR #39）
 
-| # | 檔案:行 | 問題 | 最小修法 |
-|---|---|---|---|
-| G11 | `core/router/app_router.dart:54` | 無 kiosk 閒置自動登出（React KioskIdleGuard 未移植）→ 上一位病患姓名/主訴留給下一位看 | `Listener(onPointerDown)` + Timer；逾時秒數讀 Env（0＝停用）**待院方定** |
-| G12 | `features/doctor/screens/doctor_shell.dart:18` | 醫師端無全域紅旗 toast，且 /patients、/reports、/research、/admin/* 未包 shell → 審報告時新 critical 紅旗零信號 | App 層 `ref.listen` unacknowledgedCount → SnackBar；補包路由 |
-| G13 | `features/patient/medical_info_page.dart:135` | `familyHistory` 硬寫空陣列、UI 無輸入 → 攝護腺癌家族史永遠空白，醫師無法分辨「沒問」或「否認」 | 照 `_allergySection` 複製 `_familySection` |
+- 新 `features/doctor/doctor_alert_watcher.dart` 掛在 `MaterialApp.router` 的 `builder`
+  （navigator 之上、MaterialApp 之下 → ScaffoldMessenger 在 scope 內、跨路由存活）
+- **比原本診斷更嚴重的一點**：`alertsProvider` 只有被讀到才會建立。醫師登入後直接去
+  `/reports`（沒進過任何 shell tab）→ controller 從未建立 → `ensureConnected()` 從未跑
+  → **dashboard WebSocket 根本沒連上**，不只是沒有徽章而已。watcher 用 `watch` 而非
+  `read`，讓 controller 在整個已認證 session 內存活（provider 刻意非 autoDispose）
+- 只對 doctor/admin 訂閱（病患角色後端會回 4003，`ws_manager` 視為永久關閉不重連）
+- 只在 unacknowledged **上升**時 toast（acknowledge 使計數下降必須安靜）；8 秒、error 色、
+  附「查看」導向 `/alerts`；5 語系文案
+- **刻意未做**：把 `/patients`、`/reports`、`/research`、`/admin/*` 重新包進 `DoctorShell`。
+  `NavigationBar.selectedIndex` 必須是有效索引，那些頁沒有對應 tab；且它們都有 AppBar
+  返回。安全缺口（零信號）已由 watcher 補掉，底部導覽的可達性屬 UX 偏好，留給日後決定
+
+### [x] G13. 病患 intake 家族病史 — 2026-07-26 修復（PR #39）
+
+- `medical_info_page.dart` 的 `'familyHistory': []` 硬寫空陣列 → **攝護腺癌家族史永遠空白**，
+  醫師無法分辨「沒問」與「病患否認」
+- 加 `_Family` model + `_familySection`（relation 下拉 8 種親屬 + 疾病自由文字 + 刪除/新增），
+  送出時過濾空白列，形狀對齊後端 `SessionIntakeFamilyHistoryItem{relation, condition}`
+- **i18n 零新增**：`medicalInfo.family.*` 與 8 個 `medicalInfo.relations.*` 早就在 5 語系
+  翻譯檔裡（React 版已用），只是 Flutter 沒接
+- 空白列必須過濾：後端 `condition` 是 `min_length=1`，送空字串會 422 掉整個建場次請求
+
+### [ ] G11. 🟡 kiosk 閒置自動登出（**擋在院方參數**）
+
+- `core/router/app_router.dart`：React `KioskIdleGuard` 未移植 → 上一位病患的姓名／主訴
+  留在畫面給下一位看到
+- 修法：`Listener(onPointerDown)` + Timer，逾時且 role==patient 且非 `/conversation` 時 logout
+- **需要你決定**：逾時秒數，以及要不要啟用（院方隱私政策）。實作會讀 Env，`0` = 停用
 
 ### [ ] G14–G35. 🟢 medium（22 筆）
 

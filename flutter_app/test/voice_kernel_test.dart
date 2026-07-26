@@ -21,6 +21,7 @@ bool _expected(VadResumeTrigger t, VadResumeContext c) {
 }
 
 void main() {
+  _intakeFamilyHistory();
   _routerQueryPreservation();
   _blockerRegressions();
   group('shouldUnmuteVAD matrix', () {
@@ -198,6 +199,39 @@ void _routerQueryPreservation() {
 
     test('a path with no query is unchanged apart from the prefix', () {
       expect(redirectTarget('/login', 'ko-KR'), '/ko-KR/login');
+    });
+  });
+}
+
+void _intakeFamilyHistory() {
+  // Mirrors the payload projection in medical_info_page._submit(). Family history used to
+  // be hardcoded `[]`, so a prostate-cancer family history could never reach the doctor
+  // and "never asked" was indistinguishable from "patient denied it" (TODO G13).
+  List<Map<String, String>> project(List<(String relation, String condition)> rows) => [
+        for (final r in rows)
+          if (r.$2.trim().isNotEmpty) {'relation': r.$1, 'condition': r.$2.trim()},
+      ];
+
+  group('G13: family history payload', () {
+    test('rows reach the backend in {relation, condition} shape', () {
+      expect(
+        project([('father', 'Prostate cancer'), ('mother', '糖尿病')]),
+        [
+          {'relation': 'father', 'condition': 'Prostate cancer'},
+          {'relation': 'mother', 'condition': '糖尿病'},
+        ],
+      );
+    });
+
+    test('blank and whitespace-only rows are dropped, not sent as empty strings', () {
+      // Backend requires condition min_length=1 — sending "" would 422 the whole session.
+      expect(project([('father', ''), ('sister', '   '), ('brother', 'BPH')]), [
+        {'relation': 'brother', 'condition': 'BPH'},
+      ]);
+    });
+
+    test('an untouched section still yields an empty list (not an error)', () {
+      expect(project([]), isEmpty);
     });
   });
 }

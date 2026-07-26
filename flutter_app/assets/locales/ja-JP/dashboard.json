@@ -151,5 +151,9 @@
     "emptyTitle": "通知はありません",
     "emptyMessage": "新しいシステム通知はありません",
     "unreadBadge": "未読"
+  },
+  "alerts": {
+    "newAlertToast": "新しいレッドフラグ警告が {{count}} 件あります",
+    "newAlertToastAction": "表示"
   }
 }

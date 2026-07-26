@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/router/app_router.dart';
 import 'core/router/lng.dart';
 import 'core/theme/app_theme.dart';
+import 'features/doctor/doctor_alert_watcher.dart';
 
 Locale _toLocale(String tag) {
   final parts = tag.split('-');
@@ -29,6 +30,9 @@ class App extends ConsumerWidget {
         darkTheme: AppTheme.dark,
         themeMode: ThemeMode.system,
         routerConfig: router,
+        // Above the Navigator but below MaterialApp, so ScaffoldMessenger is in scope
+        // and the red-flag toast survives route changes (TODO G12).
+        builder: (context, child) => DoctorAlertWatcher(child: child ?? const SizedBox.shrink()),
         locale: _toLocale(lng),
         supportedLocales: supportedLanguages.map(_toLocale),
         localizationsDelegates: const [
