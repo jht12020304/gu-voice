@@ -1,6 +1,6 @@
 # GU-Voice TODO 清單
 
-> 依據 [`system_issues_and_risks.md`](./system_issues_and_risks.md) 整理的可執行待辦事項。
+> 依據 [`system_issues_and_risks.md`](archive/system_issues_and_risks.md) 整理的可執行待辦事項。
 > 完成一項就把 `[ ]` 改成 `[x]`，並在後面加上完成日期與 commit hash。
 >
 > 最後更新：2026-07-04（P0–P2、§E E1–E9、§F F1–F7 全部完成並部署生產；
@@ -331,7 +331,7 @@
   - [x] 5 項單元測試（valid email 寫 Redis + 送信、不存在 email 仍回同訊息且不送信、正確 token 重設成功 + 清 key、錯 token 拋錯、過期 token 拋錯）
 - **驗收**：單元 168 passed；本機未設 SENDGRID / SMTP 時走 `_LoggingEmailClient` 印出模擬 email，方便前端 QA 流程
 
-### [ ] 32. `./專案開發進度.md` 更新
+### [ ] 32. `archive/專案開發進度.md` 更新
 
 - Prompt chain upgrade 已完成（Phase 4，41 tests）但未反映
 - 加「最後更新日期」與「狀態」欄位
@@ -340,7 +340,7 @@
 
 ## E — 真 OpenAI E2E 稽核發現（2026-06-28）
 
-> 來源：[`e2e_realopenai_audit_2026-06-28.md`](./e2e_realopenai_audit_2026-06-28.md)（8 情境真 OpenAI E2E + 對抗式驗證，已對 DB 核實）。
+> 來源：[`e2e_realopenai_audit_2026-06-28.md`](archive/e2e_realopenai_audit_2026-06-28.md)（8 情境真 OpenAI E2E + 對抗式驗證，已對 DB 核實）。
 > 依賴排序：A 群（紅旗/結束流程，同一 `conversation_handler.py` 區塊，需協調）→ B 群（SOAP/ICD）。先就 E7 臨床決策再實作 A3/severity。
 
 ### [x] E1. 🔴 D1 — 硬上限被紅旗 deferral 打穿，持續 high 紅旗（肉眼血尿）問診永不結束 — 2026-07-04 (a92a23f)

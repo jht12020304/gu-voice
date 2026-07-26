@@ -1016,9 +1016,9 @@ def analyze_hematuria_fixed(result: dict, db_state: dict) -> dict:
             "alerts_by_canonical": by_canonical,
             "duplicates": dup_canonical,
         },
-        # B3：SOAP 語言跟場次語言
-        "h4_soap_language_en": {
-            "pass": soap.get("language") == "en-US",
+        # 2026-07-19 產品決策：SOAP 報告固定 zh-TW（不跟場次語言）
+        "h4_soap_language_zh_fixed": {
+            "pass": soap.get("language") == "zh-TW",
             "soap_language": soap.get("language"),
         },
         # A1：收尾輪 AI fullText 非空（baseline 上最後一輪 fullText 是空字串）
@@ -1222,6 +1222,11 @@ def _ai_turns_joined(transcript: list[dict]) -> str:
     ).lower()
 
 
+def _has_cjk(text: str) -> bool:
+    """報告內文是否含 CJK 字元（驗 SOAP 固定中文的最小訊號）。"""
+    return any("一" <= ch <= "鿿" for ch in text)
+
+
 def _wrapup_has_no_question(transcript: list[dict]) -> bool:
     """收尾輪（最後一則 AI 全文）不含問號 → 恢復『收尾不發問』不變式。"""
     last = _last_ai_fulltext(transcript)
@@ -1262,8 +1267,11 @@ def analyze_hematuria_3b(result: dict, db_state: dict) -> dict:
             "pass": _wrapup_has_no_question(result.get("transcript", [])),
             "last_ai_head": _last_ai_fulltext(result.get("transcript", []))[:160],
         },
-        "r6_soap_exists_en": {
-            "pass": db_state["soap_report"] is not None and soap.get("language") == "en-US",
+        # 2026-07-19 產品決策：en 場次的 SOAP 也固定 zh-TW，且內文須為中文
+        "r6_soap_exists_zh_report": {
+            "pass": db_state["soap_report"] is not None
+            and soap.get("language") == "zh-TW"
+            and _has_cjk(str(soap.get("subjective_head") or "")),
             "soap_language": soap.get("language"),
             "subjective_head": db_state.get("soap_report", {}).get("subjective_head")
             if isinstance(db_state.get("soap_report"), dict)

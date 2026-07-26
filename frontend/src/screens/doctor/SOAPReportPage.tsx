@@ -506,7 +506,13 @@ export default function SOAPReportPage() {
           <div className="card">
             <h2 className="text-h3 text-ink-heading dark:text-white">{t('soap:diagnosis.title', '診斷索引')}</h2>
             {report.icd10Codes && report.icd10Codes.length > 0 ? (
-              <div className="mt-4 flex flex-wrap gap-2">
+              <>
+                {report.icd10Verified === false && (
+                  <p className="mt-3 inline-flex items-center rounded-pill border border-amber-200 bg-amber-50/70 px-3 py-1 text-small font-semibold text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/10 dark:text-amber-400">
+                    {t('soap:diagnosis.unverified', 'ICD-10 未驗證，請醫師確認')}
+                  </p>
+                )}
+                <div className="mt-4 flex flex-wrap gap-2">
                 {report.icd10Codes.map((code) => (
                   <span
                     key={code}
@@ -515,7 +521,8 @@ export default function SOAPReportPage() {
                     {code}
                   </span>
                 ))}
-              </div>
+                </div>
+              </>
             ) : (
               <p className="mt-3 text-body text-ink-muted">{t('soap:diagnosis.empty', '目前沒有 ICD-10 編碼。')}</p>
             )}

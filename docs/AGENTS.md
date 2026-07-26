@@ -63,7 +63,7 @@ Check deployment status in:
 
 Health check endpoint:
 
-- `https://gu-voice-api-production.up.railway.app/api/v1/health`
+- `https://gu-voice-app-production.up.railway.app/api/v1/health`
 
 ## Required Platform Assumptions
 
@@ -89,6 +89,5 @@ git push origin main
 
 Use these docs when more detail is needed:
 
-- [docs/deployment_guide.md](/Users/chun/Desktop/GU_0410/docs/deployment_guide.md)
-- [docs/cloud_deployment.md](/Users/chun/Desktop/GU_0410/docs/cloud_deployment.md)
-- [docs/vercel_deploy_guide.md](/Users/chun/Desktop/GU_0410/docs/vercel_deploy_guide.md)
+- [docs/deployment_guide.md](/Users/chun/Desktop/GU_0410/docs/deployment_guide.md) — env 變數 / Railway・Vercel dashboard 操作
+- [docs/supabase_connection_guide.md](/Users/chun/Desktop/GU_0410/docs/supabase_connection_guide.md) — DB 連線與事故 runbook

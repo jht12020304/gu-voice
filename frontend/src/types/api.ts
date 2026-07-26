@@ -2,20 +2,7 @@
 // API 請求/回應型別
 // =============================================================================
 
-import type {
-  PaginatedResponse,
-  User,
-  Patient,
-  Session,
-  Conversation,
-  SOAPReport,
-  RedFlagAlert,
-  RedFlagRule,
-  Notification,
-  AuditLog,
-  ChiefComplaint,
-  SessionIntake,
-} from './index';
+import type { User, SessionIntake } from './index';
 
 // ---- 認證 ----
 
@@ -43,28 +30,10 @@ export interface RegisterRequest {
   department?: string;
 }
 
-export interface RefreshTokenRequest {
-  refreshToken: string;
-}
-
 export interface RefreshTokenResponse {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
-}
-
-export interface ForgotPasswordRequest {
-  email: string;
-}
-
-export interface ResetPasswordRequest {
-  token: string;
-  newPassword: string;
-}
-
-export interface ChangePasswordRequest {
-  currentPassword: string;
-  newPassword: string;
 }
 
 // ---- 病患 ----
@@ -136,10 +105,6 @@ export interface SessionListParams {
   status?: string;
   patientId?: string;
   doctorId?: string;
-}
-
-export interface AssignDoctorRequest {
-  doctorId: string;
 }
 
 // ---- 主訴 ----
@@ -384,19 +349,6 @@ export interface AuditLogListParams {
   startDate?: string;
   endDate?: string;
 }
-
-// ---- 列表回應型別 ----
-
-export type PatientListResponse = PaginatedResponse<Patient>;
-export type SessionListResponse = PaginatedResponse<Session>;
-export type ConversationListResponse = PaginatedResponse<Conversation>;
-export type ReportListResponse = PaginatedResponse<SOAPReport>;
-export type AlertListResponse = PaginatedResponse<RedFlagAlert>;
-export type NotificationListResponse = PaginatedResponse<Notification>;
-export type UserListResponse = PaginatedResponse<User>;
-export type AuditLogListResponse = PaginatedResponse<AuditLog>;
-export type ComplaintListResponse = PaginatedResponse<ChiefComplaint>;
-export type RedFlagRuleListResponse = PaginatedResponse<RedFlagRule>;
 
 // =============================================================================
 // 研究分析（Research Analytics）— GET /research/analytics

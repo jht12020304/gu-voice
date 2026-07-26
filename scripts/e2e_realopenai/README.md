@@ -40,6 +40,12 @@ set -a; source $E2E/local.env; set +a
 nohup $E2E/start_backend.sh > $E2E/uvicorn.log 2>&1 &                     # 原 repo
 # E2E_BACKEND_DIR=<worktree>/backend nohup $E2E/start_backend.sh > $E2E/uvicorn.log 2>&1 &  # §E worktree
 curl -s http://127.0.0.1:8000/api/v1/healthz/deep   # 應回 {"status":"ok",...}
+
+# 4. 起 celery worker（2026-07-19 起必要：SOAP 生成走 Celery 單一路徑，
+#    沒起 worker 的話報告會停在 GENERATING、SOAP 斷言必失敗）
+cd /Users/chun/Desktop/GU_0410/backend   # 或 <worktree>/backend
+nohup venv/bin/celery -A app.tasks worker --loglevel=info --concurrency=1 \
+  > $E2E/celery_worker.log 2>&1 &
 ```
 
 ## 跑情境

@@ -132,7 +132,7 @@ DB 只做 6 個單純取數查詢（Q1 sessions、Q2 病患對話輪、Q3 紅旗
 
 ## 7. 部署與驗證
 
-- **後端**：Railway `gu-voice-app` 服務**無 GitHub 自動部署**，PR merge 後**必須手動** `cd backend && railway up --service gu-voice-app --detach`（見 [deployment_guide.md](deployment_guide.md)）。啟動腳本自動跑 migration。
+- **後端**：Railway `gu-voice-app` 服務已連 GitHub，merge 到 main 即自動部署（見 [deployment_guide.md](deployment_guide.md)）。啟動腳本自動跑 migration。
 - **前端**：Vercel 跟 main 自動部署；research locale 隨 build 同步到 `public/locales`。
 - **本地 E2E 驗證**：docker 起 PG16+Redis → `alembic upgrade head` → seed（`scratchpad/seed_research_e2e.py` 等；注意 conversations 按月分區，seed 日期須落在既有分區月份）→ uvicorn 帶 `CORS_ORIGINS` 含 vite dev port → Playwright 逐 Figure 目檢 → Redis publish `gu:dashboard:events` 模擬跨行程 `report_generated` 驗即時更新。
 - **測試**：後端 `tests/unit/services/test_research_service.py`（Wilson CI 教科書值、箱形 whisker、age band、demographics 去重、非終態紅旗回歸）。

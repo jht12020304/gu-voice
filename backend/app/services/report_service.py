@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authz import get_user_role as _get_user_role
 from app.core.exceptions import (
     NotFoundException,
     ReportAlreadyExistsException,
@@ -33,24 +34,6 @@ from app.models.soap_report_revision import SOAPReportRevision
 from app.utils.datetime_utils import parse_iso, utc_now
 
 logger = logging.getLogger(__name__)
-
-
-def _get_user_role(current_user: Any) -> Optional[UserRole]:
-    """從 current_user 取出 role，容忍 string 或 enum 兩種來源。
-
-    與 session_service._get_user_role 同邏輯，避免跨檔耦合而在此重複一份。
-    """
-    if current_user is None:
-        return None
-    raw = getattr(current_user, "role", None)
-    if raw is None:
-        return None
-    if isinstance(raw, UserRole):
-        return raw
-    try:
-        return UserRole(raw)
-    except ValueError:
-        return None
 
 
 async def _authorize_report_access(
@@ -321,8 +304,7 @@ class ReportService:
 
         當 `current_user` 提供時（所有來自 router 的呼叫），會依角色檢查
         是否可讀取此報告；違規 raise NotFoundException（避免洩漏存在與否）。
-        內部 worker / 已授權路徑（update_report_content）不帶 current_user，
-        則略過權限檢查。
+        內部 worker / 已授權路徑不帶 current_user，則略過權限檢查。
 
         Raises:
             NotFoundException: 報告不存在或無權存取
@@ -428,71 +410,8 @@ class ReportService:
 
         # H-8：此處僅「觸發」生成（狀態仍為 generating），非完成點，故不在此推播。
         # report_generated 事件改在報告真正完成（commit）後推播——由 Celery worker
-        # （tasks/report_queue._async_generate）與 update_report_content 經 Redis
-        # pub/sub 橋接觸發，解決 worker 與 API 行程不同、in-memory 廣播跨不了行程的問題。
-        return report
-
-    @staticmethod
-    async def update_report_content(
-        db: AsyncSession,
-        report_id: UUID,
-        soap_data: dict[str, Any],
-    ) -> SOAPReport:
-        """
-        更新報告內容（由 Celery worker 呼叫）
-
-        Args:
-            report_id: 報告 ID
-            soap_data: SOAP 結構化資料
-        """
-        report = await ReportService.get_report(db, report_id)
-
-        report.subjective = soap_data.get("subjective")
-        report.objective = soap_data.get("objective")
-        report.assessment = soap_data.get("assessment")
-        report.plan = soap_data.get("plan")
-        report.raw_transcript = soap_data.get("raw_transcript")
-        report.summary = soap_data.get("summary")
-        report.icd10_codes = soap_data.get("icd10_codes", [])
-        report.ai_confidence_score = soap_data.get("ai_confidence_score")
-        report.status = ReportStatus.GENERATED
-        report.generated_at = utc_now()
-        report.updated_at = utc_now()
-
-        await db.flush()
-
-        # M15：首版內容（或 regenerate 後的新一版）寫入 append-only revision
-        await ReportService._snapshot_revision(
-            db,
-            report,
-            ReportRevisionReason.INITIAL,
-        )
-
-        # H-8：此處為「報告已生成」的正確語意完成點。本方法可能由 Celery worker
-        # 行程呼叫，與持有 dashboard WebSocket 連線的 API 行程不同，故透過
-        # ``publish_dashboard_event`` 走 Redis pub/sub 橋接（由 API 行程的
-        # subscriber 收到後本地 fan-out）。payload 為 camelCase 對齊前端
-        # ``ReportGeneratedPayload``；publish 失敗已於 helper 內 swallow + log，
-        # 此處再包一層 try/except 確保絕不影響報告寫入結果。
-        try:
-            from app.websocket.connection_manager import publish_dashboard_event
-
-            await publish_dashboard_event(
-                "report_generated",
-                {
-                    "reportId": str(report.id),
-                    "sessionId": str(report.session_id),
-                    # 此路徑未載入 patient，缺值以空字串交由前端依 locale 顯示
-                    "patientName": "",
-                    "status": "generated",
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 — 推播失敗不可影響報告寫入
-            logger.warning(
-                "report_generated 推播失敗（非致命） | report=%s, error=%s",
-                report.id,
-                exc,
-            )
+        # （tasks/report_queue._async_generate）經 Redis pub/sub 橋接觸發，
+        # 解決 worker 與 API 行程不同、in-memory 廣播跨不了行程的問題。
         return report
 
     @staticmethod
@@ -590,10 +509,13 @@ class ReportService:
             include_transcript=include_transcript,
         )
 
-        # 使用 WeasyPrint 生成 PDF
+        # 使用 WeasyPrint 生成 PDF。url_fetcher 一律拒絕，
+        # 防止注入內容經 img src / CSS url() 觸發 SSRF／本地檔讀取。
         from weasyprint import HTML
 
-        pdf_bytes = HTML(string=html_content).write_pdf()
+        pdf_bytes = HTML(
+            string=html_content, url_fetcher=_forbid_url_fetch
+        ).write_pdf()
         filename = f"SOAP_Report_{report.id}.pdf"
         return pdf_bytes, filename
 
@@ -696,6 +618,24 @@ def _build_report_html(
     assessment = report.assessment or {}
     plan = report.plan or {}
 
+    # 安全：所有插入 HTML 的資料欄位一律逃逸。這些欄位源自 LLM 生成
+    # （可被病患語音 prompt-inject）與醫師自由文字，未逃逸會讓注入的
+    # <img src> / CSS url() 經 WeasyPrint 觸發伺服器端資源抓取。
+    esc = _html.escape
+    chief_complaint = esc(str(subjective.get("chief_complaint", "N/A")))
+    summary = esc(str(report.summary or "N/A"))
+    clinical_impression = esc(str(assessment.get("clinical_impression", "N/A")))
+    icd10 = esc(", ".join(report.icd10_codes)) if report.icd10_codes else "N/A"
+    review_status = esc(
+        report.review_status.value if report.review_status else "pending"
+    )
+    confidence = esc(str(report.ai_confidence_score or "N/A"))
+    review_notes_html = (
+        f'<p class="meta">{labels["review_notes"]}: {esc(str(report.review_notes))}</p>'
+        if report.review_notes
+        else ""
+    )
+
     # include_transcript=True 時附逐字稿區塊；raw_transcript 為自由文字，逃逸後輸出。
     transcript_section = ""
     if include_transcript:
@@ -732,13 +672,13 @@ def _build_report_html(
         <p class="meta">
             {labels["report_id"]}: {report.id}<br>
             {labels["generated_at"]}: {format_iso(report.generated_at)}<br>
-            {labels["review_status"]}: {report.review_status.value if report.review_status else "pending"}
+            {labels["review_status"]}: {review_status}
         </p>
 
         <div class="section">
             <h2>{labels["subjective"]}</h2>
-            <p><strong>{labels["chief_complaint"]}:</strong> {subjective.get("chief_complaint", "N/A")}</p>
-            <p><strong>{labels["summary"]}:</strong> {report.summary or "N/A"}</p>
+            <p><strong>{labels["chief_complaint"]}:</strong> {chief_complaint}</p>
+            <p><strong>{labels["summary"]}:</strong> {summary}</p>
         </div>
 
         <div class="section">
@@ -748,8 +688,8 @@ def _build_report_html(
 
         <div class="section">
             <h2>{labels["assessment"]}</h2>
-            <p><strong>{labels["clinical_impression"]}:</strong> {assessment.get("clinical_impression", "N/A")}</p>
-            <p><strong>ICD-10:</strong> {", ".join(report.icd10_codes) if report.icd10_codes else "N/A"}</p>
+            <p><strong>{labels["clinical_impression"]}:</strong> {clinical_impression}</p>
+            <p><strong>ICD-10:</strong> {icd10}</p>
         </div>
 
         <div class="section">
@@ -758,8 +698,8 @@ def _build_report_html(
         </div>
         {transcript_section}
         <div class="section">
-            <p class="meta">{labels["confidence"]}: {report.ai_confidence_score or "N/A"}</p>
-            {f'<p class="meta">{labels["review_notes"]}: {report.review_notes}</p>' if report.review_notes else ""}
+            <p class="meta">{labels["confidence"]}: {confidence}</p>
+            {review_notes_html}
         </div>
     </body>
     </html>
@@ -767,6 +707,17 @@ def _build_report_html(
 
 
 def _format_dict(d: dict) -> str:
-    """將 dict 格式化為 HTML 段落"""
+    """將 dict 格式化為 HTML 段落（內容一律逃逸，值可能含 LLM 生成文字）"""
+    import html as _html
     import json
-    return f"<pre>{json.dumps(d, ensure_ascii=False, indent=2)}</pre>"
+    return f"<pre>{_html.escape(json.dumps(d, ensure_ascii=False, indent=2))}</pre>"
+
+
+def _forbid_url_fetch(url: str) -> dict:
+    """WeasyPrint url_fetcher：一律拒絕抓取任何資源。
+
+    報告 HTML 樣式全為 inline CSS、不需任何外部資源；拒絕所有 URL
+    （http/https/file/...）可阻斷經注入內容觸發的伺服器端 SSRF／本地檔讀取。
+    WeasyPrint 對 fetch 失敗僅記 log 並略過該資源，不影響 PDF 產出。
+    """
+    raise ValueError(f"PDF 匯出禁止抓取外部資源: {url}")

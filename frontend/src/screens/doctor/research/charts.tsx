@@ -16,7 +16,7 @@
 import { useCallback, useRef } from 'react';
 import type { NumericSummary, Proportion } from '../../../types/api';
 
-export const INK = { blue: '#2563eb', green: '#16a34a' };
+const INK = { blue: '#2563eb', green: '#16a34a' };
 
 // ── Figure 容器：panel 編號 + caption + n= + 下載 SVG ──────
 
@@ -306,7 +306,7 @@ export function ForestPlot({
       {/* x label + overall legend */}
       <text x={PAD.l + plotW / 2} y={H - 4} textAnchor="middle" className="fill-ink-secondary text-[11px]">
         {xLabel}
-        {overall !== null ? `　- - - ${overallLabel} ${(overall * 100).toFixed(1)}%` : ''}
+        {overall !== null ? `\u3000- - - ${overallLabel} ${(overall * 100).toFixed(1)}%` : ''}
       </text>
     </svg>
   );

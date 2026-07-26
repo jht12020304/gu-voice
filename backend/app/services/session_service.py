@@ -14,6 +14,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.authz import get_user_role as _get_user_role
 from app.core.exceptions import (
     ConflictException,
     ForbiddenException,
@@ -73,21 +74,6 @@ async def _broadcast_session_created(db: AsyncSession, session: Session) -> None
             getattr(session, "id", None),
             str(exc),
         )
-
-
-def _get_user_role(current_user: Any) -> Optional[UserRole]:
-    """從 current_user 取出 role，容忍 string 或 enum 兩種來源。"""
-    if current_user is None:
-        return None
-    raw = getattr(current_user, "role", None)
-    if raw is None:
-        return None
-    if isinstance(raw, UserRole):
-        return raw
-    try:
-        return UserRole(raw)
-    except ValueError:
-        return None
 
 
 async def _authorize_session_access(

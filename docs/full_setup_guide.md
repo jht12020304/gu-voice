@@ -28,7 +28,7 @@
 *   **SUPABASE_URL**: `https://xobxnlvtilezridrekdm.supabase.co`（生產 `gu-voice-prod`；舊 ref `udydlelmkusyjmegtviq` 已過期）
 *   **REDIS_URL**: `redis://localhost:6379/0` (用於 Supervisor 指導訊息快取)
 *   **OPENAI_API_KEY**: (已配置 gpt-4o / gpt-4o-mini 等模型金鑰)
-*   **CORS_ORIGINS**: `["http://localhost:5173", "http://localhost:3000"]` (允許前端存取；生產環境注入格式注意事項見第 6 節)
+*   **CORS_ORIGINS**: `["http://localhost:5175", "http://localhost:3000"]` (允許前端存取；生產環境注入格式注意事項見第 6 節)
 
 ### 前端 (.env)
 路徑: `frontend/.env`

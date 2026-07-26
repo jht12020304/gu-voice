@@ -2,8 +2,9 @@
 守護 Phase 3 follow-up：Celery SOAP 報告任務
 - 模組可正常 import（舊版 `from app.pipelines.soap_generator import generate_soap`
   不存在會 ImportError；新版應直接走 SOAPGenerator class）
-- _async_generate 正確將 session.language 傳入 SOAPGenerator.generate()
-- 生成成功後 SOAPReport.language 與 session.language 一致
+- _async_generate 以 SOAP_REPORT_LANGUAGE（固定 zh-TW，2026-07-19 產品決策）
+  呼叫 SOAPGenerator.generate()，不跟 session.language
+- 生成成功後 SOAPReport.language == zh-TW
 """
 
 from __future__ import annotations
@@ -140,9 +141,9 @@ def test_module_imports_cleanly():
 
 
 @pytest.mark.parametrize("language", ["zh-TW", "en-US"])
-def test_async_generate_passes_session_language_to_soap_generator(
-    monkeypatch, language
-):
+def test_async_generate_uses_fixed_report_language(monkeypatch, language):
+    """2026-07-19 產品決策：不論 session 語言為何，SOAP 生成與 report.language
+    一律 SOAP_REPORT_LANGUAGE（zh-TW）——報告讀者是中文醫護。"""
     session_obj = _fake_session(language=language)
     report_obj = _fake_report()
     db = _FakeDB(session_obj, report_obj)
@@ -207,7 +208,7 @@ def test_async_generate_passes_session_language_to_soap_generator(
     result = asyncio.run(report_queue._async_generate(str(session_obj.id)))
 
     assert result["status"] == "generated"
-    assert captured["language"] == language
+    assert captured["language"] == "zh-TW"
     assert captured["chief_complaint"] == "排尿困難"
     assert captured["patient_info"]["name"] == "Test Patient"
     # transcript 的 role / content 結構正確
@@ -216,8 +217,11 @@ def test_async_generate_passes_session_language_to_soap_generator(
     # B2：共用 resolve_symptom_id 搬移後 Celery 路徑仍接得上
     # （chief_complaint.name_en="Dysuria" → slug "dysuria" 傳進 generate()）
     assert captured["symptom_id"] == "dysuria"
-    # Report language 與 session language 一致
-    assert report_obj.language == language
+    # 紅旗注入參數必須流動（單一生成路徑後這是唯一的 red_flags 注入點；
+    # fake session 無警示 → 空 list 而非 None，確保 _enforce_red_flag_urgency 可作用）
+    assert captured["red_flags"] == []
+    # Report language 固定 zh-TW，不跟 session language
+    assert report_obj.language == "zh-TW"
     assert report_obj.status == ReportStatus.GENERATED
     # B2/D6：validator 驗證旗標須寫回報告（fake generate 回 icd10_verified=True）
     assert report_obj.icd10_verified is True

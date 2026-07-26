@@ -25,13 +25,12 @@
 1. Project → **+ New** → **Empty Service**，命名為 `gu-voice-celery-worker`
 2. **Settings → Source** 選同一個 GitHub repo、同一分支，root 設為 `backend/`
 
-   > ⚠️ 已驗證（2026-06-26）：生產的主 API service（專案 `gu-voice-api` / service
-   > `gu-voice-app`，https://gu-voice-app-production.up.railway.app）目前**未連 GitHub
-   > source**，而是用 `railway up`（Docker build，`RAILWAY_DOCKERFILE_PATH=Dockerfile`）
-   > 上傳 image 部署。若要與主服務共用同一 image，worker/beat 也可改走相同流程：
-   > `railway up --detach` 觸發 build（headless / 非 TTY 環境亦可，不等 log 串流），
-   > 再於各 service 設定不同的 Start Command。改任一環境變數則會用既有 image
-   > 觸發 redeploy（約 1 分鐘、免重建）。
+   > 主 API service（專案 `gu-voice-api` / service `gu-voice-app`，
+   > https://gu-voice-app-production.up.railway.app）已連 GitHub source，
+   > push 到 main 即自動 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`）部署
+   > （2026-06 時曾為手動 `railway up`，現已接上自動部署）。
+   > `railway up --detach` 保留為 incident 時強制換容器的手段。
+   > 改任一環境變數則會用既有 image 觸發 redeploy（約 1 分鐘、免重建）。
 3. **Settings → Deploy**
    - **Start Command**: `/app/scripts/start_worker.sh`
    - **Restart Policy**: `ON_FAILURE`（最多重試 5 次）

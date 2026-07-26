@@ -83,6 +83,31 @@ def _has_valid_audio_magic(buf: bytes) -> bool:
     return False
 
 
+def _authorize_ws_session_access(
+    session_data: dict[str, Any], user_id: Any, role: Any
+) -> bool:
+    """問診 WS 的 row-level 授權（純函式，與 REST _authorize_session_access 同模型）。
+
+    - admin：放行
+    - doctor：場次未指派醫師、或指派醫師即本人 → 放行
+    - patient：場次病患的 user_id 即本人 → 放行
+    - 其餘（含 role 缺失 / user_id 缺失）→ 拒絕（fail-closed）
+    """
+    if not user_id:
+        return False
+    role_value = getattr(role, "value", role)
+    uid = str(user_id)
+    if role_value == "admin":
+        return True
+    if role_value == "doctor":
+        doctor_id = session_data.get("doctor_id")
+        return doctor_id is None or str(doctor_id) == uid
+    if role_value == "patient":
+        patient_user_id = session_data.get("patient_user_id")
+        return patient_user_id is not None and str(patient_user_id) == uid
+    return False
+
+
 def _history_checksum(history: list[dict[str, Any]]) -> str:
     """計算 conversation_history 的 sha256 checksum（穩定序列化）。"""
     try:
@@ -489,6 +514,17 @@ async def conversation_websocket(
             await websocket.close(code=4004, reason="errors.ws.session_not_found")
             return
 
+        # ── 步驟 2.5：row-level 授權（與 REST _authorize_session_access 同模型）──
+        # 未授權回與「不存在」相同的 close code，避免場次存在性洩漏。
+        if not _authorize_ws_session_access(
+            session_data, user_id, payload.get("role")
+        ):
+            logger.warning(
+                "問診 WS 授權拒絕 | session=%s, user=%s", session_id, user_id
+            )
+            await websocket.close(code=4004, reason="errors.ws.session_not_found")
+            return
+
         session_status = session_data.get("status")
         if session_status not in ("waiting", "in_progress"):
             # close frame reason 必須 < 123 bytes；送 canonical code 讓前端 i18n 渲染
@@ -741,12 +777,7 @@ async def conversation_websocket(
                     await _broadcast_dashboard_queue_and_stats(db, redis)
                     # 觸發 SOAP 報告非同步生成
                     asyncio.create_task(
-                        _generate_soap_report_async(
-                            session_id=session_id,
-                            conversation_history=conversation_history,
-                            session_context=session_context,
-                            settings=settings,
-                        )
+                        _generate_soap_report_async(session_id=session_id)
                     )
 
                     break
@@ -1949,23 +1980,22 @@ async def _handle_text_message(
             },
         )
 
-        await manager.broadcast_dashboard(
+        # P0-1（2026-07-19 架構修復）：改走 Redis pub/sub 橋接——生產 4 個 uvicorn
+        # worker 行程，in-memory broadcast 只送得到同行程的 dashboard 連線（3/4
+        # 機率醫師收不到即時紅旗）。橋接與 queue_updated/report_generated 同一條路。
+        await manager.broadcast_dashboard_event(
+            "new_red_flag",
             {
-                "type": "new_red_flag",
-                "payload": {
-                    "alertId": alert_id,
-                    "sessionId": session_id,
-                    # fallback 改成空字串而非中文「未知」,讓 dashboard 前端依 locale
-                    # 決定顯示字樣（Unknown / 未知 / Inconnu …）,不要在後端送中文。
-                    "patientName": session_context.get("patient_info", {}).get(
-                        "name"
-                    )
-                    or "",
-                    "severity": alert["severity"],
-                    "title": resolved_title,
-                    "description": alert["description"],
-                },
-            }
+                "alertId": alert_id,
+                "sessionId": session_id,
+                # fallback 改成空字串而非中文「未知」,讓 dashboard 前端依 locale
+                # 決定顯示字樣（Unknown / 未知 / Inconnu …）,不要在後端送中文。
+                "patientName": session_context.get("patient_info", {}).get("name")
+                or "",
+                "severity": alert["severity"],
+                "title": resolved_title,
+                "description": alert["description"],
+            },
         )
         # A5 [D3]：record-on-success — DB 持久化 + 廣播皆未拋例外才記錄去重身份。
         # send_to_session 回 False（病患 WS 已關，drain 情境常見）仍記錄：
@@ -2185,12 +2215,7 @@ async def _handle_text_message(
             await _broadcast_dashboard_queue_and_stats(db, redis)
             # 觸發 SOAP 報告生成（紅旗中止場次同樣需要報告供醫師審閱）
             asyncio.create_task(
-                _generate_soap_report_async(
-                    session_id=session_id,
-                    conversation_history=conversation_history,
-                    session_context=session_context,
-                    settings=settings,
-                )
+                _generate_soap_report_async(session_id=session_id)
             )
             # E8-1：標記本連線場次已終止（不論上面 CAS 是否真的轉移成功——即使
             # 因競態已被別的路徑轉走，場次現在也一定是終態），讓「下一輪」訊息
@@ -2296,12 +2321,7 @@ async def _handle_text_message(
                 await _broadcast_dashboard_queue_and_stats(db, redis)
                 # SOAP 冪等由 _generate_soap_report_async 雙重存在性檢查 + UNIQUE 保護。
                 asyncio.create_task(
-                    _generate_soap_report_async(
-                        session_id=session_id,
-                        conversation_history=conversation_history,
-                        session_context=session_context,
-                        settings=settings,
-                    )
+                    _generate_soap_report_async(session_id=session_id)
                 )
                 # E8-1：與其他終態分支一致地標記（雖然下面立刻 return True 結束
                 # 主迴圈，這輪不會再進 handler，但保持所有終態出口一致，避免
@@ -2351,12 +2371,7 @@ async def _handle_text_message(
             )
             await _broadcast_dashboard_queue_and_stats(db, redis)
             asyncio.create_task(
-                _generate_soap_report_async(
-                    session_id=session_id,
-                    conversation_history=conversation_history,
-                    session_context=session_context,
-                    settings=settings,
-                )
+                _generate_soap_report_async(session_id=session_id)
             )
             # E8-1：正常收尾同樣標記終態（見上方 aborted_red_flag 分支同註解）。
             session_context["_terminated"] = "completed"
@@ -2367,176 +2382,70 @@ async def _handle_text_message(
 
 # ── 輔助函式 ─────────────────────────────────────────────
 
-async def _generate_soap_report_async(
-    *,
-    session_id: str,
-    conversation_history: list[dict[str, Any]],
-    session_context: dict[str, Any],
-    settings: Settings,
-) -> None:
+async def _generate_soap_report_async(*, session_id: str) -> None:
+    """問診結束後的 SOAP 生成觸發（P0-2 架構修復，2026-07-19）。
+
+    舊版在 API 行程內 inline 跑 LLM 生成：Railway 重新部署／行程回收會讓生成中
+    的報告無聲消失，且失敗只記 log、無 retry、無 FAILED 標記。改為
+    「建 GENERATING row → 派既有 Celery generate_soap_report 任務」：
+    - 生成本體由 tasks/report_queue 執行（acks_late + retry ×2 + on_failure 標
+      FAILED + report_generated 儀表板事件 + REPORT_READY 通知），行程重啟不遺失。
+    - 同時消滅 WS／Celery 雙路徑的內容漂移（transcript／red_flags／summary／
+      symptom_id／language 全部單一來源＝report_queue._async_generate）。
+
+    冪等：早期存在性檢查 + soap_reports.session_id UNIQUE。撞 UNIQUE＝另一條
+    結束路徑（end_session／閒置逾時／critical 中止／自動結束）已觸發，略過即可。
     """
-    在問診結束後非同步生成 SOAP 報告並存入資料庫
-    （使用獨立 DB session，避免 WebSocket session 關閉後無法操作）
-    """
-    from datetime import datetime, timezone
     from uuid import UUID
 
     from sqlalchemy import select
     from sqlalchemy.exc import IntegrityError
-    from sqlalchemy.orm import selectinload
 
     from app.core.database import get_db_session
     from app.models.enums import ReportStatus, ReviewStatus
-    from app.models.session import Session
     from app.models.soap_report import SOAPReport
-    from app.pipelines.icd10_symptom_map import resolve_symptom_id
-    from app.pipelines.soap_generator import SOAPGenerator
-
-    logger.info("開始生成 SOAP 報告 | session=%s", session_id)
+    from app.utils.datetime_utils import utc_now
 
     try:
-        # 冪等保護（早期檢查）：一場場次只能有一份 SOAP。多個結束路徑可能同時觸發本函式
-        # （end_session 控制指令 / 閒置逾時 / critical 紅旗中止 / HPI 自動結束），
-        # 早期就先查一次，重複時直接 return，連昂貴的 LLM 生成都不跑。
-        symptom_id: str | None = None
-        async with get_db_session() as _check_db:
-            _existing = await _check_db.execute(
+        async with get_db_session() as db:
+            _existing = await db.execute(
                 select(SOAPReport.id).where(SOAPReport.session_id == UUID(session_id))
             )
             if _existing.scalar_one_or_none() is not None:
-                logger.info("SOAP 已存在，跳過重複生成（早期檢查） | session=%s", session_id)
+                logger.info(
+                    "SOAP 已存在或生成中，跳過重複觸發 | session=%s", session_id
+                )
                 return
-            # B2：同一趟連線順便查 session（eager-load 主訴）解析 symptom_id，
-            # 供 ICD-10 驗證層做 symptom↔code 對映；解析不到（無主訴/「其他」
-            # sentinel/查無 session）→ None，validator 會回 unverified（graceful）。
-            _session_obj = (
-                await _check_db.execute(
-                    select(Session)
-                    .options(selectinload(Session.chief_complaint))
-                    .where(Session.id == UUID(session_id))
+            now = utc_now()
+            db.add(
+                SOAPReport(
+                    session_id=UUID(session_id),
+                    status=ReportStatus.GENERATING,
+                    review_status=ReviewStatus.PENDING,
+                    created_at=now,
+                    updated_at=now,
                 )
-            ).scalar_one_or_none()
-            symptom_id = resolve_symptom_id(_session_obj)
-
-            # 安全關鍵（修死代碼）：取本場次即時偵測並持久化的紅旗注入 SOAP 生成，
-            # 讓 _enforce_red_flag_urgency 能把 critical/high 紅旗強制反映到
-            # plan.urgency（只升不降），避免 LLM 自逐字稿重新推導時 under-triage。
-            # 先前此路徑未傳 red_flags → generate() red_flags=None → 安全底線恆 no-op
-            # （即時生成路徑漏接；Celery 重生路徑 report_queue.py 已正確傳，此處對齊）。
-            from app.models.red_flag_alert import RedFlagAlert
-
-            _rf_rows = (
-                await _check_db.execute(
-                    select(RedFlagAlert).where(
-                        RedFlagAlert.session_id == UUID(session_id)
-                    )
-                )
-            ).scalars().all()
-            red_flags = [
-                {
-                    "severity": (
-                        rf.severity.value
-                        if hasattr(rf.severity, "value")
-                        else str(rf.severity)
-                    ),
-                    "canonical_id": getattr(rf, "canonical_id", None),
-                    "trigger_reason": rf.trigger_reason or "",
-                    "suggested_actions": rf.suggested_actions or [],
-                }
-                for rf in _rf_rows
-            ]
-
-        generator = SOAPGenerator(settings)
-        soap_data = await generator.generate(
-            transcript=conversation_history,
-            patient_info=session_context.get("patient_info", {}),
-            chief_complaint=session_context.get("chief_complaint", ""),
-            language=session_context.get("language"),
-            symptom_id=symptom_id,
-            red_flags=red_flags,
-        )
-
-        # 格式化對話逐字稿——與 Celery 重生路徑（report_queue._async_generate）
-        # 共用單一來源 format_raw_transcript（中性 `[patient]` 標籤，
-        # 修掉舊版寫死中文「病患：/AI 助手：」的漂移問題）。
-        from app.utils.transcript import format_raw_transcript
-
-        raw_transcript = format_raw_transcript(conversation_history)
-
-        # 建立 SOAPReport 記錄（使用獨立 session，不依賴 WebSocket 的 db）
-        async with get_db_session() as db:
-            # 冪等保護（race 關閉）：兩個結束路徑可能在早期檢查與此處之間都通過，
-            # 故在 insert 前於同一 session 內再查一次，避免重複報告。
-            _dup = await db.execute(
-                select(SOAPReport.id).where(SOAPReport.session_id == UUID(session_id))
             )
-            if _dup.scalar_one_or_none() is not None:
-                logger.info("SOAP 已存在，跳過重複生成（insert 前） | session=%s", session_id)
-                return
-            report = SOAPReport(
-                session_id=UUID(session_id),
-                status=ReportStatus.GENERATED,
-                review_status=ReviewStatus.PENDING,
-                subjective=soap_data.get("subjective"),
-                objective=soap_data.get("objective"),
-                assessment=soap_data.get("assessment"),
-                plan=soap_data.get("plan"),
-                summary=soap_data.get("summary"),
-                icd10_codes=soap_data.get("icd10_codes", []),
-                # D6/B2：validator 的 symptom↔code 對映驗證結果（供前端「需醫師確認」顯示）
-                icd10_verified=bool(soap_data.get("icd10_verified", False)),
-                # D4/B3：SOAP 語言必須跟 session 語言（先前漏設 → 落 server_default 恆 zh-TW）。
-                # 「or DEFAULT_LANGUAGE」是承重的：欄位 nullable=False，若把 None 傳進去會
-                # IntegrityError，被下方 except IntegrityError 誤當 UNIQUE 冪等撞擊 →
-                # SOAP 靜默消失。絕對不可拿掉 fallback。
-                language=session_context.get("language") or settings.DEFAULT_LANGUAGE,
-                ai_confidence_score=soap_data.get("confidence_score"),
-                raw_transcript=raw_transcript,
-                generated_at=datetime.now(timezone.utc),
-            )
-            db.add(report)
-
-            # M15 append-only：WS 路徑與 Celery 路徑一致——首版內容也留快照
-            # （舊版只有 Celery regenerate 路徑會寫 INITIAL revision）。
-            await db.flush()
-            from app.models.enums import ReportRevisionReason
-            from app.services.report_service import ReportService
-
-            await ReportService._snapshot_revision(
-                db, report, ReportRevisionReason.INITIAL
-            )
-
-            # REPORT_READY 站內通知（有負責醫師才發；失敗不可影響報告寫入）。
-            try:
-                from app.services.notification_service import NotificationService
-
-                await NotificationService.notify_report_ready(
-                    db, session_id=session_id, report_id=report.id
-                )
-            except Exception:
-                logger.warning(
-                    "REPORT_READY 通知建立失敗（非致命） | session=%s",
-                    session_id,
-                    exc_info=True,
-                )
-            # get_db_session() 會在 context 結束時自動 commit
-
-        logger.info(
-            "SOAP 報告生成完成並儲存 | session=%s, confidence=%.2f",
-            session_id,
-            soap_data.get("confidence_score", 0),
-        )
-
+            # get_db_session() 於 context 結束時自動 commit
     except IntegrityError:
-        # soap_reports.session_id 有 UNIQUE 約束：兩個結束路徑同時 insert 時，
-        # 其中一個會撞約束。這不是錯誤，是冪等保護生效（DB 層保證單一報告），
-        # 以 INFO 記錄即可，避免誤導性的 ERROR + stacktrace。
         logger.info("SOAP 已存在（UNIQUE 撞擊，冪等略過） | session=%s", session_id)
-    except Exception as exc:
+        return
+    except Exception:
         logger.error(
-            "SOAP 報告生成失敗 | session=%s, error=%s",
+            "SOAP GENERATING row 建立失敗 | session=%s", session_id, exc_info=True
+        )
+        return
+
+    try:
+        from app.tasks.report_queue import generate_soap_report
+
+        generate_soap_report.delay(session_id)
+        logger.info("已派送 SOAP 生成任務 | session=%s", session_id)
+    except Exception:
+        # broker 不可用：row 已標 GENERATING（狀態可見），醫師端可手動 regenerate 補救
+        logger.error(
+            "SOAP 任務派送失敗（row 已標 GENERATING） | session=%s",
             session_id,
-            str(exc),
             exc_info=True,
         )
 
@@ -2719,6 +2628,17 @@ async def _validate_session(
             "chief_complaint_display": resolved_chief_complaint_display,
             "patient_info": patient_info,
             "language": getattr(session_obj, "language", None),
+            # WS row-level 授權用（與 REST _authorize_session_access 同一權限模型）
+            "patient_user_id": (
+                str(patient.user_id)
+                if patient is not None and getattr(patient, "user_id", None)
+                else None
+            ),
+            "doctor_id": (
+                str(session_obj.doctor_id)
+                if getattr(session_obj, "doctor_id", None)
+                else None
+            ),
         }
 
     except Exception as exc:

@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authz import get_user_role as _get_user_role
 from app.core.exceptions import (
     AlertAlreadyAcknowledgedException,
     NotFoundException,
@@ -74,21 +75,6 @@ def _parse_iso_datetime(value: Any) -> Optional[datetime]:
         return value
     try:
         return datetime.fromisoformat(str(value))
-    except ValueError:
-        return None
-
-
-def _get_user_role(current_user: Any) -> Optional[UserRole]:
-    """從 current_user 取出 role，容忍 string 或 enum 兩種來源。"""
-    if current_user is None:
-        return None
-    raw = getattr(current_user, "role", None)
-    if raw is None:
-        return None
-    if isinstance(raw, UserRole):
-        return raw
-    try:
-        return UserRole(raw)
     except ValueError:
         return None
 

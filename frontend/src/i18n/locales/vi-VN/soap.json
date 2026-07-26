@@ -73,7 +73,8 @@
   },
   "diagnosis": {
     "title": "Mã chẩn đoán",
-    "empty": "Chưa có mã ICD-10."
+    "empty": "Chưa có mã ICD-10.",
+    "unverified": "ICD-10 chưa được xác minh — cần bác sĩ xác nhận"
   },
   "redFlag": {
     "title": "Ghi chú cờ đỏ",
@@ -183,9 +184,10 @@
       "title": "Xét nghiệm đề nghị"
     },
     "urgency": {
-      "urgent": "Khẩn cấp",
-      "routine": "Thường quy",
-      "elective": "Chọn lịch"
+      "er_now": "Cấp cứu ngay",
+      "24h": "Trong 24 giờ",
+      "this_week": "Trong tuần này",
+      "routine": "Thường quy"
     },
     "treatments": {
       "title": "Điều trị"

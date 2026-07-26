@@ -1,5 +1,5 @@
 """
-語言解析工具（docs/i18n_plan.md TODO C.6 / E14 / TODO-O1）。
+語言解析工具（docs/archive/i18n_plan.md TODO C.6 / E14 / TODO-O1）。
 
 `resolve_language()` 實作 fallback chain + feature flag gate：
 

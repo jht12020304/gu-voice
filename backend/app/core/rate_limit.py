@@ -10,6 +10,10 @@ Rate limiter：Redis sliding window + 三個預設 policy。
     login_failure_tracker(email, ok=..)  # 連續 5 次失敗鎖 10 分鐘
     llm_per_user_rate_limit(user_id)     # 每 user 每分鐘 20 次
 - 超過限制一律抛 RateLimitExceededException（HTTP 429，retry_after 放 details）。
+- Redis 連線類故障（redis.exceptions.RedisError）一律 fail-open：放行並 logger.warning。
+  與本系統其他 Redis 消費端（紅旗去重、context 快取）的 fail-open 策略一致，
+  避免 Redis 掛掉時把登入打成 500、問診 WS 斷線。RateLimitExceededException 是
+  正常業務例外，不在攔截範圍（它也不是 RedisError 子類）。
 
 與 auth_service.py 的 BLACKLIST_KEY_PREFIX 一樣不走 `_prefixed_key()`：rate limit keys
 在 namespace 上自帶 `gu:rl:` 前綴，方便維運 `SCAN` 分類。
@@ -20,6 +24,8 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any
+
+from redis.exceptions import RedisError
 
 from app.core.exceptions import RateLimitExceededException
 
@@ -73,36 +79,46 @@ class SlidingWindowLimiter:
             (allowed, retry_after_seconds)
             - allowed=True ：已記錄、未超限
             - allowed=False：window 內已達 limit，未記錄；retry_after 為最舊項預估釋出秒數
+
+        Redis 連線類故障（RedisError）時 fail-open：回 (True, 0) 並 logger.warning。
         """
         now_ms = int(time.time() * 1000)
         window_ms = window_seconds * 1000
         cutoff = now_ms - window_ms
 
-        pipe = redis.pipeline(transaction=True)
-        pipe.zremrangebyscore(key, 0, cutoff)
-        pipe.zcard(key)
-        results = await pipe.execute()
-        current = int(results[1])
+        try:
+            pipe = redis.pipeline(transaction=True)
+            pipe.zremrangebyscore(key, 0, cutoff)
+            pipe.zcard(key)
+            results = await pipe.execute()
+            current = int(results[1])
 
-        if current >= limit:
-            # window 內已達上限：估算最舊 timestamp → retry_after
-            oldest = await redis.zrange(key, 0, 0, withscores=True)
-            retry_after = 1
-            if oldest:
-                # oldest[0] = (member, score)；ceil 到下一秒，確保不超過 window
-                oldest_score = int(oldest[0][1])
-                diff_ms = oldest_score + window_ms - now_ms
-                retry_after = max(1, (diff_ms + 999) // 1000)
-            return False, int(retry_after)
+            if current >= limit:
+                # window 內已達上限：估算最舊 timestamp → retry_after
+                oldest = await redis.zrange(key, 0, 0, withscores=True)
+                retry_after = 1
+                if oldest:
+                    # oldest[0] = (member, score)；ceil 到下一秒，確保不超過 window
+                    oldest_score = int(oldest[0][1])
+                    diff_ms = oldest_score + window_ms - now_ms
+                    retry_after = max(1, (diff_ms + 999) // 1000)
+                return False, int(retry_after)
 
-        # 未超限：記錄本次；TTL 設 window+1 秒讓 key 自動過期（節省空間）
-        pipe = redis.pipeline(transaction=True)
-        # member 用 now_ms + 隨機後綴避免同毫秒併發 ZADD 被 dedup
-        member = f"{now_ms}:{_random_suffix()}"
-        pipe.zadd(key, {member: now_ms})
-        pipe.expire(key, window_seconds + 1)
-        await pipe.execute()
-        return True, 0
+            # 未超限：記錄本次；TTL 設 window+1 秒讓 key 自動過期（節省空間）
+            pipe = redis.pipeline(transaction=True)
+            # member 用 now_ms + 隨機後綴避免同毫秒併發 ZADD 被 dedup
+            member = f"{now_ms}:{_random_suffix()}"
+            pipe.zadd(key, {member: now_ms})
+            pipe.expire(key, window_seconds + 1)
+            await pipe.execute()
+            return True, 0
+        except RedisError as exc:
+            # fail-open：rate limit 是保護機制，不該因 Redis 故障擋掉正常流量
+            logger.warning(
+                "rate limit fail-open: Redis unavailable key=%s error=%s",
+                key, type(exc).__name__,
+            )
+            return True, 0
 
 
 def _random_suffix() -> str:
@@ -226,7 +242,15 @@ async def enforce_account_not_locked(redis: Any, email: str) -> None:
     if not email:
         return
     key = f"{RL_LOGIN_LOCKED_PREFIX}{email.lower()}"
-    ttl = await redis.ttl(key)
+    try:
+        ttl = await redis.ttl(key)
+    except RedisError as exc:
+        # fail-open：Redis 故障時視為未鎖定（key 含 email，log 只帶前綴避免落入使用者輸入）
+        logger.warning(
+            "rate limit fail-open: Redis unavailable key_prefix=%s error=%s",
+            RL_LOGIN_LOCKED_PREFIX, type(exc).__name__,
+        )
+        return
     # redis-py 對不存在的 key 回 -2，無 TTL 的 key 回 -1
     if ttl is not None and ttl > 0:
         raise RateLimitExceededException(
@@ -245,29 +269,44 @@ async def record_login_failure(redis: Any, email: str) -> int:
     if not email:
         return 0
     fail_key = f"{RL_LOGIN_FAIL_PREFIX}{email.lower()}"
-    count = int(await redis.incr(fail_key))
-    if count == 1:
-        # 新計數窗口：TTL = LOGIN_FAIL_WINDOW
-        await redis.expire(fail_key, LOGIN_FAIL_WINDOW)
-    if count >= LOGIN_FAIL_THRESHOLD:
-        locked_key = f"{RL_LOGIN_LOCKED_PREFIX}{email.lower()}"
-        await redis.setex(locked_key, LOGIN_LOCKOUT_SECONDS, "1")
-        await redis.delete(fail_key)
+    try:
+        count = int(await redis.incr(fail_key))
+        if count == 1:
+            # 新計數窗口：TTL = LOGIN_FAIL_WINDOW
+            await redis.expire(fail_key, LOGIN_FAIL_WINDOW)
+        if count >= LOGIN_FAIL_THRESHOLD:
+            locked_key = f"{RL_LOGIN_LOCKED_PREFIX}{email.lower()}"
+            await redis.setex(locked_key, LOGIN_LOCKOUT_SECONDS, "1")
+            await redis.delete(fail_key)
+            logger.warning(
+                "account locked email=%s after %d failures, lockout=%ds",
+                email, count, LOGIN_LOCKOUT_SECONDS,
+            )
+        return count
+    except RedisError as exc:
+        # fail-open：Redis 故障時不讓「記失敗」把 401 變 500（key 含 email，只 log 前綴）
         logger.warning(
-            "account locked email=%s after %d failures, lockout=%ds",
-            email, count, LOGIN_LOCKOUT_SECONDS,
+            "rate limit fail-open: Redis unavailable key_prefix=%s error=%s",
+            RL_LOGIN_FAIL_PREFIX, type(exc).__name__,
         )
-    return count
+        return 0
 
 
 async def clear_login_failures(redis: Any, email: str) -> None:
     """登入成功時呼叫，清掉該帳號的失敗計數與鎖（正常不會有鎖，防禦性清除）。"""
     if not email:
         return
-    await redis.delete(
-        f"{RL_LOGIN_FAIL_PREFIX}{email.lower()}",
-        f"{RL_LOGIN_LOCKED_PREFIX}{email.lower()}",
-    )
+    try:
+        await redis.delete(
+            f"{RL_LOGIN_FAIL_PREFIX}{email.lower()}",
+            f"{RL_LOGIN_LOCKED_PREFIX}{email.lower()}",
+        )
+    except RedisError as exc:
+        # fail-open：清除失敗不該讓成功登入變 500（key 含 email，只 log 前綴）
+        logger.warning(
+            "rate limit fail-open: Redis unavailable key_prefix=%s error=%s",
+            RL_LOGIN_FAIL_PREFIX, type(exc).__name__,
+        )
 
 
 # ──────────────────────────────────────────────────────────

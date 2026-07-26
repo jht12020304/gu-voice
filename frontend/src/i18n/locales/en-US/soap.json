@@ -73,7 +73,8 @@
   },
   "diagnosis": {
     "title": "Diagnosis Codes",
-    "empty": "No ICD-10 codes yet."
+    "empty": "No ICD-10 codes yet.",
+    "unverified": "ICD-10 not verified — physician review required"
   },
   "redFlag": {
     "title": "Red-Flag Note",
@@ -183,9 +184,10 @@
       "title": "Recommended Tests"
     },
     "urgency": {
-      "urgent": "Urgent",
-      "routine": "Routine",
-      "elective": "Elective"
+      "er_now": "ER now",
+      "24h": "Within 24 h",
+      "this_week": "This week",
+      "routine": "Routine"
     },
     "treatments": {
       "title": "Treatments"

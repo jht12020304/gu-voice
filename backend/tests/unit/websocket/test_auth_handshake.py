@@ -7,12 +7,17 @@
 - accept() 只呼叫一次（避免 RuntimeError）
 
 用 FakeWebSocket 模擬 Starlette WebSocket 介面；不起真 HTTP。
+簽章驗過後的身分檢查（黑名單 / User 載入 / role 覆蓋）由 autouse fixture
+stub 成「不在黑名單、使用者存在且啟用」的快樂路徑；
+拒絕情境的專屬測試見 test_auth_identity_checks.py。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -20,9 +25,45 @@ import pytest
 from app.core.security import create_access_token
 from app.websocket import auth as ws_auth
 
+# 簽章後身分檢查需要 UUID sub（非 UUID 會被拒絕，與生產 token 一致）
+_UID_1 = "11111111-1111-4111-8111-111111111111"
+_UID_2 = "22222222-2222-4222-8222-222222222222"
+
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+@pytest.fixture(autouse=True)
+def _identity_backend(monkeypatch):
+    """Stub 掉黑名單 Redis 與 User DB 查詢（單元測試不碰真基礎設施）。
+
+    預設快樂路徑：黑名單皆未命中、使用者存在且啟用、role=token claim 同值
+    （"patient"），讓既有 handshake 測試的斷言不受 role 覆蓋影響。
+    """
+    user = SimpleNamespace(is_active=True, role=SimpleNamespace(value="patient"))
+
+    class _FakeRedis:
+        async def exists(self, key: str) -> int:
+            return 0
+
+    async def _fake_get_redis():
+        return _FakeRedis()
+
+    class _FakeResult:
+        def scalar_one_or_none(self):
+            return user
+
+    class _FakeDB:
+        async def execute(self, stmt):
+            return _FakeResult()
+
+    @asynccontextmanager
+    async def _fake_get_db_session():
+        yield _FakeDB()
+
+    monkeypatch.setattr(ws_auth, "get_cache_redis", _fake_get_redis)
+    monkeypatch.setattr(ws_auth, "get_db_session", _fake_get_db_session)
 
 
 class _FakeWebSocket:
@@ -62,34 +103,34 @@ class _FakeWebSocket:
 # ──────────────────────────────────────────────────────────
 
 def test_handshake_message_authenticates_and_returns_payload():
-    token = create_access_token(subject="user-1", role="patient")
+    token = create_access_token(subject=_UID_1, role="patient")
     msg = json.dumps({"type": "auth", "token": token})
     ws = _FakeWebSocket(incoming=[msg])
 
     payload = _run(ws_auth.authenticate_websocket(ws, context="test"))
 
     assert payload is not None
-    assert payload.get("sub") == "user-1"
+    assert payload.get("sub") == _UID_1
     assert payload.get("role") == "patient"
     assert ws.accepted_count == 1
     assert ws.closed_with is None
 
 
 def test_legacy_query_param_still_works():
-    token = create_access_token(subject="user-2", role="doctor")
+    token = create_access_token(subject=_UID_2, role="doctor")
     ws = _FakeWebSocket(query_token=token)
 
     payload = _run(ws_auth.authenticate_websocket(ws, context="legacy"))
 
     assert payload is not None
-    assert payload.get("sub") == "user-2"
+    assert payload.get("sub") == _UID_2
     assert ws.accepted_count == 1
     assert ws.closed_with is None
 
 
 def test_accept_is_called_exactly_once():
     """不管走哪條路徑 accept() 都只能一次（連兩次會 Starlette RuntimeError）。"""
-    token = create_access_token(subject="u", role="patient")
+    token = create_access_token(subject=_UID_1, role="patient")
     ws = _FakeWebSocket(incoming=[json.dumps({"type": "auth", "token": token})])
     _run(ws_auth.authenticate_websocket(ws, context="test"))
     assert ws.accepted_count == 1
@@ -97,7 +138,7 @@ def test_accept_is_called_exactly_once():
 
 def test_authenticate_alias_type_also_works():
     """type='authenticate' 也接受（防呆，舊前端版本可能叫這個名字）。"""
-    token = create_access_token(subject="u", role="patient")
+    token = create_access_token(subject=_UID_1, role="patient")
     msg = json.dumps({"type": "authenticate", "token": token})
     ws = _FakeWebSocket(incoming=[msg])
     payload = _run(ws_auth.authenticate_websocket(ws, context="test"))

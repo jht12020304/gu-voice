@@ -71,6 +71,12 @@ class _CaptureManager:
     async def broadcast_dashboard(self, message: dict[str, Any]) -> None:
         self.dashboard_messages.append(message)
 
+    async def broadcast_dashboard_event(
+        self, event_type: str, payload: dict[str, Any] | None = None
+    ) -> None:
+        # P0-1 橋接後的事件與舊 broadcast_dashboard 捕成同一形狀，既有斷言不用改
+        self.dashboard_messages.append({"type": event_type, "payload": payload or {}})
+
     async def broadcast_localized_dashboard(
         self,
         msg_type: str,

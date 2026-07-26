@@ -1,0 +1,10 @@
+node_modules
+dist
+test-results
+playwright-report
+screenshots
+sentry
+supabase
+.env
+.env.local
+*.tsbuildinfo

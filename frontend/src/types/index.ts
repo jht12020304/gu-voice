@@ -165,6 +165,8 @@ export interface SOAPReport {
   rawTranscript?: string;
   summary?: string;
   icd10Codes?: string[];
+  /** ICD-10 是否通過後端泌尿科白名單 + symptom↔code 驗證（icd10_verified） */
+  icd10Verified?: boolean;
   aiConfidenceScore?: number;
   reviewedBy?: string;
   reviewedAt?: string;
@@ -261,7 +263,8 @@ export interface SOAPPlan {
 export interface RecommendedTest {
   testName: string;
   rationale: string;
-  urgency: 'urgent' | 'routine' | 'elective';
+  /** 對齊後端 Urgency enum（backend/app/models/enums.py） */
+  urgency: 'er_now' | '24h' | 'this_week' | 'routine';
   clinicalReasoning?: string;
 }
 

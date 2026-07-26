@@ -35,7 +35,7 @@ class User(Base):
     license_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"), nullable=False)
     # 使用者語言偏好（BCP-47）。NULL = 尚未選擇，由 Accept-Language / settings default 推斷。
-    # 見 docs/i18n_plan.md TODO-E14：首次成功 session 會自動 persist 偵測結果到此欄。
+    # 見 docs/archive/i18n_plan.md TODO-E14：首次成功 session 會自動 persist 偵測結果到此欄。
     preferred_language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

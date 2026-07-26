@@ -280,7 +280,10 @@ class ConnectionManager:
                 if k in ("code", "params", "severity"):
                     continue  # 保留 canonical 欄位不被覆寫
                 payload[k] = v
-        await self.broadcast_dashboard({"type": msg_type, "payload": payload})
+        # P0-1（2026-07-19 架構修復）：session_status_changed 等在地化事件改走
+        # Redis 橋接（publish→subscriber→本地 fan-out），確保 4 個 uvicorn worker
+        # 行程的 dashboard 連線都收得到，而非只有與發送端同行程的那些。
+        await self.broadcast_dashboard_event(msg_type, payload)
 
     # ── 儀表板結構化事件推播（H-8） ───────────────────────
     # docstring 宣稱會推播 queue_updated / stats_updated / session_created /
