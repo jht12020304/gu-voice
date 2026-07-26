@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../../core/i18n/loc.dart';
 import '../../../core/theme/app_tokens.dart';
@@ -119,6 +120,90 @@ class _UserManagementPageState extends State<UserManagementPage> {
     } catch (_) {
       _toast(t('admin.users.operationFailed'));
     }
+  }
+
+  String? _resettingId;
+  // 一次性臨時密碼；null = 不顯示。刻意只存在記憶體中。
+  ({String email, String password})? _tempPassword;
+
+  Future<void> _resetPassword(User user) async {
+    if (_resettingId != null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t('admin.users.resetPassword')),
+        content: Text(t('admin.users.resetPasswordConfirm', args: {'email': user.email})),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(t('admin.users.cancel'))),
+          FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(t('admin.users.resetPassword'))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _resettingId = user.id);
+    try {
+      final r = await _api.resetUserPassword(user.id);
+      if (!mounted) return;
+      setState(() => _tempPassword = (email: r.email, password: r.tempPassword));
+      await _showTempPasswordDialog();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(t('admin.users.resetPasswordFailed'))));
+      }
+    } finally {
+      if (mounted) setState(() => _resettingId = null);
+    }
+  }
+
+  /// 一次性臨時密碼——關掉就拿不回來（後端只存 hash），所以警告要講清楚。
+  Future<void> _showTempPasswordDialog() async {
+    final info = _tempPassword;
+    if (info == null) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(t('admin.users.tempPasswordTitle')),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(t('admin.users.tempPasswordFor', args: {'email': info.email})),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(
+              child: SelectableText(
+                info.password,
+                style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                      fontFamily: 'monospace',
+                      letterSpacing: 1.5,
+                    ),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: info.password));
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text(t('admin.users.tempPasswordCopied'))));
+              },
+              child: Text(t('admin.users.tempPasswordCopy')),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          Text(t('admin.users.tempPasswordWarning'),
+              style: Theme.of(ctx).textTheme.bodySmall),
+        ]),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(t('admin.users.tempPasswordDone')),
+          ),
+        ],
+      ),
+    );
+    if (mounted) setState(() => _tempPassword = null);
   }
 
   Future<void> _toggleActive(User user) async {
@@ -258,6 +343,16 @@ class _UserManagementPageState extends State<UserManagementPage> {
             tooltip: t('admin.users.edit'),
             onPressed: () => _openForm(user: u),
           ),
+          _resettingId == u.id
+              ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.password_outlined),
+                  tooltip: t('admin.users.resetPassword'),
+                  onPressed: () => _resetPassword(u),
+                ),
           toggling
               ? const Padding(
                   padding: EdgeInsets.all(12),

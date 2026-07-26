@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# 簽章金鑰與密碼，絕對不要入庫。android/.gitignore 也有同樣的規則,但那只擋
+# android/ 底下;這裡擋整個 flutter_app/,避免有人把 .jks 放到別的子目錄。
+key.properties
+*.jks
+*.keystore

@@ -12,12 +12,16 @@ import 'package:just_audio/just_audio.dart';
 // play/release afterward. stopActive() force-completes the in-flight step so the chain
 // always advances (prevents the VAD deadlock the web onended-fire fixes).
 class TtsPlaybackController {
-  TtsPlaybackController({required this.speed});
+  // `player` exists purely for tests: a real AudioPlayer needs platform channels, so
+  // hard-wiring one left the epoch/chain state machine (invariant #5) with zero
+  // regression coverage. Production keeps passing nothing and gets the real player.
+  TtsPlaybackController({required this.speed, TtsAudioPlayer? player})
+      : _player = player ?? JustAudioTtsPlayer();
 
   // Read fresh at play time so a mid-turn speed change applies to later sentences.
   final double Function() speed;
 
-  final AudioPlayer _player = AudioPlayer();
+  final TtsAudioPlayer _player;
   int _epoch = 0;
   Future<void> _chain = Future.value();
   Completer<void>? _activeStep;
@@ -93,6 +97,43 @@ class TtsPlaybackController {
     clearQueue();
     await _player.dispose();
   }
+}
+
+// The slice of just_audio's AudioPlayer this controller actually drives. Kept to exactly
+// the members used above — it is a seam for injecting a fake, not an abstraction layer,
+// so anything else the player can do stays out of it.
+abstract class TtsAudioPlayer {
+  Stream<PlayerState> get playerStateStream;
+  Future<void> setAudioSource(AudioSource source);
+  Future<void> setSpeed(double speed);
+  Future<void> play();
+  Future<void> stop();
+  Future<void> dispose();
+}
+
+// Production binding: pass-through only. No behaviour of its own, so the seam cannot
+// change what ships. (`setAudioSource` drops the returned duration — the controller
+// never read it.)
+class JustAudioTtsPlayer implements TtsAudioPlayer {
+  final AudioPlayer _player = AudioPlayer();
+
+  @override
+  Stream<PlayerState> get playerStateStream => _player.playerStateStream;
+
+  @override
+  Future<void> setAudioSource(AudioSource source) => _player.setAudioSource(source);
+
+  @override
+  Future<void> setSpeed(double speed) => _player.setSpeed(speed);
+
+  @override
+  Future<void> play() => _player.play();
+
+  @override
+  Future<void> stop() => _player.stop();
+
+  @override
+  Future<void> dispose() => _player.dispose();
 }
 
 // Feeds in-memory MP3 bytes to just_audio without temp files or data: URLs.

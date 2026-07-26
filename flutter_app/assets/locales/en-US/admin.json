@@ -86,7 +86,16 @@
     "createSuccess": "User created",
     "activateSuccess": "Account activated",
     "deactivateSuccess": "Account deactivated",
-    "toggleFailed": "Failed to update account status"
+    "toggleFailed": "Failed to update account status",
+    "resetPassword": "Reset password",
+    "resetPasswordConfirm": "Reset the password for {{email}}? A temporary password will be generated and all current sessions for that account will be signed out.",
+    "resetPasswordFailed": "Could not reset the password",
+    "tempPasswordTitle": "Temporary password created",
+    "tempPasswordFor": "Temporary password for {{email}}:",
+    "tempPasswordCopy": "Copy",
+    "tempPasswordCopied": "Copied",
+    "tempPasswordWarning": "This password is shown only once and cannot be retrieved after you close this dialog (you would have to reset again). Hand it to the person directly and ask them to change it right after signing in. All of that account’s existing sessions have been signed out.",
+    "tempPasswordDone": "I’ve noted it"
   },
   "audit": {
     "title": "Audit Logs",

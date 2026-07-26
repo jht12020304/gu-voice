@@ -1,5 +1,5 @@
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as dashboardApi from '../../services/api/dashboard';
 import type {
@@ -34,12 +34,11 @@ const SEVERITY_LABEL_KEYS: Record<string, string> = {
   medium: 'doctor.dashboard.severityMedium',
 };
 
-function createMockMonthlySummary(monthDate: Date, monthLabel: string): MonthlySummaryResponse {
+function createMockMonthlySummary(monthDate: Date): MonthlySummaryResponse {
   const month = format(monthDate, 'yyyy-MM');
 
   return {
     month,
-    monthLabel,
     totalSessions: 48,
     completedSessions: 29,
     abortedRedFlagSessions: 4,
@@ -80,6 +79,19 @@ function createMockMonthlySummary(monthDate: Date, monthLabel: string): MonthlyS
     }),
     generatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * 解析後端的 `month`（`YYYY-MM`）為當月第一天。
+ *
+ * 用 `new Date(y, m - 1, 1)` 而非 `new Date('2026-07')`：後者會被當成 UTC 午夜解析，
+ * 在 UTC+8 顯示時會退成前一個月。格式不符（含舊後端沒回 month）時回 null，
+ * 由呼叫端 fallback，不讓標題壞掉。
+ */
+function parseMonthKey(monthKey: string | undefined): Date | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(monthKey ?? '');
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, 1);
 }
 
 function formatMonthRange(monthDate: Date): string {
@@ -297,23 +309,22 @@ export default function DashboardPage() {
   const numberLocale = i18n.language || 'zh-TW';
   const [selectedMonth, setSelectedMonth] = useState(() => new Date());
 
-  const formatMonthLabel = useMemo(
-    () => (d: Date) =>
-      t('doctor.dashboard.monthFormat', {
-        year: d.getFullYear(),
-        month: d.getMonth() + 1,
-      }),
-    [t],
-  );
+  // 月份標題一律在前端依當前語系組出來（`doctor.dashboard.monthFormat` 五語系都有），
+  // 不用後端的 month_label——那是硬寫中文，其他語系會看到中英混雜的標題。
+  const formatMonthLabel = (d: Date) =>
+    t('doctor.dashboard.monthFormat', {
+      year: d.getFullYear(),
+      month: d.getMonth() + 1,
+    });
 
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummaryResponse | null>(
-    IS_MOCK ? createMockMonthlySummary(new Date(), formatMonthLabel(new Date())) : null,
+    IS_MOCK ? createMockMonthlySummary(new Date()) : null,
   );
   const [isLoading, setIsLoading] = useState(!IS_MOCK);
 
   useEffect(() => {
     if (IS_MOCK) {
-      setMonthlySummary(createMockMonthlySummary(selectedMonth, formatMonthLabel(selectedMonth)));
+      setMonthlySummary(createMockMonthlySummary(selectedMonth));
       setIsLoading(false);
       return;
     }
@@ -330,9 +341,11 @@ export default function DashboardPage() {
     }
 
     loadDashboard();
-  }, [selectedMonth, formatMonthLabel]);
+    // 只依賴 selectedMonth：標題格式化已移出 effect，語言切換不該重新打 API
+  }, [selectedMonth]);
 
-  const selectedMonthLabel = monthlySummary?.monthLabel ?? formatMonthLabel(selectedMonth);
+  // 顯示後端實際回答的區間（month，格式 YYYY-MM）；舊後端沒回時退回本地選中的月份
+  const selectedMonthLabel = formatMonthLabel(parseMonthKey(monthlySummary?.month) ?? selectedMonth);
   const monthRangeLabel = formatMonthRange(selectedMonth);
   const totalSessions = monthlySummary?.totalSessions ?? 0;
   const redFlagAlerts = monthlySummary?.totalRedFlagAlerts ?? 0;

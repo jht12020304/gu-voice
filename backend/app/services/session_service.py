@@ -16,7 +16,6 @@ from sqlalchemy.orm import selectinload
 
 from app.core.authz import get_user_role as _get_user_role
 from app.core.exceptions import (
-    ConflictException,
     ForbiddenException,
     InvalidStatusTransitionException,
     NotFoundException,
@@ -464,24 +463,39 @@ class SessionService:
         current_user: Any,
     ) -> Session:
         """
-        M16：使用者在對話中切語言 → 結束 session 並寫 audit log。
+        M16 / G35b：使用者在問診中切語言 → 收掉當前場次並改偏好語言。
 
-        - 僅 waiting / in_progress 狀態可用；其他狀態 → 409 Conflict
+        - 授權沿用 `_authorize_session_access`（病患本人 / 負責或未指派醫師 / admin），
+          不另立一套規則
         - to_language 必須在 SUPPORTED_LANGUAGES（schema 層已驗證）
-        - 同時更新 user.preferred_language，下一場 session 預設套用
-        - audit_log 紀錄 from_lang / to_lang / session_id
+        - 終態與轉移合法性一律問 `app/core/session_state.py`（不變式 #16 單一權威），
+          不在此處自帶狀態白名單；轉移表改了這裡自動跟著改
+        - 冪等：場次已在終態就不再轉移、直接回成功。切語言前的守衛可能被重試或連點，
+          回 409 會讓「語言切不掉」，而此時「沒有孤兒 in_progress 場次」的目的已達成
+        - 非終態但轉移表不允許 `→ cancelled` → InvalidStatusTransitionException（409），
+          明確報錯而非靜默成功
+        - audit_log 紀錄 from_lang / to_lang / session_id（冪等路徑額外記當時狀態）
         """
         from app.services.audit_log_service import AuditLogService
 
         session = await SessionService.get_by_id(db, session_id)
         await _authorize_session_access(db, session, current_user)
 
-        if session.status not in (SessionStatus.WAITING, SessionStatus.IN_PROGRESS):
-            raise ConflictException(
+        # allowed_next 為 None 代表狀態不在轉移表內（不該發生）；為 [] 代表已是終態。
+        allowed_next = VALID_TRANSITIONS.get(session.status)
+        can_cancel = is_valid_transition(session.status, SessionStatus.CANCELLED)
+        already_terminal = allowed_next == []
+        # 表外狀態走到這裡時未必是 enum，用 getattr 取值避免在「回明確錯誤」的路徑上 500。
+        current_status_value = getattr(session.status, "value", str(session.status))
+
+        if not can_cancel and not already_terminal:
+            raise InvalidStatusTransitionException(
                 "errors.session_not_switchable",
                 details={
                     "session_id": str(session.id),
-                    "current_status": session.status.value,
+                    "current_status": current_status_value,
+                    "requested_status": SessionStatus.CANCELLED.value,
+                    "allowed_transitions": [s.value for s in (allowed_next or [])],
                 },
             )
 
@@ -489,13 +503,16 @@ class SessionService:
         now = utc_now()
         # L-3：保留變更前狀態，供 SessionStatusResponse.previous_status 回傳。
         previous_status = session.status
-        session.status = SessionStatus.CANCELLED
-        session.completed_at = now
-        session.updated_at = now
-        if session.started_at:
-            session.duration_seconds = int((now - session.started_at).total_seconds())
 
-        # 更新 user preferred_language（下次登入 / 下一場新 session 會套用）
+        if can_cancel:
+            session.status = SessionStatus.CANCELLED
+            session.completed_at = now
+            session.updated_at = now
+            if session.started_at:
+                session.duration_seconds = int((now - session.started_at).total_seconds())
+
+        # 更新 user preferred_language（下次登入 / 下一場新 session 會套用）。
+        # 冪等路徑也要更新——呼叫端收到 200 就會認為語言偏好已生效。
         user_id = getattr(current_user, "id", None)
         if user_id is not None:
             result = await db.execute(select(User).where(User.id == user_id))
@@ -504,16 +521,23 @@ class SessionService:
                 user.preferred_language = to_language
                 user.updated_at = now
 
+        details: dict[str, Any] = {
+            "from_lang": from_lang,
+            "to_lang": to_language,
+        }
+        if not can_cancel:
+            # 冪等路徑：場次不是這次呼叫收掉的，記下當時狀態以便回溯
+            details["session_already_terminal"] = True
+            details["previous_status"] = current_status_value
+
         await AuditLogService.log(
             db,
             user_id=user_id,
             action=AuditAction.LANGUAGE_SWITCH_END_SESSION,
             resource_type="session",
             resource_id=str(session.id),
-            details={
-                "from_lang": from_lang,
-                "to_lang": to_language,
-            },
+            details=details,
+            language=from_lang,
         )
 
         await db.flush()

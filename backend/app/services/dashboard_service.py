@@ -86,7 +86,11 @@ def _parse_day_range(date_value: Optional[str]) -> tuple[datetime, datetime]:
 
 
 def _parse_month_range(month_value: Optional[str]) -> tuple[datetime, datetime, str, str]:
-    """解析 YYYY-MM，回傳 UTC 月份區間與標籤。"""
+    """解析 YYYY-MM，回傳 (month_start, month_end, month_key, month_label)。
+
+    month_key 是機器可讀的零填補 `YYYY-MM`，給前端自行依語系格式化月份標題用；
+    month_label 是硬寫中文的字串，僅為向後相容保留（見 MonthlySummaryResponse）。
+    """
     now = utc_now()
     if month_value:
         try:
@@ -105,7 +109,9 @@ def _parse_month_range(month_value: Optional[str]) -> tuple[datetime, datetime, 
     return (
         month_start,
         month_end,
-        month_start.strftime("%Y-%m"),
+        # 不用 strftime("%Y-%m")：%Y 的零填補行為隨平台 libc 而異，而這個值是
+        # 前端解析月份的契約，必須恆為 4 位年 + 2 位月。
+        f"{month_start.year:04d}-{month_start.month:02d}",
         f"{month_start.year} 年 {month_start.month} 月",
     )
 

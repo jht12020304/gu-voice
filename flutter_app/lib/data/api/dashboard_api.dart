@@ -24,14 +24,18 @@ class DailyTrendItem {
 }
 
 class MonthlySummary {
-  final String? monthLabel;
+  /// 機器可讀的 `YYYY-MM`（後端 `month_key`），月份標題由 UI 依當前語系自行格式化。
+  /// 後端另有的 `month_label` 是硬寫中文（「2026 年 7 月」），刻意不收進 model：
+  /// 直接顯示會讓非中文語系的醫師看到中英混雜的標題。
+  /// 舊版後端沒有這個欄位 → null，呼叫端必須 fallback。
+  final String? month;
   final int totalSessions;
   final int totalRedFlagAlerts;
   final List<BucketItem> chiefComplaintDistribution;
   final List<DailyTrendItem> dailyTrend;
 
   const MonthlySummary({
-    this.monthLabel,
+    this.month,
     this.totalSessions = 0,
     this.totalRedFlagAlerts = 0,
     this.chiefComplaintDistribution = const [],
@@ -39,7 +43,7 @@ class MonthlySummary {
   });
 
   factory MonthlySummary.fromJson(Map j) => MonthlySummary(
-        monthLabel: j['monthLabel'] as String?,
+        month: j['month'] as String?,
         totalSessions: (j['totalSessions'] as num?)?.toInt() ?? 0,
         totalRedFlagAlerts: (j['totalRedFlagAlerts'] as num?)?.toInt() ?? 0,
         chiefComplaintDistribution:

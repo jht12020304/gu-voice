@@ -55,7 +55,7 @@
       "cancel": "Hủy",
       "switching": "Đang chuyển…",
       "switchedEnded": "Đã kết thúc phiên và chuyển sang {{name}}",
-      "switchFailed": "Chuyển ngôn ngữ thất bại, vui lòng thử lại sau"
+      "switchFailed": "Không chuyển được ngôn ngữ. Phiên khám hiện tại vẫn đang tiếp tục. Vui lòng thử lại hoặc báo cho nhân viên y tế tại chỗ."
     }
   },
   "status": {

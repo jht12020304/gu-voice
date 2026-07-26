@@ -284,6 +284,17 @@ class Settings(BaseSettings):
     # 既有行為，不受此旗標控制）。
     RED_FLAG_BUILTIN_RULES_FALLBACK: bool = True
 
+    # E11：紅旗否定守衛 kill-switch（預設開）。
+    # 規則層是子字串比對，沒有否定語意概念——「沒有注意到體重減輕」會命中
+    # unexplained_weight_loss、「沒有睪丸劇痛」會命中 critical 進而誤中止問診。
+    # 守衛的做法是：關鍵字命中位置的前/後小視窗內若有否定詞（五語言詞表見
+    # red_flag_detector._NEGATION_CUES / _POST_NEGATION_CUES），該次出現不算命中；
+    # 只有「每個出現都被否定」才抑制整條規則（有任一非否定出現仍觸發＝維持
+    # fail-open：寧可誤報也不漏急症）。
+    # 設 False 可整組退回加守衛前的裸 substring 行為（規則層與語意層否定幻覺後過濾
+    # 一起關），供生產觀察到守衛本身造成漏報時緊急翻案。
+    RED_FLAG_NEGATION_GUARD: bool = True
+
     # ── Rate limit（per-IP / per-user policy 旋鈕） ─────
     # 登入端點 per-IP sliding window（rate_limit.py 的 LOGIN_IP_LIMIT/WINDOW 預設
     # 與此對齊；新增 policy 一律從這裡讀，方便維運不改 code 就能調整）。

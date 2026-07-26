@@ -55,7 +55,7 @@
       "cancel": "取消",
       "switching": "切換中…",
       "switchedEnded": "已結束目前場次並切換至 {{name}}",
-      "switchFailed": "切換失敗，請稍後再試"
+      "switchFailed": "切換失敗，目前問診仍在進行中。請再試一次，或請告知現場醫護。"
     }
   },
   "status": {

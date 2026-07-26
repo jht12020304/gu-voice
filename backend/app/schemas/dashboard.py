@@ -108,7 +108,17 @@ class DailyTrendItem(BaseModel):
 
 
 class MonthlySummaryResponse(BaseModel):
-    """月份摘要回應"""
+    """月份摘要回應
+
+    月份欄位刻意分三個，語意不同：
+    - `month`：機器可讀的零填補 `YYYY-MM`（既有欄位，回應所查詢的區間）。
+      **前端要格式化年月請用它**——曾短暫加過一個值完全相同的 `month_key`，
+      是多餘的欄位，已移除。
+    - `month_label`：後端產的中文字串（「2026 年 7 月」）。**僅為向後相容保留**，
+      新前端請改用 `month` 自行以當地語系格式化——日期格式必須跟隨使用者
+      語系（zh-TW / en-US / ja-JP / ko-KR / vi-VN），不能由後端硬寫單一語言，
+      否則非中文語系的醫師會看到中英混雜的標題。
+    """
     month: str
     month_label: str
     total_sessions: int = 0

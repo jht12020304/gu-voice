@@ -161,7 +161,10 @@ async def end_session_for_language_switch(
     """
     對話中切語言時呼叫：結束當前 session（狀態→cancelled）並把
     使用者偏好語言更新為 `to_language`，下一場新 session 預設使用新語言。
-    進行中 / 等待中以外的狀態會回 409。
+
+    授權同其他 session 端點（病患本人 / 負責或未指派醫師 / admin）。
+    合法轉移由 app/core/session_state.py 決定；場次已在終態時冪等回 200
+    （不重複轉移），轉移表不允許時回 409。
     """
     return await session_service.end_for_language_switch(
         db,
