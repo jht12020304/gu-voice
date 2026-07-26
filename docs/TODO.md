@@ -579,7 +579,7 @@ onException（＝#23）、`'顯示順序'` 硬編碼（＝#27）。
 voice-pipeline-invariants 列管的 TTS epoch 取消與 VAD deadlock 目前無回歸防護。
 最小補法：3 條純 Dart 測試（clearQueue 後舊 epoch 不播、stopActive 讓 chain 前進、WS backoff 序列）。
 
-### [ ] H1. 🔴 忘記密碼在生產無可行路徑（現場人員做不到我們叫他們做的事）
+### [~] H1. 忘記密碼在生產無可行路徑 — 2026-07-26 管理員重設能力已補（SendGrid 待你決定）
 
 2026-07-26 修掉「謊稱已寄信」之後浮現的真問題：
 
@@ -593,12 +593,18 @@ voice-pipeline-invariants 列管的 TTS epoch 取消與 VAD deadlock 目前無�
 - ⚠️ 連帶的安全問題：那是**明文可用的 reset token 落在 log 裡**。現在刻意保留，
   因為它是唯一路徑；下面任一項做完就該把 body_text 從 log 拿掉（或只印 token 前 6 碼）
 
-二選一（或都做）：
-- **設 SendGrid**：Railway 加 `SENDGRID_API_KEY` + `SMTP_FROM_ADDRESS`，`delivery` 會自動
-  變回 `"email"`、前端自動恢復「已寄送」文案，不需改碼（`is_delivery_configured()` 已備）
-- **加管理員重設能力**：`POST /admin/users/{id}/reset-password`（回一次性臨時密碼或直接設定）
-  ＋ `user_management_page` 加按鈕。院內 kiosk 情境下這條其實比 email 更合用——病患人在現場，
-  醫護當面協助最快
+**[x] 管理員重設能力已完成並部署驗證（2026-07-26）**
+- `POST /admin/users/{id}/reset-password` → 一次性臨時密碼（12 碼、`secrets`、保證過強度規則、
+  排除 0/O/o/1/l/I 因為要口頭轉達）；同時**撤銷該使用者所有 refresh token**
+- 使用者管理頁每列加「重設密碼」鈕 + 一次性密碼 modal（複製鈕、只顯示一次警告）；5 語系
+- 生產實測：臨時密碼登入 200、舊密碼 401、log 零筆含明文、稽核落表（含 403 嘗試）、
+  對自己 403（ja-JP 在地化正確）、不存在 404、doctor 打 403
+- `_LoggingEmailClient` 在 production 不再印 body（含 reset token），非 production 保留供 QA
+
+**[ ] 仍待決定：要不要設 SendGrid**
+- Railway 加 `SENDGRID_API_KEY` + `SMTP_FROM_ADDRESS` 即可，`delivery` 自動變回 `"email"`、
+  前端自動恢復「已寄送」文案，**零改碼**（`is_delivery_configured()` 已備）
+- 不設也可運作：病患在現場找醫護／管理員當面重設。只有「遠端使用者忘記密碼」情境才需要 email
 
 ### [ ] G36. i18n 不變式在切換期變成「兩份 locales 要同步」
 

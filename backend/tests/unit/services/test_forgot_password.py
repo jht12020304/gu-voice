@@ -266,3 +266,29 @@ def test_forgot_password_delivery_does_not_leak_account_existence(_swap_redis, m
             "message": FORGOT_PASSWORD_GENERIC_MESSAGE,
             "delivery": expected,
         }
+
+
+def test_logging_email_client_omits_body_in_production(monkeypatch, caplog):
+    """production 不可把含 reset token 的 body 留在 log；非 production 要保留供 QA。"""
+    import logging
+
+    from app.core import email_client as ec
+
+    async def _send(env: str):
+        monkeypatch.setattr(ec.settings, "APP_ENV", env, raising=False)
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="app.core.email_client"):
+            await ec._LoggingEmailClient().send(
+                to="u@example.com",
+                subject="S",
+                body_html="<a>tok=SECRET</a>",
+                body_text="reset link tok=SECRET",
+            )
+        return caplog.text
+
+    prod = _run(_send("production"))
+    assert "SECRET" not in prod, "production log 不可含 reset token"
+    assert "u@example.com" in prod and "未寄出" in prod
+
+    dev = _run(_send("development"))
+    assert "SECRET" in dev, "非 production 應保留 body 供本機 QA"

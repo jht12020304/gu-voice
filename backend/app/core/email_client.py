@@ -33,7 +33,17 @@ class EmailClient(Protocol):
 
 
 class _LoggingEmailClient:
-    """dev 模式：只 log，不實際寄信。"""
+    """
+    未設定任何 transport 時的 fallback：只 log，不實際寄信。
+
+    ⚠️ body 含密碼重設連結的 **token**（30 分鐘內可直接改密碼）。因此只在非
+    production 印出 body，方便本機 QA 走完重設流程；production 只記
+    to / subject，避免把可用憑證留在 log 裡。
+
+    production 的正規重設途徑是管理員的 `POST /admin/users/{id}/reset-password`
+    （前端使用者管理頁的「重設密碼」鈕）——院內 kiosk 情境下病患人在現場，
+    當面重設比 email 直接。
+    """
 
     async def send(
         self,
@@ -42,6 +52,13 @@ class _LoggingEmailClient:
         body_html: str,
         body_text: str,
     ) -> None:
+        if settings.APP_ENV == "production":
+            logger.info(
+                "[email:log-only] to=%s subject=%r body 已省略（含 reset token）｜"
+                "未設 SENDGRID_API_KEY/SMTP_HOST，此信實際未寄出",
+                to, subject,
+            )
+            return
         logger.info(
             "[email:log-only] to=%s subject=%r body_text=%r",
             to, subject, body_text,
