@@ -579,6 +579,27 @@ onException（＝#23）、`'顯示順序'` 硬編碼（＝#27）。
 voice-pipeline-invariants 列管的 TTS epoch 取消與 VAD deadlock 目前無回歸防護。
 最小補法：3 條純 Dart 測試（clearQueue 後舊 epoch 不播、stopActive 讓 chain 前進、WS backoff 序列）。
 
+### [ ] H1. 🔴 忘記密碼在生產無可行路徑（現場人員做不到我們叫他們做的事）
+
+2026-07-26 修掉「謊稱已寄信」之後浮現的真問題：
+
+- 生產 `SENDGRID_API_KEY` / `SMTP_*` 全未設 → 信永遠不會寄出（`delivery="onsite"`）
+- 前端現在誠實顯示「請告知現場醫護或系統管理員」，但**管理員沒有重設他人密碼的能力**：
+  `backend/app/routers/admin.py` 只有 `/users`(GET/POST)、`/users/{id}`(PATCH)、
+  `/users/{id}/toggle-active`、`/system/health`；`AdminUserUpdate`（`schemas/admin.py:26`）
+  只有 `role` 與 `is_active`，沒有 password
+- **今天唯一能重設的方式＝從 Railway log 讀 `[email:log-only]` 那行裡的 reset URL**
+  （`_LoggingEmailClient` 會印完整連結含 token，TTL 30 分鐘）
+- ⚠️ 連帶的安全問題：那是**明文可用的 reset token 落在 log 裡**。現在刻意保留，
+  因為它是唯一路徑；下面任一項做完就該把 body_text 從 log 拿掉（或只印 token 前 6 碼）
+
+二選一（或都做）：
+- **設 SendGrid**：Railway 加 `SENDGRID_API_KEY` + `SMTP_FROM_ADDRESS`，`delivery` 會自動
+  變回 `"email"`、前端自動恢復「已寄送」文案，不需改碼（`is_delivery_configured()` 已備）
+- **加管理員重設能力**：`POST /admin/users/{id}/reset-password`（回一次性臨時密碼或直接設定）
+  ＋ `user_management_page` 加按鈕。院內 kiosk 情境下這條其實比 email 更合用——病患人在現場，
+  醫護當面協助最快
+
 ### [ ] G36. i18n 不變式在切換期變成「兩份 locales 要同步」
 
 - `flutter_app/assets/locales/` 與 `frontend/src/i18n/locales/` 目前**逐檔位元相同**，純靠人手維持
