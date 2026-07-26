@@ -1,6 +1,6 @@
 ---
 name: voice-pipeline-invariants
-description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§3b 風險因子/STT）的不變式與修改流程，防止改動時破壞已修復的行為。Use when modifying frontend/src/stores/conversationStore.ts、frontend/src/screens/patient/ConversationPage.tsx、backend/app/pipelines/ 下任何檔案（llm_conversation、red_flag_detector、supervisor、soap_generator、prompts/）、或任何影響問診對話行為的改動。
+description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§3b 風險因子/STT）的不變式與修改流程，防止改動時破壞已修復的行為。Use when modifying frontend/src/stores/conversationStore.ts、frontend/src/screens/patient/ConversationPage.tsx、**flutter_app/lib/features/voice/ 下任何檔案**（conversation_controller、vad_logic、tts_playback_controller、audio_stream_service、ws_manager）、backend/app/pipelines/ 下任何檔案（llm_conversation、red_flag_detector、supervisor、soap_generator、prompts/）、或任何影響問診對話行為的改動。**這條管線有兩份前端實作，改動要同時顧 React 與 Flutter。**
 ---
 
 # 語音問診管線不變式
@@ -12,6 +12,7 @@ description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§
 ## When to Use
 
 - 動到 `frontend/src/stores/conversationStore.ts` 或 `frontend/src/screens/patient/ConversationPage.tsx`
+- 動到 `flutter_app/lib/features/voice/` 下任何檔案（同一條管線的第二份實作，2026-07-26 起）
 - 動到 `backend/app/pipelines/` 任何檔案（含 prompts/）
 - 改 WebSocket 對話協議（`backend/app/websocket/conversation_handler.py`）
 - NOT for：純 UI 樣式、與對話流程無關的頁面
