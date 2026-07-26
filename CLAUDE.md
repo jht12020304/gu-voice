@@ -24,7 +24,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 
 - Frontend（在 `frontend/`）：`npm run dev`、`npm run build`（tsc + vite，翻譯改動後必跑）、`npm run lint`、`npm run type-check`、`npm run test:e2e`（Playwright）、`npm run i18n:extract:check`
 - Backend（在 `backend/`）：`venv/bin/pytest tests/`（unit / integration / e2e 分層）、`venv/bin/uvicorn app.main:app --reload`
-- Flutter（在 `flutter_app/`）：`flutter analyze`（**info 級也 exit 1**）、`flutter test`（只跑 `test/`）、`flutter run -d chrome`。dart-define 是 `API_BASE`／`WS_BASE` 且值含 path 後綴（`/api/v1`、`/api/v1/ws`）。iOS simulator 與 `integration_test/`（打真後端、需真 simulator、不在 CI）用法見 `flutter_app/README.md`
+- Flutter（在 `flutter_app/`）：`flutter analyze`（**info 級也 exit 1**）、`flutter test`（只跑 `test/`）、`flutter run -d chrome`。dart-define 是 `API_BASE`／`WS_BASE` 且值含 path 後綴（`/api/v1`、`/api/v1/ws`）、`KIOSK_IDLE_TIMEOUT_SECONDS`（預設 180，`0`＝停用閒置登出）。iOS simulator 與 `integration_test/`（打真後端、需真 simulator、不在 CI）用法見 `flutter_app/README.md`
 - 本機全端：`docker compose up -d`（frontend :80、backend :8000、postgres :5432、redis :6379）
 - 翻譯完整性：`python scripts/check_translations.py`
 - 碼庫探索：`graphify query "<問題>"`／`graphify path A B`／`graphify explain <符號>`（對 `graphify-out/graph.json` 查詢，涵蓋 code＋docs；程式碼大幅改動後用 `/graphify . --update` 增量重建）
