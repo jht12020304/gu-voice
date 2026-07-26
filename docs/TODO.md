@@ -12,7 +12,7 @@
 > - 新增 §H（H1 忘記密碼路徑已結案／H2 儀表板 monthLabel 硬寫中文）
 > - E10 底下工程項拆成 E11／E12，讓 E10 純粹等母語臨床覆核
 >
-> 未結案：§G 的 22 medium、H2、E10（等人）、E11／E12、F8（等臨床）、#23、#27。
+> 未結案：§G35（2 筆有外部依賴）、G36／G37、H2、E10（等母語臨床覆核）、E11／E12、F8（等臨床）。
 
 ---
 
@@ -276,7 +276,7 @@
   的 `fromJson` 已是邊界轉型層。**不要因此在 Flutter 引入 freezed / json_serializable**，現行手寫 fromJson 夠用。
 - React `frontend/` 下線前若仍要動，就當它是遺留碼庫的舊債，不要新投入
 
-### [ ] 23. GoRouter 補 `onException`（原「前端 404 / loading / RoleGuard 改善」，2026-07-26 縮編）
+### [x] 23. GoRouter 補 `onException` — 2026-07-26 完成（PR #42，見 §G21）
 
 - **剩這一條**：`flutter_app/lib/core/router/app_router.dart:54` 無 `onException`/`errorBuilder`，
   醫師端或 `/patient/bogus` 之類無效路徑會露出 go_router 未在地化的英文錯誤頁——kiosk 上不可接受。
@@ -306,7 +306,7 @@
   - [x] `npm run type-check` + `npm run build` 雙雙通過
 - **驗收**：iOS Safari 建立 MediaRecorder 不再拋 `Unsupported MIME type`；桌面 Chrome / Edge / Firefox 仍走 opus 最佳路徑
 
-### [ ] 27. 補一個硬編碼中文（原「i18n 英文翻譯補齊」，2026-07-26 縮編）
+### [x] 27. 補一個硬編碼中文 — 2026-07-26 完成（PR #42，見 §G22）
 
 - **剩這一條**：`flutter_app/lib/features/admin/screens/complaint_management_page.dart:349` 的
   `'顯示順序'` 是全碼庫唯一硬編碼中文，en-US admin 會看到中文標籤。
