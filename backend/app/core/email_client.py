@@ -158,6 +158,19 @@ def _build_default_client() -> EmailClient:
     return _LoggingEmailClient()
 
 
+def is_delivery_configured() -> bool:
+    """
+    是否真的有 email transport 可以把信送出去。
+
+    False 代表 `_build_default_client()` 會退到 `_LoggingEmailClient`——只寫 log、
+    信永遠不會到使用者手上。呼叫端（`forgot_password`）據此告訴前端要顯示
+    「已寄出，請查收」還是「請找現場醫護協助重設」，避免對使用者謊稱已寄信。
+
+    刻意與 `_build_default_client` 用同一組判斷條件，兩者要一起改。
+    """
+    return bool(settings.SENDGRID_API_KEY or settings.SMTP_HOST)
+
+
 async def send_email(
     to: str,
     subject: str,

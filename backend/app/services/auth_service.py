@@ -417,12 +417,17 @@ class AuthService:
           2. 產 `secrets.token_urlsafe(32)`；存 `gu:reset:{token}` → user_id，TTL 1800s
           3. 組 reset URL = `{FRONTEND_BASE_URL}/reset-password?token={token}`
           4. 呼叫 email_client 寄信（失敗不對呼叫端拋）
+          5. 回傳 `delivery`：有 transport 就 `"email"`，沒有就 `"onsite"`，
+             讓前端別對使用者謊稱「已寄出」（生產長期沒設 SENDGRID/SMTP）
 
         Args:
             email_client: 可注入的 email 客戶端（測試用）；None 時用預設實作
         """
         from app.cache.redis_client import get_redis
-        from app.core.email_client import send_email
+        from app.core.email_client import is_delivery_configured, send_email
+
+        # 只看伺服器設定、與帳號是否存在無關 → 不洩漏帳號存在性
+        delivery = "email" if is_delivery_configured() else "onsite"
 
         result = await db.execute(
             select(User).where(User.email == email)
@@ -432,7 +437,7 @@ class AuthService:
         # 不存在也要回一樣的訊息；且不可動 Redis / 不可寄信
         if user is None:
             logger.info("forgot_password: email 不存在，靜默回成功 email=%s", email)
-            return {"message": FORGOT_PASSWORD_GENERIC_MESSAGE}
+            return {"message": FORGOT_PASSWORD_GENERIC_MESSAGE, "delivery": delivery}
 
         reset_token = secrets.token_urlsafe(32)
         redis = await get_redis()
@@ -455,6 +460,8 @@ class AuthService:
             f"<p>若非您本人操作，請忽略此信。</p>"
         )
 
+        # 即使 delivery == "onsite" 仍照呼叫：transport 會是 _LoggingEmailClient，
+        # 把 reset URL 寫進 log（設定好 provider 後同一條路徑就會真的寄出）。
         await send_email(
             to=user.email,
             subject=subject,
@@ -463,7 +470,7 @@ class AuthService:
             client=email_client,
         )
 
-        return {"message": FORGOT_PASSWORD_GENERIC_MESSAGE}
+        return {"message": FORGOT_PASSWORD_GENERIC_MESSAGE, "delivery": delivery}
 
     @staticmethod
     async def reset_password(db: AsyncSession, token: str, new_password: str) -> None:

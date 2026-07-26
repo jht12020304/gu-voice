@@ -1,7 +1,7 @@
 """認證相關 Pydantic Schema"""
 
 import re
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -145,6 +145,21 @@ class LogoutRequest(BaseModel):
 class MessageResponse(BaseModel):
     """通用訊息回應"""
     message: str
+
+
+class ForgotPasswordResponse(MessageResponse):
+    """
+    忘記密碼回應。
+
+    `delivery` 讓前端知道該顯示哪種指示，而不是一律講「已寄送重設連結」：
+      - `"email"`：真有 email transport（SendGrid / SMTP），信會寄出
+      - `"onsite"`：未設定任何 transport，信不會寄出 → 前端要引導使用者
+        找現場醫護／管理員協助重設
+
+    值只由伺服器環境設定推導，**與帳號是否存在無關**，因此不會洩漏帳號存在性
+    （enumeration 防護不變）。
+    """
+    delivery: Literal["email", "onsite"]
 
 
 # ── 別名（供 router 匯入相容） ──────────────────────────

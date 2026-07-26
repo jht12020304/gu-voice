@@ -30,6 +30,16 @@ from app.core.middleware import (
 from app.core.sentry import init_sentry
 from app.schemas.common import HealthResponse
 
+# 全 app 的 logging 初始化。先前完全沒有任何 basicConfig/dictConfig，root logger
+# 因此停在預設的 WARNING → 整個 backend 的 logger.info() 全被靜默丟棄（生產實測：
+# forgot_password 的 `[email:log-only]`、紅旗偵測、SOAP 生成的 INFO 訊息全看不到，
+# 只有 logger.warning 以上才進得了 Railway log）。
+# 注意 LOG_LEVEL 這個環境變數原本只餵給 `uvicorn --log-level`，管不到 app 自己的 logger。
+logging.basicConfig(
+    level=settings.LOG_LEVEL.upper(),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+
 logger = logging.getLogger(__name__)
 
 # 已知的開發預設值 — production 啟動時若環境變數等於這些值則拒絕啟動。
