@@ -119,7 +119,7 @@ void _blockerRegressions() {
 
       final sub = container.listen(
         conversationControllerProvider,
-        (_, __) {},
+        (_, _) {},
         fireImmediately: true,
       );
       final first = container.read(conversationControllerProvider.notifier);

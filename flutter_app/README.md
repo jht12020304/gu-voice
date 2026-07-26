@@ -19,11 +19,25 @@ flutter run                               # 接上的 iOS / Android 裝置
 flutter analyze && flutter test           # 合併前必跑
 ```
 
-後端位址用 `--dart-define` 覆寫（預設值見 `lib/core/config/env.dart`）：
+後端位址用 `--dart-define` 覆寫。變數名是 `API_BASE` / `WS_BASE`（**不是** `*_BASE_URL`），且值要**含 path 後綴**——見 `lib/core/config/env.dart`：
 
 ```bash
-flutter run --dart-define=API_BASE_URL=https://<host> --dart-define=WS_BASE_URL=wss://<host>
+# 打生產後端
+flutter run \
+  --dart-define=API_BASE=https://gu-voice-app-production.up.railway.app/api/v1 \
+  --dart-define=WS_BASE=wss://gu-voice-app-production.up.railway.app/api/v1/ws
 ```
+
+iOS Simulator（首次會跑 `pod install`，較久）：
+
+```bash
+xcrun simctl boot 'iPhone 17'; open -a Simulator
+flutter build ios --simulator --debug --dart-define=API_BASE=... --dart-define=WS_BASE=...
+xcrun simctl install booted build/ios/iphonesimulator/Runner.app
+xcrun simctl launch booted com.example.guVoice
+```
+
+⚠️ Android emulator 上 `localhost` 是模擬器自己，要用 `10.0.2.2` 才連得到宿主機。
 
 ## 注意
 

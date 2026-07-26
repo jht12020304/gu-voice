@@ -2,6 +2,8 @@
 // Port of frontend/src/i18n/paths.ts + the SUPPORTED_LANGUAGES/fallback from i18n/index.ts.
 // Never read language from device locale / stored pref except to seed the FIRST route.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 const supportedLanguages = ['zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'vi-VN'];
@@ -30,8 +32,20 @@ String currentLng = defaultLanguage;
 final currentLngNotifier = ValueNotifier<String>(defaultLanguage);
 
 void setCurrentLng(String lng) {
+  // Plain value stays synchronous: Dio's Accept-Language interceptor reads it, and
+  // the URL must remain the single authority the moment the route resolves.
   currentLng = lng;
-  if (currentLngNotifier.value != lng) currentLngNotifier.value = lng;
+  if (currentLngNotifier.value == lng) return;
+
+  // The notifier drives a ValueListenableBuilder in App. `setCurrentLng` is called
+  // from go_router's `redirect`, which runs *during* the Router's build — writing the
+  // notifier there marks a descendant dirty mid-build and Flutter throws
+  // "setState() or markNeedsBuild() called during build" (caught by the simulator
+  // integration test). Deferring to a microtask lands it after the frame's build
+  // scope closes, so the rebuild is scheduled for the next frame instead.
+  scheduleMicrotask(() {
+    if (currentLngNotifier.value != lng) currentLngNotifier.value = lng;
+  });
 }
 
 bool isSupportedLanguage(String? v) => v != null && supportedLanguages.contains(v);
