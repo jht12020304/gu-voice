@@ -533,19 +533,33 @@
 > 入庫判定 GO 且已入庫（`feat/flutter-app-baseline`）：analyze 0 issue、test 17/17、零 secret、
 > `build/` 與 `.dart_tool/` 已正確排除。以下是入庫後要修的。
 > **動任何 voice/ 下的檔案前先讀 `voice-pipeline-invariants` skill**——G1/G3/G4/G14/G15 都是它列管的行為。
+> 2026-07-26：兩個 blocker（G1/G2）已修並附回歸測試；其餘 11 high + 22 medium 未動。
 
-### [ ] G1. 🔴 紅旗中止導向錯頁（病患拿不到「告知現場醫護」）
+### [x] G1. 🔴 紅旗中止導向錯頁（病患拿不到「告知現場醫護」）— 2026-07-26 修復
 
-- `flutter_app/lib/features/voice/screens/conversation_page.dart:49`：`ref.listen` callback 讀 build 期快照，
-  紅旗中止時傳出 `abortedRedFlag: false` → 病患看到一般感謝頁、8 秒後自動導回首頁
-- 修法：callback 內改讀 `ref.read(conversationControllerProvider).abortedRedFlag`（一行）
-- 與 G14（無語音播報）疊加＝三層告知同時失效，先修這條
+- 根因：`conversation_page.dart` 的 `ref.listen` 只 select `completed`，callback 內卻讀 build 期
+  快照的 `s.abortedRedFlag`。`_onSessionStatus`（controller:307）在**同一個 copyWith** 設兩個欄位，
+  所以 listener 讀到的仍是 `false` → 病患拿到一般感謝頁 + 8 秒自動導回首頁
+  （`session_thank_you_page.dart:28-29` 只在非紅旗時起那個 Timer），永遠看不到「告知現場醫護」。
+  違反不變式 #11，且與 G14（無語音播報）疊加＝三層告知同時失效
+- 修法：改成 select `(v.completed, v.abortedRedFlag)` **records tuple**，兩個值來自同一次 emission
+  → 讀到過期快照在結構上不可能發生（比補 `ref.read` 更穩，不依賴後人記得這件事）
 
-### [ ] G2. 🔴 跨病患 session 污染（同一 kiosk 第二位病患沿用前一位場次）
+### [x] G2. 🔴 跨病患 session 污染（同一 kiosk 第二位病患沿用前一位場次）— 2026-07-26 修復
 
-- `flutter_app/lib/features/voice/state/conversation_controller.dart:446`：provider 非 autoDispose ＋ `_started`
-  閂鎖 → 離頁不關麥、不關 WS
-- 修法：改 `NotifierProvider.autoDispose(...)` 並移除 `_started`（或 `start()` 開頭重設 state）
+- 根因：provider 非 autoDispose → notifier 活得比頁面久，`ref.onDispose(_teardown)` 永不觸發
+  （離頁後麥克風仍開、WS 仍連），且 `_started` 閂鎖讓下一位病患的 `start()` 直接 return
+  → 第二位病患繼承前一位的 session／逐字稿／紅旗／靜音狀態
+- 修法：`NotifierProvider.autoDispose`。`_started` **保留**但語意改為「單一 instance 的
+  re-entrancy guard」（autoDispose 後每位病患都是新 instance，`_started` 自然是 false）；
+  並把 `_started = true` 移到三個服務建構之後——否則 dispose 撞上剛進 `start()` 的競態會踩到
+  `late final` 未初始化而拋 LateInitializationError，而不是乾淨 no-op
+- 順帶：`_sessions` 改 `late final`（原本 eager 建構會拿 `ApiClient.dio`，需要平台通道，
+  導致 controller 在 unit test 裡根本無法建構）
+
+**驗證**：`flutter analyze` 0 issue、`flutter test` **19/19**（新增 2 項回歸）。
+autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，還原即全綠，
+確認不是永遠通過的空測試。
 
 ### [ ] G3–G13. 🟡 high（11 筆）
 

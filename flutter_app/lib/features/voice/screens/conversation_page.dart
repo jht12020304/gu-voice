@@ -46,14 +46,26 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     final s = ref.watch(conversationControllerProvider);
 
     // On completion, route to the thank-you page (red-flag variant carried via extra).
-    ref.listen(conversationControllerProvider.select((v) => v.completed), (_, done) {
-      if (done == true) {
-        context.go(
-          prefixLngToPath('/patient/session/${widget.sessionId}/thank-you', currentLng),
-          extra: {'abortedRedFlag': s.abortedRedFlag},
-        );
-      }
-    });
+    //
+    // Both fields are selected together on purpose. `_onSessionStatus` sets
+    // `completed` and `abortedRedFlag` in ONE copyWith, so listening on `completed`
+    // alone and then reading `s.abortedRedFlag` would read the PREVIOUS build's
+    // snapshot — still false — and a red-flag-aborted patient would get the generic
+    // thank-you page plus its 8s auto-redirect home, never seeing "tell the staff
+    // here" (voice-pipeline-invariants #11). Reading both off the same emission
+    // makes that stale read structurally impossible.
+    ref.listen(
+      conversationControllerProvider.select((v) => (v.completed, v.abortedRedFlag)),
+      (_, next) {
+        final (completed, abortedRedFlag) = next;
+        if (completed) {
+          context.go(
+            prefixLngToPath('/patient/session/${widget.sessionId}/thank-you', currentLng),
+            extra: {'abortedRedFlag': abortedRedFlag},
+          );
+        }
+      },
+    );
 
     return Scaffold(
       appBar: AppBar(
