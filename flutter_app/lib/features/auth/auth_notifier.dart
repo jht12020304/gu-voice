@@ -34,16 +34,23 @@ class AuthNotifier extends Notifier<AuthState> {
   AuthState build() => const AuthState();
 
   Future<void> bootstrap() async {
-    await TokenStore.instance.load();
-    if (TokenStore.instance.accessToken == null) {
-      state = const AuthState(booted: true);
-      return;
-    }
+    // `load()` must be inside the try. On web it reaches flutter_secure_storage, which
+    // throws `UnsupportedError` outside a secure context (plain http:// — e.g. a clinic
+    // LAN deployment). `main()` awaits bootstrap BEFORE runApp, so an escaping throw
+    // meant a white screen with no way in at all, rather than just "not signed in".
     try {
+      await TokenStore.instance.load();
+      if (TokenStore.instance.accessToken == null) {
+        state = const AuthState(booted: true);
+        return;
+      }
       final user = await _api.getMe();
       state = AuthState(user: user, booted: true);
     } catch (_) {
-      await TokenStore.instance.clear();
+      // Best-effort cleanup; if storage itself is unavailable this throws too.
+      try {
+        await TokenStore.instance.clear();
+      } catch (_) {/* storage unavailable — nothing to clear */}
       state = const AuthState(booted: true);
     }
   }

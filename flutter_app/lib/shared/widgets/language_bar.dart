@@ -10,7 +10,9 @@ class LanguageBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final path = GoRouterState.of(context).uri.path;
+    // Keep the whole URI: switching language must not drop query params (a reset-password
+    // link or any future param would be silently eaten — same class of bug as TODO G6).
+    final uri = GoRouterState.of(context).uri;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -23,7 +25,9 @@ class LanguageBar extends StatelessWidget {
               t('common.language.names.$lng') +
                   (betaLanguages.contains(lng) ? ' ${t('common.language.betaTag')}' : ''),
             ),
-            onSelected: (_) => context.go(prefixLngToPath(path, lng)),
+            onSelected: (_) => context.go(
+              uri.replace(path: prefixLngToPath(uri.path, lng)).toString(),
+            ),
           ),
       ],
     );

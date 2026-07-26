@@ -7,6 +7,7 @@ import 'core/router/lng.dart';
 import 'core/theme/app_theme.dart';
 import 'features/doctor/doctor_alert_watcher.dart';
 import 'features/patient/kiosk_idle_guard.dart';
+import 'features/voice/state/settings_notifier.dart';
 
 Locale _toLocale(String tag) {
   final parts = tag.split('-');
@@ -29,7 +30,8 @@ class App extends ConsumerWidget {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
-        themeMode: ThemeMode.system,
+        // Driven by the doctor settings page; defaults to system.
+        themeMode: ref.watch(settingsProvider.select((v) => v.themeMode)),
         routerConfig: router,
         // Above the Navigator but below MaterialApp, so ScaffoldMessenger is in scope
         // and the red-flag toast survives route changes (TODO G12).

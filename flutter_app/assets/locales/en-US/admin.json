@@ -37,7 +37,8 @@
     "confirmDelete": "Confirm Delete",
     "deleting": "Deleting...",
     "deleteSuccess": "Complaint deleted",
-    "deleteFailed": "Failed to delete complaint"
+    "deleteFailed": "Failed to delete complaint",
+    "fieldDisplayOrder": "Display order"
   },
   "users": {
     "title": "User Management",

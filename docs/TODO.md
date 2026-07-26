@@ -539,8 +539,8 @@
 > 入庫判定 GO 且已入庫（`feat/flutter-app-baseline`）：analyze 0 issue、test 17/17、零 secret、
 > `build/` 與 `.dart_tool/` 已正確排除。以下是入庫後要修的。
 > **動任何 voice/ 下的檔案前先讀 `voice-pipeline-invariants` skill**——G1/G3/G4/G14/G15 都是它列管的行為。
-> 2026-07-26：2 blocker（G1/G2）+ **11 條 high 全部**（G3–G13）+ **5 條語音 medium**（G14–G18）
-> 已修並附回歸測試；**剩 17 medium**（清單見 §G19–G35）。
+> 2026-07-26：2 blocker（G1/G2）+ **11 條 high 全部**（G3–G13）+ **11 條 medium**（G14–G24）
+> 已修並附回歸測試；**剩 11 medium**（清單見 §G25–G35）。
 
 ### [x] G1. 🔴 紅旗中止導向錯頁（病患拿不到「告知現場醫護」）— 2026-07-26 修復
 
@@ -646,15 +646,24 @@ autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，�
   這是 voice-pipeline-invariants #5 唯一沒有回歸防護的地方
 - **仍缺**：`conversation_controller` 的 WS 事件→state 轉換（同樣需要注入 `_audio`/`_ws`/`_tts`）
 
-### [ ] G19–G35. 🟢 medium 剩 17 筆
+### [x] G19–G24. auth／router／i18n 6 條 medium — 2026-07-26 修復（PR #42）
 
-紅旗與中止無語音播報（flutter_tts，**且是否為必要告知層待臨床拍板**）、切語言丟 query／
-無進行中場次守衛（缺後端 `POST /sessions/{id}/end-for-language-switch`）／入口只在 4 頁、
+| # | 問題 | 修法 |
+|---|---|---|
+| G19 | `bootstrap()` 的 `TokenStore.load()` 在 try **外**。web 上 flutter_secure_storage 在非 secure context（純 http，例如院內 LAN）拋 `UnsupportedError`，而 `main()` 在 `runApp` **之前** await bootstrap → **整頁白屏、完全進不去**，而不只是「未登入」 | `load()` 搬進 try；catch 內的 `clear()` 也包一層（儲存不可用時它同樣會拋） |
+| G20 | web 上 flutter_secure_storage 是「AES 加密後放 localStorage，金鑰也放同一個 localStorage」→ XSS 可解出 7 天 refresh token 且跨瀏覽器 session 留存 | `WebOptions(useSessionStorage: true)`：限定該 tab。也更符合 kiosk 語意——病患走了 session 就該結束。iOS/Android 不受影響 |
+| G21 | GoRouter 無 `onException` → 無效路徑落到 go_router 內建的**未在地化英文錯誤頁**，kiosk 上不可接受（＝P3 #23 剩下的那條） | `onException` 導回帶語言前綴的 root，讓既有 guard 依角色分流。**零新增文案** |
+| G22 | `complaint_management_page.dart:349` 的 `'顯示順序'` 是全碼庫唯一硬編碼中文，en/ja/ko/vi 的管理者會看到中文（＝P3 #27 剩下的那條） | 補 `admin.complaints.fieldDisplayOrder` 到 5 語系 |
+| G23 | 切語言只搬 path，query／fragment 全丟（`language_bar.dart` 與 `patient_settings_page.dart` 兩處）；且病患設定頁只有 zh/en 兩個 chip，ja/ko/vi 的病患選不到自己的語言 | 兩處都改用 `uri.replace(path:)`；chip 改吃 `supportedLanguages` + beta 標記 |
+| G24 | 醫師 `/settings` 直接掛 `PatientSettingsPage` → 醫師看到病患的個人資料/通知/安全分頁，而 `common.doctor.settings.*` 承諾的主題模式與音效提醒**一個都沒有** | 新 `DoctorSettingsPage`（帳號資訊／主題模式 SegmentedButton／語言／音效提醒／API 端點）。**27 個 key 早已在 5 語系檔裡**，只是頁面沒做。`themeMode` 與 `soundAlerts` 進 `settingsProvider`，`app.dart` 改讀它（原本硬寫 `ThemeMode.system`） |
+
+### [ ] G25–G35. 🟢 medium 剩 11 筆
+
+紅旗與中止無語音播報（flutter_tts，**且是否為必要告知層待臨床拍板**）、切語言無進行中場次守衛
+（缺後端 `POST /sessions/{id}/end-for-language-switch`）、切語言入口只在 4 頁、
 病史 `stillHas` 永遠 true、主訴「其他」未填無說明文字、/research 缺語言子群表與 Methods 卡與
-caption/n= 與圖匯出（i18n key 全已入庫未用）、醫師 /settings 直接掛病患頁、SOAP 頁無逐字稿分頁、
-生成失敗的 SOAP 無法重跑（死局）、web PDF 匯出被 catch 吞掉、`TokenStore.load()` 在 try 外會讓
-非 secure context 白屏、Web secure_storage 實質等同明文 localStorage、GoRouter 缺 onException
-（＝#23）、`'顯示順序'` 硬編碼（＝#27）。
+caption/n= 與圖匯出（i18n key 全已入庫未用）、SOAP 頁無逐字稿分頁、
+生成失敗的 SOAP 無法重跑（死局）、web PDF 匯出被 catch 吞掉、。
 
 ### [x] H1. 忘記密碼在生產無可行路徑 — 2026-07-26 結案（管理員當面重設；email 不採用）
 
