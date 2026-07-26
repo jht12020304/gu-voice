@@ -32,9 +32,36 @@ git push origin main
 cd backend && railway up --detach --service gu-voice-app
 curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep   # 期待 {"status":"ok",...}
 
-# 3. 前端 → Vercel
+# 3. 前端 → Vercel（專案 gu-voice，個人 team chuns-projects-068de742）
 cd frontend && npm run build && vercel --prod
 ```
+
+> **前端有兩份，別搞混**（2026-07-26 釐清）：
+> - **kiosk 目前開的**＝`project-9w0vq.vercel.app`／`gu-voice-jht12020304y-7696s-projects.vercel.app`
+>   （同一個 deployment 的兩個 alias）。在**已停用的舊 Vercel 帳號** scope 下，現帳號
+>   `jht12020304@gmail.com` 完全進不去（dashboard 404、`vercel inspect` 找不到），**無法再部署**。
+> - **現帳號重建的**＝專案 `gu-voice` → `gu-voice-chuns-projects-068de742.vercel.app`，
+>   2026-07-26 建立並端到端驗證通過（登入 → dashboard → /research 撈到真實生產資料）。
+> - 三個 origin 都已在 Railway `CORS_ORIGINS`；**切換 kiosk 與 `FRONTEND_BASE_URL` 尚待拍板**。
+>
+> 新 clone 第一次要先 link（`.vercel/` 不入庫）：
+> ```bash
+> cd frontend && vercel link --yes --project gu-voice
+> ```
+
+> ⚠️ **Deployment Protection 會讓新專案回 302 到 `vercel.com/sso-api`**（不是 401）。
+> dashboard 是 Settings → Deployment Protection → Vercel Authentication → Disabled；
+> 無法開 dashboard 時用 API（token 讀 CLI 自己的 auth 檔，勿印出來）：
+> ```bash
+> python3 -c "
+> import json,os,urllib.request
+> tok=json.load(open(os.path.expanduser('~/Library/Application Support/com.vercel.cli/auth.json')))['token']
+> pj=json.load(open('.vercel/project.json'))
+> r=urllib.request.Request(f\"https://api.vercel.com/v9/projects/{pj['projectId']}?teamId={pj['orgId']}\",
+>   data=json.dumps({'ssoProtection':None}).encode(), method='PATCH',
+>   headers={'Authorization':f'Bearer {tok}','Content-Type':'application/json'})
+> print(json.load(urllib.request.urlopen(r))['ssoProtection'])"
+> ```
 
 - **Railway** 用 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`，Dockerfile 在 `backend/`，所以 `railway up` 要從 `backend/` 跑）。非互動 link：`railway link -p gu-voice-api -s gu-voice-app -e production`（**要在 repo 根目錄跑**）。
 - **Vercel** 專案在 team **`jht12020304y-7696s-projects`**，不是個人 team——先 `vercel switch` 切過去，否則會部署到錯的地方或找不到專案。
@@ -116,7 +143,9 @@ railway logs
 ### 修改環境變數
 
 1. 登入 [vercel.com](https://vercel.com)
-2. 切換到 `jht12020304y-7696s-projects` 這個 team（左上角下拉選擇）
+2. team 選 `chuns-projects-068de742`（chun's projects）
+   > 舊文件寫的 `jht12020304y-7696s-projects` 是**已停用帳號**下的 scope，現帳號進不去（404）。
+   > kiosk 現在還是開那份舊部署，但無法再對它部署——見「一、部署流程」的說明。
 3. 選擇專案 `gu-voice`
 4. 左側選 **Settings** → **Environment Variables**
 5. 修改後點 **Save**
@@ -194,7 +223,7 @@ DELETE FROM users WHERE email = 'test_probe_delete@gu-voice.com';
 
 修復：
 ```bash
-railway variables set CORS_ORIGINS='["https://project-9w0vq.vercel.app","http://localhost:3000","http://localhost:5175"]'
+railway variables --set 'CORS_ORIGINS=["https://project-9w0vq.vercel.app","https://gu-voice-jht12020304y-7696s-projects.vercel.app","https://gu-voice-chuns-projects-068de742.vercel.app","http://localhost:5175"]'
 ```
 
 ---
