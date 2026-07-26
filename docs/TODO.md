@@ -16,7 +16,8 @@
 > H2（儀表板年月）、G35b（切語言守衛＋不變式 #16 修正）、G36／G37、TTS 測試覆蓋、
 > H4（G36 抓到的兩個 Flutter 缺口）全數完成，**真 OpenAI e2e 兩情境通過**。
 >
-> 未結案 6 條：E10（等母語臨床覆核）、F8／G35a（等臨床拍板）、E12（投機 schema，無消費端，不做）、
+> 未結案：**§V 六條 Flutter 未驗證項**（V1/V2 是紅字——語音與病患流程從未跑過）、
+> E10（等母語臨床覆核）、F8／G35a（等臨床拍板）、E12（投機 schema，無消費端，不做）、
 > H3（dashboard 其餘硬寫中文標籤）、H5（replay 未 await，推測性未驗證）。
 
 ---
@@ -498,6 +499,56 @@
 - 生產 enum 逐一比對：只有這一個漂移
 - **加防護測試**：掃 migration 檔確認每個 `AuditAction` 值都出現過。新增成員卻忘了寫
   migration 就會紅（移走 migration 驗證過會失敗）
+
+## V — Flutter 尚未驗證項（2026-07-27 盤點）
+
+> 這一節記的是**「沒人試過」**而不是「試過有問題」。§G 的清單是缺陷，這節是**未知**。
+> `flutter analyze` + `flutter test` 全綠不代表這些能用——本輪就有兩次靜態全綠但 app
+> 在真機一片紅（`markNeedsBuild during build`、`GoError`）。
+>
+> **現況一句話：醫師端大致可用、病患端未驗證，而病患端就是產品本身。**
+
+### [ ] V1. 🔴 語音問診從未在 Flutter 上跑過一次
+
+app 的存在理由。§G 的四條語音修法**全部只靠單元測試與讀碼推論**，沒有任何一次真的對麥克風講過話：
+- G3 `onSpeechEnd` 缺 hard-mute → AI 自己的喇叭回音被當成病患下一句
+- G4 `stopActive()` 在 await 後才捕獲 `_activeStep` → VAD 提前解鎖 + completer 洩漏
+- G14 `pause()` 順序 → 病患半句症狀消失、狀態列卡「正在辨識」
+- G15 `onSpeechStart` 無硬鎖 re-assert
+
+**最小驗證**：iOS Simulator **可以用 Mac 的麥克風**，不必實機。跑完整病患流程
+（選主訴→intake→真的講話→STT/TTS/VAD→SOAP），並特別驗：
+暫停時半句話有沒有進逐字稿／AI 講話時麥克風是否被鎖／TTS 中斷後 VAD 是否恢復／
+紅旗情境是否導到正確的感謝頁變體（G1）。會用到真 OpenAI 額度。
+
+### [ ] V2. 🔴 病患端流程只驗到 intake
+
+選主訴→填基本資料驗過（widget test + simulator 目視）。
+**conversation 頁 → 對話 → SOAP 生成 → 感謝頁整段沒跑過。**
+`integration_test/` 目前只涵蓋登入（`login_smoke_test.dart`）與 kiosk 閒置登出
+（`kiosk_idle_logout_test.dart`），沒有任何問診流程。
+
+### [ ] V3. 🟡 TTS 從未實機播過音
+
+有 5 條回歸測試但用 fake player。對抗式驗證指出兩個結構性盲區：
+- fake 用 broadcast stream，真 player 是 `BehaviorSubject.seeded` →
+  **「陳舊 completed 被重播」整類 bug 測不到**
+- 2 隻存活突變未被釘住：第三道 epoch 守衛、`clearQueue` 的 chain reset
+
+### [ ] V4. 🟡 Flutter Web 語音未決策（HIGH risk）
+
+麥克風原始 PCM 需手寫 AudioWorklet JS interop。已定 native-first；
+**「web 可用」目前只對非語音頁成立**。要不要做 web 語音、還是降級／停用，是開工前的決定。
+
+### [ ] V5. 🟡 Android 完全沒碰
+
+本輪只跑 iOS simulator。release 簽章缺 keystore 會刻意失敗（G37 的設計），
+**連 release 包都出不來**，更沒在 Android 裝置上跑過。Android emulator 連本機後端要用 `10.0.2.2`。
+
+### [ ] V6. 🟢 沒有部署管道
+
+Flutter 不在任何地方跑著；改它不需要 `railway up`／`vercel --prod`。
+上線前要決定：沿用現有 Vercel 專案（web）還是另建？iOS/Android 走 TestFlight／內部測試？
 
 ### [ ] E10. 🟢 紅旗譯名待母語臨床者最終覆核（AI 稽核標 medium/uncertain 的 8 筆）
 

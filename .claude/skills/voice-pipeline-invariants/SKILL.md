@@ -55,6 +55,12 @@ description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§
 | #4 userPaused 獨立閘門 | `pause()` 先送 `pause_recording` 才 mute → flush 的 final chunk 被後端丟棄，病患半句症狀消失、狀態列永久卡「正在辨識」 |
 | #11 kiosk 措辭 | 紅旗中止時 `ref.listen` 讀 build 期快照 → 病患拿到一般感謝頁 + 8 秒自動導回首頁，看不到「告知現場醫護」 |
 
+⚠️⚠️ **Flutter 版的語音行為從未被真的跑過一次**（2026-07-27 盤點，見 `docs/TODO.md` §V1）。
+上表那四條修法全部只有單元測試與讀碼推論撐著——**沒有任何一次真的對麥克風講過話**。
+所以在 Flutter 這邊「測試綠了」的證據強度遠低於 React 版（後者有真 OpenAI e2e 與生產使用）。
+動 Flutter 語音碼後，除了跑 `flutter test`，請在 simulator 上實際走一輪
+（iOS Simulator 可用 Mac 的麥克風，不必實機）。
+
 **改 Flutter 語音碼時額外注意**：`conversationControllerProvider` 必須維持 `autoDispose`
 （否則跨病患 session 污染）；`tts_playback_controller` 目前**無回歸測試**（自己 `new AudioPlayer()`，
 要測得先讓 player 可注入）——那是 #5 唯一沒有防護的地方。
