@@ -23,7 +23,16 @@
   - [ ] 加單元測試：登出後同一 access token 呼叫 `/api/v1/auth/me` 應回 401
 - **驗收**：`curl -X POST /api/v1/auth/logout` 回 200，不再是 500
 
-### [x] 2. Railway 開 Celery worker + beat service — 2026-04-18 (1b7a41e)（worker + beat service 已 ACTIVE）
+### [x] 2. Celery worker + beat 啟動 — 2026-07-26 改為同容器（原 2026-04-18 (1b7a41e) 的獨立 service 已不存在）
+
+> ⚠️ **2026-07-26 更正**：本條原記載「worker + beat service 已 ACTIVE」是**假的**。實查 Railway 專案
+> `gu-voice-api` 底下只有 `Redis` 與 `gu-voice-app` 兩個 service，worker/beat 不在（也不在任何其他
+> Railway 專案）。因為 #31 把 SOAP 生成改成 Celery 單一路徑，這導致 #31/#32 一上生產每份 SOAP
+> 就永遠卡 GENERATING（已實際發生一次，見 PR #34）。
+>
+> 現行做法：`backend/scripts/start.sh` 在同一個容器內起 worker + beat，由 `RUN_CELERY_IN_API`
+> （預設 true）控制。要拆回獨立 service 時設 false 並照 `railway_celery_runbook.md` 建。
+> **調大 `numReplicas` 前必須先把 beat 拆出去**，否則排程重複觸發。
 
 - **檔案**：Railway Dashboard（不在 repo 內），可能需新增 `backend/scripts/start_worker.sh`、`backend/scripts/start_beat.sh`
 - **要做**：

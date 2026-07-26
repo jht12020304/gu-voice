@@ -46,6 +46,7 @@ description: GU Voice 生產部署（手動 railway up + vercel --prod，merge m
 | 藉口 | 現實 |
 |---|---|
 | 「PR merge 進 main 了，所以已經上線」 | 沒有。要跑 `railway up` + `vercel --prod`。main 與生產可以差好幾週（2026-07-26 發現生產跑的是 07-06 的 build） |
+| 「TODO/文件說 celery worker service 已 ACTIVE，所以 SOAP 沒問題」 | 那條記載曾是假的（2026-07-26 實查兩個 service 都不存在，SOAP 全卡 GENERATING）。現行做法＝同容器起 worker+beat（`RUN_CELERY_IN_API`）；部署後一律用 log 確認 `celery@... ready.` 與 `beat: Starting...` |
 | 「CI 綠了就等於部署成功」 | GitHub Actions 只跑測試；`railway-app`／`vercel` 的 check suite 永遠停在 `queued`，那不是部署 |
 | 「DB timeout，先重啟 Supabase 專案試試」 | 多次事故根因是 Supabase 平台端；事故期間重啟只會延長不可用 |
 | 「docs 寫的 DB ref 跟 Railway 不一樣，改 Railway 對齊 docs」 | 方向反了：Railway 是真相，docs 是過期的 |
@@ -57,3 +58,5 @@ description: GU Voice 生產部署（手動 railway up + vercel --prod，merge m
 - [ ] `railway up` 與 `vercel --prod` **都真的跑過**（沒跑就是沒上線，不論 main 上有什麼）
 - [ ] Vercel 與 Railway build log 無錯、rollout 完成
 - [ ] 若動了 migration：Railway 啟動 log 顯示 alembic 升級成功
+- [ ] `railway logs` 看到 `celery@... ready.` 與 `beat: Starting...`（SOAP 生成是 Celery 單一路徑，worker 沒起＝報告永遠卡 GENERATING）
+- [ ] 真功能驗收而非只看 health：`POST /auth/login` 拿到 token → `GET /auth/me` 200 → `GET /research/analytics` 200
