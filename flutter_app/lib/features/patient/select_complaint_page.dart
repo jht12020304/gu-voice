@@ -153,6 +153,12 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
                             labelText: t(_hasOther
                                 ? 'intake.selectComplaint.customLabelRequired'
                                 : 'intake.selectComplaint.customLabel'),
+                            // Say WHY the button is dead. Previously the CTA just went grey
+                            // with nothing on screen explaining it, so a patient who picked
+                            // 「其他」 was simply stuck (TODO §G medium). Key already shipped.
+                            errorText: _otherNeedsText
+                                ? t('intake.selectComplaint.otherRequired')
+                                : null,
                           ),
                         ),
                       ],
