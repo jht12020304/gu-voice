@@ -37,7 +37,8 @@
     "confirmDelete": "削除を確認",
     "deleting": "削除中...",
     "deleteSuccess": "主訴を削除しました",
-    "deleteFailed": "主訴の削除に失敗しました"
+    "deleteFailed": "主訴の削除に失敗しました",
+    "fieldDisplayOrder": "表示順"
   },
   "users": {
     "title": "ユーザー管理",

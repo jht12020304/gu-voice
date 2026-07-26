@@ -37,7 +37,8 @@
     "confirmDelete": "Xác nhận xóa",
     "deleting": "Đang xóa...",
     "deleteSuccess": "Đã xóa lý do khám",
-    "deleteFailed": "Xóa lý do khám thất bại"
+    "deleteFailed": "Xóa lý do khám thất bại",
+    "fieldDisplayOrder": "Thứ tự hiển thị"
   },
   "users": {
     "title": "Quản lý người dùng",

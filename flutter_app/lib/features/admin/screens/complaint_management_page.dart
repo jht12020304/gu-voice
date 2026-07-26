@@ -346,7 +346,7 @@ class _ComplaintFormDialogState extends State<_ComplaintFormDialog> {
           TextField(
             controller: _order,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '顯示順序'),
+            decoration: InputDecoration(labelText: t('admin.complaints.fieldDisplayOrder')),
           ),
         ]),
       ),

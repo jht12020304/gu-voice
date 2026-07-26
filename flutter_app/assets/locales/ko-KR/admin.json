@@ -37,7 +37,8 @@
     "confirmDelete": "삭제 확인",
     "deleting": "삭제 중...",
     "deleteSuccess": "주 호소를 삭제했습니다",
-    "deleteFailed": "주 호소 삭제에 실패했습니다"
+    "deleteFailed": "주 호소 삭제에 실패했습니다",
+    "fieldDisplayOrder": "표시 순서"
   },
   "users": {
     "title": "사용자 관리",

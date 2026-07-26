@@ -97,15 +97,20 @@ class _PatientSettingsPageState extends ConsumerState<PatientSettingsPage> {
         const SizedBox(height: 16),
         Text(t('common.patient.settings.preferredLanguage'), style: theme.textTheme.bodyMedium),
         const SizedBox(height: 8),
-        // zh-TW / en-US only; switching drives the URL language authority.
+        // All supported languages, not just zh/en — the app ships 5 and a patient whose
+        // language is ja/ko/vi could not pick it here. Switching drives the URL language
+        // authority; the whole URI is preserved so query params survive.
         Wrap(spacing: 8, children: [
-          for (final lng in const ['zh-TW', 'en-US'])
+          for (final lng in supportedLanguages)
             ChoiceChip(
               selected: currentLng == lng,
-              label: Text(t('common.language.names.$lng')),
+              label: Text(
+                t('common.language.names.$lng') +
+                    (betaLanguages.contains(lng) ? ' ${t('common.language.betaTag')}' : ''),
+              ),
               onSelected: (_) {
-                final path = GoRouterState.of(context).uri.path;
-                context.go(prefixLngToPath(path, lng));
+                final uri = GoRouterState.of(context).uri;
+                context.go(uri.replace(path: prefixLngToPath(uri.path, lng)).toString());
               },
             ),
         ]),

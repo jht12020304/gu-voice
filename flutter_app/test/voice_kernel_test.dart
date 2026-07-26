@@ -21,6 +21,7 @@ bool _expected(VadResumeTrigger t, VadResumeContext c) {
 }
 
 void main() {
+  _languageSwitchPreservesQuery();
   _intakeFamilyHistory();
   _routerQueryPreservation();
   _blockerRegressions();
@@ -232,6 +233,35 @@ void _intakeFamilyHistory() {
 
     test('an untouched section still yields an empty list (not an error)', () {
       expect(project([]), isEmpty);
+    });
+  });
+}
+
+void _languageSwitchPreservesQuery() {
+  // LanguageBar / patient settings both switch language by navigating to the same URI
+  // under a new lng. Returning a bare path silently dropped query params — the same
+  // class of bug as G6 (the reset-password token vanishing), just on a different edge.
+  String switchTo(String rawUri, String lng) {
+    final uri = Uri.parse(rawUri);
+    return uri.replace(path: prefixLngToPath(uri.path, lng)).toString();
+  }
+
+  group('language switch keeps the rest of the URI', () {
+    test('query params survive', () {
+      expect(switchTo('/zh-TW/reset-password?token=abc', 'en-US'),
+          '/en-US/reset-password?token=abc');
+    });
+
+    test('an already-prefixed path is re-prefixed, not double-prefixed', () {
+      expect(switchTo('/zh-TW/patient/history', 'ja-JP'), '/ja-JP/patient/history');
+    });
+
+    test('root switches cleanly', () {
+      expect(switchTo('/zh-TW', 'ko-KR'), '/ko-KR');
+    });
+
+    test('fragment survives too', () {
+      expect(switchTo('/en-US/reports?page=2#top', 'vi-VN'), '/vi-VN/reports?page=2#top');
     });
   });
 }

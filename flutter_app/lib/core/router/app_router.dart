@@ -16,6 +16,7 @@ import '../../features/auth/reset_password_page.dart';
 import '../../features/doctor/screens/alert_detail_page.dart';
 import '../../features/doctor/screens/alert_list_page.dart';
 import '../../features/doctor/screens/dashboard_page.dart';
+import '../../features/doctor/screens/doctor_settings_page.dart';
 import '../../features/doctor/screens/doctor_shell.dart';
 import '../../features/doctor/screens/notification_page.dart';
 import '../../features/doctor/screens/patient_detail_page.dart';
@@ -54,6 +55,12 @@ final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/',
     refreshListenable: refresh,
+    // An unmatched route used to fall through to go_router's built-in error page, which
+    // is untranslated English and unusable on a clinic kiosk (TODO #23 / §G). Redirect to
+    // the language-prefixed root instead: the router's own guards then land the user on
+    // whichever home their role has. No new copy needed, so nothing to translate.
+    onException: (context, state, router) =>
+        router.go(prefixLngToPath('/', currentLng)),
     redirect: (context, state) {
       final path = state.uri.path;
       final lng = extractLngFromPath(path);
@@ -150,7 +157,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => _lngKeyed(AlertDetailPage(alertId: state.pathParameters['alertId']!)),
           ),
           GoRoute(path: 'notifications', builder: (context, state) => _lngKeyed(const DoctorShell(index: 3, child: NotificationPage()))),
-          GoRoute(path: 'settings', builder: (context, state) => _lngKeyed(const DoctorShell(index: 4, child: PatientSettingsPage()))),
+          GoRoute(path: 'settings', builder: (context, state) => _lngKeyed(const DoctorShell(index: 4, child: DoctorSettingsPage()))),
           GoRoute(path: 'patients', builder: (context, state) => _lngKeyed(const PatientListPage())),
           GoRoute(
             path: 'patients/:patientId',

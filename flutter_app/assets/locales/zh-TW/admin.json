@@ -37,7 +37,8 @@
     "confirmDelete": "確認刪除",
     "deleting": "刪除中...",
     "deleteSuccess": "主訴已刪除",
-    "deleteFailed": "刪除主訴失敗"
+    "deleteFailed": "刪除主訴失敗",
+    "fieldDisplayOrder": "顯示順序"
   },
   "users": {
     "title": "使用者管理",

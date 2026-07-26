@@ -8,7 +8,14 @@ class TokenStore {
   TokenStore._();
   static final instance = TokenStore._();
 
-  final _storage = const FlutterSecureStorage();
+  // On web, flutter_secure_storage is AES over localStorage with the key kept in the
+  // SAME localStorage — so XSS can decrypt it, and a 7-day refresh token would sit there
+  // across browser sessions. `useSessionStorage` scopes it to the tab instead, which also
+  // matches the kiosk model: the patient walks away, the session should not outlive them.
+  // No effect on iOS/Android (Keychain / Keystore).
+  final _storage = const FlutterSecureStorage(
+    webOptions: WebOptions(useSessionStorage: true),
+  );
   static const _access = 'access_token';
   static const _refresh = 'refresh_token';
 
