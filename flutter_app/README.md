@@ -69,6 +69,15 @@ xcrun simctl launch booted com.example.guVoice
 
 ⚠️ Android emulator 上 `localhost` 是模擬器自己，要用 `10.0.2.2` 才連得到宿主機。
 
+## 測試分層
+
+- `test/`（67 項，純函式 + 少量 widget）——CI 會跑（`flutter analyze` 對 info 級也 exit 1）。
+- `integration_test/`（**需要真 simulator，不在 CI**；`flutter test` 不帶參數只跑 `test/`，天然排除）：
+  - `login_smoke_test.dart` — 登入冒煙，驗 dio／iOS Keychain 持久化／bootstrap 還原／導向
+  - `kiosk_idle_logout_test.dart` — 真等逾時驗病患被登出＋token 清除
+  - `patient_text_flow_test.dart` — **病患全流程（文字代替語音）**，打真後端＋真 OpenAI，見上方「已驗過的」
+- 憑證一律只從 `--dart-define` 讀，沒給就 skip。
+
 ## 注意
 
 - `assets/locales/` 是 5 語言翻譯檔，**與 `frontend/src/i18n/locales/` 逐檔位元相同**。切換期新增 key 要同步改兩份；React 下線後這裡才成為唯一來源。
