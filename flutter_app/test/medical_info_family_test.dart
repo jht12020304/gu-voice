@@ -33,6 +33,27 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('past-history rows expose the stillHas checkbox', (tester) async {
+    // `stillHas` was hardcoded true with no UI, so every resolved condition reached the
+    // doctor as ongoing — silently wrong clinical data (TODO §G medium).
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await pumpPage(tester);
+
+    final before = find.byType(Checkbox).evaluate().length;
+    await tester.tap(find.text(t('intake.medicalInfo.history.add')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byType(Checkbox).evaluate().length,
+      greaterThan(before),
+      reason: '新增病史列後沒有出現 stillHas 勾選框——資料會永遠送 true',
+    );
+    expect(find.byTooltip(t('intake.medicalInfo.history.stillHas')), findsOneWidget);
+  });
+
   testWidgets('family-history section renders and accepts a row', (tester) async {
     // The page is tall; a small surface makes off-screen widgets un-tappable.
     tester.view.physicalSize = const Size(1200, 4000);

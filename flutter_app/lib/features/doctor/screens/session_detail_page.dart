@@ -15,6 +15,22 @@ import '../../auth/auth_notifier.dart';
 
 // Port of SessionDetailPage.tsx — status-gated actions (assign / complete / cancel /
 // generate report) + read-only transcript ordered by sequenceNumber.
+/// Whether the "generate report" action should be offered.
+///
+/// Extracted so the retry rule is testable. The old rule was "session completed AND no
+/// report row exists", which made a **failed** generation a dead end: the row existed,
+/// so the button vanished and nothing could re-trigger it (TODO §G medium).
+///
+/// `generating` deliberately does NOT offer the button — double-dispatching a queued
+/// Celery task risks duplicate reports; the page shows an in-flight line instead.
+bool canGenerateSoapReport({
+  required String sessionStatus,
+  required String? reportStatus,
+}) {
+  if (sessionStatus != 'completed') return false;
+  return reportStatus == null || reportStatus == 'failed';
+}
+
 class SessionDetailPage extends ConsumerStatefulWidget {
   const SessionDetailPage({super.key, required this.sessionId});
   final String sessionId;
@@ -27,7 +43,8 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
   final _api = SessionsApi();
   Session? _session;
   List<ConversationTurn> _turns = [];
-  bool _hasReport = false;
+  /// null = 沒有報告；否則為 `generating` | `generated` | `failed`。
+  String? _reportStatus;
   bool _loading = true;
   String? _error;
   bool _assigning = false;
@@ -48,15 +65,25 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
       ]);
       final session = results[0] as Session;
       final turns = results[1] as List<ConversationTurn>;
-      var hasReport = false;
+      // Keep the report's STATUS, not just whether one exists. `_hasReport` alone hid the
+      // generate button whenever any row was present — including a `failed` one — so a
+      // failed generation was a dead end with no way to retry (TODO §G medium).
+      String? reportStatus;
       if (session.status == 'completed') {
         try {
-          hasReport = (await ReportsApi().getReportBySession(widget.sessionId)) != null;
+          reportStatus = (await ReportsApi().getReportBySession(widget.sessionId))?.status;
         } catch (_) {
-          hasReport = false;
+          reportStatus = null;
         }
       }
-      if (mounted) setState(() { _session = session; _turns = turns; _hasReport = hasReport; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _session = session;
+          _turns = turns;
+          _reportStatus = reportStatus;
+          _loading = false;
+        });
+      }
     } catch (_) {
       if (mounted) setState(() { _error = t('session.doctor.detail.loadError'); _loading = false; });
     }
@@ -100,7 +127,7 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
     try {
       await ReportsApi().generateReport(_session!.id);
       if (!mounted) return;
-      setState(() { _generating = false; _hasReport = true; });
+      setState(() { _generating = false; _reportStatus = 'generating'; });
       _toast(t('session.doctor.detail.generateReportSuccess'));
       // ponytail: doctor SOAP report page is Phase 5 — no /reports/:id route yet to open.
     } catch (_) {
@@ -138,7 +165,10 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
     final tk = Theme.of(context).extension<AppTokens>()!;
     final isAssignedToMe = user != null && s.doctorId == user.id;
     final canCompleteOrCancel = s.status == 'waiting' || s.status == 'in_progress';
-    final canGenerate = s.status == 'completed' && !_hasReport;
+    final canGenerate = canGenerateSoapReport(
+      sessionStatus: s.status,
+      reportStatus: _reportStatus,
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -199,12 +229,22 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
                     onPressed: () => context.go(prefixLngToPath('/conversation/${s.id}', currentLng), extra: s),
                     child: Text(t('session.doctor.detail.enterConversation')),
                   ),
-                  if (_hasReport)
+                  // Only a finished report is worth opening; `generating`/`failed` would
+                  // land the doctor on an empty page.
+                  if (_reportStatus == 'generated')
                     OutlinedButton(
                       onPressed: () => context.go(prefixLngToPath('/reports/${s.id}', currentLng)),
                       child: Text(t('session.doctor.detail.viewReport')),
                     ),
                 ]),
+                // Make an in-flight generation visible. Without this the doctor sees no
+                // button and no explanation — indistinguishable from "nothing happened".
+                if (_reportStatus == 'generating')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(t('session.doctor.detail.generatingReport'),
+                        style: Theme.of(context).textTheme.bodySmall),
+                  ),
               ]),
             ),
           ),

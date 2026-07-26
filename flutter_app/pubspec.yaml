@@ -55,6 +55,9 @@ dependencies:
   share_plus: ^13.3.0
   path_provider: ^2.1.6
   fl_chart: ^1.2.0
+  # web-only：SOAP PDF 在瀏覽器走 anchor download（見 lib/shared/pdf_download_web.dart）。
+  # 桌面瀏覽器多不支援 navigator.share(files)，share_plus 那條路會直接拋。
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

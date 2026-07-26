@@ -539,8 +539,8 @@
 > 入庫判定 GO 且已入庫（`feat/flutter-app-baseline`）：analyze 0 issue、test 17/17、零 secret、
 > `build/` 與 `.dart_tool/` 已正確排除。以下是入庫後要修的。
 > **動任何 voice/ 下的檔案前先讀 `voice-pipeline-invariants` skill**——G1/G3/G4/G14/G15 都是它列管的行為。
-> 2026-07-26：2 blocker（G1/G2）+ **11 條 high 全部**（G3–G13）+ **11 條 medium**（G14–G24）
-> 已修並附回歸測試；**剩 11 medium**（清單見 §G25–G35）。
+> 2026-07-26：2 blocker（G1/G2）+ **11 條 high 全部**（G3–G13）+ **15 條 medium**（G14–G28）
+> + **4 條 medium**（G25–G28）已修並附回歸測試；**剩 7 medium**（清單見 §G29–G35）。
 
 ### [x] G1. 🔴 紅旗中止導向錯頁（病患拿不到「告知現場醫護」）— 2026-07-26 修復
 
@@ -657,7 +657,23 @@ autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，�
 | G23 | 切語言只搬 path，query／fragment 全丟（`language_bar.dart` 與 `patient_settings_page.dart` 兩處）；且病患設定頁只有 zh/en 兩個 chip，ja/ko/vi 的病患選不到自己的語言 | 兩處都改用 `uri.replace(path:)`；chip 改吃 `supportedLanguages` + beta 標記 |
 | G24 | 醫師 `/settings` 直接掛 `PatientSettingsPage` → 醫師看到病患的個人資料/通知/安全分頁，而 `common.doctor.settings.*` 承諾的主題模式與音效提醒**一個都沒有** | 新 `DoctorSettingsPage`（帳號資訊／主題模式 SegmentedButton／語言／音效提醒／API 端點）。**27 個 key 早已在 5 語系檔裡**，只是頁面沒做。`themeMode` 與 `soundAlerts` 進 `settingsProvider`，`app.dart` 改讀它（原本硬寫 `ThemeMode.system`） |
 
-### [ ] G25–G35. 🟢 medium 剩 11 筆
+### [x] G25–G28. 病患 intake ＋ 醫師死局 4 條 medium — 2026-07-26 修復（PR #43）
+
+| # | 問題 | 修法 |
+|---|---|---|
+| G25 | 主訴選「其他」但沒填自述時，只是把 CTA 變灰——**畫面上零解釋**，kiosk 現場病患直接卡住 | 輸入框加 `errorText`（`selectComplaint.otherRequired` 早已入庫） |
+| G26 | 病史 `stillHas` 硬寫 `true` 且無 UI → **每個已痊癒的病症都以「仍持續」送給醫師**。靜默錯誤的臨床資料比缺欄位更糟 | 每列加 Checkbox（`history.stillHas` 早已入庫） |
+| G27 | web 的 SOAP PDF 匯出走 share_plus → `navigator.share(files)`，**桌面瀏覽器多不支援**、直接拋，呼叫端 catch 掉 → 醫師按了什麼都沒發生 | web 改走 blob URL + anchor download（conditional import，native 仍走 share sheet）。新增 `package:web` 依賴 |
+| G28 | `canGenerate = completed && !_hasReport`——只看報告**存在與否**，所以 `failed` 的報告也讓按鈕消失＝**死局**，那場問診永遠拿不到報告 | 改存報告 `status`；抽出純函式 `canGenerateSoapReport`：`failed` 可重跑、`generating` 不給按鈕（避免重複派工）但顯示進行中提示、`generated` 才給「查看報告」 |
+
+### [ ] G29–G35. 🟢 medium 剩 7 筆
+
+- **紅旗與中止無語音播報**（flutter_tts 依賴，**且是否為必要告知層待臨床拍板**——見 §G14 之外的 clinical 項）
+- **切語言無進行中場次守衛**：缺後端 `POST /sessions/{id}/end-for-language-switch`，會留下 in_progress 場次
+- **切語言入口只在 4 頁**（醫師端已由 G24 的 DoctorSettingsPage 補上 LanguageBar，剩病患其他頁）
+- **SOAP 頁無逐字稿分頁**：醫師無法邊看報告邊比對原文就核准
+- **/research 投稿要件 4 項**：各語言子群表格、Methods 對照卡、每張圖的 caption/footnote/n=、
+  圖片匯出（i18n key 全已入庫未用；web 版是 SVG 下載，Flutter 需 RepaintBoundary→PNG）
 
 紅旗與中止無語音播報（flutter_tts，**且是否為必要告知層待臨床拍板**）、切語言無進行中場次守衛
 （缺後端 `POST /sessions/{id}/end-for-language-switch`）、切語言入口只在 4 頁、

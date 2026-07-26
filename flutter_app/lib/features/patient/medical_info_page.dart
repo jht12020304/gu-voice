@@ -404,6 +404,17 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                   items: [for (final y in _yearsAgoKeys) DropdownMenuItem(value: y, child: Text(t('intake.medicalInfo.yearsAgo.$y')))],
                   onChanged: (v) => setState(() => _histories[i].yearsAgo = v ?? 'unsure'),
                 ),
+                // `stillHas` was hardcoded true with no way to say otherwise, so every
+                // resolved condition reached the doctor as ongoing — silently wrong
+                // clinical data, which is worse than a missing field (TODO §G medium).
+                // Key `history.stillHas` was already in all five locales.
+                Tooltip(
+                  message: t('intake.medicalInfo.history.stillHas'),
+                  child: Checkbox(
+                    value: _histories[i].stillHas,
+                    onChanged: (v) => setState(() => _histories[i].stillHas = v ?? true),
+                  ),
+                ),
                 IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => setState(() => _histories.removeAt(i))),
               ]),
             ),
