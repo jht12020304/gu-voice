@@ -579,7 +579,7 @@ onException（＝#23）、`'顯示順序'` 硬編碼（＝#27）。
 voice-pipeline-invariants 列管的 TTS epoch 取消與 VAD deadlock 目前無回歸防護。
 最小補法：3 條純 Dart 測試（clearQueue 後舊 epoch 不播、stopActive 讓 chain 前進、WS backoff 序列）。
 
-### [~] H1. 忘記密碼在生產無可行路徑 — 2026-07-26 管理員重設能力已補（SendGrid 待你決定）
+### [x] H1. 忘記密碼在生產無可行路徑 — 2026-07-26 結案（管理員當面重設；email 不採用）
 
 2026-07-26 修掉「謊稱已寄信」之後浮現的真問題：
 
@@ -601,10 +601,11 @@ voice-pipeline-invariants 列管的 TTS epoch 取消與 VAD deadlock 目前無�
   對自己 403（ja-JP 在地化正確）、不存在 404、doctor 打 403
 - `_LoggingEmailClient` 在 production 不再印 body（含 reset token），非 production 保留供 QA
 
-**[ ] 仍待決定：要不要設 SendGrid**
-- Railway 加 `SENDGRID_API_KEY` + `SMTP_FROM_ADDRESS` 即可，`delivery` 自動變回 `"email"`、
-  前端自動恢復「已寄送」文案，**零改碼**（`is_delivery_configured()` 已備）
-- 不設也可運作：病患在現場找醫護／管理員當面重設。只有「遠端使用者忘記密碼」情境才需要 email
+**[x] SendGrid：不採用（2026-07-26 使用者拍板）**
+- 帳號與 email 由使用者自行設定，系統不寄任何信 → `delivery` 恆為 `"onsite"`，
+  前端恆顯示「請找現場人員協助重設」，重設一律走管理員當面操作。符合院內 kiosk 情境。
+- **不要再提議設 SENDGRID_API_KEY / SMTP**。程式碼路徑保留即可（`is_delivery_configured()`
+  已備），日後若真有遠端問診情境才需要，設了就會自動切回 email 文案、零改碼。
 
 ### [ ] G36. i18n 不變式在切換期變成「兩份 locales 要同步」
 
