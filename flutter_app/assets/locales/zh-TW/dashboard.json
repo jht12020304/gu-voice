@@ -1,0 +1,155 @@
+{
+  "sidebar": {
+    "sections": {
+      "tools": "工具區",
+      "data": "資料區",
+      "admin": "管理區",
+      "other": "其他"
+    },
+    "nav": {
+      "dashboard": "儀表板",
+      "research": "研究分析",
+      "tryConversation": "體驗對話流程",
+      "patients": "病患列表",
+      "soapReports": "SOAP 報告",
+      "redFlagAlerts": "紅旗警示",
+      "userManagement": "使用者管理",
+      "complaintTemplates": "主訴模板管理",
+      "systemHealth": "系統狀態",
+      "auditLogs": "稽核日誌",
+      "settings": "設定",
+      "sessions": "問診紀錄"
+    }
+  },
+  "alert": {
+    "acknowledged": "已處理",
+    "pending": "待處理",
+    "chiefComplaintLabel": "主訴：{{value}}",
+    "sessionStatusLabel": "場次狀態：{{value}}",
+    "triggerLabel": "觸發：{{value}}",
+    "suggestedActions": "建議 {{count}} 項處置",
+    "viewDetail": "查看詳情",
+    "acknowledge": "確認處理",
+    "acknowledgeConfirm": "確認要將此紅旗標記為「已處理」嗎？此動作無法復原。",
+    "acknowledgedBadge": "✓ 已確認",
+    "detail": {
+      "loadError": "無法載入警示詳情",
+      "acknowledgeSuccess": "已標示為已處理",
+      "acknowledgeError": "確認警示失敗",
+      "loading": "載入警示詳情...",
+      "notFound": "找不到警示資料",
+      "unknownPatient": "未知病患",
+      "title": "警示詳情",
+      "acknowledgedBadge": "已處理",
+      "triggerKeywords": "觸發關鍵字",
+      "noKeywords": "此警示沒有關鍵字資料",
+      "llmAnalysis": "LLM 語意分析",
+      "noLlmAnalysis": "無額外語意分析內容",
+      "suggestedActions": "建議行動",
+      "noSuggestedActions": "無建議行動資料",
+      "trackingTitle": "事件追蹤與病患",
+      "affectedPatient": "影響病患",
+      "occurredAt": "發生時間",
+      "sessionIdLabel": "對應 Session ID",
+      "acknowledgedHeading": "已標示處理",
+      "actionTakenLabel": "已採取的處置",
+      "noActionRecorded": "未記錄處置內容",
+      "actionTakenPlaceholder": "例如：已安排立即就醫並通報主治",
+      "notesLabel": "備註（選填）",
+      "notesPlaceholder": "其他補充說明",
+      "acknowledging": "處理中...",
+      "acknowledgeButton": "標示為已處理",
+      "goToSession": "前往場次詳情"
+    },
+    "newAlertToast": "有 {{count}} 筆新紅旗警示待處理"
+  },
+  "alertList": {
+    "eyebrow": "檢傷工作台",
+    "subtitle": "先處理未處理警示，再進一步查看場次與逐字稿。這一頁應該先幫你找出需要優先處理的人，而不是把所有警示平鋪成同一層。",
+    "unacknowledgedBanner": "目前未處理 {{count}} 筆",
+    "filters": {
+      "all": "全部",
+      "unacknowledged": "未處理",
+      "acknowledged": "已處理"
+    },
+    "summary": {
+      "totalTitle": "全部警示",
+      "totalHelper": "目前系統中的警示總量",
+      "unacknowledgedHelper": "仍待醫師確認或註記",
+      "acknowledgedHelper": "已被醫師確認處理",
+      "currentTitle": "當前結果",
+      "currentHelperFiltered": "已套用搜尋條件",
+      "currentHelperDefault": "目前篩選條件下的清單數量"
+    },
+    "searchPlaceholder": "搜尋病患、主訴或警示標題",
+    "updating": "警示資料更新中...",
+    "emptyTitle": "無警示",
+    "emptyMessage": "目前沒有符合條件的紅旗警示",
+    "groupCount": "{{count}} 筆警示",
+    "unknownComplaintFetchFailed": "未取得主訴",
+    "sessionStatus": {
+      "waiting": "等待中",
+      "inProgress": "問診中",
+      "completed": "已完成",
+      "abortedRedFlag": "紅旗中止",
+      "cancelled": "已取消"
+    }
+  },
+  "transcript": {
+    "title": "問診對話逐字稿",
+    "emptyTitle": "目前沒有可檢視的對話內容",
+    "loading": "載入對話記錄...",
+    "messageCount": "{{count}} 則對話",
+    "summary": "{{patientCount}} 則病患 / {{assistantCount}} 則 AI",
+    "viewFull": "查看完整對話（{{count}} 則更多）...",
+    "searchPlaceholder": "搜尋逐字稿內容",
+    "filter": {
+      "all": "全部",
+      "patient": "病患",
+      "assistant": "AI"
+    },
+    "visibleCount": "顯示 {{visible}} / {{total}} 則對話",
+    "noMatches": "沒有符合條件的逐字稿內容",
+    "redFlag": "紅旗",
+    "lowConfidence": "低辨識信心",
+    "sttConfidence": "STT 信心：{{value}}%",
+    "roles": {
+      "patient": "病患",
+      "assistant": "AI 助手",
+      "system": "系統"
+    }
+  },
+  "reportList": {
+    "eyebrow": "審閱工作台",
+    "subtitle": "集中查看 AI 問診摘要、待審閱報告與退回修改紀錄。先從待審閱開始，再回到逐字稿核對內容依據。",
+    "displayCount": "目前顯示 {{count}} 份報告",
+    "tabs": {
+      "all": "全部",
+      "pending": "待審閱",
+      "approved": "已核准",
+      "revisionNeeded": "需修改"
+    },
+    "summaryTotal": "全部報告",
+    "groupCount": "{{count}} 份報告",
+    "emptyTitle": "無報告",
+    "emptyMessage": "目前沒有符合條件的 SOAP 報告",
+    "redFlagBadge": "紅旗場次",
+    "chiefComplaintLabel": "主訴：{{value}}",
+    "sessionStatusLabel": "場次狀態：{{value}}",
+    "complaintEmpty": "未填寫主訴",
+    "complaintFetchFailed": "未取得主訴",
+    "summaryEmpty": "目前尚無 AI 摘要內容。",
+    "aiConfidence": "AI 信心 {{percent}}%",
+    "revisionReason": "退回原因",
+    "reportTime": "報告時間",
+    "searchPlaceholder": "搜尋病患姓名或病歷號"
+  },
+  "notifications": {
+    "title": "通知中心",
+    "subtitle": "查看紅旗警示、報告完成與系統通知",
+    "markAllRead": "全部標示已讀",
+    "emptyTitle": "沒有通知",
+    "emptyMessage": "目前沒有新的系統通知",
+    "unreadBadge": "未讀"
+  }
+}

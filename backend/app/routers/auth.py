@@ -24,6 +24,7 @@ from app.core.security import verify_access_token
 from app.schemas.auth import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
+    ForgotPasswordResponse,
     LoginRequest,
     LoginResponse,
     LogoutRequest,
@@ -350,7 +351,7 @@ async def change_password(
 
 @router.post(
     "/forgot-password",
-    response_model=MessageResponse,
+    response_model=ForgotPasswordResponse,
     status_code=status.HTTP_200_OK,
     summary="忘記密碼",
 )
@@ -358,11 +359,15 @@ async def forgot_password(
     payload: ForgotPasswordRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-) -> MessageResponse:
+) -> ForgotPasswordResponse:
     """發送密碼重設連結至使用者的電子郵件。無論信箱是否存在，皆回傳相同訊息。
 
     Rate limit：每 IP 每 15 分鐘 5 次（settings.PASSWORD_RESET_IP_*），
     擋帳號 enumeration 與寄信濫用；超限拋 RateLimitExceededException（429）。
+
+    `delivery` 由伺服器有無 email transport 決定（與帳號存在性無關，故不洩漏
+    帳號存在性）；未設 SENDGRID/SMTP 時為 `"onsite"`，前端據此改成引導使用者
+    找現場醫護／管理員協助，而非謊稱信已寄出。
     """
     from app.cache.redis_client import get_redis
     from app.core import rate_limit as rl
@@ -370,11 +375,14 @@ async def forgot_password(
     redis = await get_redis()
     await rl.enforce_password_reset_ip_rate_limit(redis, _extract_client_ip(request))
 
-    await auth_service.forgot_password(db, email=payload.email)
+    result = await auth_service.forgot_password(db, email=payload.email)
     lang = resolve_language(
         accept_language_header=request.headers.get("accept-language"),
     )
-    return MessageResponse(message=get_message("messages.password_reset_link_sent", lang))
+    return ForgotPasswordResponse(
+        message=get_message("messages.password_reset_link_sent", lang),
+        delivery=result["delivery"],
+    )
 
 
 @router.post(

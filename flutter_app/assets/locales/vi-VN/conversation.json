@@ -1,0 +1,80 @@
+{
+  "title": "Khám AI",
+  "endSession": "Kết thúc phiên khám",
+  "loading": "Đang tải hội thoại...",
+  "onboarding": {
+    "hint": "Hãy nói trực tiếp, không cần nhấn nút"
+  },
+  "status": {
+    "notStarted": "Phiên khám chưa bắt đầu",
+    "aiResponding": "AI đang trả lời...",
+    "transcribing": "Đang nhận dạng lời quý vị nói…",
+    "noSpeechDetected": "Hệ thống chưa nghe rõ, xin quý vị nói lại một lần nữa",
+    "listening": "Đang lắng nghe quý vị {{duration}}",
+    "idle": "Hãy nói trực tiếp, tôi sẽ tự động ghi lại",
+    "thinking": "AI đang suy nghĩ...",
+    "speaking": "Đang nói"
+  },
+  "scroll": {
+    "latest": "Tin nhắn mới nhất",
+    "latestWithCount": "Tin nhắn mới nhất ({{count}})"
+  },
+  "tts": {
+    "failed": "Tổng hợp giọng nói thất bại",
+    "replayAria": "Phát lại giọng nói AI",
+    "replayTitle": "Nhấn để phát lại giọng nói",
+    "muteLabel": "Tắt giọng nói AI",
+    "unmuteLabel": "Bật giọng nói AI",
+    "speedLabel": "Tốc độ {{rate}}x",
+    "play": "Phát",
+    "playAria": "Phát câu trả lời này của AI"
+  },
+  "voiceControl": {
+    "pause": "Tạm dừng thu âm",
+    "resume": "Tiếp tục thu âm",
+    "pausedBanner": "Đã tạm dừng thu âm — lời nói của quý vị lúc này sẽ không được ghi lại. Khi sẵn sàng, xin nhấn \"Tiếp tục thu âm\".",
+    "finishSpeaking": "Tôi đã nói xong"
+  },
+  "input": {
+    "textPlaceholder": "Không nghe rõ? Bạn có thể gõ chữ",
+    "send": "Gửi",
+    "sendOffline": "Mất kết nối — tin nhắn chưa được gửi. Vui lòng thử lại sau khi kết nối lại."
+  },
+  "redFlag": {
+    "more": "+{{count}} cảnh báo khác"
+  },
+  "supervisor": {
+    "hintLabel": "Sắp hỏi tiếp",
+    "missingLabel": "Còn cần tìm hiểu:",
+    "degraded": "Hướng dẫn trực tiếp tạm thời không khả dụng, nhưng phiên khám của quý vị vẫn tiếp tục bình thường.",
+    "hpi": {
+      "onset": "Thời điểm khởi phát",
+      "location": "Vị trí",
+      "duration": "Thời gian kéo dài",
+      "characteristics": "Tính chất",
+      "severity": "Mức độ nghiêm trọng",
+      "aggravating_factors": "Yếu tố làm nặng thêm",
+      "relieving_factors": "Yếu tố làm giảm",
+      "associated_symptoms": "Triệu chứng kèm theo",
+      "timing": "Quy luật thời gian",
+      "context": "Bối cảnh"
+    }
+  },
+  "error": {
+    "loadFailed": "Không thể tải hội thoại",
+    "sessionInterrupted": "Phiên khám bị gián đoạn, vui lòng bắt đầu lại",
+    "aiUnavailable": "Dịch vụ AI tạm thời không phản hồi, vui lòng thử lại sau",
+    "disconnected": "Mất kết nối, đang kết nối lại...",
+    "audioTooLong": "Thời gian ghi âm quá dài, đã tự động kết thúc",
+    "micPermission": "Vui lòng cho phép quyền micro trong cài đặt trình duyệt và tải lại trang",
+    "micNotFound": "Không tìm thấy micro, vui lòng kiểm tra kết nối micro",
+    "micGeneric": "Lỗi micro: {{message}}"
+  },
+  "mockMessages": {
+    "systemStart": "Bắt đầu phiên khám — Lý do khám: {{complaint}}"
+  },
+  "connection": {
+    "reconnecting": "Mất kết nối, đang kết nối lại…",
+    "retry": "Thử lại"
+  }
+}

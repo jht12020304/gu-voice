@@ -4,6 +4,7 @@ JWT 認證 + 密碼雜湊工具
 - Access Token (15 分鐘) + Refresh Token (7 天)
 """
 
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -117,3 +118,31 @@ def verify_refresh_token(token: str) -> dict[str, Any]:
     if payload.get("type") != "refresh":
         raise jwt.InvalidTokenError("Invalid token type: expected refresh token")
     return payload
+
+
+# 臨時密碼字元集：刻意排除易混淆字元（0/O/o、1/l/I），因為這串密碼要由醫護
+# 口頭或手寫轉達給病患，看錯一個字就重設失敗。
+_TEMP_PW_UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+_TEMP_PW_LOWER = "abcdefghijkmnpqrstuvwxyz"
+_TEMP_PW_DIGIT = "23456789"
+_TEMP_PW_LENGTH = 12
+
+
+def generate_temp_password() -> str:
+    """
+    產生管理員代為重設用的一次性臨時密碼。
+
+    **保證**通過 `RegisterRequest.validate_password_strength`（≥8 碼、含大寫、
+    小寫、數字）——各類別先各取一個再補滿，不靠隨機碰運氣。
+    使用 `secrets` 而非 `random`（這是憑證）。
+    """
+    alphabet = _TEMP_PW_UPPER + _TEMP_PW_LOWER + _TEMP_PW_DIGIT
+    chars = [
+        secrets.choice(_TEMP_PW_UPPER),
+        secrets.choice(_TEMP_PW_LOWER),
+        secrets.choice(_TEMP_PW_DIGIT),
+    ]
+    chars += [secrets.choice(alphabet) for _ in range(_TEMP_PW_LENGTH - len(chars))]
+    # 洗牌，否則前三碼的類別固定可預測
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)

@@ -14,6 +14,8 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSent, setIsSent] = useState(false);
+  // 後端沒設 SENDGRID/SMTP 時為 'onsite'：信不會寄出，要引導使用者找現場醫護／管理員
+  const [delivery, setDelivery] = useState<'email' | 'onsite'>('onsite');
   const [error, setError] = useState('');
 
   // 與 utils/validation.validateEmail 一致的格式檢查，回傳已 i18n 的訊息或 null。
@@ -37,7 +39,8 @@ export default function ForgotPasswordPage() {
 
     setIsLoading(true);
     try {
-      await authApi.forgotPassword(email);
+      const { delivery: mode } = await authApi.forgotPassword(email);
+      setDelivery(mode);
       setIsSent(true);
     } catch {
       setError(t('auth:forgot.failed', '發送重設連結失敗，請稍後再試'));
@@ -68,25 +71,57 @@ export default function ForgotPasswordPage() {
           {isSent ? (
             /* 成功畫面 */
             <div className="text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-alert-success-bg">
+              <div
+                className={`mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full ${
+                  delivery === 'email' ? 'bg-alert-success-bg' : 'bg-alert-medium-bg'
+                }`}
+              >
                 <svg
-                  className="h-6 w-6 text-alert-success"
+                  className={`h-6 w-6 ${
+                    delivery === 'email' ? 'text-alert-success' : 'text-alert-medium'
+                  }`}
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
                   strokeWidth={2}
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  {/* onsite 沒有「完成」任何事，不該給打勾 → 改資訊圖示 */}
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d={
+                      delivery === 'email'
+                        ? 'M5 13l4 4L19 7'
+                        : 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
+                    }
+                  />
                 </svg>
               </div>
-              <h2 className="text-h3 text-ink-heading dark:text-white">
-                {t('auth:forgot.sentTitle', '已寄送重設連結')}
-              </h2>
-              <p className="mt-2 text-body text-ink-secondary">
-                {t('auth:forgot.sentPrefix', '請檢查 ')}
-                <span className="font-medium text-ink-heading dark:text-white">{email}</span>
-                {t('auth:forgot.sentSuffix', ' 的收件匣，並依照信件中的指示重設密碼。')}
-              </p>
+              {delivery === 'email' ? (
+                <>
+                  <h2 className="text-h3 text-ink-heading dark:text-white">
+                    {t('auth:forgot.sentTitle', '已寄送重設連結')}
+                  </h2>
+                  <p className="mt-2 text-body text-ink-secondary">
+                    {t('auth:forgot.sentPrefix', '請檢查 ')}
+                    <span className="font-medium text-ink-heading dark:text-white">{email}</span>
+                    {t('auth:forgot.sentSuffix', ' 的收件匣，並依照信件中的指示重設密碼。')}
+                  </p>
+                </>
+              ) : (
+                /* 後端無 email transport：不謊稱已寄出，引導找現場人員（院內 kiosk 情境） */
+                <>
+                  <h2 className="text-h3 text-ink-heading dark:text-white">
+                    {t('auth:forgot.onsiteTitle', '請找現場人員協助重設')}
+                  </h2>
+                  <p className="mt-2 text-body text-ink-secondary">
+                    {t(
+                      'auth:forgot.onsiteBody',
+                      '目前系統無法寄送重設信。請告知現場醫護或系統管理員，由他們協助您重設密碼。',
+                    )}
+                  </p>
+                </>
+              )}
               <Link
                 to={`/${lng}/login`}
                 className="mt-6 inline-block text-caption font-medium text-primary-600 hover:text-primary-700 transition-colors"

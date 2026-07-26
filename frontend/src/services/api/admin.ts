@@ -44,6 +44,31 @@ export async function toggleUserActive(id: string): Promise<ToggleActiveResponse
   return data;
 }
 
+/**
+ * 管理員代為重設密碼的回應（對齊後端 ResetPasswordResponse）。
+ *
+ * ⚠️ `tempPassword` 是明文憑證且**只出現這一次**：後端只存 hash、不寫 log。
+ * 不要寫進 localStorage、不要送進任何 log / 錯誤追蹤。
+ */
+export interface ResetPasswordResponse {
+  id: string;
+  email: string;
+  tempPassword: string;
+}
+
+/**
+ * 管理員代為重設指定使用者的密碼，並撤銷該使用者所有 refresh token。
+ *
+ * 用途（TODO H1）：生產未設 email transport，忘記密碼的信寄不出去，前端因此引導
+ * 使用者「告知現場醫護或系統管理員」——這支就是讓那句話成真的途徑。
+ */
+export async function resetUserPassword(id: string): Promise<ResetPasswordResponse> {
+  const { data } = await apiClient.post<ResetPasswordResponse>(
+    `${USERS_BASE}/${id}/reset-password`,
+  );
+  return data;
+}
+
 // ---- 紅旗規則管理 ----
 
 export async function getRedFlagRules(params?: {

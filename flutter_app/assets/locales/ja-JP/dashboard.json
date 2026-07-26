@@ -1,0 +1,155 @@
+{
+  "sidebar": {
+    "sections": {
+      "tools": "ツール",
+      "data": "データ",
+      "admin": "管理",
+      "other": "その他"
+    },
+    "nav": {
+      "dashboard": "ダッシュボード",
+      "research": "研究分析",
+      "tryConversation": "対話フローを体験",
+      "patients": "患者一覧",
+      "soapReports": "SOAP レポート",
+      "redFlagAlerts": "レッドフラグ警告",
+      "userManagement": "ユーザー管理",
+      "complaintTemplates": "主訴テンプレート管理",
+      "systemHealth": "システムステータス",
+      "auditLogs": "監査ログ",
+      "settings": "設定",
+      "sessions": "問診記録"
+    }
+  },
+  "alert": {
+    "acknowledged": "対応済み",
+    "pending": "未対応",
+    "chiefComplaintLabel": "主訴：{{value}}",
+    "sessionStatusLabel": "セッション状態：{{value}}",
+    "triggerLabel": "トリガー：{{value}}",
+    "suggestedActions": "推奨対応 {{count}} 件",
+    "viewDetail": "詳細を表示",
+    "acknowledge": "対応を確認",
+    "acknowledgeConfirm": "この赤旗アラートを「対応済み」にしますか？この操作は取り消せません。",
+    "acknowledgedBadge": "✓ 確認済み",
+    "detail": {
+      "loadError": "アラート詳細を読み込めませんでした",
+      "acknowledgeSuccess": "対応済みとしてマークしました",
+      "acknowledgeError": "アラートの確認に失敗しました",
+      "loading": "アラート詳細を読み込み中...",
+      "notFound": "アラートが見つかりません",
+      "unknownPatient": "不明な患者",
+      "title": "アラート詳細",
+      "acknowledgedBadge": "対応済み",
+      "triggerKeywords": "トリガーキーワード",
+      "noKeywords": "このアラートにキーワードデータはありません",
+      "llmAnalysis": "LLM意味解析",
+      "noLlmAnalysis": "追加の意味解析はありません",
+      "suggestedActions": "推奨アクション",
+      "noSuggestedActions": "推奨アクションはありません",
+      "trackingTitle": "イベント追跡と患者",
+      "affectedPatient": "対象患者",
+      "occurredAt": "発生時刻",
+      "sessionIdLabel": "対応するセッションID",
+      "acknowledgedHeading": "対応済み",
+      "actionTakenLabel": "実施した対応",
+      "noActionRecorded": "対応内容の記録はありません",
+      "actionTakenPlaceholder": "例：直ちに受診を手配し、主治医に通報した",
+      "notesLabel": "備考（任意）",
+      "notesPlaceholder": "その他の補足説明",
+      "acknowledging": "処理中...",
+      "acknowledgeButton": "対応済みにする",
+      "goToSession": "セッション詳細へ移動"
+    },
+    "newAlertToast": "未対応の赤旗アラートが {{count}} 件あります"
+  },
+  "alertList": {
+    "eyebrow": "トリアージ・ワークスペース",
+    "subtitle": "まず未対応の警告を処理してから、セッションと逐語記録を確認してください。このページは、すべての警告を同列に並べるのではなく、優先的に対応すべき人をまず見つけられるように設計されています。",
+    "unacknowledgedBanner": "現在未対応 {{count}} 件",
+    "filters": {
+      "all": "すべて",
+      "unacknowledged": "未対応",
+      "acknowledged": "対応済み"
+    },
+    "summary": {
+      "totalTitle": "全警告",
+      "totalHelper": "現在システム内にある警告の総数",
+      "unacknowledgedHelper": "医師の確認・記録待ち",
+      "acknowledgedHelper": "医師によって対応済みと確認済み",
+      "currentTitle": "現在の結果",
+      "currentHelperFiltered": "検索条件を適用中",
+      "currentHelperDefault": "現在のフィルター条件での件数"
+    },
+    "searchPlaceholder": "患者名・主訴・警告タイトルで検索",
+    "updating": "警告データを更新中...",
+    "emptyTitle": "警告なし",
+    "emptyMessage": "条件に一致するレッドフラグ警告はありません",
+    "groupCount": "{{count}} 件の警告",
+    "unknownComplaintFetchFailed": "主訴を取得できません",
+    "sessionStatus": {
+      "waiting": "待機中",
+      "inProgress": "問診中",
+      "completed": "完了",
+      "abortedRedFlag": "レッドフラグにより中断",
+      "cancelled": "キャンセル済み"
+    }
+  },
+  "transcript": {
+    "title": "問診会話の逐語記録",
+    "emptyTitle": "表示できる会話内容はありません",
+    "loading": "会話記録を読み込み中...",
+    "messageCount": "{{count}} 件の会話",
+    "summary": "患者 {{patientCount}} 件 / AI {{assistantCount}} 件",
+    "viewFull": "全文を表示（残り {{count}} 件）...",
+    "searchPlaceholder": "逐語記録を検索",
+    "filter": {
+      "all": "すべて",
+      "patient": "患者",
+      "assistant": "AI"
+    },
+    "visibleCount": "{{visible}} / {{total}} 件を表示中",
+    "noMatches": "条件に一致する逐語記録はありません",
+    "redFlag": "レッドフラグ",
+    "lowConfidence": "認識信頼度低",
+    "sttConfidence": "STT 信頼度：{{value}}%",
+    "roles": {
+      "patient": "患者",
+      "assistant": "AI アシスタント",
+      "system": "システム"
+    }
+  },
+  "reportList": {
+    "eyebrow": "レビューワークスペース",
+    "subtitle": "AI 問診の要約、レビュー待ちのレポート、差し戻し記録をまとめて確認できます。まずレビュー待ちから始め、逐語記録に戻って内容の根拠を照合してください。",
+    "displayCount": "現在 {{count}} 件のレポートを表示中",
+    "tabs": {
+      "all": "すべて",
+      "pending": "レビュー待ち",
+      "approved": "承認済み",
+      "revisionNeeded": "要修正"
+    },
+    "summaryTotal": "全レポート",
+    "groupCount": "{{count}} 件のレポート",
+    "emptyTitle": "レポートなし",
+    "emptyMessage": "条件に一致する SOAP レポートはありません",
+    "redFlagBadge": "レッドフラグのセッション",
+    "chiefComplaintLabel": "主訴：{{value}}",
+    "sessionStatusLabel": "セッション状態：{{value}}",
+    "complaintEmpty": "主訴の記入なし",
+    "complaintFetchFailed": "主訴を取得できません",
+    "summaryEmpty": "AI の要約はまだありません。",
+    "aiConfidence": "AI 信頼度 {{percent}}%",
+    "revisionReason": "差し戻し理由",
+    "reportTime": "レポート時刻",
+    "searchPlaceholder": "患者名またはカルテ番号で検索"
+  },
+  "notifications": {
+    "title": "通知センター",
+    "subtitle": "レッドフラグ警告、レポート完成、システム通知を確認",
+    "markAllRead": "すべて既読にする",
+    "emptyTitle": "通知はありません",
+    "emptyMessage": "新しいシステム通知はありません",
+    "unreadBadge": "未読"
+  }
+}

@@ -17,19 +17,62 @@
 
 ## 一、部署流程（最重要）
 
-**前端與後端都是 push 到 `main` 即自動部署**，不需要任何手動 release 步驟：
+> ⚠️ **2026-07-26 更正：部署是手動的。merge 到 `main` 不會讓任何東西上線。**
+> Railway 與 Vercel 的 GitHub App 裝在 repo 上，但它們的 check suite 在**每一次** main merge 都永遠停在 `queued`（對 #29／#30／#31／#32 逐一查證），從不收斂成部署；Railway 每一筆歷史部署的 `meta.cliCaller` 都是手動 CLI。
+> 過去文件寫的「已接上自動部署」是錯的判斷——那些「已部署生產」之所以成立，是因為當天有人手動補跑 `railway up`。
+> 自己查證：`gh api repos/jht12020304/gu-voice/commits/<sha>/check-suites`
+
+**程式碼上線 = merge 到 main，然後手動部署兩邊。**
 
 ```bash
-git add <修改的檔案>
-git commit -m "描述你做了什麼"
+# 1. 程式碼進 main（PR merge 或 push）
 git push origin main
+
+# 2. 後端 → Railway
+cd backend && railway up --detach --service gu-voice-app
+curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep   # 期待 {"status":"ok",...}
+
+# 3. 前端 → Vercel（專案 gu-voice，個人 team chuns-projects-068de742）
+cd frontend && npm run build && vercel --prod
 ```
 
-- **Vercel** 自動抓 `frontend/` 目錄重新 build 並部署前端。
-- **Railway** service `gu-voice-app` 已連接 GitHub source，push 後自動用 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`）重建並部署後端。
-- 只改環境變數（不改程式碼）時**不需重新 build**：Railway 會用既有 image 觸發 redeploy（約 1 分鐘）。
+> **前端唯一活的網址＝`https://gu-voice-chuns-projects-068de742.vercel.app`**（2026-07-26 釐清＋切換）
+>
+> - Vercel 專案 `gu-voice`，個人 team `chuns-projects-068de742`。2026-07-26 建立並端到端驗證通過
+>   （登入 → dashboard 解析出使用者 → /research 撈到真實生產資料）。
+> - **舊網址已停用**：`project-9w0vq.vercel.app` 與 `gu-voice-jht12020304y-7696s-projects.vercel.app`
+>   （同一 deployment 的兩個 alias）在**已停用的舊 Vercel 帳號** scope 下，現帳號完全進不去
+>   （dashboard 404、`vercel inspect` 找不到），**無法再部署**；且 2026-07-26 已從
+>   Railway `CORS_ORIGINS` 移除 → **那兩個網址現在打不到 API，開了會登入失敗**。
+>   HTML 還是會載出來（Vercel 仍在服務靜態檔），所以症狀是「頁面正常但登入沒反應」。
+> - ⚠️ **kiosk 裝置的書籤／首頁必須改指新網址**，否則現場無法問診。
+> - ⚠️ `FRONTEND_BASE_URL` 仍指舊網址（影響重設密碼信的連結），待改。
+> - 移除舊 origin 前先確認沒有 `in_progress` 場次（`select status, count(*) from sessions group by status`），
+>   否則會把正在問診的病患打斷。回滾＝把舊 origin 加回 `CORS_ORIGINS`（env 改動約 1 分鐘 redeploy）。
+>
+> 新 clone 第一次要先 link（`.vercel/` 不入庫）：
+> ```bash
+> cd frontend && vercel link --yes --project gu-voice
+> ```
 
-> 歷史註記：2026-06 時後端曾未連 GitHub、需手動 `railway up`；現已接上自動部署。`railway up` 只在 incident 時作為強制換容器的手段使用。
+> ⚠️ **Deployment Protection 會讓新專案回 302 到 `vercel.com/sso-api`**（不是 401）。
+> dashboard 是 Settings → Deployment Protection → Vercel Authentication → Disabled；
+> 無法開 dashboard 時用 API（token 讀 CLI 自己的 auth 檔，勿印出來）：
+> ```bash
+> python3 -c "
+> import json,os,urllib.request
+> tok=json.load(open(os.path.expanduser('~/Library/Application Support/com.vercel.cli/auth.json')))['token']
+> pj=json.load(open('.vercel/project.json'))
+> r=urllib.request.Request(f\"https://api.vercel.com/v9/projects/{pj['projectId']}?teamId={pj['orgId']}\",
+>   data=json.dumps({'ssoProtection':None}).encode(), method='PATCH',
+>   headers={'Authorization':f'Bearer {tok}','Content-Type':'application/json'})
+> print(json.load(urllib.request.urlopen(r))['ssoProtection'])"
+> ```
+
+- **Railway** 用 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`，Dockerfile 在 `backend/`，所以 `railway up` 要從 `backend/` 跑）。非互動 link：`railway link -p gu-voice-api -s gu-voice-app -e production`（**要在 repo 根目錄跑**）。
+- **Vercel** 專案在 team **`jht12020304y-7696s-projects`**，不是個人 team——先 `vercel switch` 切過去，否則會部署到錯的地方或找不到專案。
+- 只改環境變數（不改程式碼）時**不需重新 build**：Railway 會用既有 image 觸發 redeploy（約 1 分鐘）。
+- 事故復原時用 `railway up` 而非 `railway redeploy`——後者實測不會真的換容器（見 `supabase_connection_guide.md` §5a）。
 
 > ⚠️ 特別注意：如果修改了 `backend/scripts/start.sh`，每次編輯後都必須重新設定執行權限，否則 Railway 部署會失敗：
 > ```bash
@@ -106,7 +149,9 @@ railway logs
 ### 修改環境變數
 
 1. 登入 [vercel.com](https://vercel.com)
-2. 切換到 `jht12020304y-7696s-projects` 這個 team（左上角下拉選擇）
+2. team 選 `chuns-projects-068de742`（chun's projects）
+   > 舊文件寫的 `jht12020304y-7696s-projects` 是**已停用帳號**下的 scope，現帳號進不去（404）。
+   > kiosk 現在還是開那份舊部署，但無法再對它部署——見「一、部署流程」的說明。
 3. 選擇專案 `gu-voice`
 4. 左側選 **Settings** → **Environment Variables**
 5. 修改後點 **Save**
@@ -184,7 +229,7 @@ DELETE FROM users WHERE email = 'test_probe_delete@gu-voice.com';
 
 修復：
 ```bash
-railway variables set CORS_ORIGINS='["https://project-9w0vq.vercel.app","http://localhost:3000","http://localhost:5175"]'
+railway variables --set 'CORS_ORIGINS=["https://project-9w0vq.vercel.app","https://gu-voice-jht12020304y-7696s-projects.vercel.app","https://gu-voice-chuns-projects-068de742.vercel.app","http://localhost:5175"]'
 ```
 
 ---

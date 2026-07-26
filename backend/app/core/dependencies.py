@@ -89,6 +89,12 @@ async def get_current_user(
     # 供 AuditLoggingMiddleware._extract_user_id 取用（middleware 在 endpoint 之後執行，
     # request.state 仍存活，故能讀到此處設定的 user）。
     request.state.user = user
+    # ⚠️ 承重：**在 session 還活著的此刻**把 id 抽成純值。
+    # middleware 跑在 endpoint 之後；若 endpoint 拋例外，`get_db` 的 session 會被
+    # rollback/close，`user` 變成 detached instance → 那時再讀 `user.id` 會觸發
+    # lazy refresh 並拋 DetachedInstanceError，把本該是 403/404 的回應變成 500
+    # （生產實測：所有 admin 端點的 AppException 都變 500，i18n 錯誤訊息從未送達）。
+    request.state.user_id = user.id
 
     return user
 

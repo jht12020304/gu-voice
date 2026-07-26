@@ -1,0 +1,240 @@
+{
+  "section": {
+    "subjective": {
+      "title": "Chủ quan",
+      "subtitle": "Subjective"
+    },
+    "objective": {
+      "title": "Khách quan",
+      "subtitle": "Objective"
+    },
+    "assessment": {
+      "title": "Đánh giá",
+      "subtitle": "Assessment"
+    },
+    "plan": {
+      "title": "Kế hoạch",
+      "subtitle": "Plan"
+    }
+  },
+  "common": {
+    "empty": "Chưa có dữ liệu",
+    "none": "Không",
+    "abnormal": "Bất thường",
+    "normal": "Bình thường",
+    "cancel": "Hủy",
+    "confirm": "Xác nhận",
+    "processing": "Đang xử lý..."
+  },
+  "page": {
+    "reviewEyebrow": "Xem xét báo cáo",
+    "title": "Báo cáo SOAP",
+    "loadingReport": "Đang tải báo cáo...",
+    "notGenerated": "Báo cáo chưa được tạo",
+    "clinicalSummaryEyebrow": "Tóm tắt lâm sàng",
+    "noSummary": "Hiện chưa có tóm tắt để hiển thị."
+  },
+  "actions": {
+    "viewSession": "Xem phiên khám",
+    "viewPatient": "Thông tin bệnh nhân"
+  },
+  "reportStatus": {
+    "generated": "Đã tạo",
+    "generating": "Đang tạo",
+    "failed": "Thất bại"
+  },
+  "reviewStatus": {
+    "approved": "Đã duyệt",
+    "revisionNeeded": "Cần chỉnh sửa",
+    "pending": "Chờ xem xét"
+  },
+  "meta": {
+    "redFlagSession": "Phiên có cờ đỏ",
+    "redFlagLoadFailedBadge": "⚠ Tải trạng thái cờ đỏ thất bại"
+  },
+  "metaCard": {
+    "patient": "Bệnh nhân",
+    "complaint": "Lý do khám",
+    "sessionStatus": "Trạng thái phiên",
+    "report": "Báo cáo",
+    "createdHelper": "Phiên được tạo {{date}}",
+    "completedAt": "Hoàn tất lúc {{date}}",
+    "startedAt": "Bắt đầu lúc {{date}}",
+    "noTimeInfo": "Chưa có thông tin thời gian",
+    "notGeneratedTime": "Chưa có thời gian tạo",
+    "reviewStatusHelper": "Trạng thái xem xét: {{status}}",
+    "awaitingReview": "Đang chờ bác sĩ xem xét"
+  },
+  "highlights": {
+    "positive": { "title": "Dấu hiệu dương tính quan trọng", "empty": "Chưa xác định được triệu chứng dương tính rõ ràng." },
+    "negative": { "title": "Dấu hiệu âm tính quan trọng", "empty": "Chưa xác định được triệu chứng âm tính rõ ràng." },
+    "riskFactors": { "title": "Yếu tố nguy cơ", "empty": "Không có yếu tố nguy cơ rõ ràng." },
+    "impression": { "title": "Nhận định sơ bộ", "empty": "Chưa có nhận định rõ ràng." }
+  },
+  "diagnosis": {
+    "title": "Mã chẩn đoán",
+    "empty": "Chưa có mã ICD-10.",
+    "unverified": "ICD-10 chưa được xác minh — cần bác sĩ xác nhận"
+  },
+  "redFlag": {
+    "title": "Ghi chú cờ đỏ",
+    "defaultReason": "Phiên này từng kích hoạt cảnh báo cờ đỏ. Vui lòng đối chiếu kỹ tóm tắt và biên bản hội thoại khi xem xét.",
+    "loadFailedTitle": "Tải trạng thái cờ đỏ thất bại",
+    "loadFailedDescription": "Không thể tải trạng thái cờ đỏ của phiên này. Vui lòng tải lại trang và kiểm tra lại — không được tự ý coi là không có cờ đỏ."
+  },
+  "reviewNotesCard": {
+    "title": "Ghi chú xem xét",
+    "reviewedAtLabel": "Thời gian xem xét: {{date}}"
+  },
+  "tabs": {
+    "report": "Báo cáo SOAP có cấu trúc",
+    "transcript": "Biên bản hội thoại"
+  },
+  "review": {
+    "actionEyebrow": "Hành động xem xét",
+    "instructions": "Vui lòng xác nhận tóm tắt, đánh giá và kế hoạch đều có căn cứ từ biên bản hội thoại trước khi quyết định duyệt hoặc yêu cầu chỉnh sửa.",
+    "approveButton": "Duyệt báo cáo",
+    "rejectButton": "Trả lại để chỉnh sửa",
+    "approveDescription": "Xác nhận báo cáo SOAP này là tóm tắt lâm sàng chính thức? Bạn có thể ghi chú thêm nếu cần.",
+    "rejectDescription": "Vui lòng nhập lý do cần chỉnh sửa. Đây sẽ là căn cứ để trả lại chỉnh sửa.",
+    "approveNotesPlaceholder": "Nhập ghi chú xem xét (tùy chọn)...",
+    "rejectNotesPlaceholder": "Vui lòng nhập lý do yêu cầu chỉnh sửa...",
+    "notesRequiredError": "Phải nhập lý do khi yêu cầu chỉnh sửa.",
+    "submitError": "Gửi kết quả xem xét thất bại. Vui lòng thử lại sau."
+  },
+  "subjective": {
+    "chiefComplaint": "Lý do khám Chief Complaint",
+    "hpi": {
+      "title": "Bệnh sử hiện tại HPI",
+      "onset": "Thời điểm khởi phát",
+      "location": "Vị trí",
+      "duration": "Thời gian kéo dài",
+      "severity": "Mức độ nghiêm trọng",
+      "timing": "Tần suất xuất hiện",
+      "context": "Bối cảnh",
+      "characteristics": "Mô tả đặc điểm",
+      "aggravatingFactors": "Yếu tố làm nặng thêm",
+      "relievingFactors": "Yếu tố làm giảm nhẹ",
+      "associatedSymptoms": "Triệu chứng kèm theo"
+    },
+    "pastMedicalHistory": {
+      "title": "Tiền sử bệnh",
+      "conditions": "Bệnh lý",
+      "surgeries": "Tiền sử phẫu thuật",
+      "hospitalizations": "Tiền sử nhập viện"
+    },
+    "medicationHistory": {
+      "title": "Tiền sử dùng thuốc",
+      "current": "Thuốc đang dùng",
+      "past": "Thuốc đã dùng",
+      "otc": "Thuốc không kê đơn"
+    },
+    "systemReview": {
+      "title": "Tổng quan hệ cơ quan"
+    },
+    "socialHistory": {
+      "title": "Tiền sử xã hội"
+    }
+  },
+  "objective": {
+    "vitalSigns": {
+      "title": "Dấu hiệu sinh tồn",
+      "labels": {
+        "bloodPressure": "Huyết áp",
+        "heartRate": "Nhịp tim",
+        "respiratoryRate": "Nhịp thở",
+        "temperature": "Nhiệt độ",
+        "spo2": "Độ bão hòa oxy"
+      },
+      "units": {
+        "bloodPressure": "mmHg",
+        "heartRate": "bpm",
+        "respiratoryRate": "lần/phút",
+        "temperature": "°C",
+        "spo2": "%"
+      }
+    },
+    "physicalExam": {
+      "title": "Khám lâm sàng"
+    },
+    "labResults": {
+      "title": "Xét nghiệm",
+      "columns": {
+        "test": "Hạng mục",
+        "result": "Kết quả",
+        "reference": "Tham chiếu",
+        "status": "Trạng thái"
+      }
+    }
+  },
+  "assessment": {
+    "clinicalImpression": "Ấn tượng lâm sàng",
+    "differentialDiagnoses": {
+      "title": "Chẩn đoán phân biệt"
+    },
+    "probability": {
+      "high": "Cao",
+      "medium": "Trung bình",
+      "low": "Thấp"
+    }
+  },
+  "plan": {
+    "diagnosticReasoning": "Lập luận lâm sàng",
+    "recommendedTests": {
+      "title": "Xét nghiệm đề nghị"
+    },
+    "urgency": {
+      "er_now": "Cấp cứu ngay",
+      "24h": "Trong 24 giờ",
+      "this_week": "Trong tuần này",
+      "routine": "Thường quy"
+    },
+    "treatments": {
+      "title": "Điều trị"
+    },
+    "followUp": {
+      "title": "Kế hoạch theo dõi",
+      "interval": "Thời gian tái khám",
+      "reason": "Lý do theo dõi"
+    },
+    "referrals": {
+      "title": "Chuyển tuyến"
+    },
+    "patientEducation": {
+      "title": "Giáo dục bệnh nhân"
+    }
+  },
+  "fieldLabels": {
+    "general": "Tình trạng chung",
+    "urological": "Hệ tiết niệu",
+    "smoking": "Hút thuốc",
+    "alcohol": "Uống rượu",
+    "occupation": "Nghề nghiệp",
+    "abdomen": "Bụng",
+    "costovertebral": "Góc sườn cột sống",
+    "genitourinary": "Tiết niệu sinh dục"
+  },
+  "labels": {
+    "testResult": "{{test}}: {{result}}",
+    "smokingHistory": "Tiền sử hút thuốc: {{value}}",
+    "alcoholUse": "Uống rượu: {{value}}",
+    "redFlagReason": "Lý do cờ đỏ: {{value}}",
+    "recommendedTest": "Đề nghị: {{value}}"
+  },
+  "export": {
+    "button": "Xuất PDF",
+    "loading": "Đang xuất...",
+    "success": "Đã bắt đầu tải PDF",
+    "error": "Xuất PDF thất bại. Vui lòng thử lại sau."
+  },
+  "regenerate": {
+    "button": "Tạo lại",
+    "loading": "Đang tạo lại...",
+    "title": "Tạo lại báo cáo",
+    "description": "Tạo lại sẽ chạy lại phân tích AI trên bản ghi mới nhất và ghi đè báo cáo SOAP hiện có. Hành động này không thể hoàn tác. Bạn có chắc muốn tiếp tục?",
+    "cancel": "Hủy",
+    "confirm": "Xác nhận tạo lại",
+    "success": "Đã tạo lại báo cáo",
+    "error": "Tạo lại báo cáo thất bại. Vui lòng thử lại sau."
+  }
+}

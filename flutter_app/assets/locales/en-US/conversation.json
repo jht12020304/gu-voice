@@ -1,0 +1,80 @@
+{
+  "title": "AI Consultation",
+  "endSession": "End consultation",
+  "loading": "Loading conversation...",
+  "onboarding": {
+    "hint": "Just start speaking — no button needed"
+  },
+  "status": {
+    "notStarted": "Consultation not started",
+    "aiResponding": "AI is responding...",
+    "transcribing": "Transcribing what you said…",
+    "noSpeechDetected": "We didn't catch that — please say it again",
+    "listening": "Listening {{duration}}",
+    "idle": "Start speaking — I'll listen automatically",
+    "thinking": "AI is thinking...",
+    "speaking": "Speaking"
+  },
+  "scroll": {
+    "latest": "Latest message",
+    "latestWithCount": "Latest message ({{count}})"
+  },
+  "tts": {
+    "failed": "Voice synthesis failed",
+    "replayAria": "Replay AI voice",
+    "replayTitle": "Click to replay voice",
+    "muteLabel": "Mute AI voice",
+    "unmuteLabel": "Unmute AI voice",
+    "speedLabel": "Speed {{rate}}x",
+    "play": "Play",
+    "playAria": "Play this AI reply"
+  },
+  "voiceControl": {
+    "pause": "Pause listening",
+    "resume": "Resume listening",
+    "pausedBanner": "Listening is paused — what you say now will not be recorded. Tap \"Resume listening\" when you are ready.",
+    "finishSpeaking": "I'm done speaking"
+  },
+  "input": {
+    "textPlaceholder": "Can't hear well? You can type instead",
+    "send": "Send",
+    "sendOffline": "Disconnected — your message wasn't sent. Please retry once reconnected."
+  },
+  "redFlag": {
+    "more": "+{{count}} more alerts"
+  },
+  "supervisor": {
+    "hintLabel": "Coming up next",
+    "missingLabel": "Still to cover:",
+    "degraded": "Live guidance is temporarily unavailable, but your consultation continues as usual.",
+    "hpi": {
+      "onset": "Onset",
+      "location": "Location",
+      "duration": "Duration",
+      "characteristics": "Characteristics",
+      "severity": "Severity",
+      "aggravating_factors": "Aggravating factors",
+      "relieving_factors": "Relieving factors",
+      "associated_symptoms": "Associated symptoms",
+      "timing": "Timing",
+      "context": "Context"
+    }
+  },
+  "error": {
+    "loadFailed": "Unable to load conversation",
+    "sessionInterrupted": "Consultation interrupted, please restart",
+    "aiUnavailable": "AI service is temporarily unavailable, please try again later",
+    "disconnected": "Connection lost, reconnecting...",
+    "audioTooLong": "Recording too long, automatically stopped",
+    "micPermission": "Please allow microphone permission in your browser settings, then reload the page",
+    "micNotFound": "No microphone device found, please check your microphone is connected",
+    "micGeneric": "Microphone error: {{message}}"
+  },
+  "mockMessages": {
+    "systemStart": "Consultation started — Chief complaint: {{complaint}}"
+  },
+  "connection": {
+    "reconnecting": "Connection lost, reconnecting…",
+    "retry": "Retry"
+  }
+}

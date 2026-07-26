@@ -56,3 +56,4 @@ pnpm-debug.log*
 # ===== 暫存檔 =====
 *.tmp
 *.temp
+.vercel

@@ -1,0 +1,240 @@
+{
+  "section": {
+    "subjective": {
+      "title": "主観的情報",
+      "subtitle": "Subjective"
+    },
+    "objective": {
+      "title": "客観的情報",
+      "subtitle": "Objective"
+    },
+    "assessment": {
+      "title": "評価",
+      "subtitle": "Assessment"
+    },
+    "plan": {
+      "title": "計画",
+      "subtitle": "Plan"
+    }
+  },
+  "common": {
+    "empty": "データがありません",
+    "none": "なし",
+    "abnormal": "異常",
+    "normal": "正常",
+    "cancel": "キャンセル",
+    "confirm": "確認",
+    "processing": "処理中..."
+  },
+  "page": {
+    "reviewEyebrow": "レポート審査",
+    "title": "SOAPレポート",
+    "loadingReport": "レポートを読み込み中...",
+    "notGenerated": "レポートはまだ生成されていません",
+    "clinicalSummaryEyebrow": "臨床サマリー",
+    "noSummary": "表示できる要約はまだありません。"
+  },
+  "actions": {
+    "viewSession": "セッションを表示",
+    "viewPatient": "患者情報"
+  },
+  "reportStatus": {
+    "generated": "生成済み",
+    "generating": "生成中",
+    "failed": "失敗"
+  },
+  "reviewStatus": {
+    "approved": "承認済み",
+    "revisionNeeded": "要修正",
+    "pending": "審査待ち"
+  },
+  "meta": {
+    "redFlagSession": "レッドフラグ・セッション",
+    "redFlagLoadFailedBadge": "⚠ レッドフラグ状態の読み込みに失敗"
+  },
+  "metaCard": {
+    "patient": "患者",
+    "complaint": "主訴",
+    "sessionStatus": "セッション状態",
+    "report": "レポート",
+    "createdHelper": "セッション作成日 {{date}}",
+    "completedAt": "{{date}} に完了",
+    "startedAt": "{{date}} に開始",
+    "noTimeInfo": "時間情報はまだありません",
+    "notGeneratedTime": "生成時刻未定",
+    "reviewStatusHelper": "審査状態：{{status}}",
+    "awaitingReview": "医師の審査待ち"
+  },
+  "highlights": {
+    "positive": { "title": "重要な陽性所見", "empty": "明確な陽性症状は整理されていません。" },
+    "negative": { "title": "重要な陰性所見", "empty": "明確な陰性症状は整理されていません。" },
+    "riskFactors": { "title": "リスク因子", "empty": "明らかなリスク因子はありません。" },
+    "impression": { "title": "初期所見", "empty": "明確な所見は整理されていません。" }
+  },
+  "diagnosis": {
+    "title": "診断コード",
+    "empty": "ICD-10コードはまだありません。",
+    "unverified": "ICD-10未検証：医師による確認が必要です"
+  },
+  "redFlag": {
+    "title": "レッドフラグ注記",
+    "defaultReason": "このセッションは以前レッドフラグ警告を発生させました。審査時は要約と逐語記録を特に念入りに確認してください。",
+    "loadFailedTitle": "レッドフラグ状態の読み込みに失敗",
+    "loadFailedDescription": "このセッションのレッドフラグ状態を読み込めませんでした。ページを再読み込みして再確認してください。「レッドフラグなし」と勝手に判断しないでください。"
+  },
+  "reviewNotesCard": {
+    "title": "審査メモ",
+    "reviewedAtLabel": "審査時刻：{{date}}"
+  },
+  "tabs": {
+    "report": "SOAP構造化レポート",
+    "transcript": "会話の逐語記録"
+  },
+  "review": {
+    "actionEyebrow": "審査アクション",
+    "instructions": "承認または差し戻しを決める前に、要約・評価・計画が逐語記録に基づいていることを確認してください。",
+    "approveButton": "レポートを承認",
+    "rejectButton": "差し戻して修正",
+    "approveDescription": "このSOAPレポートを正式な臨床サマリーとして確定しますか？補足があればメモを残せます。",
+    "rejectDescription": "修正が必要な理由を入力してください。これが差し戻しの根拠になります。",
+    "approveNotesPlaceholder": "審査メモを入力（任意）...",
+    "rejectNotesPlaceholder": "差し戻し理由を入力してください...",
+    "notesRequiredError": "差し戻す場合は理由の入力が必須です。",
+    "submitError": "審査の送信に失敗しました。しばらくしてから再度お試しください。"
+  },
+  "subjective": {
+    "chiefComplaint": "主訴 Chief Complaint",
+    "hpi": {
+      "title": "現病歴 HPI",
+      "onset": "発症時期",
+      "location": "部位",
+      "duration": "持続時間",
+      "severity": "重症度",
+      "timing": "発作の頻度",
+      "context": "状況",
+      "characteristics": "性状",
+      "aggravatingFactors": "増悪因子",
+      "relievingFactors": "軽快因子",
+      "associatedSymptoms": "随伴症状"
+    },
+    "pastMedicalHistory": {
+      "title": "既往歴",
+      "conditions": "疾患",
+      "surgeries": "手術歴",
+      "hospitalizations": "入院歴"
+    },
+    "medicationHistory": {
+      "title": "服薬歴",
+      "current": "現在の服用薬",
+      "past": "過去の服用薬",
+      "otc": "市販薬"
+    },
+    "systemReview": {
+      "title": "システムレビュー"
+    },
+    "socialHistory": {
+      "title": "社会歴"
+    }
+  },
+  "objective": {
+    "vitalSigns": {
+      "title": "バイタルサイン",
+      "labels": {
+        "bloodPressure": "血圧",
+        "heartRate": "心拍数",
+        "respiratoryRate": "呼吸数",
+        "temperature": "体温",
+        "spo2": "酸素飽和度"
+      },
+      "units": {
+        "bloodPressure": "mmHg",
+        "heartRate": "bpm",
+        "respiratoryRate": "回/分",
+        "temperature": "°C",
+        "spo2": "%"
+      }
+    },
+    "physicalExam": {
+      "title": "身体所見"
+    },
+    "labResults": {
+      "title": "検査結果",
+      "columns": {
+        "test": "項目",
+        "result": "結果",
+        "reference": "基準値",
+        "status": "判定"
+      }
+    }
+  },
+  "assessment": {
+    "clinicalImpression": "臨床的印象",
+    "differentialDiagnoses": {
+      "title": "鑑別診断"
+    },
+    "probability": {
+      "high": "高",
+      "medium": "中",
+      "low": "低"
+    }
+  },
+  "plan": {
+    "diagnosticReasoning": "臨床推論",
+    "recommendedTests": {
+      "title": "推奨検査"
+    },
+    "urgency": {
+      "er_now": "直ちに救急",
+      "24h": "24 時間以内",
+      "this_week": "今週中",
+      "routine": "通常"
+    },
+    "treatments": {
+      "title": "治療"
+    },
+    "followUp": {
+      "title": "フォローアップ",
+      "interval": "再診間隔",
+      "reason": "再診理由"
+    },
+    "referrals": {
+      "title": "紹介"
+    },
+    "patientEducation": {
+      "title": "患者教育"
+    }
+  },
+  "fieldLabels": {
+    "general": "全身状態",
+    "urological": "泌尿器系",
+    "smoking": "喫煙",
+    "alcohol": "飲酒",
+    "occupation": "職業",
+    "abdomen": "腹部",
+    "costovertebral": "肋骨脊柱角",
+    "genitourinary": "泌尿生殖器"
+  },
+  "labels": {
+    "testResult": "{{test}}：{{result}}",
+    "smokingHistory": "喫煙歴：{{value}}",
+    "alcoholUse": "飲酒：{{value}}",
+    "redFlagReason": "レッドフラグ理由：{{value}}",
+    "recommendedTest": "推奨：{{value}}"
+  },
+  "export": {
+    "button": "PDFを書き出す",
+    "loading": "書き出し中...",
+    "success": "PDFのダウンロードを開始しました",
+    "error": "PDFの書き出しに失敗しました。後でもう一度お試しください。"
+  },
+  "regenerate": {
+    "button": "再生成",
+    "loading": "再生成中...",
+    "title": "レポートを再生成",
+    "description": "再生成すると、最新の文字起こしでAI分析を再実行し、既存のSOAPレポートを上書きします。この操作は取り消せません。続行しますか？",
+    "cancel": "キャンセル",
+    "confirm": "再生成を確認",
+    "success": "レポートを再生成しました",
+    "error": "レポートの再生成に失敗しました。後でもう一度お試しください。"
+  }
+}

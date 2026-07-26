@@ -1,0 +1,80 @@
+{
+  "title": "AI 問診",
+  "endSession": "問診を終了",
+  "loading": "会話を読み込み中...",
+  "onboarding": {
+    "hint": "そのままお話しください。ボタン操作は不要です"
+  },
+  "status": {
+    "notStarted": "問診はまだ開始されていません",
+    "aiResponding": "AI が応答中です...",
+    "transcribing": "お話を文字起こししています…",
+    "noSpeechDetected": "うまく聞き取れませんでした。もう一度お話しください",
+    "listening": "お話を伺っています {{duration}}",
+    "idle": "そのままお話しください。自動で聞き取ります",
+    "thinking": "AI が考え中です...",
+    "speaking": "発話中"
+  },
+  "scroll": {
+    "latest": "最新メッセージ",
+    "latestWithCount": "最新メッセージ（{{count}}）"
+  },
+  "tts": {
+    "failed": "音声合成に失敗しました",
+    "replayAria": "AI 音声を再生",
+    "replayTitle": "クリックで音声を再生",
+    "muteLabel": "AI 音声をミュート",
+    "unmuteLabel": "AI 音声をオン",
+    "speedLabel": "速度 {{rate}}x",
+    "play": "再生",
+    "playAria": "この AI 返答を再生"
+  },
+  "voiceControl": {
+    "pause": "聞き取りを一時停止",
+    "resume": "聞き取りを再開",
+    "pausedBanner": "聞き取りを一時停止中です。今の発話は記録されません。準備ができたら「聞き取りを再開」を押してください。",
+    "finishSpeaking": "話し終わりました"
+  },
+  "input": {
+    "textPlaceholder": "聞き取れない場合は入力もできます",
+    "send": "送信",
+    "sendOffline": "接続が切れています。メッセージは未送信です。再接続後にもう一度お試しください。"
+  },
+  "redFlag": {
+    "more": "他 {{count}} 件の警告"
+  },
+  "supervisor": {
+    "hintLabel": "次にお伺いすること",
+    "missingLabel": "これから確認する項目：",
+    "degraded": "リアルタイムのガイドは一時的にご利用いただけませんが、問診は通常どおり続行します。",
+    "hpi": {
+      "onset": "発症時期",
+      "location": "部位",
+      "duration": "持続時間",
+      "characteristics": "性状",
+      "severity": "重症度",
+      "aggravating_factors": "増悪因子",
+      "relieving_factors": "軽快因子",
+      "associated_symptoms": "随伴症状",
+      "timing": "時間的パターン",
+      "context": "状況"
+    }
+  },
+  "error": {
+    "loadFailed": "会話を読み込めませんでした",
+    "sessionInterrupted": "問診が中断されました。もう一度お試しください",
+    "aiUnavailable": "AI サービスが一時的に応答できません。しばらくしてからお試しください",
+    "disconnected": "接続が切断されました。再接続しています...",
+    "audioTooLong": "録音時間が長すぎるため、自動で終了しました",
+    "micPermission": "ブラウザの設定でマイクへのアクセスを許可し、ページを再読み込みしてください",
+    "micNotFound": "マイクが見つかりません。マイクが接続されているかご確認ください",
+    "micGeneric": "マイクでエラーが発生しました：{{message}}"
+  },
+  "mockMessages": {
+    "systemStart": "問診を開始しました — 主訴：{{complaint}}"
+  },
+  "connection": {
+    "reconnecting": "接続が切断されました。再接続しています…",
+    "retry": "再試行"
+  }
+}

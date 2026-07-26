@@ -11,7 +11,7 @@ import logging
 import re
 import time
 import uuid
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 from uuid import UUID
 
 from sqlalchemy import text
@@ -122,6 +122,8 @@ _AUDIT_RULES: list[tuple[str, re.Pattern[str], AuditAction, str]] = [
     # admin 使用者管理（HIPAA：建立 / 更新 / 啟用停用都必須留痕）
     # toggle-active 須排在通用 /users/{id} 規則之前，避免被前者誤吞
     ("PUT",    re.compile(rf"^/api/v1/admin/users/(?P<rid>{_UUID_RE})/toggle-active/?$"), AuditAction.UPDATE, "user"),
+    # 管理員代為重設密碼（H1）——比 toggle-active 更敏感，務必留稽核軌跡
+    ("POST",   re.compile(rf"^/api/v1/admin/users/(?P<rid>{_UUID_RE})/reset-password/?$"), AuditAction.UPDATE, "user"),
     ("POST",   re.compile(r"^/api/v1/admin/users/?$"),                          AuditAction.CREATE,      "user"),
     ("PUT",    re.compile(rf"^/api/v1/admin/users/(?P<rid>{_UUID_RE})/?$"),     AuditAction.UPDATE,      "user"),
     ("PATCH",  re.compile(rf"^/api/v1/admin/users/(?P<rid>{_UUID_RE})/?$"),     AuditAction.UPDATE,      "user"),
@@ -214,20 +216,41 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def _extract_user_id(request: Request) -> Optional[UUID]:
-    """從 request.state 取 user_id（get_current_user 會設）。"""
-    user = getattr(request.state, "user", None)
-    if user is None:
-        return None
-    uid = getattr(user, "id", None)
-    if isinstance(uid, UUID):
-        return uid
-    if isinstance(uid, str):
+def _coerce_uuid(value: Any) -> Optional[UUID]:
+    if isinstance(value, UUID):
+        return value
+    if isinstance(value, str):
         try:
-            return UUID(uid)
+            return UUID(value)
         except ValueError:
             return None
     return None
+
+
+def _extract_user_id(request: Request) -> Optional[UUID]:
+    """
+    從 request.state 取 user_id（get_current_user 會設）。
+
+    **優先讀 `state.user_id` 這個純值**，而不是 ORM 物件的 `.id`：middleware 跑在
+    endpoint 之後，若 endpoint 拋了例外，`get_db` 的 session 已 rollback/close，
+    `state.user` 會是 detached instance，讀屬性會觸發 lazy refresh 並拋
+    `DetachedInstanceError` → 把 403/404 變成 500（生產實測過）。
+
+    ORM 分支保留當 fallback（相容尚未設 user_id 的路徑），但整段包 try/except：
+    稽核欄位抽取失敗絕不該影響回應。
+    """
+    uid = _coerce_uuid(getattr(request.state, "user_id", None))
+    if uid is not None:
+        return uid
+
+    try:
+        user = getattr(request.state, "user", None)
+        if user is None:
+            return None
+        return _coerce_uuid(getattr(user, "id", None))
+    except Exception:  # noqa: BLE001 — 稽核抽取不可影響回應（如 DetachedInstanceError）
+        logger.warning("稽核 user_id 抽取失敗，以 None 記錄", exc_info=True)
+        return None
 
 
 def _extract_client_ip(request: Request) -> Optional[str]:

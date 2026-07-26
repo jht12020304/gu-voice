@@ -1,8 +1,28 @@
 # Railway Celery Worker / Beat 部署 Runbook
 
-> 對應 TODO #2（P0）。背景：目前 Railway 只部署了 FastAPI 主服務，Celery 的
+> ## ⚠️ 2026-07-26：現行做法是同容器，本文件是「要拆成獨立 service 時」才照著做
+>
+> `backend/scripts/start.sh` 已在**主 API 容器內**起 celery worker + beat，
+> 由 `RUN_CELERY_IN_API`（預設 `true`）控制。生產目前就是這個型態，
+> **不需要照本文件建 service**。
+>
+> 同容器的理由：(a) 不必跨 service 複製 20+ 個環境變數（本文件步驟 4 自己就警告過
+> 每個 service 的 DB pool 要各自調，那是漂移來源）；(b) 每多一個常駐 service 就多一組
+> Supabase session-pooler 連線，正是 2026-07-04 pooler idle 佔滿事故的成因。
+>
+> **什麼時候該照本文件拆出去**：worker 吃掉 API 的 CPU 影響問診延遲、需要獨立擴縮 worker、
+> 或要把 `numReplicas` 調大（beat 全系統只能一個副本，**調大 replicas 前必須先拆 beat**，
+> 否則排程重複觸發）。拆完把 `RUN_CELERY_IN_API=false`。
+>
+> 歷史：本文件原寫「TODO #2 已完成、worker + beat service 已 ACTIVE」——那是假的，
+> 2026-07-26 實查兩個 service 都不存在，導致 #31 的 Celery 單一路徑一上生產就讓 SOAP
+> 全部卡 GENERATING（見 PR #34）。
+
+---
+
+> 對應 TODO #2（P0）。背景：Railway 原本只部署了 FastAPI 主服務，Celery 的
 > worker 與 beat 從未被啟動，所有排程任務（session 超時檢查、分區建立、推播重試）
-> 都不會執行。本文件說明手動於 Railway Dashboard 建立兩個新 service 的步驟。
+> 都不會執行。以下是手動於 Railway Dashboard 建立兩個新 service 的步驟。
 
 ---
 
@@ -26,10 +46,11 @@
 2. **Settings → Source** 選同一個 GitHub repo、同一分支，root 設為 `backend/`
 
    > 主 API service（專案 `gu-voice-api` / service `gu-voice-app`，
-   > https://gu-voice-app-production.up.railway.app）已連 GitHub source，
-   > push 到 main 即自動 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`）部署
-   > （2026-06 時曾為手動 `railway up`，現已接上自動部署）。
-   > `railway up --detach` 保留為 incident 時強制換容器的手段。
+   > https://gu-voice-app-production.up.railway.app）用 Docker build
+   > （`RAILWAY_DOCKERFILE_PATH=Dockerfile`）。
+   > ⚠️ **2026-07-26 更正：部署是手動的**——`cd backend && railway up --detach --service gu-voice-app`。
+   > GitHub App 的 check suite 在每次 main merge 都永遠停在 `queued`、從不觸發部署
+   > （舊文件寫「已接上自動部署」是錯的，見 `deployment_guide.md` 一、）。
    > 改任一環境變數則會用既有 image 觸發 redeploy（約 1 分鐘、免重建）。
 3. **Settings → Deploy**
    - **Start Command**: `/app/scripts/start_worker.sh`

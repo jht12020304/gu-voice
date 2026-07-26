@@ -122,7 +122,9 @@ def test_forgot_password_existing_email_stores_token_and_sends_email(_swap_redis
         AuthService.forgot_password(db, email=user.email, email_client=client)
     )
 
-    assert result == {"message": FORGOT_PASSWORD_GENERIC_MESSAGE}
+    assert result["message"] == FORGOT_PASSWORD_GENERIC_MESSAGE
+    # 未設 SENDGRID/SMTP（測試預設）→ onsite，前端據此不謊稱已寄信
+    assert result["delivery"] == "onsite"
 
     # Redis 應該有且只有一筆 gu:reset:{token} = user_id
     reset_keys = [k for k in _swap_redis.store if k.startswith(RESET_TOKEN_KEY_PREFIX)]
@@ -148,8 +150,11 @@ def test_forgot_password_unknown_email_is_silent(_swap_redis):
         AuthService.forgot_password(db, email="ghost@example.com", email_client=client)
     )
 
-    # 回應跟「存在」情境一模一樣
-    assert result == {"message": FORGOT_PASSWORD_GENERIC_MESSAGE}
+    # 回應跟「存在」情境一模一樣（含 delivery，否則就成了 enumeration 側信道）
+    assert result == {
+        "message": FORGOT_PASSWORD_GENERIC_MESSAGE,
+        "delivery": "onsite",
+    }
     # 沒寫 Redis、沒寄信
     assert not any(k.startswith(RESET_TOKEN_KEY_PREFIX) for k in _swap_redis.store)
     client.send.assert_not_awaited()
@@ -197,3 +202,93 @@ def test_reset_password_correct_token_succeeds_and_invalidates(_swap_redis):
     # 同一 token 再跑一次要被拒絕
     with pytest.raises(UnauthorizedException):
         _run(AuthService.reset_password(db, token=token, new_password="Whatever1!"))
+
+
+# ──────────────────────────────────────────────────────────
+# delivery 旗標（生產長期未設 SENDGRID/SMTP → 信永遠不會寄出）
+# ──────────────────────────────────────────────────────────
+
+def test_is_delivery_configured_follows_settings(monkeypatch):
+    """與 _build_default_client 同一組條件：兩者必須一起改。"""
+    from app.core import email_client as ec
+
+    monkeypatch.setattr(ec.settings, "SENDGRID_API_KEY", "", raising=False)
+    monkeypatch.setattr(ec.settings, "SMTP_HOST", "", raising=False)
+    assert ec.is_delivery_configured() is False
+    assert isinstance(ec._build_default_client(), ec._LoggingEmailClient)
+
+    monkeypatch.setattr(ec.settings, "SENDGRID_API_KEY", "SG.xxx", raising=False)
+    assert ec.is_delivery_configured() is True
+    assert not isinstance(ec._build_default_client(), ec._LoggingEmailClient)
+
+    monkeypatch.setattr(ec.settings, "SENDGRID_API_KEY", "", raising=False)
+    monkeypatch.setattr(ec.settings, "SMTP_HOST", "smtp.example.com", raising=False)
+    assert ec.is_delivery_configured() is True
+
+
+def test_forgot_password_delivery_email_when_provider_configured(_swap_redis, monkeypatch):
+    from app.core import email_client as ec
+
+    monkeypatch.setattr(ec.settings, "SENDGRID_API_KEY", "SG.xxx", raising=False)
+
+    user = _FakeUser(id=uuid.uuid4(), email="doc@example.com")
+    result = _run(
+        AuthService.forgot_password(
+            _FakeDB(user), email=user.email, email_client=_FakeEmailClient()
+        )
+    )
+    assert result["delivery"] == "email"
+
+
+def test_forgot_password_delivery_does_not_leak_account_existence(_swap_redis, monkeypatch):
+    """delivery 只由環境設定推導 → 存在與不存在的帳號必須拿到同一個值。"""
+    from app.core import email_client as ec
+
+    for configured, expected in (("", "onsite"), ("SG.xxx", "email")):
+        monkeypatch.setattr(ec.settings, "SENDGRID_API_KEY", configured, raising=False)
+        monkeypatch.setattr(ec.settings, "SMTP_HOST", "", raising=False)
+
+        existing = _run(
+            AuthService.forgot_password(
+                _FakeDB(_FakeUser(id=uuid.uuid4(), email="doc@example.com")),
+                email="doc@example.com",
+                email_client=_FakeEmailClient(),
+            )
+        )
+        missing = _run(
+            AuthService.forgot_password(
+                _FakeDB(user=None),
+                email="ghost@example.com",
+                email_client=_FakeEmailClient(),
+            )
+        )
+        assert existing == missing == {
+            "message": FORGOT_PASSWORD_GENERIC_MESSAGE,
+            "delivery": expected,
+        }
+
+
+def test_logging_email_client_omits_body_in_production(monkeypatch, caplog):
+    """production 不可把含 reset token 的 body 留在 log；非 production 要保留供 QA。"""
+    import logging
+
+    from app.core import email_client as ec
+
+    async def _send(env: str):
+        monkeypatch.setattr(ec.settings, "APP_ENV", env, raising=False)
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="app.core.email_client"):
+            await ec._LoggingEmailClient().send(
+                to="u@example.com",
+                subject="S",
+                body_html="<a>tok=SECRET</a>",
+                body_text="reset link tok=SECRET",
+            )
+        return caplog.text
+
+    prod = _run(_send("production"))
+    assert "SECRET" not in prod, "production log 不可含 reset token"
+    assert "u@example.com" in prod and "未寄出" in prod
+
+    dev = _run(_send("development"))
+    assert "SECRET" in dev, "非 production 應保留 body 供本機 QA"

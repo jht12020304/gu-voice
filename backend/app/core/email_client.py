@@ -33,7 +33,17 @@ class EmailClient(Protocol):
 
 
 class _LoggingEmailClient:
-    """dev 模式：只 log，不實際寄信。"""
+    """
+    未設定任何 transport 時的 fallback：只 log，不實際寄信。
+
+    ⚠️ body 含密碼重設連結的 **token**（30 分鐘內可直接改密碼）。因此只在非
+    production 印出 body，方便本機 QA 走完重設流程；production 只記
+    to / subject，避免把可用憑證留在 log 裡。
+
+    production 的正規重設途徑是管理員的 `POST /admin/users/{id}/reset-password`
+    （前端使用者管理頁的「重設密碼」鈕）——院內 kiosk 情境下病患人在現場，
+    當面重設比 email 直接。
+    """
 
     async def send(
         self,
@@ -42,6 +52,13 @@ class _LoggingEmailClient:
         body_html: str,
         body_text: str,
     ) -> None:
+        if settings.APP_ENV == "production":
+            logger.info(
+                "[email:log-only] to=%s subject=%r body 已省略（含 reset token）｜"
+                "未設 SENDGRID_API_KEY/SMTP_HOST，此信實際未寄出",
+                to, subject,
+            )
+            return
         logger.info(
             "[email:log-only] to=%s subject=%r body_text=%r",
             to, subject, body_text,
@@ -156,6 +173,19 @@ def _build_default_client() -> EmailClient:
             use_tls=settings.SMTP_USE_TLS,
         )
     return _LoggingEmailClient()
+
+
+def is_delivery_configured() -> bool:
+    """
+    是否真的有 email transport 可以把信送出去。
+
+    False 代表 `_build_default_client()` 會退到 `_LoggingEmailClient`——只寫 log、
+    信永遠不會到使用者手上。呼叫端（`forgot_password`）據此告訴前端要顯示
+    「已寄出，請查收」還是「請找現場醫護協助重設」，避免對使用者謊稱已寄信。
+
+    刻意與 `_build_default_client` 用同一組判斷條件，兩者要一起改。
+    """
+    return bool(settings.SENDGRID_API_KEY or settings.SMTP_HOST)
 
 
 async def send_email(

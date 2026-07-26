@@ -85,7 +85,16 @@
     "createSuccess": "Đã tạo người dùng",
     "activateSuccess": "Đã kích hoạt tài khoản",
     "deactivateSuccess": "Đã vô hiệu hóa tài khoản",
-    "toggleFailed": "Cập nhật trạng thái tài khoản thất bại"
+    "toggleFailed": "Cập nhật trạng thái tài khoản thất bại",
+    "resetPassword": "Đặt lại mật khẩu",
+    "resetPasswordConfirm": "Đặt lại mật khẩu cho {{email}}? Hệ thống sẽ tạo một mật khẩu tạm thời và đăng xuất toàn bộ phiên đang hoạt động của tài khoản này.",
+    "resetPasswordFailed": "Không thể đặt lại mật khẩu",
+    "tempPasswordTitle": "Đã tạo mật khẩu tạm thời",
+    "tempPasswordFor": "Mật khẩu tạm thời của {{email}}:",
+    "tempPasswordCopy": "Sao chép",
+    "tempPasswordCopied": "Đã sao chép",
+    "tempPasswordWarning": "Mật khẩu này chỉ hiển thị một lần và không thể lấy lại sau khi đóng (sẽ phải đặt lại lần nữa). Hãy giao trực tiếp cho người đó và nhắc họ tự đổi mật khẩu ngay sau khi đăng nhập. Toàn bộ phiên đăng nhập cũ của tài khoản đã bị hủy.",
+    "tempPasswordDone": "Tôi đã ghi lại"
   },
   "audit": {
     "title": "Nhật ký kiểm toán (Audit Logs)",

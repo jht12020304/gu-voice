@@ -205,6 +205,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-TW": "無法變更自己的帳號啟用狀態",
         "en-US": "You cannot change the active status of your own account",
     },
+    "errors.cannot_reset_own_password": {
+        "zh-TW": "無法重設自己的密碼，請改用「變更密碼」（需驗證舊密碼）",
+        "en-US": "You cannot reset your own password here — use Change Password instead (it verifies your current password)",
+        "ja-JP": "自分のパスワードはここでは再設定できません。「パスワード変更」（現在のパスワードの確認あり）をご利用ください",
+        "ko-KR": "본인 비밀번호는 여기서 재설정할 수 없습니다. 현재 비밀번호를 확인하는 '비밀번호 변경'을 사용하세요",
+        "vi-VN": "Không thể đặt lại mật khẩu của chính bạn ở đây — hãy dùng \"Đổi mật khẩu\" (có xác minh mật khẩu hiện tại)",
+    },
     "errors.not_found": {
         "zh-TW": "資源不存在",
         "en-US": "Resource not found",

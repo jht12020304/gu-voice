@@ -1,0 +1,168 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../data/models/session.dart';
+import '../../features/admin/screens/audit_logs_page.dart';
+import '../../features/admin/screens/complaint_management_page.dart';
+import '../../features/admin/screens/system_health_page.dart';
+import '../../features/admin/screens/user_management_page.dart';
+import '../../features/auth/auth_notifier.dart';
+import '../../features/auth/forgot_password_page.dart';
+import '../../features/auth/login_page.dart';
+import '../../features/auth/register_page.dart';
+import '../../features/auth/reset_password_page.dart';
+import '../../features/doctor/screens/alert_detail_page.dart';
+import '../../features/doctor/screens/alert_list_page.dart';
+import '../../features/doctor/screens/dashboard_page.dart';
+import '../../features/doctor/screens/doctor_shell.dart';
+import '../../features/doctor/screens/notification_page.dart';
+import '../../features/doctor/screens/patient_detail_page.dart';
+import '../../features/doctor/screens/patient_list_page.dart';
+import '../../features/doctor/screens/report_list_page.dart';
+import '../../features/doctor/screens/research_analytics_page.dart';
+import '../../features/doctor/screens/session_detail_page.dart';
+import '../../features/doctor/screens/session_list_page.dart';
+import '../../features/doctor/screens/soap_report_page.dart';
+import '../../features/home/role_home_page.dart';
+import '../../features/patient/medical_info_page.dart';
+import '../../features/patient/patient_history_page.dart';
+import '../../features/patient/patient_home_page.dart';
+import '../../features/patient/patient_session_detail_page.dart';
+import '../../features/patient/patient_settings_page.dart';
+import '../../features/patient/select_complaint_page.dart';
+import '../../features/patient/session_complete_page.dart';
+import '../../features/patient/session_thank_you_page.dart';
+import '../../features/voice/screens/conversation_page.dart';
+import 'lng.dart';
+
+// Re-key each routed page on the active lng. Our bare t() reads the global currentLng;
+// widgets that don't depend on GoRouterState wouldn't otherwise rebuild on an lng-only
+// route change (and const page builders return an unchanged instance go_router reuses).
+// A ValueKey(currentLng) below the navigator forces a fresh build so t() re-resolves.
+Widget _lngKeyed(Widget page) => KeyedSubtree(key: ValueKey(currentLng), child: page);
+
+// go_router where the `/:lng/*` prefix is the SINGLE language authority.
+// The redirect both syncs currentLng (used by Dio Accept-Language + t()) and does
+// the auth/role gate. Language switch = navigate to the same route under a new lng.
+final routerProvider = Provider<GoRouter>((ref) {
+  final refresh = ValueNotifier(0);
+  ref.listen(authProvider, (_, _) => refresh.value++);
+  ref.onDispose(refresh.dispose);
+
+  return GoRouter(
+    initialLocation: '/',
+    refreshListenable: refresh,
+    redirect: (context, state) {
+      final path = state.uri.path;
+      final lng = extractLngFromPath(path);
+
+      // No valid lng segment: seed from device locale (first route only), then prefix.
+      if (lng == null) {
+        final seed = normalizeLanguage(
+              WidgetsBinding.instance.platformDispatcher.locale.toLanguageTag(),
+            ) ??
+            defaultLanguage;
+        return prefixLngToPath(path == '/' ? '/' : path, seed);
+      }
+
+      setCurrentLng(lng); // authority sync (also notifies App for Material localizations)
+
+      final auth = ref.read(authProvider);
+      if (!auth.booted) return null;
+
+      final isPatient = auth.user?.isPatient ?? false;
+      final isAdmin = auth.user?.isAdmin ?? false;
+      final landing = isPatient ? '/$lng/patient' : '/$lng/dashboard';
+      final rest = stripLngFromPath(path); // path without the lng segment
+      final isPublic = rest == '/login' || rest.startsWith('/forgot-password') || rest.startsWith('/reset-password');
+      if (!auth.isAuthenticated && !isPublic) return '/$lng/login';
+      if (auth.isAuthenticated && rest == '/login') return landing;
+      // Route off the generic role home onto the role-specific landing.
+      if (auth.isAuthenticated && (path == '/$lng' || path == '/$lng/')) return landing;
+      // RoleGuard: patients may only reach patient/conversation routes; admin pages need admin.
+      if (auth.isAuthenticated) {
+        final isPatientArea = rest.startsWith('/patient') || rest.startsWith('/conversation');
+        final isAdminArea = rest.startsWith('/admin');
+        if (isPatient && !isPatientArea) return landing; // patient blocked from doctor/admin
+        if (isAdminArea && !isAdmin) return landing; // admin-only subtree
+      }
+      return null;
+    },
+    routes: [
+      GoRoute(
+        path: '/:lng',
+        builder: (context, state) => _lngKeyed(const RoleHomePage()),
+        routes: [
+          GoRoute(path: 'login', builder: (context, state) => _lngKeyed(const LoginPage())),
+          GoRoute(path: 'register', builder: (context, state) => _lngKeyed(const RegisterPage())),
+          GoRoute(path: 'forgot-password', builder: (context, state) => _lngKeyed(const ForgotPasswordPage())),
+          GoRoute(
+            path: 'reset-password',
+            builder: (context, state) => _lngKeyed(ResetPasswordPage(token: state.uri.queryParameters['token'] ?? '')),
+          ),
+          GoRoute(path: 'patient', builder: (context, state) => _lngKeyed(const PatientHomePage())),
+          GoRoute(path: 'patient/start', builder: (context, state) => _lngKeyed(const SelectComplaintPage())),
+          GoRoute(
+            path: 'patient/medical-info',
+            builder: (context, state) => _lngKeyed(MedicalInfoPage(args: (state.extra as Map?) ?? const {})),
+          ),
+          GoRoute(path: 'patient/history', builder: (context, state) => _lngKeyed(const PatientHistoryPage())),
+          GoRoute(
+            path: 'patient/history/:sessionId',
+            builder: (context, state) =>
+                _lngKeyed(PatientSessionDetailPage(sessionId: state.pathParameters['sessionId']!)),
+          ),
+          GoRoute(path: 'patient/settings', builder: (context, state) => _lngKeyed(const PatientSettingsPage())),
+          GoRoute(
+            path: 'patient/session/:sessionId/complete',
+            builder: (context, state) => _lngKeyed(SessionCompletePage(sessionId: state.pathParameters['sessionId']!)),
+          ),
+          GoRoute(
+            path: 'patient/session/:sessionId/thank-you',
+            builder: (context, state) =>
+                _lngKeyed(SessionThankYouPage(abortedRedFlag: (state.extra as Map?)?['abortedRedFlag'] == true)),
+          ),
+          GoRoute(
+            path: 'conversation/:sessionId',
+            builder: (context, state) => _lngKeyed(ConversationPage(
+              sessionId: state.pathParameters['sessionId']!,
+              session: state.extra as Session?,
+            )),
+          ),
+          // ---- doctor / admin ----
+          GoRoute(path: 'dashboard', builder: (context, state) => _lngKeyed(const DoctorShell(index: 0, child: DashboardPage()))),
+          GoRoute(path: 'sessions', builder: (context, state) => _lngKeyed(const DoctorShell(index: 1, child: SessionListPage()))),
+          GoRoute(
+            path: 'sessions/:sessionId',
+            builder: (context, state) => _lngKeyed(SessionDetailPage(sessionId: state.pathParameters['sessionId']!)),
+          ),
+          GoRoute(path: 'alerts', builder: (context, state) => _lngKeyed(const DoctorShell(index: 2, child: AlertListPage()))),
+          GoRoute(
+            path: 'alerts/:alertId',
+            builder: (context, state) => _lngKeyed(AlertDetailPage(alertId: state.pathParameters['alertId']!)),
+          ),
+          GoRoute(path: 'notifications', builder: (context, state) => _lngKeyed(const DoctorShell(index: 3, child: NotificationPage()))),
+          GoRoute(path: 'settings', builder: (context, state) => _lngKeyed(const DoctorShell(index: 4, child: PatientSettingsPage()))),
+          GoRoute(path: 'patients', builder: (context, state) => _lngKeyed(const PatientListPage())),
+          GoRoute(
+            path: 'patients/:patientId',
+            builder: (context, state) => _lngKeyed(PatientDetailPage(patientId: state.pathParameters['patientId']!)),
+          ),
+          GoRoute(path: 'reports', builder: (context, state) => _lngKeyed(const ReportListPage())),
+          GoRoute(
+            path: 'reports/:sessionId',
+            builder: (context, state) => _lngKeyed(SoapReportPage(sessionId: state.pathParameters['sessionId']!)),
+          ),
+          GoRoute(path: 'research', builder: (context, state) => _lngKeyed(const ResearchAnalyticsPage())),
+          // ---- admin (RoleGuard: admin only) ----
+          GoRoute(path: 'admin/users', builder: (context, state) => _lngKeyed(const UserManagementPage())),
+          GoRoute(path: 'admin/complaints', builder: (context, state) => _lngKeyed(const ComplaintManagementPage())),
+          GoRoute(path: 'admin/health', builder: (context, state) => _lngKeyed(const SystemHealthPage())),
+          GoRoute(path: 'admin/audit-logs', builder: (context, state) => _lngKeyed(const AuditLogsPage())),
+        ],
+      ),
+    ],
+  );
+});
