@@ -4,4 +4,10 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Cleartext HTTP is DEBUG-ONLY (dev backend is http://localhost / http://10.0.2.2).
+         It used to sit in the main manifest, which meant release builds also allowed
+         plaintext — tokens and PHI could ride the clinic Wi-Fi unencrypted (TODO G7).
+         Release inherits the API-28+ default of cleartext being blocked. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

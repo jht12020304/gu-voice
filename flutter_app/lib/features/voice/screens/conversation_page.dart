@@ -226,10 +226,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   Widget _transcript(BuildContext context, ConversationState s) {
     final tk = Theme.of(context).extension<AppTokens>()!;
+    // `reverse: true` + reversed indexing pins the newest turn at the bottom and keeps
+    // it visible as the list grows. Without it the transcript never scrolls: from about
+    // the 4th turn on, the AI's current question sits below the fold and the patient is
+    // looking at a stale screen (TODO G10). Cheaper and jitter-free compared with a
+    // ScrollController animating to the extent on every append.
     return ListView.builder(
       padding: const EdgeInsets.all(16),
+      reverse: true,
       itemCount: s.messages.length,
-      itemBuilder: (context, i) {
+      itemBuilder: (context, ri) {
+        final i = s.messages.length - 1 - ri;
         final m = s.messages[i];
         final isPatient = m.sender == 'patient';
         final isSystem = m.sender == 'system';

@@ -44,10 +44,18 @@ class TtsPlaybackController {
   }
 
   Future<void> stopActive() async {
+    // Capture BEFORE the await. `_player.stop()` yields, and if the player-state
+    // listener completes the current step in that gap, `_chain` advances and the next
+    // `_playStep` reassigns `_activeStep` — reading it afterwards would complete the
+    // NEW step, firing its `appendTail` onRelease (the VAD unlock) while that audio is
+    // still playing, and leaking the original completer so the chain never advances
+    // (VAD deadlock). Invariants #3/#5. (TODO G4)
+    final s = _activeStep;
+    _activeStep = null;
     try {
       await _player.stop();
     } catch (_) {}
-    final s = _activeStep;
+    // Still force-complete: invariant #5 — an interrupted step MUST release the chain.
     if (s != null && !s.isCompleted) s.complete();
   }
 

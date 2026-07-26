@@ -42,6 +42,10 @@ dependencies:
   intl: any
   flutter_localizations:
     sdk: flutter
+  # web-only：讓路由走真實 path 而不是 # fragment（見 lib/core/router/url_strategy*.dart）。
+  # 隨 Flutter SDK 提供，非外部套件。
+  flutter_web_plugins:
+    sdk: flutter
   record: ^6.2.1
   just_audio: ^0.10.6
   audio_session: ^0.2.4

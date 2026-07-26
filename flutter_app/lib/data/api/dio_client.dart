@@ -20,6 +20,12 @@ class ApiClient {
   ApiClient._();
   static final instance = ApiClient._();
 
+  /// `Options(extra: {ApiClient.skipAuthRefresh: true})` opts a request out of the
+  /// 401 → refresh → retry branch. Needed by `/auth/logout`, which captures the
+  /// refresh token before sending: a refresh mid-flight would rotate it and retry
+  /// with the stale copy (see auth_api.logout).
+  static const skipAuthRefresh = '_skipAuthRefresh';
+
   late final Dio dio;
   final _tokens = TokenStore.instance;
 
@@ -66,7 +72,9 @@ class ApiClient {
         },
         onError: (e, handler) async {
           final req = e.requestOptions;
-          if (e.response?.statusCode == 401 && req.extra['_retry'] != true) {
+          if (e.response?.statusCode == 401 &&
+              req.extra['_retry'] != true &&
+              req.extra[skipAuthRefresh] != true) {
             req.extra['_retry'] = true;
             try {
               final newToken = await _refresh();
@@ -108,6 +116,11 @@ class ApiClient {
         final bare = Dio(BaseOptions(
           baseUrl: Env.apiBase,
           connectTimeout: const Duration(seconds: 30),
+          // Without these a single hung refresh never settles, and because every
+          // concurrent 401 awaits the same `_refreshInFlight` future the whole app
+          // deadlocks silently — no error, no spinner end (TODO G9).
+          receiveTimeout: const Duration(seconds: 30),
+          sendTimeout: const Duration(seconds: 30),
         ));
         final res = await bare.post(
           '/auth/refresh',

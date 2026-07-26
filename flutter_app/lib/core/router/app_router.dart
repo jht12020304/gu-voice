@@ -64,7 +64,13 @@ final routerProvider = Provider<GoRouter>((ref) {
               WidgetsBinding.instance.platformDispatcher.locale.toLanguageTag(),
             ) ??
             defaultLanguage;
-        return prefixLngToPath(path == '/' ? '/' : path, seed);
+        // Rebuild off `state.uri` so query + fragment survive. Returning a bare path
+        // dropped them — the password-reset mail links to `/reset-password?token=...`
+        // with no lng segment, so the redirect silently ate the token and the whole
+        // flow dead-ended on "invalid link" (TODO G6).
+        return state.uri
+            .replace(path: prefixLngToPath(path == '/' ? '/' : path, seed))
+            .toString();
       }
 
       setCurrentLng(lng); // authority sync (also notifies App for Material localizations)

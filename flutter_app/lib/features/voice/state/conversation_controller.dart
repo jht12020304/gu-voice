@@ -167,6 +167,13 @@ class ConversationController extends Notifier<ConversationState> {
           // terminal marker -> backend joins buffer and runs STT
           _ws.send('audio_chunk', {'audioData': '', 'chunkIndex': -1, 'isFinal': true});
           state = state.copyWith(isRecording: false, sttProcessing: true);
+          // Hard-mute until the AI turn resolves — the React original does the same
+          // right after the final chunk (useAudioStream.ts: "送出後即暫停 VAD").
+          // Without it the mic stays live through STT + LLM + TTS, so the speaker
+          // echo of the AI's own reply gets captured as the patient's next answer
+          // (invariant #3). Every resume path re-arms: aiTtsDone / emptyStt /
+          // wsError / reconnected / userResume / ttsMuteToggle / replayEnd. (TODO G3)
+          _muteVad();
         },
         onWaveformData: (bars) => state = state.copyWith(waveform: bars),
         onDurationUpdate: (s) => state = state.copyWith(recordingDuration: s),
