@@ -481,6 +481,24 @@
 - [x] AI 術語稽核（56 詞條）：3 筆明確錯誤已修（ja「腎仙痛」錯字→「腎疝痛」、ko 睪痛語序、
   vi「lú lẫn」太寬鬆會誤觸發 critical→「rối loạn ý thức」）
 
+### [x] H6. 🔴 `end-for-language-switch` 在生產從來沒成功過 — 2026-07-27 修復（PR #47）
+
+部署 #46 後驗收時抓到的 500。根因：`AuditAction.LANGUAGE_SWITCH_END_SESSION`
+（`models/enums.py:132`）自加入以來**沒有任何 migration 把它寫進 DB 的 `auditaction` type**
+→ 只要走到寫 audit log 就 `InvalidTextRepresentationError`。
+
+**這不是 #46 造成的**：舊碼同樣呼叫該 action（`HEAD~1:510`）。先前沒被發現，是因為
+唯一會走到 audit 的路徑（active 場次真的切語言）在 React 端只顯示「切換失敗」的 toast，
+看起來像使用者操作問題。#46 把終態改為冪等後，終態路徑也會走到 audit，才讓它浮出來。
+**也就是說：React 使用者在問診中切語言，一直都是失敗的。**
+
+- migration `c1d2e3f4a5b6`：`ALTER TYPE auditaction ADD VALUE IF NOT EXISTS`。
+  PG12+ 可在交易內執行；降級刻意 no-op（PostgreSQL 無 DROP VALUE，對七年保留的稽核表
+  重建 type 風險遠高於留一個未使用的值）
+- 生產 enum 逐一比對：只有這一個漂移
+- **加防護測試**：掃 migration 檔確認每個 `AuditAction` 值都出現過。新增成員卻忘了寫
+  migration 就會紅（移走 migration 驗證過會失敗）
+
 ### [ ] E10. 🟢 紅旗譯名待母語臨床者最終覆核（AI 稽核標 medium/uncertain 的 8 筆）
 
 > **後端專屬，與 Flutter 遷移無關。擋在「母語 + 泌尿科背景」覆核者身上，工程與 AI 不該拍板**——
