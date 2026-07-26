@@ -29,7 +29,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 **部署是手動的——merge 到 main 不會上線。** Railway 與 Vercel 的 GitHub App 雖裝在 repo 上，但 check suite 在每一次 main merge 都永遠卡在 `queued`（2026-07-26 對 #29/#30/#31/#32 逐一查證），從未真的觸發部署；歷史上所有生產部署的 `cliCaller` 都是手動 CLI。要上線必須自己跑：
 
 - 後端：`railway up`（在 `backend/`，服務 `gu-voice-app`／專案 `gu-voice-api`）→ 驗 `curl <host>/api/v1/healthz/deep`
-- 前端：`cd frontend && npm run build && vercel --prod`（Vercel 專案在 team `7696s-projects`，非個人 team，需先 `vercel switch`）
+- 前端：`cd frontend && npm run build && vercel --prod`（Vercel 專案在 team `jht12020304y-7696s-projects`，非個人 team，需先 `vercel switch`）
 
 活後端域名 = `gu-voice-app-production.up.railway.app`（`api-` 是死域名）。生產 DB = Supabase `gu-voice-prod`（ref `xobxnlvtilezridrekdm`，ap-southeast-1）；環境變數真相 = Railway `DATABASE_URL`，docs 內舊 ref（udydl…/nydhm…）已過期。細節與除錯流程見 `deploy-production` skill 與 [docs/AGENTS.md](docs/AGENTS.md)。
 

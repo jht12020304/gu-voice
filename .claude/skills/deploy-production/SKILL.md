@@ -32,7 +32,7 @@ description: GU Voice 生產部署（手動 railway up + vercel --prod，merge m
 1. 程式碼先進 main（PR merge）
 2. 若改了 `backend/scripts/start.sh`：`git update-index --chmod=+x backend/scripts/start.sh`，否則 Railway 起不來
 3. 後端：`cd backend && railway up --detach --service gu-voice-app`（Dockerfile 在 `backend/`，cwd 錯會失敗；非互動 link 要在 repo 根目錄跑 `railway link -p gu-voice-api -s gu-voice-app -e production`）
-4. 前端：`cd frontend && npm run build && vercel --prod`。⚠️ Vercel 專案在 team **`7696s-projects`**，不是個人 team `chuns-projects-068de742`——先 `vercel switch`，否則部署到錯地方
+4. 前端：`cd frontend && npm run build && vercel --prod`。⚠️ Vercel 專案在 team **`jht12020304y-7696s-projects`**，不是個人 team `chuns-projects-068de742`——先 `vercel switch`，否則部署到錯地方
 5. 驗證：`curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep` 回 `{"status":"ok"}` + Railway 部署 log。事故復原用 `railway up` 不要用 `railway redeploy`（實測後者不換容器）
 
 ## 生產 DB 除錯順序

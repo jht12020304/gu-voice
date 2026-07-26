@@ -28,8 +28,8 @@ git push origin main
 cd backend && railway up --detach --service gu-voice-app
 curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep
 
-# 3. frontend -> Vercel (project lives in team 7696s-projects, not the personal team)
-vercel switch          # pick 7696s-projects
+# 3. frontend -> Vercel (project lives in team `jht12020304y-7696s-projects`, not the personal team)
+vercel switch          # pick `jht12020304y-7696s-projects`
 cd frontend && npm run build && vercel --prod
 ```
 

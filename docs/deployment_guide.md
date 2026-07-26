@@ -37,7 +37,7 @@ cd frontend && npm run build && vercel --prod
 ```
 
 - **Railway** 用 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`，Dockerfile 在 `backend/`，所以 `railway up` 要從 `backend/` 跑）。非互動 link：`railway link -p gu-voice-api -s gu-voice-app -e production`（**要在 repo 根目錄跑**）。
-- **Vercel** 專案在 team **`7696s-projects`**，不是個人 team——先 `vercel switch` 切過去，否則會部署到錯的地方或找不到專案。
+- **Vercel** 專案在 team **`jht12020304y-7696s-projects`**，不是個人 team——先 `vercel switch` 切過去，否則會部署到錯的地方或找不到專案。
 - 只改環境變數（不改程式碼）時**不需重新 build**：Railway 會用既有 image 觸發 redeploy（約 1 分鐘）。
 - 事故復原時用 `railway up` 而非 `railway redeploy`——後者實測不會真的換容器（見 `supabase_connection_guide.md` §5a）。
 
