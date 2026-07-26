@@ -8,11 +8,11 @@
 > - 部署不變式更正——**merge 到 main 不會上線**，要手動 `railway up` / `vercel --prod`（見 deployment_guide.md 一、）
 > - #2 假記載更正（celery worker/beat service 不存在，改跑在主 API 容器內）
 > - Flutter 遷移使 P3 的 #22／#24／#32 作廢、#23／#27 縮成單行工程項
-> - 新增 §G（flutter_app 入庫審查：2 blocker + 10 high 已修，剩 G11 等院方參數 + 22 medium）
+> - 新增 §G（flutter_app 入庫審查：2 blocker + 11 high **全部修完**，剩 22 medium）
 > - 新增 §H（H1 忘記密碼路徑已結案／H2 儀表板 monthLabel 硬寫中文）
 > - E10 底下工程項拆成 E11／E12，讓 E10 純粹等母語臨床覆核
 >
-> 未結案：§G 的 G11（等院方參數）+ 22 medium、H2、E10（等人）、E11／E12、F8（等臨床）、#23、#27。
+> 未結案：§G 的 22 medium、H2、E10（等人）、E11／E12、F8（等臨床）、#23、#27。
 
 ---
 
@@ -539,8 +539,7 @@
 > 入庫判定 GO 且已入庫（`feat/flutter-app-baseline`）：analyze 0 issue、test 17/17、零 secret、
 > `build/` 與 `.dart_tool/` 已正確排除。以下是入庫後要修的。
 > **動任何 voice/ 下的檔案前先讀 `voice-pipeline-invariants` skill**——G1/G3/G4/G14/G15 都是它列管的行為。
-> 2026-07-26：2 blocker（G1/G2）+ 10 條 high（G3–G10、G12、G13）已修並附回歸測試；
-> **剩 G11（擋在院方參數）+ 22 medium**。
+> 2026-07-26：2 blocker（G1/G2）+ **11 條 high 全部**（G3–G13）已修並附回歸測試；**剩 22 medium**。
 
 ### [x] G1. 🔴 紅旗中止導向錯頁（病患拿不到「告知現場醫護」）— 2026-07-26 修復
 
@@ -606,12 +605,25 @@ autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，�
   翻譯檔裡（React 版已用），只是 Flutter 沒接
 - 空白列必須過濾：後端 `condition` 是 `min_length=1`，送空字串會 422 掉整個建場次請求
 
-### [ ] G11. 🟡 kiosk 閒置自動登出（**擋在院方參數**）
+### [x] G11. kiosk 閒置自動登出 — 2026-07-26 修復（PR #40）
 
-- `core/router/app_router.dart`：React `KioskIdleGuard` 未移植 → 上一位病患的姓名／主訴
-  留在畫面給下一位看到
-- 修法：`Listener(onPointerDown)` + Timer，逾時且 role==patient 且非 `/conversation` 時 logout
-- **需要你決定**：逾時秒數，以及要不要啟用（院方隱私政策）。實作會讀 Env，`0` = 停用
+- 新 `features/patient/kiosk_idle_guard.dart`，逐條照抄 React `KioskIdleGuard.tsx` 的三個守衛：
+  限 `patient` 角色（醫師審報告不可被登出）、排除 `/conversation`（語音時病患可能長時間不觸控，
+  問診閒置由後端 `SESSION_IDLE_TIMEOUT` 管）、`Env.kioskIdleTimeoutSeconds == 0` 可停用
+- **預設 180 秒**——React 版註解裡就寫了這個建議值（「kiosk 於 Vercel env 設如 180000（3 分）」），
+  取 parity 而非另挑。可用 `--dart-define=KIOSK_IDLE_TIMEOUT_SECONDS=<n>` 覆寫
+- ⚠️ **踩到一個只有真跑才會發現的坑**：第一版在 `MaterialApp.router` 的 `builder` 裡呼叫
+  `GoRouterState.of(context)` → 那層在 Navigator 之上，`GoError: There is no GoRouterState
+  above the current context`，**整個 app 變一片紅**。而 `flutter analyze` 乾淨、32 個單元測試全過。
+  改成在 timer 觸發的那一刻用 `GoRouter.state`（不需 context）讀路徑；不適用時 re-arm 而非登出
+- ⚠️ 已知限制：timer 靠 pointer/key 事件重置，但 iOS/Android 的軟鍵盤由 OS 畫在 Flutter view
+  之上，敲鍵不一定會傳到我們的 widget tree。180 秒讓這件事極不可能發生；若現場真的踩到，
+  修法是從 intake 欄位的 onChanged 也重置，**不要**拉長視窗
+
+**驗證**：`shouldArmKioskIdleTimer` 抽成純函式 + 5 項測試（含「路徑只是含 `conversation` 字樣
+不得豁免」防止寫成鬆散的 `contains('conversation')`）；`integration_test/kiosk_idle_logout_test.dart`
+在 simulator 上真等 12 秒驗證**病患確實被登出且 token 從 Keychain 清除**（需 `runAsync` 才能讓
+真實 Timer 觸發）；simulator 實跑 timeout=10s 等 30s 確認**醫師不被登出**。
 
 ### [ ] G14–G35. 🟢 medium（22 筆）
 

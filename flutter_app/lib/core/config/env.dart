@@ -12,4 +12,19 @@ class Env {
     'WS_BASE',
     defaultValue: 'ws://localhost:8000/api/v1/ws',
   );
+
+  /// Kiosk idle auto-logout, in seconds. `0` disables it.
+  ///
+  /// 180s matches the value the React `KioskIdleGuard` documents as the kiosk setting.
+  /// The window is a trade-off: shorter cuts patients off while they are filling in the
+  /// intake form, longer defeats the point — the next patient walks up to the previous
+  /// one's name and chief complaint still on screen.
+  ///
+  /// Only applies to `patient` sessions and never on `/conversation` (see
+  /// KioskIdleGuard for why). Override with
+  /// `--dart-define=KIOSK_IDLE_TIMEOUT_SECONDS=<n>`.
+  static const kioskIdleTimeoutSeconds = int.fromEnvironment(
+    'KIOSK_IDLE_TIMEOUT_SECONDS',
+    defaultValue: 180,
+  );
 }
