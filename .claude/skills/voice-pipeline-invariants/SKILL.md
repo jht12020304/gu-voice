@@ -41,6 +41,23 @@ description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§
 16. 場次狀態機單一權威（2026-07-19）：合法轉移只定義在 `app/core/session_state.py`（`VALID_TRANSITIONS`/`is_valid_transition`），REST 與 WS 共用。改轉移規則只改這一處；WS `_update_session_status` 送 DB 前先過 `is_valid_transition(..., allow_noop=True)`（放行 resume 自轉移），不得繞過。
 17. 自動結束政策與紅旗去重已抽到 `app/pipelines/conclusion_policy.py` 與 `app/pipelines/alert_dedup.py`——**這兩個新模組仍是問診保護區**，改動視同改管線、要 e2e。conversation_handler 以底線別名 re-import，不得把邏輯改回 inline。
 
+## ⚠️ 這些不變式現在有兩份實作
+
+2026-07-26 起 `flutter_app/`（Dart，已入 main 未上生產）與 `frontend/`（React，生產在跑）
+都實作這條管線，**改動要同時顧兩邊**。純函式核心（shouldUnmuteVAD 64 組矩陣、TTS epoch
+世代取消、PCM ring buffer）是逐字 port 且有測試，但移植時漏掉的閘門造成過這些缺陷（皆已修）：
+
+| 不變式 | Flutter 的移植缺口 |
+|---|---|
+| #3 AI 出聲硬鎖 | `onSpeechEnd` 漏掉 hard-mute → 麥克風整段 STT+LLM+TTS 都活著，AI 自己的喇叭回音被當成病患下一句 |
+| #3/#5 | `onSpeechStart` 無硬鎖 re-assert；`stopActive()` 在 `await _player.stop()` **之後**才捕獲 `_activeStep` → 誤 complete 新 step，VAD 提前解鎖 + 舊 completer 洩漏 |
+| #4 userPaused 獨立閘門 | `pause()` 先送 `pause_recording` 才 mute → flush 的 final chunk 被後端丟棄，病患半句症狀消失、狀態列永久卡「正在辨識」 |
+| #11 kiosk 措辭 | 紅旗中止時 `ref.listen` 讀 build 期快照 → 病患拿到一般感謝頁 + 8 秒自動導回首頁，看不到「告知現場醫護」 |
+
+**改 Flutter 語音碼時額外注意**：`conversationControllerProvider` 必須維持 `autoDispose`
+（否則跨病患 session 污染）；`tts_playback_controller` 目前**無回歸測試**（自己 `new AudioPlayer()`，
+要測得先讓 player 可注入）——那是 #5 唯一沒有防護的地方。
+
 ## 修改流程
 
 1. 讀本清單，找出改動會碰到哪幾條不變式。
