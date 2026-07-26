@@ -6,6 +6,7 @@ import '../../core/i18n/loc.dart';
 import '../../core/router/lng.dart';
 import '../../data/api/complaints_api.dart';
 import '../../data/models/session.dart';
+import '../../shared/widgets/language_action.dart';
 
 // Port of SelectComplaintPage.tsx (core flow). Multi-select chief complaints (first =
 // primary), optional free-text; 'Other' sentinel requires free text. Builds the
@@ -129,7 +130,10 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('intake.selectComplaint.title'))),
+      appBar: AppBar(
+        title: Text(t('intake.selectComplaint.title')),
+        actions: const [LanguageAction()],
+      ),
       body: _loading
           ? Center(child: Text(t('intake.selectComplaint.loading')))
           : Column(

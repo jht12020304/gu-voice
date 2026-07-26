@@ -10,6 +10,7 @@ import '../../data/models/session.dart';
 import '../../shared/format.dart';
 import '../../shared/widgets/status_badge.dart';
 import '../auth/auth_notifier.dart';
+import '../../shared/widgets/language_action.dart';
 
 // Port of PatientHistoryPage.tsx: patient-scoped list (limit 50) with client-side status
 // filter tabs (all/completed/in_progress/cancelled). No pagination. Subtitle count = total,
@@ -54,7 +55,10 @@ class _PatientHistoryPageState extends ConsumerState<PatientHistoryPage> {
   Widget build(BuildContext context) {
     final filtered = _filter == 'all' ? _sessions : _sessions.where((s) => s.status == _filter).toList();
     return Scaffold(
-      appBar: AppBar(title: Text(t('common.patientLayout.history'))),
+      appBar: AppBar(
+        title: Text(t('common.patientLayout.history')),
+        actions: const [LanguageAction()],
+      ),
       body: Column(
         children: [
           Padding(
