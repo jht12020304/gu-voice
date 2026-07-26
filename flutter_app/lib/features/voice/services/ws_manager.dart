@@ -13,6 +13,28 @@ typedef TokenProvider = String? Function();
 typedef ResumeTokenProvider = Future<String?> Function();
 typedef AuthFailureHandler = Future<bool> Function();
 
+/// Exponential backoff for reconnects, extracted so the sequence is testable.
+///
+/// Doubling comes from `1 << retryCount`, so an off-by-one there either hammers the
+/// backend (starting at 0ms) or overshoots; a missing clamp lets the delay grow past
+/// `maxMs` until reconnects effectively never happen. Both fail silently in production.
+int wsRetryDelayMs({
+  required int retryCount,
+  required int initialMs,
+  required int maxMs,
+}) {
+  if (retryCount < 0) return initialMs;
+  // Guard the shift: 1 << 63 overflows to a negative int, which clamp() would then
+  // return as `maxMs`… only after the multiplication already went negative.
+  if (retryCount >= 31) return maxMs;
+  return (initialMs * (1 << retryCount)).clamp(0, maxMs);
+}
+
+/// Close codes we must NOT retry on (e.g. 4003 forbidden_role — retrying just spams a
+/// rejection forever). A null code means the socket dropped without one → retry.
+bool isPermanentCloseCode(int? code, Set<int> permanentCodes) =>
+    code != null && permanentCodes.contains(code);
+
 enum WsConnState { connecting, open, reconnecting, closed }
 
 const _wsAuthFailureCloseCode = 4001;
@@ -166,7 +188,7 @@ class WebSocketManager {
     }
 
     // Permanent auth-domain failure (e.g. dashboard 4003 forbidden_role): do not reconnect.
-    if (code != null && permanentCloseCodes.contains(code)) {
+    if (isPermanentCloseCode(code, permanentCloseCodes)) {
       _setState(WsConnState.closed);
       _emit('_auth_exhausted', {'code': code});
       return;
@@ -193,7 +215,11 @@ class WebSocketManager {
       _emit('_max_retries', {});
       return;
     }
-    final delay = (initialRetryDelayMs * (1 << _retryCount)).clamp(0, maxRetryDelayMs);
+    final delay = wsRetryDelayMs(
+      retryCount: _retryCount,
+      initialMs: initialRetryDelayMs,
+      maxMs: maxRetryDelayMs,
+    );
     _retryCount++;
     _setState(WsConnState.reconnecting);
     _emit('_reconnecting', {'attempt': _retryCount, 'delay': delay});

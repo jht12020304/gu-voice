@@ -160,6 +160,18 @@ class ConversationController extends Notifier<ConversationState> {
         onChunk: (b64, idx) =>
             _ws.send('audio_chunk', {'audioData': b64, 'chunkIndex': idx, 'isFinal': false}),
         onSpeechStart: () {
+          // Re-assert the lock. A segment opening while any gate is set means the mute
+          // leaked (the gates ARE "the mic must not be open"): `userPaused` is an
+          // independent gate no automatic flow may lift (invariant #4), and the two
+          // pending-unmute flags mean the AI still owns the turn (invariant #3).
+          // Soft mute is excluded so a deliberate barge-in still gets through — that
+          // path is currently dormant because AI turns hard-mute.
+          final softMuteBargeIn = _audio.muteMode == MuteMode.soft;
+          if (!softMuteBargeIn &&
+              (state.userPaused || _pendingAiUnmute || _pendingReplayUnmute)) {
+            _muteVad();
+            return;
+          }
           state = state.copyWith(isRecording: true, noSpeechHint: false);
           if (state.isAIResponding) _bargeIn(); // only reachable in soft-mute mode
         },
@@ -356,15 +368,30 @@ class ConversationController extends Notifier<ConversationState> {
   // ---- user controls ----
 
   void pause() {
-    state = state.copyWith(userPaused: true);
-    _ws.send('control', {'action': 'pause_recording'});
+    // Order is load-bearing. `_muteVad()` hard-mutes, and hard-muting an OPEN segment
+    // calls `_endSegment(notify: true)` → `onSpeechEnd` → the final `audio_chunk`.
+    // Sending `pause_recording` first meant that flush arrived after the backend had
+    // already paused, so it was discarded: the patient lost the half sentence they were
+    // mid-way through, and `sttProcessing` stayed true forever because no STT result was
+    // ever coming — the status bar sat on "正在辨識" for the rest of the session (TODO G-medium).
     _muteVad();
+    _ws.send('control', {'action': 'pause_recording'});
+    state = state.copyWith(userPaused: true);
   }
 
   void resume() {
     state = state.copyWith(userPaused: false);
     _ws.send('control', {'action': 'resume_recording'});
     _unmuteIfAllowed(VadResumeTrigger.userResume);
+  }
+
+  /// "我說完了" — end the current utterance now instead of waiting out the 2s silence
+  /// window. The translation (`voiceControl.finishSpeaking`) and
+  /// `AudioStreamService.forceEndSegment()` both already existed; nothing called them,
+  /// so every turn cost the patient a needless 2s wait (TODO G-medium).
+  void finishSpeaking() {
+    if (state.userPaused || !state.isRecording) return;
+    _audio.forceEndSegment();
   }
 
   void endSession() => _ws.send('control', {'action': 'end_session'});
@@ -374,6 +401,13 @@ class ConversationController extends Notifier<ConversationState> {
   void sendText(String text) {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
+    // Offline: `_ws.send` drops silently, so the bubble appeared as if it had been sent
+    // while the backend never saw it — meaning the text also never went through red-flag
+    // screening. Fail loudly instead of showing a fake bubble (TODO G-medium).
+    if (_ws.connectionState != WsConnState.open) {
+      state = state.copyWith(error: t('conversation.input.sendOffline'));
+      return;
+    }
     _addMessage(ChatMessage(
       id: _uuid.v4(),
       sessionId: state.session?.id ?? '',
