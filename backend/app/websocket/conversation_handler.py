@@ -588,6 +588,9 @@ async def conversation_websocket(
                         code="events.session.ended_by_user",
                         params={},
                         severity="info",
+                        # 少了 status，病患端的 session_status handler 認不出這是終態，
+                        # 按「結束問診」畫面不會有反應。其他終態路徑都有帶（見 extra 的用途說明）。
+                        extra={"status": "completed", "previousStatus": "in_progress"},
                     )
                     await manager.broadcast_localized_dashboard(
                         msg_type="session_status_changed",

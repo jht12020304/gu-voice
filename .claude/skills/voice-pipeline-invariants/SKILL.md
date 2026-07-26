@@ -41,6 +41,7 @@ description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§
 15. 紅旗/場次狀態 dashboard 事件必走 `broadcast_dashboard_event`（Redis 橋接）：生產 4 個 uvicorn 行程，退回 in-memory `broadcast_dashboard` 會讓 3/4 醫師收不到即時紅旗。
 16. 場次狀態機單一權威（2026-07-19）：合法轉移只定義在 `app/core/session_state.py`（`VALID_TRANSITIONS`/`is_valid_transition`），REST 與 WS 共用。改轉移規則只改這一處；WS `_update_session_status` 送 DB 前先過 `is_valid_transition(..., allow_noop=True)`（放行 resume 自轉移），不得繞過。
 17. 自動結束政策與紅旗去重已抽到 `app/pipelines/conclusion_policy.py` 與 `app/pipelines/alert_dedup.py`——**這兩個新模組仍是問診保護區**，改動視同改管線、要 e2e。conversation_handler 以底線別名 re-import，不得把邏輯改回 inline。
+18. **終態的 `session_status` 必須帶 `status`**：`send_localized_to_session` 的 canonical code 只夠拿來顯示文字，前端是靠 `extra` 裡的 `status` 才認得出「這場結束了」而導向感謝頁。`end_session` 曾漏填 → 後端場次 completed、SOAP 也生成了，但病患畫面停在對話頁、按鈕像壞掉（2026-07-27 由 Flutter 真跑抓到）。新增任何終態路徑都要帶。**對稱地，前端不得在送出 `end_session` 後本地搶先設 `completed`**：導頁會讓 autoDispose 拆掉 controller、`_ws.disconnect()` 早於指令送達，整場丟失。
 
 ## ⚠️ 這些不變式現在有兩份實作
 
@@ -55,15 +56,27 @@ description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§
 | #4 userPaused 獨立閘門 | `pause()` 先送 `pause_recording` 才 mute → flush 的 final chunk 被後端丟棄，病患半句症狀消失、狀態列永久卡「正在辨識」 |
 | #11 kiosk 措辭 | 紅旗中止時 `ref.listen` 讀 build 期快照 → 病患拿到一般感謝頁 + 8 秒自動導回首頁，看不到「告知現場醫護」 |
 
-⚠️⚠️ **Flutter 版的語音行為從未被真的跑過一次**（2026-07-27 盤點，見 `docs/TODO.md` §V1）。
-上表那四條修法全部只有單元測試與讀碼推論撐著——**沒有任何一次真的對麥克風講過話**。
-所以在 Flutter 這邊「測試綠了」的證據強度遠低於 React 版（後者有真 OpenAI e2e 與生產使用）。
-動 Flutter 語音碼後，除了跑 `flutter test`，請在 simulator 上實際走一輪
-（iOS Simulator 可用 Mac 的麥克風，不必實機）。
+⚠️⚠️ **Flutter 版的麥克風路徑仍未被真的跑過一次**（見 `docs/TODO.md` §V1）。
+2026-07-27 用**文字代替語音**跑完了病患全流程（`integration_test/patient_text_flow_test.dart`，
+真 OpenAI，normal → `completed`＋SOAP、redflag → `aborted_red_flag`，見 §V2），
+所以 WS handshake、AI 追問、紅旗中止、#11 感謝頁變體、#12 SOAP 固定 zh-TW 都有實測了。
+**但文字輸入繞過 VAD**——上表 #3／#4／#5 那三條（`onSpeechEnd` hard-mute、`pause()` 順序、
+`onSpeechStart` re-assert）依然只有單元測試與讀碼推論撐著，**沒有一次真的對麥克風講過話**。
+動 Flutter 語音碼後，除了跑 `flutter test`：
+- 動到 VAD／靜音／TTS chain → 必須在 simulator 上真的講一輪（iOS Simulator 可用 Mac 麥克風）
+- 動到 WS 協議／結束流程／紅旗 → 跑 `patient_text_flow_test.dart` 兩個情境就夠
+
+⚠️ 跑 integration test 前一定要 `xcrun simctl privacy <udid> grant microphone com.guvoice.guVoice`
+（`flutter test` 每次重裝都會重置 TCC）。沒授權時 `start()` 卡在 `await openMic()`，
+`_ws.connect` 排在它後面 → 症狀是 WS 停在 `connecting`，很容易誤判成 WS 壞掉。
 
 **改 Flutter 語音碼時額外注意**：`conversationControllerProvider` 必須維持 `autoDispose`
 （否則跨病患 session 污染）；`tts_playback_controller` 目前**無回歸測試**（自己 `new AudioPlayer()`，
 要測得先讓 player 可注入）——那是 #5 唯一沒有防護的地方。
+
+**離開對話頁的清理是保護區**：在飛的 mic frame 與 `_ws.disconnect()` 自己發出的
+`_statechange` 都晚於 provider dispose 抵達，任何在回呼裡寫 `state` 的路徑都必須先過
+`_disposed` 閘門（WS 回呼統一走 `_wsOn`），否則病患每問診完一次就 `UnmountedRefException`。
 
 ## 修改流程
 
