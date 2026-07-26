@@ -1,5 +1,12 @@
 # 泌尿科 AI 語音問診助手 — 系統架構設計
 
+> **前端有兩份，本文件描述的是生產在跑的 React `frontend/`。**
+> `flutter_app/`（Flutter 單一碼庫，web+iOS+Android）是要取代它的實作，已入 `main` 但
+> **未上生產、沒有部署管道**。本文件所有前端不變式（尤其 §2.2.1 的語音管線）
+> Flutter 版都適用且已逐字 port——**兩邊要一起顧**；移植缺口清單見
+> [TODO.md](TODO.md) §G。Flutter 專屬慣例（`_lngKeyed` 包路由、
+> `conversationControllerProvider` 必須 autoDispose）見 [../flutter_app/README.md](../flutter_app/README.md)。
+
 ## 1. 產品概述
 
 一款以語音對話為核心的泌尿科 AI 問診助手，協助醫師在門診前或門診中，透過 LLM 與病患進行結構化問診，自動產出 SOAP 報告、建議檢查項目及臨床推論，並於急性症狀出現時即時發出紅旗警示。

@@ -4,9 +4,15 @@
 > 完成一項就把 `[ ]` 改成 `[x]`，並在後面加上完成日期與 commit hash。
 >
 > 最後更新：2026-07-26。P0–P2、§E E1–E9、§F F1–F7 全部完成並部署生產。
-> 本次變動：Flutter 遷移使 P3 的 #22／#24／#32 作廢（理由見各條）、#23／#27 縮成單行工程項；
-> 新增 §G＝flutter_app 基線入庫審查的 2 blocker + 11 high。
-> 未結案：§G 全部、E10 譯名母語覆核、F8 隱藏主訴開放與 E7 翻案（臨床拍板）、#23、#27。
+> 本輪變動：
+> - 部署不變式更正——**merge 到 main 不會上線**，要手動 `railway up` / `vercel --prod`（見 deployment_guide.md 一、）
+> - #2 假記載更正（celery worker/beat service 不存在，改跑在主 API 容器內）
+> - Flutter 遷移使 P3 的 #22／#24／#32 作廢、#23／#27 縮成單行工程項
+> - 新增 §G（flutter_app 入庫審查：2 blocker 已修 + 11 high + 22 medium）
+> - 新增 §H（H1 忘記密碼路徑已結案／H2 儀表板 monthLabel 硬寫中文）
+> - E10 底下工程項拆成 E11／E12，讓 E10 純粹等母語臨床覆核
+>
+> 未結案：§G 的 11 high + 22 medium、H2、E10（等人）、E11／E12、F8（等臨床）、#23、#27。
 
 ---
 
