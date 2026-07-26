@@ -539,8 +539,8 @@
 > 入庫判定 GO 且已入庫（`feat/flutter-app-baseline`）：analyze 0 issue、test 17/17、零 secret、
 > `build/` 與 `.dart_tool/` 已正確排除。以下是入庫後要修的。
 > **動任何 voice/ 下的檔案前先讀 `voice-pipeline-invariants` skill**——G1/G3/G4/G14/G15 都是它列管的行為。
-> 2026-07-26：2 blocker（G1/G2）+ **11 條 high 全部**（G3–G13）+ **15 條 medium**（G14–G28）
-> + **4 條 medium**（G25–G28）已修並附回歸測試；**剩 7 medium**（清單見 §G29–G35）。
+> 2026-07-26：2 blocker（G1/G2）+ **11 條 high 全部**（G3–G13）+ **21 條 medium**（G14–G34）
+> + **10 條 medium**（G25–G34）已修並附回歸測試；**剩 2 medium**（G35，皆有外部依賴）。
 
 ### [x] G1. 🔴 紅旗中止導向錯頁（病患拿不到「告知現場醫護」）— 2026-07-26 修復
 
@@ -666,14 +666,33 @@ autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，�
 | G27 | web 的 SOAP PDF 匯出走 share_plus → `navigator.share(files)`，**桌面瀏覽器多不支援**、直接拋，呼叫端 catch 掉 → 醫師按了什麼都沒發生 | web 改走 blob URL + anchor download（conditional import，native 仍走 share sheet）。新增 `package:web` 依賴 |
 | G28 | `canGenerate = completed && !_hasReport`——只看報告**存在與否**，所以 `failed` 的報告也讓按鈕消失＝**死局**，那場問診永遠拿不到報告 | 改存報告 `status`；抽出純函式 `canGenerateSoapReport`：`failed` 可重跑、`generating` 不給按鈕（避免重複派工）但顯示進行中提示、`generated` 才給「查看報告」 |
 
-### [ ] G29–G35. 🟢 medium 剩 7 筆
+### [x] G29–G34. /research 投稿要件 ＋ SOAP 逐字稿 ＋ 切語言入口 — 2026-07-26 修復（PR #44）
 
-- **紅旗與中止無語音播報**（flutter_tts 依賴，**且是否為必要告知層待臨床拍板**——見 §G14 之外的 clinical 項）
-- **切語言無進行中場次守衛**：缺後端 `POST /sessions/{id}/end-for-language-switch`，會留下 in_progress 場次
-- **切語言入口只在 4 頁**（醫師端已由 G24 的 DoctorSettingsPage 補上 LanguageBar，剩病患其他頁）
-- **SOAP 頁無逐字稿分頁**：醫師無法邊看報告邊比對原文就核准
-- **/research 投稿要件 4 項**：各語言子群表格、Methods 對照卡、每張圖的 caption/footnote/n=、
-  圖片匯出（i18n key 全已入庫未用；web 版是 SVG 下載，Flutter 需 RepaintBoundary→PNG）
+- **G29 每張圖的 caption + footnote**：`_figure()` 加 `caption`/`footnote`。footnote 帶的是**分母**，
+  正是 SAMPL 要求、也是讀者判斷比例所必需的。`<section>.subtitle`／`.footnote` 早已在 5 語系檔裡未用
+- **G30 各語言子群 DataTable**（`table.*`，早已入庫未用）：森林圖背後的完整數字，審稿者要核對用。
+  寬表用水平捲動而非壓縮欄寬
+- **G31 Methods 對照卡**（`methods.*`，早已入庫未用）：DECIDE-AI／AMIE／triage 文獻／PDQI-9／
+  統計規範＋免責聲明，投稿寫 Methods 時直接對照
+- **G32 圖片匯出**：`RepaintBoundary` → PNG(3x) → `sharePngBytes`（web 走 anchor download）。
+  **刻意不是 SVG**：web 版序列化 inline SVG，Flutter 這邊沒有對等物，要真向量得把每張圖重畫進
+  SVG writer。PNG 3x 對審閱足夠。只截圖表本身、不含工具列
+- **G33 SOAP 逐字稿分頁**（`soap.tabs.*`，早已入庫未用）：醫師可邊看報告邊比對病患原話再核准。
+  逐字稿載入失敗**不致命**——報告才是這頁的重點，不可因此整頁空白
+- **G34 切語言入口**：新 `LanguageAction`（AppBar 用的精簡 popup），加到 select-complaint／
+  medical-info／history／forgot-password／reset-password。**⚠️ 刻意不加到 `/conversation`**：
+  問診中切語言需要下面那條還沒做的後端守衛，加了會留下 in_progress 孤兒場次
+
+⚠️ 實作時踩到與 G11 同一類的坑：`LanguageAction` 原本在 build 期呼叫 `GoRouterState.of(context)`，
+導致沒有 router 祖先的 widget test 直接拋。改成**在 tap 那一刻才讀** router state——
+「router state 只在需要它的地方讀」這條教訓這輪出現第三次了。
+
+### [ ] G35. 🟢 medium 剩 2 筆（都有外部依賴，非前端可自足）
+
+- **紅旗與中止無語音播報**：需要 flutter_tts 依賴，**且「是否為必要告知層」待臨床拍板**
+  （修完 G1 後文字告知已恢復，語音是第三層冗餘）
+- **切語言無進行中場次守衛**：缺後端 `POST /sessions/{id}/end-for-language-switch`，
+  否則切語言會留下 in_progress 孤兒場次。這也是 G34 不把入口加到 `/conversation` 的原因
 
 紅旗與中止無語音播報（flutter_tts，**且是否為必要告知層待臨床拍板**）、切語言無進行中場次守衛
 （缺後端 `POST /sessions/{id}/end-for-language-switch`）、切語言入口只在 4 頁、

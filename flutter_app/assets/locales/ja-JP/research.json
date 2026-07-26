@@ -8,7 +8,9 @@
     "empty": "データがまだありません",
     "autoUpdate": "問診が終了するたびに自動更新",
     "updatedAt": "更新",
-    "minutesShort": "分"
+    "minutesShort": "分",
+    "exportPng": "PNG を書き出し",
+    "exportFailed": "書き出しに失敗しました"
   },
   "fig": {
     "one": "Figure 1",

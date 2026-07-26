@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/i18n/loc.dart';
 import '../../core/router/lng.dart';
 import '../../data/api/auth_api.dart';
+import '../../shared/widgets/language_action.dart';
 
 // Port of ForgotPasswordPage.tsx — request a reset link (uniform response).
 class ForgotPasswordPage extends StatefulWidget {
@@ -42,7 +43,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(),
+      appBar: AppBar(actions: const [LanguageAction()]),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),

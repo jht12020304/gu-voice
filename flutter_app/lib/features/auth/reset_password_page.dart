@@ -5,6 +5,7 @@ import '../../core/i18n/loc.dart';
 import '../../core/router/lng.dart';
 import '../../data/api/auth_api.dart';
 import 'password_rules.dart';
+import '../../shared/widgets/language_action.dart';
 
 // Port of ResetPasswordPage.tsx — set a new password via the emailed reset token
 // (deep-linked as /:lng/reset-password?token=...).
@@ -52,7 +53,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(),
+      appBar: AppBar(actions: const [LanguageAction()]),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),

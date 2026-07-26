@@ -8,7 +8,9 @@
     "empty": "尚無資料",
     "autoUpdate": "每場問診結束後自動更新",
     "updatedAt": "更新於",
-    "minutesShort": "分"
+    "minutesShort": "分",
+    "exportPng": "匯出 PNG",
+    "exportFailed": "匯出失敗"
   },
   "fig": {
     "one": "Figure 1",

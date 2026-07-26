@@ -30,6 +30,8 @@ class SoapReportPage extends StatefulWidget {
 class _SoapReportPageState extends State<SoapReportPage> {
   final _reportsApi = ReportsApi();
   SoapReport? _report;
+  List<ConversationTurn> _turns = const [];
+  bool _turnsFailed = false;
   Session? _session;
   bool _sessionLoadFailed = false;
   bool _loading = true;
@@ -46,6 +48,13 @@ class _SoapReportPageState extends State<SoapReportPage> {
     // Report gates the render.
     try {
       final r = await _reportsApi.getReportBySession(widget.sessionId);
+      // Transcript for the second tab. Failure is non-fatal: the report is the point of
+      // this page, so a transcript fetch error must not blank it out.
+      try {
+        _turns = await SessionsApi().getConversations(widget.sessionId);
+      } catch (_) {
+        _turnsFailed = true;
+      }
       if (!mounted) return;
       setState(() { _report = r; _loading = false; _error = r == null; });
     } catch (_) {
@@ -119,9 +128,17 @@ class _SoapReportPageState extends State<SoapReportPage> {
     final isReviewed = r.reviewStatus != 'pending';
     final showReviewBar = !isReviewed && r.status == 'generated';
 
-    return Scaffold(
+    // Two tabs so the reviewing doctor can check the report against the patient's own
+    // words before approving it. `soap.tabs.*` was already translated, unused (TODO §G).
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
       appBar: AppBar(
         title: Text(t('soap.page.title')),
+        bottom: TabBar(tabs: [
+          Tab(text: t('soap.tabs.report')),
+          Tab(text: t('soap.tabs.transcript')),
+        ]),
         actions: [
           IconButton(
             icon: _exporting
@@ -132,21 +149,63 @@ class _SoapReportPageState extends State<SoapReportPage> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _metaHeader(context),
-          _badges(context, r),
-          _redFlagCard(context),
-          const SizedBox(height: 12),
-          _summaryCard(context, r),
-          _icd10Card(context, r),
-          ..._soapSections(context, r),
-          if (r.reviewNotes != null && r.reviewNotes!.isNotEmpty)
-            _card(context, t('soap.reviewNotesCard.title'), Text(r.reviewNotes!)),
-        ],
-      ),
+      body: TabBarView(children: [
+        ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _metaHeader(context),
+            _badges(context, r),
+            _redFlagCard(context),
+            const SizedBox(height: 12),
+            _summaryCard(context, r),
+            _icd10Card(context, r),
+            ..._soapSections(context, r),
+            if (r.reviewNotes != null && r.reviewNotes!.isNotEmpty)
+              _card(context, t('soap.reviewNotesCard.title'), Text(r.reviewNotes!)),
+          ],
+        ),
+        _transcriptTab(context),
+      ]),
       bottomNavigationBar: showReviewBar ? _reviewBar(context) : null,
+      ),
+    );
+  }
+
+  Widget _transcriptTab(BuildContext context) {
+    if (_turnsFailed) {
+      return Center(child: Text(t('session.doctor.detail.loadError')));
+    }
+    if (_turns.isEmpty) {
+      return Center(child: Text(t('session.doctor.detail.conversationsEmpty')));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _turns.length,
+      itemBuilder: (context, i) => _bubble(context, _turns[i]),
+    );
+  }
+
+  /// Same bubble shape as the session detail page (patient right, AI left, system centred).
+  Widget _bubble(BuildContext context, ConversationTurn c) {
+    final isPatient = c.role == 'patient';
+    final isSystem = c.role == 'system';
+    final scheme = Theme.of(context).colorScheme;
+    return Align(
+      alignment: isSystem
+          ? Alignment.center
+          : (isPatient ? Alignment.centerRight : Alignment.centerLeft),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
+        decoration: BoxDecoration(
+          color: isSystem
+              ? scheme.surfaceContainerHighest
+              : (isPatient ? scheme.primaryContainer : scheme.secondaryContainer),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(c.contentText),
+      ),
     );
   }
 

@@ -8,7 +8,9 @@
     "empty": "Chưa có dữ liệu",
     "autoUpdate": "Tự động cập nhật sau mỗi buổi khám hoàn tất",
     "updatedAt": "Cập nhật lúc",
-    "minutesShort": "phút"
+    "minutesShort": "phút",
+    "exportPng": "Xuất PNG",
+    "exportFailed": "Xuất thất bại"
   },
   "fig": {
     "one": "Figure 1",

@@ -8,7 +8,9 @@
     "empty": "No data yet",
     "autoUpdate": "Auto-refreshes after every completed consultation",
     "updatedAt": "Updated at",
-    "minutesShort": "min"
+    "minutesShort": "min",
+    "exportPng": "Export PNG",
+    "exportFailed": "Export failed"
   },
   "fig": {
     "one": "Figure 1",

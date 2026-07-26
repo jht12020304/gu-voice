@@ -8,7 +8,9 @@
     "empty": "아직 데이터가 없습니다",
     "autoUpdate": "문진이 끝날 때마다 자동 갱신",
     "updatedAt": "갱신",
-    "minutesShort": "분"
+    "minutesShort": "분",
+    "exportPng": "PNG 내보내기",
+    "exportFailed": "내보내기 실패"
   },
   "fig": {
     "one": "Figure 1",

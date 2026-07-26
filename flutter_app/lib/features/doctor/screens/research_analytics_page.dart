@@ -1,10 +1,14 @@
 import 'dart:async';
 
 import 'package:fl_chart/fl_chart.dart';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/loc.dart';
+import '../../../shared/png_share.dart';
 import '../../../data/api/research_api.dart';
 import '../../../data/models/research_analytics.dart';
 import '../research/charts.dart' show researchPalette;
@@ -89,31 +93,202 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
           _kpis(context, d),
           const SizedBox(height: 12),
           _table1(context, d),
-          _figure(context, t('research.fig.one'), t('research.cohort.title'), _weeklyTrend(context, d)),
-          _figure(context, t('research.fig.two'), t('research.efficiency.title'), _boxplots(context, d)),
-          _figure(context, t('research.fig.three'), t('research.hpi.title'), _hpiRows(context, d)),
-          _figure(context, t('research.fig.four'), t('research.safety.title'), _safety(context, d)),
+          _figure(context, t('research.fig.one'), t('research.cohort.title'), _weeklyTrend(context, d),
+              caption: t('research.cohort.subtitle'),
+              // The model exposes cohort completion as a Proportion, not the individual
+              // aborted/cancelled counts the web footnote lists, so report what we have:
+              // total + completed. Adding the other two means widening the API payload.
+              footnote: t('research.cohort.footnote', args: {
+                'total': '${d.totalSessions}',
+                'completed': '${d.completion.numerator}',
+                'aborted': '—',
+                'cancelled': '—',
+              })),
+          _figure(context, t('research.fig.two'), t('research.efficiency.title'), _boxplots(context, d),
+              caption: t('research.efficiency.subtitle'),
+              footnote: t('research.efficiency.footnote')),
+          _figure(context, t('research.fig.three'), t('research.hpi.title'), _hpiRows(context, d),
+              caption: t('research.hpi.subtitle'),
+              footnote: t('research.hpi.footnote', args: {'count': '${d.reportsAnalyzed}'})),
+          _figure(context, t('research.fig.four'), t('research.safety.title'), _safety(context, d),
+              caption: t('research.safety.subtitle'),
+              footnote: t('research.safety.footnote')),
           _figure(context, t('research.fig.five'), t('research.safety.urgencyTitle'), _urgencyLayer(context, d)),
-          _figure(context, t('research.fig.six'), t('research.stt.title'), _stt(context, d)),
-          _figure(context, t('research.fig.seven'), t('research.documentation.title'), _documentation(context, d)),
-          _figure(context, t('research.fig.eight'), t('research.forest.title'), _forest(context, d)),
+          _figure(context, t('research.fig.six'), t('research.stt.title'), _stt(context, d),
+              caption: t('research.stt.subtitle'),
+              footnote: t('research.stt.footnote', args: {'count': '${d.turnsWithConfidence}'})),
+          _figure(context, t('research.fig.seven'), t('research.documentation.title'), _documentation(context, d),
+              caption: t('research.documentation.subtitle'),
+              footnote: t('research.documentation.footnote', args: {'count': '${d.reportsAnalyzed}'})),
+          _figure(context, t('research.fig.eight'), t('research.forest.title'), _forest(context, d),
+              caption: t('research.forest.subtitle'),
+              footnote: t('research.forest.footnote')),
+          _byLanguageTable(context, d),
+          _methodsCard(context),
         ],
       ),
     );
   }
 
-  Widget _figure(BuildContext context, String label, String title, Widget child) => Card(
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label.toUpperCase(), style: Theme.of(context).textTheme.labelSmall),
-            Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 12),
-            child,
-          ]),
-        ),
-      );
+  /// A journal-style figure: label, title, **caption**, chart, **footnote**, and a PNG
+  /// export button.
+  ///
+  /// The caption/footnote strings (`<section>.subtitle` / `.footnote`) and the whole
+  /// `table.*` and `methods.*` blocks were already in all five locale files — the page
+  /// simply never rendered them, so what shipped was "the charts" rather than something
+  /// submittable (TODO §G medium). Footnotes carry the denominators, which is exactly what
+  /// SAMPL asks for and what a reader needs to judge a proportion.
+  ///
+  /// Export is PNG via `RepaintBoundary`, not SVG: the React page serialises inline SVG,
+  /// which has no equivalent here. PNG at 3x is adequate for review; true vector output
+  /// would mean re-drawing every chart into an SVG writer.
+  Widget _figure(
+    BuildContext context,
+    String label,
+    String title,
+    Widget child, {
+    String? caption,
+    String? footnote,
+  }) {
+    final key = GlobalKey();
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(label.toUpperCase(), style: Theme.of(context).textTheme.labelSmall),
+                  Text(title,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w700)),
+                  if (caption != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(caption, style: Theme.of(context).textTheme.bodySmall),
+                    ),
+                ]),
+              ),
+              IconButton(
+                tooltip: t('research.page.exportPng'),
+                icon: const Icon(Icons.download),
+                onPressed: () => _exportFigure(key, label),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Only the chart is captured — the export should not include the toolbar.
+          RepaintBoundary(key: key, child: child),
+          if (footnote != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(footnote, style: Theme.of(context).textTheme.bodySmall),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _exportFigure(GlobalKey key, String label) async {
+    try {
+      final boundary = key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) return;
+      final image = await boundary.toImage(pixelRatio: 3);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (bytes == null) return;
+      final safe = label.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_');
+      await sharePngBytes(bytes.buffer.asUint8List(), 'research_$safe.png');
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(t('research.page.exportFailed'))));
+      }
+    }
+  }
+
+  /// Full data table behind the forest plot — the numbers a reviewer needs to check the
+  /// figure. `table.*` was already translated in all five locales, unused.
+  Widget _byLanguageTable(BuildContext context, ResearchAnalytics d) {
+    if (d.byLanguage.isEmpty) return const SizedBox.shrink();
+    String pct(Proportion p) => p.value == null
+        ? '—'
+        : '${(p.value! * 100).toStringAsFixed(1)}%'
+            '${p.ciLow == null ? '' : ' (${(p.ciLow! * 100).toStringAsFixed(1)}–${(p.ciHigh! * 100).toStringAsFixed(1)})'}';
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(t('research.table.title'),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          Text(t('research.table.subtitle'), style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 8),
+          // Wide table: scroll horizontally rather than squeezing columns unreadably.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columns: [
+                DataColumn(label: Text(t('research.table.language'))),
+                DataColumn(label: Text(t('research.table.sessions'))),
+                DataColumn(label: Text(t('research.table.completed'))),
+                DataColumn(label: Text(t('research.table.medianDuration'))),
+                DataColumn(label: Text(t('research.table.meanTurns'))),
+                DataColumn(label: Text(t('research.table.medianConfidence'))),
+                DataColumn(label: Text(t('research.table.redFlagRate'))),
+              ],
+              rows: [
+                for (final l in d.byLanguage)
+                  DataRow(cells: [
+                    DataCell(Text(l.language)),
+                    DataCell(Text('${l.sessions}')),
+                    DataCell(Text('${l.completed}')),
+                    DataCell(Text(l.medianDurationSeconds == null
+                        ? '—'
+                        : (l.medianDurationSeconds! / 60).toStringAsFixed(1))),
+                    DataCell(Text(l.meanPatientTurns?.toStringAsFixed(2) ?? '—')),
+                    DataCell(Text(l.meanSttConfidence?.toStringAsFixed(4) ?? '—')),
+                    DataCell(Text(pct(l.redFlagRate))),
+                  ]),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// Methods crosswalk — which international framework each metric maps to. Needed when
+  /// writing the paper's Methods section; `methods.*` was translated and unused.
+  Widget _methodsCard(BuildContext context) {
+    Widget item(String label, String body) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text('• $label — $body', style: Theme.of(context).textTheme.bodySmall),
+        );
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(t('research.methods.title'),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          Text(t('research.methods.subtitle'), style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 12),
+          item('DECIDE-AI', t('research.methods.decideAi')),
+          item('AMIE (Nature 2025)', t('research.methods.amie')),
+          item(t('research.methods.triageLabel'), t('research.methods.triage')),
+          item('PDQI-9', t('research.methods.pdqi')),
+          item(t('research.methods.statsLabel'), t('research.methods.stats')),
+          const SizedBox(height: 4),
+          Text(t('research.methods.disclaimer'), style: Theme.of(context).textTheme.bodySmall),
+        ]),
+      ),
+    );
+  }
 
   Widget _kpis(BuildContext context, ResearchAnalytics d) {
     final tiles = <(String, String)>[

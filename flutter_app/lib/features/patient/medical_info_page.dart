@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/i18n/loc.dart';
 import '../../core/router/lng.dart';
 import '../../data/api/sessions_api.dart';
+import '../../shared/widgets/language_action.dart';
 
 // Port of MedicalInfoPage.tsx — identity + intake (allergies / medications / past history)
 // then createSession, into the conversation. ponytail: the 2-step wizard chrome (progress
@@ -184,6 +185,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
       appBar: AppBar(
         title: Text(t('intake.medicalInfo.complaintLabel',
             args: {'name': widget.args['complaintName'] ?? t('intake.medicalInfo.complaintUnset')})),
+        actions: const [LanguageAction()],
       ),
       body: AbsorbPointer(
         absorbing: _creating,
