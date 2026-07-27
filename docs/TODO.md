@@ -16,9 +16,16 @@
 > H2（儀表板年月）、G35b（切語言守衛＋不變式 #16 修正）、G36／G37、TTS 測試覆蓋、
 > H4（G36 抓到的兩個 Flutter 缺口）全數完成，**真 OpenAI e2e 兩情境通過**。
 >
+> **2026-07-27 §R 批次（四輪 workflow，54 agent）**：用文字模擬 + 真 OpenAI 把
+> 「intake → 問診判斷 → 紅旗 → SOAP」整條流程走了一遍，修掉 17 項（R1–R17，含 intake
+> 從不進 SOAP、三條「終態卻沒有 SOAP」的路徑、規則層對真人語序 4/5 語漏偵測、
+> §3b 家族史誤判會捏造病歷），4 項未結案（R18–R21）。7 個 commit，見 §R。
+> **§R-lessons 的六條教訓比任何一條個別修復重要，動紅旗／§3b 之前先讀。**
+>
 > 未結案：**§V 五條 Flutter 未驗證項**（V1 是紅字——語音仍未跑過；V2 已於 2026-07-27 用文字代替語音驗畢）、
 > E10（等母語臨床覆核）、F8／G35a（等臨床拍板）、E12（投機 schema，無消費端，不做）、
-> H3（dashboard 其餘硬寫中文標籤）、H5（replay 未 await，推測性未驗證）。
+> H3（dashboard 其餘硬寫中文標籤）、H5（replay 未 await，推測性未驗證）、
+> **§R 四條**（R18 斷言過嚴／R19 第 1 輪重問／R20 收尾後多一輪／R21 政策接受的誤報）。
 
 ---
 
@@ -922,3 +929,254 @@ simulator 目視確認：原本「2026 年 7 月」現在顯示 `7/2026`（跟�
 - 修法二選一：(a) 後端改回傳 `month_key`（`2026-07`）讓前端各自用 `DateFormat.yM(lng)` 格式化
   ——比較對，日期格式本來就該跟隨語系；(b) 後端依 `Accept-Language` 產生標籤（已有
   `resolve_language` 與 `i18n_messages` 機制）
+
+---
+
+## R — 真 OpenAI 全流程驗收與修復（2026-07-27，四輪 workflow／54 agent）
+
+> 起點是一個很單純的要求：**不用語音、全部用文字模擬，用真 OpenAI 把整條問診流程
+> 確認一遍**——選主訴與年齡有沒有進到問答判斷、紅旗偵測、SOAP 報告。
+>
+> 第一輪真跑就發現：流程「跑得完」不代表「是對的」。四個既有 e2e 情境**全部**被
+> 對抗式覆核判 FAILED，而且不是因為跑不動——是因為**斷言驗不到它宣稱驗的東西**。
+>
+> 修復本身經歷三次擺盪（over-trigger → under-trigger → 收斂），每一次都是同一個
+> 根因：拿字串比對做臨床語意判斷、且只往單一方向加測試。§R9 記的那六條教訓
+> 比任何一條個別修復都重要，**動這條管線之前先讀它們**。
+
+**commit**：`ae2b95e` `fb85f41` `3a9e9b4` `949afbb` `7144e85` `4a125e8` `d247388`
+（分支 `fix/e2e-flow-gaps`，從 `test/patient-text-e2e` 開出，未 push）
+**驗收**：backend `3754 passed` 零 xfail、flutter analyze 乾淨、flutter test 76 passed、
+`check_translations.py` OK、frontend build/lint/type-check 全過；
+e2e 六情境 4 場 PASS、2 場掛在下方 R18／R19。
+
+---
+
+### 產品缺陷（已修）
+
+### [x] R1. 🔴 intake 資料永遠進不了 SOAP — `ae2b95e`
+
+`sessions.intake_data` 在整個 backend **只有一個讀者**（`conversation_handler`，餵對話 LLM）。
+Celery SOAP 路徑自己重組 `patient_info`，只放 name/gender/age，所以 `soap_generator`
+的 past_medical_history / medications / allergies / family_history 四個分支在生產路徑是**死碼**。
+
+真跑實證（intake 填高血壓＋第二型糖尿病、aspirin、no_known_allergies、父親膀胱癌）：
+SOAP 的 `family_history` 寫「未提供」——**與 intake 直接矛盾**，而那是血尿主訴 §3b 必記的風險因子。
+
+修法：抽 `app/pipelines/patient_context.py` 當兩條路徑的唯一來源。
+
+### [x] R2. 🟡 `Gender.MALE` enum repr 漏進 prompt — `ae2b95e`
+
+WS 那份把 SQLAlchemy `Gender` enum 原樣 f-string，Python 3.11+ 輸出 `Gender: Gender.MALE`；
+Celery 那份有 `.value` 所以是乾淨的 `male`。同一份資料兩條路徑兩種值。
+⚠️ `Gender` 是 `str, Enum`，`== 'male'` 為 True，**用相等比對抓不到這個 bug**，要比渲染後字串。
+
+### [x] R3. 🔴 三條「終態卻沒有 SOAP」的路徑 — `fb85f41`
+
+1. 遲到 critical 紅旗的 drain 路徑只改 `sessions.status` 與 `_terminated`，不生成 SOAP、
+   不送病患端 `session_status`、不廣播 dashboard——主 abort 分支這四件事都做
+2. 硬上限 inline drain 送 `session_status` 時漏了 `extra={"status": ...}`（與 PR #49 修過的同一類 bug）
+3. 閒置逾時 watchdog 標 completed 卻不派 SOAP
+
+※ 病患直接關瀏覽器 → 60 分鐘後 cancelled、同樣無 SOAP：**未完成場次要不要出報告是產品決策**，刻意不動。
+
+### [x] R4. 🟡 Celery 重試設定是假的 — `ae2b95e`
+
+宣告 `max_retries=2 / default_retry_delay=30`，但 task body 從不呼叫 `self.retry()`、
+也沒設 `autoretry_for` → 任一次 OpenAI 失敗就永久 `failed`。docstring 還寫著「retry ×2」。
+
+### [x] R5. 🔴 病患端收到醫師向的紅旗文字 — `fb85f41` / `4a125e8`
+
+送到病患 WS 的 `red_flag_alert.description` 是醫師向臨床推理，實測含「建議立即急診評估」，
+兩份前端都原樣渲染。第一次修在 render 層（不渲染 description），真跑證明 `suggestedActions`
+照樣送到病患裝置並落庫。**禁字黑名單擋不住 LLM 換句話講**，最後改成後端結構性地不送。
+
+### [x] R6. 🔴 病患端提示對病患說謊 — `fb85f41`
+
+終止提示明說「系統已將…通知現場醫護人員」，但 high/medium 紅旗在 `doctor_id` 為 NULL 的
+kiosk 場次**不會產生任何 notification**（真跑實測 notifications 表 0 筆）。
+
+### [x] R7. 🟡 `conversation_summary` 是死 key — `fb85f41`
+
+`red_flag_detector` 的語意層讀 `session_context["conversation_summary"]`，但全 repo
+**沒有任何地方寫入它**。紅旗兩層都只看本輪單句＋主訴字串，跨輪累積型 critical
+（前輪發燒＋本輪腰痛＝urosepsis）偵測不到。
+
+### [x] R8. 🔴 規則層對真人語序 4/5 語漏偵測 — `3a9e9b4`
+
+規則層用**相鄰複合子字串**比對（`睪丸突然`），但中/日/韓/越的真人語序會在部位詞與修飾詞
+之間插入時間、方位、程度：「我左邊睪丸**兩個小時前**突然劇痛」→ zh/ja/ko/vi 四語 0 命中，
+紅旗全靠 LLM 語意層獨撐。
+
+改成「**部位詞 × 急性/嚴重度詞在同句內共現**」，語序不拘、中間可插字。五個 critical
+紅旗全部覆蓋。`urinary_retention` 另開 `cross_clause`（英文最自然的講法是對比句
+「平常正常，但現在尿不出來」，部位詞落在前一子句）。
+
+### [x] R9. 🔴 §3b 家族史整串當 haystack ＝ **捏造病歷** — `949afbb`
+
+惡性詞與泌尿詞可以來自**不同家人**就判 `answered_yes`：「母親：乳癌、父親：攝護腺肥大」
+→ 判定「有泌尿癌家族史」→ 該風險因子被跳過，**而且 prompt 還叫 LLM 直接採用此資訊寫進病史**
+→ SOAP 會憑空寫出病患沒有的泌尿道癌家族史。
+
+漏問只是漏問；把病患沒有的家族史寫進醫師報告是另一個量級。改成逐筆（per relation）判定。
+
+### [x] R10. 🟡 §3b gating 判「欄位非空」而非「值涵蓋」 — `949afbb`
+
+用藥欄填 amlodipine（沒填 OTC aspirin）→ 抗凝血整項進禁問清單；`medical_history` 只填
+高血壓 → 同時關掉「心血管疾病史」與「糖尿病」。§3b 從硬性安全不變式降級成「信任表單完整度」。
+
+改成三態：明確的「無」→ 不問／值真的涵蓋 → 不問／**值不涵蓋或欄位空白 → 仍必問**。
+判不準一律歸「仍必問」。gating 只吃本次場次 intake，不吃 `patients` 表舊資料
+（回診病患會被幾個月前的紀錄擋住不問用藥）。
+
+### [x] R11. 🔴 血尿主訴在英文下結構上問不完 — `3a9e9b4`
+
+`gross_hematuria_heavy`（critical，會中止問診）的量詞維度混進了**純顏色詞**
+（`bright red` / `bloody` / `真っ赤` / `새빨` / `đỏ tươi` / `尿血`）。heavy 的臨床定義是
+**量與血塊**不是顏色。後果：
+
+```
+英文「bright red blood in my urine」→ critical → 第 2 輪 abort
+中文「整泡尿是紅色的」              → high     → 不中止
+```
+
+同一個臨床情境語言不同結局不同，而**血尿是選單上的主訴 c1**——病患一講出自己的主訴就被
+中止，該問診路徑在英文下永遠跑不完。顏色詞降級到 `gross_hematuria`(high) 並補共現組
+（單詞 trigger 接不到 `blood in **my** urine` 的所有格，直接刪會變成完全漏報）。
+
+### [x] R12. 🔴 SOAP `plan.patient_education` 是病患面卻含鐵律禁字 — `7144e85`
+
+該欄位直接渲染在病患頁（React `PatientSessionDetailPage`、Flutter `patient_session_detail_page`，
+Flutter model 註解就寫 `the patient-facing advice`），但 SOAP prompt 從來沒告訴 LLM 這件事。
+真跑兩場都吐出「立即就醫」。prompt 約束 ＋ 出口消毒兩層都做。
+
+判準是「**有沒有叫病患自行離場**」而不是「有沒有出現某個詞」——「醫師會為您安排急診評估」
+對候診中的病患不違規。
+
+### [x] R13. 🟡 ja/ko/vi 場次的紅旗文字仍是中文 — `4a125e8`
+
+六個 alert 相關 key 只有 zh-TW 與 en-US，`get_message` 缺譯退回 `DEFAULT_LANGUAGE`。
+`title` 因為有 `display_title_by_lang` 而正確，所以**肉眼很容易誤判成已在地化**。
+已補 5 語並加結構性測試（外顯 key 必須 5 語齊全）。⚠️ 譯文待母語臨床者覆核，與 E10 同批。
+
+### [x] R14. 🟡 收尾輪「不得發問」只有 prompt 一層防線 — `fb85f41`
+
+真跑同一份碼會時紅時綠（DB 裡 2026-07-06 就有同型懸空結尾）。ED 場的 `effective_hard_cap`
+正好與收尾輪重合、零餘裕，LLM 那一輪不從病患就 100% 看到懸空問句然後被導走。
+加確定性 backstop：偵測到問句就改送制式收尾語。
+
+---
+
+### 驗收套件缺陷（已修，`d247388`）
+
+> **不修這一組，前面所有修復的「驗收通過」都沒有意義。**
+
+### [x] R15. 🔴 SOAP 輪詢等的是「有 row」不是 `status='generated'`
+
+而那個 row 是場次結束當下就以 GENERATING、內容全空 INSERT 的佔位列。一抓到就 break，
+**必現地在 Celery 完成前拍空快照**——「SOAP 全卡 GENERATING」這個生產真的出過的事故
+在 e2e 上恆 pass。
+
+### [x] R16. 🔴 一批恆真斷言與空跑報 pass
+
+- `soap_reports.language` 比對的是 DB `server_default`
+- `FIELD_HPI_IDS` 是空 tuple，`any(m in ())` 結構上不可能失敗
+- post-abort 提示的 `len(set(...)) == 1` 對 n=1 恆真
+- **前提未觸發卻報 pass**：AI 全場沒問過病史，「不重問病史」的斷言卻綠
+
+加入 `pass / fail / not_applicable / precondition_not_met` 多態，未驗到不算過。
+
+### [x] R17. 🟡 風險因子斷言是寬鬆子字串比對
+
+`"family" in ai_text` 連「family have diabetes」都中；`"smok"` 連 AI 複述病患的話都中。
+改成要求出現在問句裡並排除複述。措辭檢查原本只掃 `red_flag_alert` payload，
+掃不到 SOAP `patient_education`、`suggestedActions` 與 AI 逐字稿，已抽成所有 analyzer 共用。
+
+---
+
+### 未結案
+
+### [ ] R18. 🟢 `i5_no_reask_intake_fields` 斷言過嚴
+
+AI 問「您以前有沒有得過膀胱炎、腎結石，或做過泌尿科方面的手術？」被判成重問 intake，
+但 intake 的 `medical_history` 只有高血壓＋第二型糖尿病——**高血壓不蘊含「沒有泌尿道疾病」**，
+而 `SessionIntake` 根本沒有手術史欄位，AI 非問不可。對血尿主訴問既往泌尿科病史是必要的。
+
+對照：用藥欄有 aspirin 時問「有沒有在吃抗凝血劑」**才是**真重問（R10 已修）。
+修法：收斂成「AI 問的主題被 intake 條目**實際涵蓋**時才算重問」——那是提升精確度不是放水。
+**不要直接放寬讓它變綠**，那正是 §R 這四輪一直在抓的失敗模式。
+
+### [ ] R19. 🟡 第 1 輪無 supervisor guidance 時換句話重問
+
+病患第 1 輪答「不知道」onset，AI 下一句「那症狀是一下子出現的，還是慢慢變明顯的呢？」——
+正是 `llm_conversation.py` 自己 prompt 明文禁止的換句話形式。第 1 輪還沒有 supervisor
+guidance，對話 LLM 只剩靜態 prompt 可依循。
+
+**2026-07-03 原始 baseline 就記載了這一條**（「唯一 FAIL 是第一輪無指導時換句話重問 onset 一次」），
+長期缺陷，非 §R 回歸。修法方向：讓第 1 輪就有 don't-know 訊號，而不是繼續加強 prompt 文案。
+
+### [ ] R20. 🟢 收尾後多跑一輪觸發空回應重試模板
+
+```
+AI    Thank you for sharing all of that. Please wait where you are…   ← 收尾合規
+病患  Thank you.
+AI    Sorry, I had trouble processing your last reply. Could you…?    ← 是個問句
+      wrapup_source = deterministic_template:ws.ai_empty_retry_fallback
+```
+
+收尾之後病患說了聲謝謝，後端仍去跑了一輪、拿到空 AI 回應、觸發重試模板——而那個模板
+是個問句，發給一個剛被告知「請稍候」的病患。**收尾後場次應該就終止不再處理訊息。**
+範圍小，與 §R 改動無關（是新的嚴格斷言把它照出來的）。
+
+### [~] R21. 🟢 政策接受的誤報 — **不是缺陷，不要修**
+
+> **臨床拍板（2026-07-27）：紅旗規則層偏誤報。**
+> 原文：「寧可多中止幾場。誤中止的代價是病患白等、護理師走一趟，可逆。」
+> 漏報不可逆，所以規則層取寬。
+
+據此**刻意保留**的誤報，已從 `xfail` 改寫成**正向政策測試**
+（`test_red_flag_suppression_policy.py`）：
+
+| 輸入 | 行為 |
+|---|---|
+| 「我朋友之前睪丸突然劇痛」／「家族が睾丸の激痛で運ばれた」 | 第三人稱轉述 → 仍觸發 critical |
+| 「고환은 괜찮은데 오늘 아침부터 배가 심하게 아파요」 | 韓文無標點、別部位誤配 → 仍觸發 |
+| `my left leg feels a bit numb, my bladder is fine` | 移除英文 `(部位) is fine` 抑制的代價 → 仍觸發 |
+
+⚠️ `xfail` 的語意是「缺陷、暫時容忍」，會誘導後人去「修好」它而**開出漏報**。
+要改成不觸發，需要臨床重新拍板，**不是工程可以自行決定的**。
+
+---
+
+### R-lessons — 六條載重教訓（動這條管線前先讀）
+
+> 四輪連續三次擺盪，每一次的根因都在這裡。這一節比任何一條個別修復都重要。
+
+1. **不要用字串相鄰比對做臨床語意判斷。**
+   `睪丸痛` 這種裸關鍵字會 over-trigger（`eyeball hurts` 都中）；收成 `睪丸突然`
+   這種相鄰複合詞又會 under-trigger（真人語序中間插字就漏）。往哪邊調都會在另一邊出事。
+   **同句共現**（部位 × 急性）這個結構天生同時解掉兩個方向。
+
+2. **測試表必須雙向對稱。**
+   第一輪只加「必須命中」→ 改出 over-trigger。第二輪只加「不該命中」→ 改出 under-trigger。
+   任何偵測邏輯的改動，`MUST_FIRE` 與 `MUST_NOT_FIRE` 要同時存在，缺一邊就是在替下一次擺盪鋪路。
+
+3. **反例措辭不得與 e2e persona 台詞雷同。**
+   這是最深的一個假象：`torsion_critical_zh` 的台詞「左邊睪丸突然劇烈疼痛」剛好讓
+   `睪丸突然` 相鄰，所以 e2e 全綠——**驗收套件證明的是「這句台詞會命中」，不是
+   「這個臨床情境會命中」**。情境台詞與關鍵字互相配適 ＝ 拿實作配適測試。
+
+4. **每一條抑制守衛都是潛在漏報，舉證責任在保留方。**
+   否定／時態／假設／行政詢問守衛每加一條，就多一個真症狀被抹掉的面。
+   保留任何一條都要能說出「為什麼它不會造成漏報」，說不出來就收窄或移除。
+
+5. **測試的 oracle 不能是實作自己的偵測器。**
+   SOAP 消毒層用自己的 regex 當判準 → 偵測器漏掉的句型測試也一定漏掉，
+   結果是 2804 個 unit test 全綠但 e2e FAIL。用**獨立維護的違規句語料**。
+
+6. **驗收斷言要能區分「驗過」與「前提未觸發」。**
+   空跑報 pass 比沒有這條斷言更糟——它讓人以為驗過了。多態（含
+   `precondition_not_met`）不是形式主義，是唯一能讓「其實沒驗到」現形的方式。
+
+**注入式回歸測試**在這四輪抓到 6 個問題（把修復故意改壞，確認有測試會紅；沒紅就是
+那個修復沒有測試保護）。這招值得變成常規 Gate 步驟。
