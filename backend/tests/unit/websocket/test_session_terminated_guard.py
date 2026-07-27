@@ -92,10 +92,17 @@ def test_second_turn_blocked_after_immediate_critical_abort(monkeypatch):
     assert len(res2.cap.messages_of_type("ai_response_start")) == 1
     assert len(res2.cap.messages_of_type("ai_response_chunk")) == 1
     assert len(res2.cap.messages_of_type("ai_response_end")) == 1
-    expected_text = get_message("ws.session_terminated_aborted_notice", "zh-TW")
+    # BLOCKER #2：harness 的 StubDB 沒有任何在職醫師 → fan-out 建了 0 筆通知，
+    # 所以這裡必須是「只講已標記在紀錄中」的版本，不可宣稱「已通知現場醫護人員」。
+    # （有真的建到通知的版本由 test_red_flag_patient_payload 的
+    #   test_terminated_notice_claims_notified_only_after_real_notification 守。）
+    expected_text = get_message(
+        "ws.session_terminated_aborted_notice_unnotified", "zh-TW"
+    )
     assert res2.cap.chunk_texts() == [expected_text]
     end_payload = res2.cap.messages_of_type("ai_response_end")[0]["payload"]
     assert end_payload["fullText"] == expected_text
+    assert "通知現場醫護人員" not in expected_text
     # 病患訊息內容完全沒被寫進對話歷史（history 只有第 1 輪的內容）。
     assert len(history) == 2  # 第 1 輪：patient + assistant
 
