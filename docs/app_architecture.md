@@ -209,6 +209,30 @@
     `LLM_EMPTY_RESPONSE_RETRY`、`HARD_CAP_DRAIN_AWAIT_SECONDS`、`MAX_HARD_CAP_DRAIN_DEFERS`。
   原始根因與修法計畫見 [`e2e_realopenai_audit_2026-06-28.md`](archive/e2e_realopenai_audit_2026-06-28.md)。
 
+- **§3b 的 intake 感知：三態不是兩態（2026-07-27，TODO §R10／§R9）**。
+  真跑實測：system prompt 明明含 intake 全部四類資料，AI 仍重問已填的抗凝血藥與泌尿癌
+  家族史（病患當場點破「這些我剛剛在表單上都填過了」）。所以把 intake 已知項從**被動陳述**
+  改成**由程式判定的必問／禁問清單**，不再丟給 LLM 自己比對。判定是三態：
+
+  | intake 狀態 | 處置 |
+  |---|---|
+  | 明確的「無」（`no_*` 旗標為 True） | 視為已答＝否，不再問 |
+  | 欄位有值**且該值真的涵蓋這個風險因子**（用藥列表含 aspirin/warfarin…） | 不再問 |
+  | 欄位有值**但不涵蓋**（用藥只有 amlodipine）／欄位空白 | **仍必問** |
+
+  第三態是重點。用藥欄填了別的藥 ≠ 沒有在吃抗凝血劑；`medical_history` 只填高血壓
+  ≠ 沒有糖尿病。**判不準一律歸「仍必問」**——多問一句遠比漏掉抗凝血劑便宜。
+  舊版判「欄位非空即跳過」等於把 §3b 從硬性安全不變式降級成「信任表單完整度」。
+
+  **家族史要逐筆（per relation）判定**：整串當一個 haystack 會讓「母親：乳癌、
+  父親：攝護腺肥大」被判成有泌尿癌家族史（惡性詞與泌尿詞來自不同家人），
+  而 prompt 還叫 LLM 直接採用此資訊寫進病史 → SOAP 憑空寫出病患沒有的泌尿道癌家族史。
+  **漏問只是漏問，把病患沒有的家族史寫進醫師報告是另一個量級。**
+  同理 prompt 現在標明來源為「病患表單自填」而非已確認的臨床事實。
+
+  gating **只吃本次場次的 intake**，不吃 `patients` 表的歷史資料（那可能是幾個月前的）
+  ——否則回診病患會被舊病歷擋住不問用藥。
+
 ---
 
 ### 2.3 紅旗警示機制
@@ -269,9 +293,8 @@
 - **關鍵字比對＝全語言聯集**（頂層 `triggers` ∪ `triggers_by_lang` 全語言、英文 case-insensitive）：
   場次語言只決定「顯示」語言，病患實際用詞可能跨語言混講；醫療關鍵字特異性高，聯集的誤報
   風險遠小於按語言篩選的漏報風險（fail-open）。
-- **已知取捨**：規則層是子字串比對、無否定語意——否定句（「沒有注意到…體重減輕」）可能誤報
-  high（E2E 實測 1 例；僅醫師端 banner、去重與在地化皆正確）。若 critical 級出現否定誤報
-  （誤 abort）的退路：否定詞窗口防護／critical 僅語意層可 abort／kill-switch 退關。
+- ~~**已知取捨**：規則層是子字串比對、無否定語意~~ → **2026-07-27 已取代，見 §2.3.2**。
+  否定守衛（E11）與同句共現（§R）都已上線；子字串比對只剩單詞 trigger 那一路。
 - **title 在地化（E8-4）**：alert 顯示名依場次語言解析（`get_display_title`，fallback
   requested → en-US → zh-TW）；語意層不信任 LLM 原文 title（會逐字複製 prompt 中文範例），
   凡命中 catalogue canonical_id 一律重新解析；DB 管理員自訂規則（canonical 不在 catalogue）
@@ -279,6 +302,49 @@
   title 只是顯示，**不可拿 title 做任何判斷**；abort 判斷依 severity。
 - 8 條紅旗的 ja/ko/vi 譯名經 AI 稽核修 3 筆明確錯誤；8 筆 medium/uncertain 待母語臨床者
   覆核（TODO §E E10 有逐筆建議）。
+
+#### 2.3.2 規則層改用「同句共現」＋偏誤報政策（2026-07-27 — TODO §R）
+
+**問題**：規則層原本是**字串比對**，往哪個方向調都會在另一邊出事。
+
+| 實作方式 | 症狀 |
+|---|---|
+| 裸關鍵字（`睪丸痛`） | over-trigger：`my eyeball hurts` 命中 `ball hurt`；「我想問睪丸痛要看哪一科」也中 |
+| 相鄰複合詞（`睪丸突然`） | under-trigger：真人語序在部位詞與修飾詞之間插入時間／方位（「睪丸**兩個小時前**突然劇痛」）→ zh/ja/ko/vi **四語 0 命中** |
+
+**修法**：`trigger_cooccurrence` —— 部位詞 × 急性／嚴重度詞在**同一子句內共現**且距離在上限內，
+語序不拘、中間可插任意字。距離上限依書寫系統分兩檔（CJK 24 / 拉丁 30，同字元數在 CJK
+代表 2–4 倍語素）。五個 critical 紅旗全部覆蓋；`urinary_retention` 另開 `cross_clause`
+（英文尿滯留最自然的講法是對比句「平常正常，**但**現在尿不出來」，部位詞落在前一子句）。
+單詞 trigger 機制保留不動，兩者並存。
+
+**偏誤報政策（臨床拍板，不是工程決定）**：誤中止＝病患白等、護理師走一趟，可逆；
+漏報不可逆。所以：
+
+- 每一條抑制守衛都是潛在漏報，**舉證責任在保留方**——要留就要能說出它為什麼不會擋到真症狀
+- 政策接受的誤報（第三人稱轉述、韓文無標點別部位、英文 `bladder is fine`）寫在
+  `test_red_flag_suppression_policy.py` 的**正向測試**裡，**不是 xfail**——xfail 的語意是
+  「缺陷、暫時容忍」，會誘導後人修好它而開出漏報
+- **但兩條界線仍要守**：(1) 病患**明確否認**必須被抑制（那是唯一允許抑制的類別）；
+  (2) severity 分級照臨床定義，不得為了保守而升級
+
+**severity 分級的臨床定義**（踩過的坑）：`gross_hematuria_heavy`(critical) 的判準是
+**量與血塊**，不是顏色。曾把 `bright red`／`bloody`／`真っ赤` 收進去 → 英文病患講出
+自己的主訴（血尿＝選單 c1）第 2 輪就被 abort，中文講同一件事只有 high，
+**該問診路徑在英文下結構上永遠跑不完**。顏色詞已降級到 `gross_hematuria`(high) 的
+`urine_x_blood_present` 共現組——降級不是漏報，high 仍發警示、只是不中止。
+（單詞 trigger 接不到 `blood in **my** urine` 的所有格，所以不能直接刪顏色詞，必須補共現組。）
+
+**否定守衛的假朋友**：`_CUE_FALSE_FRIENDS` 按族展開到 180 條。中文的「沒多久／沒過多久／
+沒力氣／沒知覺」是時間敘事或症狀本身，不是否定；英文 `cannot`／`not able`、日文
+`我慢できない`、韓文 `참을 수 없이` 同理。判準用 containment 而非 startswith——
+`cannot` 的 `not ` 在第 3 字元，startswith 對 en/ja/ko **結構上永遠命中不到**。
+這個 bug 五個 critical 紅旗全中過（「喝了水沒多久就完全尿不出來了」規則層 0 命中）。
+
+**測試設計**：`MUST_FIRE` 與 `MUST_NOT_FIRE` 必須雙向對稱，且反例措辭**不得與 e2e persona
+台詞雷同**——`torsion_critical_zh` 的台詞「左邊睪丸突然劇烈疼痛」剛好讓 `睪丸突然` 相鄰，
+讓四語漏偵測撐了三輪沒被發現。驗收套件證明的是「這句台詞會命中」，不是「這個臨床情境
+會命中」。詳見 TODO §R-lessons。
 
 ---
 
@@ -324,6 +390,35 @@
   │  ★ = 系統重點輸出項目                   │
   └──────────────────────────────────────┘
 ```
+
+#### 2.4.1 實作補充與不變式（2026-07-27 — TODO §R）
+
+**intake 資料的來源是單一的**。`sessions.intake_data`（病患在 intake 表單填的既往史／
+用藥／過敏／家族史）過去在整個 backend **只有一個讀者**——WS 那條餵對話 LLM 的路徑。
+Celery SOAP 路徑自己重組 `patient_info`、只放 name/gender/age，所以上圖 S 段的
+「過去病史 / 用藥史」在生產路徑其實是**死碼**（`soap_generator` 有那四個分支，永遠拿不到值）。
+
+實測後果：intake 明載「父親：膀胱癌」，SOAP 的 `family_history` 卻寫「未提供」——
+而那是血尿主訴 §3b 必記的風險因子。現在兩條路徑都走
+`app/pipelines/patient_context.build_patient_info`，**不得在任一端重新組裝**。
+
+**`plan.patient_education` 與 `summary` 是病患面欄位**，直接渲染在
+`frontend/src/screens/patient/PatientSessionDetailPage.tsx` 與
+`flutter_app/lib/features/patient/patient_session_detail_page.dart`。
+因此受 kiosk 措辭鐵律約束（「請稍候等看診」「請告知現場醫護」，禁「立即就醫」），
+prompt 與出口消毒兩層都要有。判準是「**有沒有叫病患自行離場**」而不是「有沒有出現某個詞」
+——「醫師會為您安排急診評估」對候診中的病患不違規。`plan` 的其他欄位是醫師面，不受限制。
+
+**每個終態都要有 SOAP**。會生成 SOAP 的路徑共六條：手動 `end_session`、自動結束、
+critical 紅旗中止、硬上限前遲到 critical、**遲到 critical 的 drain**、**閒置逾時**
+（後兩條原本漏做）。新增任何終態轉移時六件事一起做：改 status、派 SOAP、送病患端
+`session_status`（**要帶 `extra`**）、廣播 dashboard、建醫師通知、設 `_terminated`。
+※ 病患直接關瀏覽器 → 60 分鐘後標 cancelled、無 SOAP，是**產品決策**（未完成場次要不要
+出報告）不是缺陷。
+
+**Celery 重試**：`report_queue` 曾宣告 `max_retries=2` 卻從不呼叫 `self.retry()`、
+也沒設 `autoretry_for`，任一次 OpenAI 失敗就永久 `failed`。現已真的重試，且重試中
+不得先標 FAILED，只有次數用盡才標。
 
 ---
 

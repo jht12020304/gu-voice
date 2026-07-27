@@ -126,7 +126,14 @@ chief_complaint = session_obj.chief_complaint_text
 8. **critical → 終態**：`_update_session_status(aborted_red_flag, red_flag_reason=critical_title)`（`:2096-2103`）+ **SOAP task** + `_terminated`。
 9. **自動結束 → 終態**：`_should_conclude_now()` gate → `_update_session_status(completed)`（compare-and-set）+ **SOAP task** + `_terminated`。
 
-**紅旗偵測雙層** — `backend/app/pipelines/red_flag_detector.py`：規則層 `_rule_based_detect`（`alert_type="rule_based", confidence="rule_hit"`）+ 語意層 `_semantic_detect`（`alert_type="semantic", confidence="semantic_only"`）；`_merge_and_deduplicate` 同 `canonical_id` 併為 `combined`、升級 confidence；語意-only 但該 canonical 在 session 語言無關鍵字覆蓋 → 降級 `uncovered_locale`。
+**紅旗偵測雙層** — `backend/app/pipelines/red_flag_detector.py`：規則層 `_rule_based_detect`（`alert_type="rule_based", confidence="rule_hit"`）+ 語意層 `_semantic_detect`（`alert_type="semantic", confidence="semantic_only"`）；`_merge_and_deduplicate` 同 `canonical_id` 併為 `combined`、升級 confidence（**含 `llm_analysis`／`trigger_keywords` 這兩個層別專屬欄位**，2026-07-27 前不搬導致 DB 兩欄恆 NULL）；語意-only 但該 canonical 在 session 語言無關鍵字覆蓋 → 降級 `uncovered_locale`。
+
+規則層有**兩條**命中路徑（2026-07-27 起，TODO §R8）：單詞 trigger 比對，以及
+`trigger_cooccurrence`——部位詞 × 急性／嚴重度詞在同一子句內共現且距離在上限內。
+後者是為了接住真人語序（「睪丸**兩個小時前**突然劇痛」中間插字，相鄰比對會 0 命中）。
+五個 critical 全覆蓋，`urinary_retention` 另開 `cross_clause`（英文對比句部位詞在前一子句）。
+規則層偏誤報是臨床拍板，抑制守衛的舉證責任在保留方——見 `docs/app_architecture.md` §2.3.2。
+⚠️ 判斷規則層有沒有真的參與，看 `red_flag_alerts.confidence` 是不是 `semantic_only`。
 
 **SOAP 生成** — `_generate_soap_report_async()`（`:2308-2450`）：冪等（存在檢查 + 預插重查 + DB `UNIQUE(session_id)`）；`resolve_symptom_id()` 供 ICD-10 驗證（Other-sentinel/缺主訴回 None）；INSERT **`soap_reports`**（`status=GENERATED, review_status=PENDING, subjective/objective/assessment/plan, icd10_codes, icd10_verified, language, ai_confidence_score, raw_transcript, generated_at`）+ INSERT **`soap_report_revisions`** INITIAL 快照 + `notify_report_ready`。**此主流程路徑不 publish `report_generated`**（見缺口 4）。
 
