@@ -122,8 +122,11 @@ def test_supervisor_guidance_section_no_unconditional_priority():
 def test_every_key_has_every_active_locale(key: str):
     """每個 key 都必須涵蓋 ACTIVE_LANGUAGES 的所有 locale，避免缺譯。
 
-    Beta locale（ja-JP / ko-KR / vi-VN）為 best-effort — 允許缺譯並 fallback
-    至 DEFAULT_LANGUAGE，待 add_new_language.md runbook 跑完補齊。
+    ⚠️ 這條現在是 `test_i18n_message_locale_parity.py` 的真子集：那支把門檻拉到
+    SUPPORTED_LANGUAGES（5 語全含 ja-JP / ko-KR / vi-VN），並額外檢查
+    placeholder 一致性與「值是不是真的該語言」。**新增 key 時 5 語都要填**，
+    beta locale 不再允許缺譯 fallback；真的要例外請走那支的
+    PARTIAL_LOCALE_ALLOWLIST（必須寫理由）。
     """
     entry = MESSAGES[key]
     for locale in settings.ACTIVE_LANGUAGES:

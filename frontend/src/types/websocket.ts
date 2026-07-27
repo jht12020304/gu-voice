@@ -83,12 +83,29 @@ export interface AIResponseEndPayload {
   ttsAudioUrl: string;
 }
 
+/**
+ * 病患端 red_flag_alert payload。
+ *
+ * ⚠️ 刻意**不含** `description` / `suggestedActions`：那兩個欄位是 LLM 自由生成的
+ * 醫師向臨床內容（真跑實測 suggestedActions 出現過「立即安排急診評估」），違反
+ * 院內候診 kiosk 的措辭鐵律。後端自 2026-07-27 起在
+ * `conversation_handler._persist_and_emit_alert` 就**根本不送**給病患端；醫師端
+ * （dashboard 廣播）與 DB 仍保留完整內容，資訊沒有變少。
+ *
+ * 型別要與實際 payload 一致——先前宣告這兩欄為必填，型別在說謊，會誘導下一個人
+ * 「既然型別有就讀來用」而把醫師向文字弄回病患畫面。
+ */
 export interface RedFlagAlertPayload {
   alertId: string;
   severity: 'critical' | 'high' | 'medium';
   title: string;
-  description: string;
-  suggestedActions: string[];
+  /**
+   * 後端依「這則紅旗有沒有真的建立醫師通知」二選一的在地化病患指引
+   * （ws.red_flag_patient_notice_notified / _flagged）。前端不得自行拼裝這句話：
+   * 有沒有通知到醫師只有後端知道，前端自己講就會對病患說謊。
+   * 舊後端不送此欄，故為 optional；缺席時前端退回保守版的本地 fallback。
+   */
+  patientNotice?: string;
 }
 
 /**

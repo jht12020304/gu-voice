@@ -318,15 +318,17 @@ class ConversationController extends Notifier<ConversationState> {
   }
 
   void _onRedFlag(Map p) {
-    final actions = p['suggestedActions'];
+    // 結構性防線：payload 的醫師向欄位（description / suggestedActions）一個都不
+    // 讀進 state。後端已不送，但這裡不讀才是不變式——就算日後後端又送回來，
+    // 病患端也拿不到。與 React ConversationPage 的 ingest 行為一致。
+    final notice = p['patientNotice'];
     state = state.copyWith(redFlags: [
       ...state.redFlags,
       RedFlagEvent(
         id: (p['alertId'] ?? _uuid.v4()) as String,
         title: (p['title'] ?? '') as String,
-        description: p['description'] as String?,
         severity: (p['severity'] ?? 'medium') as String,
-        suggestedActions: actions is List ? actions.cast<String>() : const [],
+        patientNotice: notice is String && notice.trim().isNotEmpty ? notice.trim() : null,
       ),
     ]);
     // ponytail: critical red-flag spoken alert (flutter_tts) deferred — the banner + the

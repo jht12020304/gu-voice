@@ -7,6 +7,7 @@ import '../../../core/router/lng.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/sessions_api.dart';
 import '../../../data/models/session.dart';
+import '../models/chat_message.dart';
 import '../services/ws_manager.dart';
 import '../state/conversation_controller.dart';
 import '../state/settings_notifier.dart';
@@ -136,6 +137,18 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     );
   }
 
+  /// 顯示中的紅旗共用的後端病患指引；不一致或任一則缺少時回 null（→ 用本地
+  /// 保守版 fallback）。不一致時不能挑其中一則：那會對另一則的狀態說謊。
+  static String? _sharedPatientNotice(List<RedFlagEvent> shown) {
+    if (shown.isEmpty) return null;
+    final first = shown.first.patientNotice;
+    if (first == null || first.isEmpty) return null;
+    for (final f in shown) {
+      if (f.patientNotice != first) return null;
+    }
+    return first;
+  }
+
   Widget _redFlagBanner(BuildContext context, ConversationState s) {
     final tk = Theme.of(context).extension<AppTokens>()!;
     const rank = {'critical': 0, 'high': 1, 'medium': 2};
@@ -160,11 +173,22 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               Icon(Icons.warning_amber_rounded, color: sev(f.severity), size: 20),
               const SizedBox(width: 8),
               Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(f.title, style: TextStyle(color: sev(f.severity), fontWeight: FontWeight.w600)),
-                  if (f.description != null && f.description!.isNotEmpty)
-                    Text(f.description!, style: TextStyle(color: sev(f.severity), fontSize: 13)),
-                ]),
+                // 病患橫幅只呈現「症狀名（title，後端依場次語言解析）」＋下方固定的
+                // kiosk 指引。醫師向欄位（description / suggestedActions）一律不渲染：
+                // 實測 description 是臨床推理文字（含鑑別診斷、「建議立即急診評估」），
+                // suggestedActions 是醫囑處置（「立即安排急診評估」），對已坐在候診區
+                // 的病患既看不懂又造成恐慌，且違反 kiosk 措辭鐵律。
+                // 與 React ConversationPage.tsx 的紅旗橫幅行為一致。
+                //
+                // 2026-07-27 Gate：結構性防線已補齊——RedFlagEvent 型別不再有
+                // description / suggestedActions，conversation_controller._onRedFlag
+                // 也不 ingest，所以 store 裡根本沒有值可印（與 React 同構）。
+                // title 為空（後端解析不到 canonical 顯示名）時退回中性的在地化說法，
+                // 否則橫幅只剩一個驚嘆號圖示，病患不知道發生什麼事。
+                child: Text(
+                  f.title.trim().isEmpty ? t('conversation.redFlag.generic') : f.title,
+                  style: TextStyle(color: sev(f.severity), fontWeight: FontWeight.w600),
+                ),
               ),
               if (!f.isAcknowledged)
                 TextButton(
@@ -177,6 +201,22 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
           ),
         if (overflow > 0)
           Text(t('conversation.redFlag.more', args: {'count': overflow}), style: TextStyle(color: tk.alertCritical, fontSize: 12)),
+        // 病患面唯一的行動指引：院內候診 kiosk，病患已在現場 →「原處稍候、
+        // 告知現場醫護」，不得出現「盡速就醫／立即急診」這類含糊指引。
+        //
+        // 優先用後端下發的 patientNotice：只有後端知道這則紅旗有沒有**真的**建立
+        // 醫師通知（未指派場次要 fan-out 給在職醫師，可能 0 位或寫入失敗），
+        // 前端自己拼就會對病患說謊。只有在所有顯示中的紅旗 notice 完全一致時才
+        // 當共用結尾，否則退回本地保守版 fallback（＝後端 _flagged 的同一句話，
+        // 由 test/red_flag_banner_wording_test.dart 逐字釘住）。
+        // 退回方向是 under-claim（少宣稱一層），不會說謊。
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            _sharedPatientNotice(shown) ?? t('conversation.redFlag.patientNotice'),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
+          ),
+        ),
       ]),
     );
   }
