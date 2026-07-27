@@ -58,7 +58,11 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 - Always：病患面措辭用「請稍候等看診」「請告知現場醫護」——部署情境是院內 kiosk，病患已在現場，禁用含糊的「盡速就醫」
 - Always：改 `frontend/src/i18n/locales/` 的 key 時，切換期要同步 `flutter_app/assets/locales/`（`check_translations.py` 不涵蓋 flutter 那份）
 - Always：`flutter_app` 新增路由要用 `_lngKeyed()` 包住，否則只切語言時頁面文字不會變（`t()` 讀全域 `currentLng`，非 reactive）
+- Always：`patient_info` 一律走 `app/pipelines/patient_context.build_patient_info`——WS 與 Celery SOAP 兩條路徑共用。曾經各組一份，Celery 那份不讀 `sessions.intake_data`，SOAP 對家族史寫「未提供」而 intake 明載父親膀胱癌（TODO R1）
+- Always：新增場次終態轉移時六件事一起做——改 status、派 SOAP、送病患端 `session_status`（**要帶 `extra`**）、廣播 dashboard、建醫師通知、設 `_terminated`。漏做的分支造成過「終態卻沒有 SOAP」（TODO R3）
 - Never：把 `conversationControllerProvider` 從 `autoDispose` 改回長生命週期——會造成同一 kiosk 跨病患 session 污染（TODO G2）
+- Never：紅旗規則層用字串相鄰比對做臨床語意判斷——用**同句共現**（部位詞 × 急性詞）。裸關鍵字會 over-trigger、相鄰複合詞會 under-trigger，2026-07-27 為此擺盪三輪（TODO R8／§R-lessons）
+- Never：為了擋掉某個紅旗誤報而加抑制守衛——**規則層偏誤報是 2026-07-27 臨床拍板**（誤中止可逆、漏報不可逆）。政策接受的誤報寫在 `test_red_flag_suppression_policy.py` 的正向測試裡，不是 xfail（TODO R21）
 - Never：commit `.env*`、`vercel_*.yml`（含 live secrets，.gitignore 已擋）
 - Never：用 URL 以外的來源（cookie、navigator、後端偏好）當前端語言權威
 - Never：research analytics 的比例指標讓分子不是分母的子集（Wilson CI 會 sqrt 負數 → 500）
