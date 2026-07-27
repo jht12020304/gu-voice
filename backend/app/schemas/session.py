@@ -55,6 +55,12 @@ class SessionIntake(BaseModel):
     current_medications: list[SessionIntakeMedicationItem] = Field(default_factory=list)
     no_past_medical_history: bool = False
     medical_history: list[SessionIntakeMedicalHistoryItem] = Field(default_factory=list)
+    # `no_family_history` 與其他三個 no_* 旗標同語意：病患明確表示「沒有家族史」。
+    # 缺這一欄時 patient_context.build_patient_info 的對應分支是死碼，家族史只能
+    # 分辨「有填」與「沒填」，分不出「已表明沒有」→ §3b 必問的泌尿癌家族史會被
+    # 重問一次。兩個前端目前都還沒有這個勾選框（送不出這個 key），預設 False
+    # 等同於現行行為；e2e driver 送裸 JSON，可直接帶 snake_case 這個 key。
+    no_family_history: bool = False
     family_history: list[SessionIntakeFamilyHistoryItem] = Field(default_factory=list)
 
 
