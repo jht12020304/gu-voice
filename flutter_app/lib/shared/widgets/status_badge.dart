@@ -3,17 +3,19 @@ import 'package:flutter/material.dart';
 import '../../core/i18n/loc.dart';
 import '../../core/theme/app_tokens.dart';
 
-// Session status -> semantic color + i18n label (patient.home.status* keys).
+// Session status -> semantic color + i18n label (common.patient.home.status* keys).
+// The `common.` namespace prefix is required: t() treats the first dot-segment as the
+// namespace, so a bare `patient.…` key resolves to nothing and renders the raw key.
 class StatusBadge extends StatelessWidget {
   const StatusBadge(this.status, {super.key});
   final String status;
 
   static const _labelKey = {
-    'completed': 'patient.home.statusCompleted',
-    'in_progress': 'patient.home.statusInProgress',
-    'waiting': 'patient.home.statusWaiting',
-    'aborted_red_flag': 'patient.home.statusAbortedRedFlag',
-    'cancelled': 'patient.home.statusCancelled',
+    'completed': 'common.patient.home.statusCompleted',
+    'in_progress': 'common.patient.home.statusInProgress',
+    'waiting': 'common.patient.home.statusWaiting',
+    'aborted_red_flag': 'common.patient.home.statusAbortedRedFlag',
+    'cancelled': 'common.patient.home.statusCancelled',
   };
 
   Color _color(AppTokens tk) {
@@ -44,7 +46,7 @@ class StatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(9999),
       ),
       child: Text(
-        t(_labelKey[status] ?? 'patient.home.statusCompleted'),
+        t(_labelKey[status] ?? 'common.patient.home.statusCompleted'),
         style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
       ),
     );
