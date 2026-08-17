@@ -183,6 +183,34 @@ export function conversationToMessage(conv: Conversation): ChatMessage {
   };
 }
 
+/**
+ * L10-7：`resume_failed` 後的逐字稿重建 patch（純函式，故可單測）。
+ *
+ * 語意刻意是**整批取代**而不是合併：伺服器是唯一真相源。斷線瞬間本地可能留著
+ * (a) 樂觀送出但後端從未收到的病患氣泡、(b) 中途被 `_disconnected` 砍斷、
+ * `isStreaming` 還是 true 的 AI 訊息。用 id 合併會把這兩種殘影永遠留在畫面上；
+ * 直接換成伺服器版本則兩者一併消失，且不會與後續 `ai_response_*` 的 messageId
+ * 打架——後端 resume 失敗後是拿伺服器端 history 繼續跑，下一則 AI 訊息帶的是
+ * 全新的 messageId，只會 append，不會命中舊 id。
+ *
+ * 同時清掉 streaming 期間的暫態旗標：重建後的列表裡沒有任何 isStreaming 訊息，
+ * 若 `isAIResponding` / `sttProcessing` 還掛著，狀態列會永遠停在「AI 回應中」/
+ * 「正在辨識」（那一輪的 ai_response_end / stt_final 已隨舊連線一起消失）。
+ */
+export function resumedConversationsPatch(convs: Conversation[]): {
+  conversations: ChatMessage[];
+  aiStreamingText: string;
+  isAIResponding: boolean;
+  sttProcessing: boolean;
+} {
+  return {
+    conversations: convs.map(conversationToMessage),
+    aiStreamingText: '',
+    isAIResponding: false,
+    sttProcessing: false,
+  };
+}
+
 export const useConversationStore = create<ConversationState & ConversationActions>((set) => ({
   // ---- State ----
   currentSession: null,

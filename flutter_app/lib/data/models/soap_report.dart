@@ -60,6 +60,10 @@ class ConversationTurn {
   final double? sttConfidence;
   final bool redFlagDetected;
 
+  /// 後端 `createdAt`（ISO-8601）。L10-7 起 `resume_failed` 的逐字稿重建會把它搬進
+  /// `ChatMessage.timestamp`——用「重抓當下的時間」會讓重建後的訊息全部同一秒。
+  final String? createdAt;
+
   const ConversationTurn({
     required this.id,
     required this.sequenceNumber,
@@ -67,6 +71,7 @@ class ConversationTurn {
     required this.contentText,
     this.sttConfidence,
     this.redFlagDetected = false,
+    this.createdAt,
   });
 
   factory ConversationTurn.fromJson(Map json) => ConversationTurn(
@@ -76,5 +81,6 @@ class ConversationTurn {
         contentText: (json['contentText'] ?? '') as String,
         sttConfidence: (json['sttConfidence'] as num?)?.toDouble(),
         redFlagDetected: (json['redFlagDetected'] ?? false) as bool,
+        createdAt: json['createdAt'] as String?,
       );
 }

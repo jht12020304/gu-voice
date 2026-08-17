@@ -287,6 +287,7 @@ class ConversationController extends Notifier<ConversationState> {
         state = state.copyWith(guidance: normalizeSupervisorGuidance(p as Map), supervisorDegraded: false));
     _wsOn('supervisor_degraded', (_, _) => state = state.copyWith(supervisorDegraded: true));
     _wsOn('session_status', (p, _) => _onSessionStatus(p as Map));
+    _wsOn('resume_failed', (_, _) => unawaited(_onResumeFailed()));
     _wsOn('error', (p, _) => _onWsError(p as Map));
     _wsOn('_auth_exhausted', (_, _) => state = state.copyWith(error: t('conversation.error.sessionInterrupted')));
   }
@@ -391,6 +392,48 @@ class ConversationController extends Notifier<ConversationState> {
       state = state.copyWith(completed: true, abortedRedFlag: true);
     } else if (status == 'failed') {
       state = state.copyWith(error: _wsCode(p));
+    }
+  }
+
+  /// L10-7：WS 重連時帶的 `?resumeFrom=<checksum>` 對不上伺服器端 history。
+  ///
+  /// 後端送完這則就**直接進主訊息迴圈**：歷史非空時不補開場白，而且照樣拿伺服器端的
+  /// conversation_history 繼續問診（病患下一句正常處理）。所以前端不做事＝畫面靜默停在
+  /// 斷線前的舊逐字稿，之後的 AI 追問接在一份錯的上下文後面（不變式 #6：不得靜默吞掉）。
+  ///
+  /// 伺服器是唯一真相源 → REST 重抓完整逐字稿並**整批取代**本地列表。刻意不合併：
+  /// 斷線瞬間本地可能留著 (a) 樂觀送出但後端從未收到的病患氣泡、(b) 被 `_onDisconnected`
+  /// 砍斷、`isStreaming` 還是 true 的 AI 訊息；用 id 合併會讓這兩種殘影永遠留在畫面上。
+  /// 取代也不會與後續 `ai_response_*` 打架——resume 失敗後的下一則 AI 訊息帶的是全新
+  /// messageId，只會 append，不會命中重建列表裡的 DB id。
+  Future<void> _onResumeFailed() async {
+    final sid = state.session?.id;
+    if (sid == null) return;
+    try {
+      final turns = await _sessions.getConversations(sid);
+      if (_disposed) return; // 重抓期間病患可能已離開對話頁（autoDispose）
+      state = state.copyWith(
+        messages: [
+          for (final turn in turns)
+            ChatMessage(
+              id: turn.id,
+              sessionId: sid,
+              sender: turn.role,
+              content: turn.contentText,
+              timestamp: turn.createdAt ?? _nowIso(),
+              sttConfidence: turn.sttConfidence,
+            ),
+        ],
+        // 那一輪的 ai_response_end / stt_final 已隨舊連線消失，旗標不清會讓狀態列
+        // 永遠停在「AI 回應中」／「正在辨識」。
+        isAIResponding: false,
+        aiStreamingText: '',
+        sttProcessing: false,
+      );
+    } catch (_) {
+      if (_disposed) return;
+      // 重抓失敗才走既有錯誤顯示路徑：此時本地列表確實與伺服器分岔且無從修復。
+      state = state.copyWith(error: t('conversation.error.loadFailed'));
     }
   }
 
