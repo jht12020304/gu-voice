@@ -1,13 +1,13 @@
 """對話紀錄相關 Pydantic Schema"""
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import ConversationRole
+from app.schemas.common import JsonFloatDecimal
 
 
 class ConversationCreate(BaseModel):
@@ -16,8 +16,8 @@ class ConversationCreate(BaseModel):
     role: ConversationRole
     content_text: str = Field(..., min_length=1)
     audio_url: Optional[str] = Field(None, max_length=500)
-    audio_duration_seconds: Optional[Decimal] = None
-    stt_confidence: Optional[Decimal] = None
+    audio_duration_seconds: Optional[JsonFloatDecimal] = None
+    stt_confidence: Optional[JsonFloatDecimal] = None
     metadata_: Optional[dict[str, Any]] = Field(None, alias="metadata")
 
 
@@ -29,8 +29,8 @@ class ConversationResponse(BaseModel):
     role: ConversationRole
     content_text: str
     audio_url: Optional[str] = None
-    audio_duration_seconds: Optional[Decimal] = None
-    stt_confidence: Optional[Decimal] = None
+    audio_duration_seconds: Optional[JsonFloatDecimal] = None
+    stt_confidence: Optional[JsonFloatDecimal] = None
     red_flag_detected: bool
     metadata: Optional[dict[str, Any]] = Field(None, alias="metadata_")
     created_at: datetime

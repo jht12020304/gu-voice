@@ -133,6 +133,21 @@ export interface WSErrorPayload {
   severity?: 'info' | 'warning' | 'error' | 'critical';
 }
 
+/**
+ * L10-7：WS 重連時帶的 `?resumeFrom=<checksum>` 與伺服器端歷史對不起來。
+ *
+ * 後端送完這則就**直接進主訊息迴圈**（歷史非空時不補開場白），仍沿用伺服器端的
+ * conversation_history 繼續問診——所以前端若不處理，病患畫面會靜默停在斷線前的
+ * 舊逐字稿（不變式 #6：不得靜默吞掉）。處理方式是用 REST 重抓完整逐字稿整批取代。
+ */
+export interface ResumeFailedPayload {
+  /** Canonical i18n code，固定為 events.session.resume_failed */
+  code: string;
+  /** 例：{ reason: 'checksum_mismatch_or_empty' } */
+  params?: Record<string, unknown>;
+  severity?: 'info' | 'warning' | 'error' | 'critical';
+}
+
 export interface PongPayload {
   serverTime: string;
 }
@@ -145,6 +160,7 @@ export type ServerMessageType =
   | 'ai_response_end'
   | 'red_flag_alert'
   | 'session_status'
+  | 'resume_failed'
   | 'error'
   | 'pong';
 

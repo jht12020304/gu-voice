@@ -50,7 +50,11 @@ Future<void> switchLanguage(BuildContext context, String lng) async {
   if (outcome == null) return; // 使用者取消，語言不動
 
   if (outcome) {
-    router.go(target);
+    // 場次剛被後端轉成 cancelled，所以**不能**回同一條 `conversation/:id`——那條路由
+    // `_lngKeyed` 會重建 ConversationPage，`_init` 又對一場 cancelled 場次呼叫 start()
+    // （WS 授權失敗 / 錯誤橫幅）。導回該語言的病患首頁，病患可直接用新語言重開一場，
+    // 也正是確認框文案（switchModal.description）承諾的下一步。
+    router.go(prefixLngToPath('/patient', lng));
     // 導頁後畫面已是新語言，提示也用新語言；失敗時畫面沒變，維持原語言。
     messenger?.showSnackBar(SnackBar(
       content: Text(t(
@@ -132,8 +136,13 @@ class _EndSessionForSwitchDialogState extends State<_EndSessionForSwitchDialog> 
 ///
 /// 停在 `/conversation/:id` 時 `switchLanguage` 會先跳確認框、呼叫
 /// `POST /sessions/{id}/end-for-language-switch` 收掉場次，成功才導頁，所以放在問診頁
-/// 也不會留下孤兒 `in_progress` 場次。**但目前刻意還沒掛進 ConversationPage 的 AppBar**：
-/// 問診中要不要給病患這個入口是產品決定，這裡先把能力做好。
+/// 也不會留下孤兒 `in_progress` 場次。
+///
+/// 2026-08-18（臨床拍板，G34/G35b）：**已掛進 `ConversationPage` 的 AppBar**。
+/// 走錯語言的病患一旦進了問診頁就再也換不掉，是比「多一個誤觸入口」更重的缺陷；
+/// 確認框本身就是誤觸的防線（barrierDismissible: false，取消＝什麼都不做，
+/// 場次與 WS 完全不受影響）。React 端的對應入口是 `ConversationPage.tsx` 頁首的
+/// `<LanguageSwitcher />`，兩端行為一致：確認後 REST 成功才導回該語言的病患首頁。
 class LanguageAction extends StatelessWidget {
   const LanguageAction({super.key});
 

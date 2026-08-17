@@ -5,7 +5,10 @@ import 'dio_client.dart';
 // Port of frontend/src/services/api/sessions.ts (subset). Request/response keys are
 // converted camel<->snake by the Dio interceptors.
 class SessionsApi {
-  final _dio = ApiClient.instance.dio;
+  // Lazy on purpose: `ApiClient.instance.dio` needs platform channels, so an eager
+  // field initializer makes this class unconstructible in plain `flutter test`
+  // (and unsubclassable by fakes). Nothing here works without a request anyway.
+  late final _dio = ApiClient.instance.dio;
 
   Future<Session> createSession(Map<String, dynamic> payload) async {
     final res = await _dio.post('/sessions', data: payload);

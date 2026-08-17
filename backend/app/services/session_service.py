@@ -37,20 +37,23 @@ logger = logging.getLogger(__name__)
 async def _broadcast_session_created(db: AsyncSession, session: Session) -> None:
     """H-8：場次建立後向儀表板推播 session_created + 最新 queue/stats。
 
-    在同一 FastAPI 進程內透過 in-memory ConnectionManager 廣播；無 dashboard
-    連線時 ``broadcast_queue_and_stats`` 會自行 short-circuit（不查 DB），
-    故對單元測試無副作用。本函式吞掉所有例外，絕不影響場次建立主流程。
+    推播一律走 Redis pub/sub 橋接（``publish_dashboard_event`` →各 API 行程的
+    subscriber →本行程 fan-out），因此**不得**以本行程的
+    ``manager.dashboard_connection_count`` 當作 early return 條件：該計數是單一
+    uvicorn worker 的行程本地值，多 worker 部署下處理請求的 worker 往往沒有任何
+    dashboard 連線，提早 return 會讓事件根本進不了 Redis，其他 worker 上連著的
+    醫師就收不到（4 worker、1 連線時約 3/4 機率漏發）。
 
-    注意：report_generated 的真正完成點在 Celery worker（另一進程），目前
-    無 Redis pub/sub 橋接，故不在此處比照接線，詳見 report_service 的 TODO。
+    Redis 端無訂閱者時 publish 成本極低，且 ``publish_dashboard_event`` 自帶例外
+    保護（Redis 不可用只記 log）。本函式亦吞掉所有例外，絕不影響場次建立主流程。
+
+    注意：report_generated 的真正完成點在 Celery worker（另一進程），該處尚未
+    比照接線，詳見 report_service 的 TODO。
     """
     try:
         from app.cache.redis_client import get_redis
         from app.websocket.connection_manager import manager
         from app.websocket.dashboard_handler import broadcast_queue_and_stats
-
-        if manager.dashboard_connection_count == 0:
-            return  # 無儀表板連線，免去後續查詢與廣播
 
         patient = getattr(session, "patient", None)
         patient_name = getattr(patient, "name", "") if patient else ""

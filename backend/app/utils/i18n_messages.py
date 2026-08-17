@@ -413,6 +413,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ko-KR": "AI 서비스를 사용할 수 없습니다",
         "vi-VN": "Dịch vụ AI không khả dụng",
     },
+    "errors.service_unavailable": {
+        "zh-TW": "服務暫時不可用，請稍後重試",
+        "en-US": "Service is temporarily unavailable; please retry later",
+        "ja-JP": "サービスは一時的に利用できません。しばらくしてからもう一度お試しください",
+        "ko-KR": "서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요",
+        "vi-VN": "Dịch vụ tạm thời không khả dụng; vui lòng thử lại sau",
+    },
     "errors.ai_chat_unavailable": {
         "zh-TW": "AI 對話服務暫時不可用，請稍後重試",
         "en-US": "AI chat service is temporarily unavailable; please retry later",
@@ -727,6 +734,59 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ja-JP": "【ハードガードレール：上記の指導より優先】上記の指導が尋ねる内容について、患者がすでに明確に回答している、または「分からない・覚えていない・答えられない」と述べている場合は、言い換えを含むいかなる形でも再質問せず、まだ明らかでない次の面に進んでください。",
         "ko-KR": "[하드 가드레일 — 위 지도보다 우선] 위 지도가 묻는 내용을 환자가 앞선 대화에서 이미 명확히 답했거나 모른다·기억나지 않는다·답할 수 없다고 밝혔다면, 표현을 바꾸는 것을 포함해 어떤 형태로도 다시 묻지 말고 아직 확인되지 않은 다음 측면으로 넘어가세요.",
         "vi-VN": "[Rào chắn cứng — ưu tiên hơn hướng dẫn ở trên] Nếu bệnh nhân đã trả lời rõ nội dung mà hướng dẫn trên hỏi, hoặc đã nói không biết / không nhớ / không thể trả lời, thì KHÔNG hỏi lại dưới bất kỳ hình thức nào (kể cả diễn đạt lại) — hãy chuyển sang khía cạnh tiếp theo chưa được làm rõ.",
+    },
+    # next_focus 自檢命中時的替代指令（app/pipelines/next_focus_guard.py）。
+    # Supervisor 的 next_focus 文字若在重問已從 missing_hpi 移除的欄位（已回答或病患已
+    # 表示不知道），不是把 next_focus 清空——那會退化成「無指導、對話 LLM 自由發揮」的
+    # 已知缺陷（TODO R19）——而是換成指向仍缺失欄位的中性推進指令。
+    # {fields} 是 HPI 欄位的英文顯示名（Onset / Duration / Severity…，與對話端 prompt 的
+    # HPI 清單標題同名），刻意不翻譯也刻意不帶中文——它會進對話 LLM 的 system prompt。
+    "llm.supervisor_next_focus_redirect": {
+        "zh-TW": "請改問下列尚未釐清的 HPI 面向中的**一項**（每次只問一題）：{fields}。病患已回答過、或已表示不知道／記不得的面向，不得以任何換句話形式重問。",
+        "en-US": "Ask about exactly ONE of these still-unclarified HPI aspects (one question only): {fields}. Do not re-ask, in any rephrased form, aspects the patient has already answered or said they do not know / cannot remember.",
+        "ja-JP": "まだ確認できていない次の HPI 項目のうち**1 つだけ**を尋ねてください（1 回につき 1 問）：{fields}。患者がすでに回答した、または「分からない・覚えていない」と述べた項目は、言い換えを含めて再質問しないでください。",
+        "ko-KR": "아직 확인되지 않은 다음 HPI 항목 중 **하나만** 질문하세요(한 번에 한 문항): {fields}. 환자가 이미 답했거나 모른다·기억나지 않는다고 밝힌 항목은 표현을 바꾸어서도 다시 묻지 마세요.",
+        "vi-VN": "Hãy hỏi ĐÚNG MỘT trong các khía cạnh HPI chưa được làm rõ sau (mỗi lần một câu): {fields}. Không hỏi lại, dưới bất kỳ cách diễn đạt nào, những khía cạnh bệnh nhân đã trả lời hoặc đã nói không biết / không nhớ.",
+    },
+    "llm.supervisor_next_focus_wrap_up": {
+        "zh-TW": "HPI 面向皆已覆蓋（含病患已表示無法回答的項目）。請做一次簡短確認後收尾，不要再追問已覆蓋的面向。",
+        "en-US": "All HPI aspects are covered (including those the patient said they could not answer). Do a brief confirmation and wrap up; do not probe covered aspects again.",
+        "ja-JP": "HPI の各項目はすべて確認済みです（患者が「答えられない」と述べた項目を含む）。短く確認したうえで締めくくり、確認済みの項目を再度尋ねないでください。",
+        "ko-KR": "HPI 항목이 모두 확인되었습니다(환자가 답할 수 없다고 밝힌 항목 포함). 간단히 확인한 뒤 마무리하고, 이미 확인된 항목을 다시 묻지 마세요.",
+        "vi-VN": "Tất cả các khía cạnh HPI đã được bao phủ (kể cả những mục bệnh nhân nói không thể trả lời). Hãy xác nhận ngắn gọn rồi kết thúc, không hỏi lại các khía cạnh đã bao phủ.",
+    },
+    # 本輪限定的「剛被拒答的面向禁止再問」禁令（app/pipelines/next_focus_guard.py
+    # build_dont_know_ban）。前後夾擊注入 system prompt——實測靜態問診準則裡那條
+    # 「不得換句話重問」在長 prompt 中段競爭不過當下語境，LLM 仍會問出
+    # 「是一直都有還是有時候才出現」。{fields} 是英文欄位名、{examples} 是**該欄位**
+    # 的換句話例句（逐欄給，順手多列別欄的句式會把那一欄變成永遠問不出來的漏問）。
+    "llm.dont_know_turn_ban": {
+        "zh-TW": "【本輪硬性禁令，優先於其他所有指導】病患剛剛已明確表示對「{fields}」這個面向無法回答。本輪絕對禁止再以任何形式詢問這一面向——換句話、二選一句式、確認式問法都禁止（例如：{examples}）。請直接改問其他尚未釐清的面向。",
+        "en-US": "[Hard ban for THIS turn — overrides every other instruction] The patient has just said they cannot answer about \"{fields}\". Do NOT ask about this aspect again in any form this turn — no rephrasing, no either/or framing, no confirmation-style questions (e.g. {examples}). Move straight to another aspect that is still unclear.",
+        "ja-JP": "【今回のみの絶対禁止事項：他のすべての指示より優先】患者は「{fields}」について答えられないと明言しました。今回はこの面をいかなる形でも再質問しないでください——言い換え、二者択一の問い方、確認的な問い方はすべて禁止です（例：{examples}）。まだ明らかでない別の面に進んでください。",
+        "ko-KR": "[이번 턴 한정 절대 금지 — 다른 모든 지시보다 우선] 환자가 방금 \"{fields}\" 항목에 대해 답할 수 없다고 밝혔습니다. 이번 턴에는 이 항목을 어떤 형태로도 다시 묻지 마세요 — 표현 바꾸기, 양자택일 질문, 확인식 질문 모두 금지입니다(예: {examples}). 아직 확인되지 않은 다른 항목으로 바로 넘어가세요.",
+        "vi-VN": "[Cấm tuyệt đối trong lượt này — ưu tiên hơn mọi hướng dẫn khác] Bệnh nhân vừa nói rằng họ không thể trả lời về \"{fields}\". Trong lượt này, KHÔNG hỏi lại khía cạnh đó dưới bất kỳ hình thức nào — không diễn đạt lại, không hỏi kiểu chọn một trong hai, không hỏi kiểu xác nhận (ví dụ: {examples}). Hãy chuyển ngay sang khía cạnh khác chưa rõ.",
+    },
+    "llm.dont_know_ban_examples.onset": {
+        "zh-TW": "「是突然發生的還是慢慢變明顯的」「什麼時候開始的」",
+        "en-US": "\"did it start suddenly or gradually\", \"when did it start\"",
+        "ja-JP": "「急に始まったのか、徐々にはっきりしてきたのか」「いつから始まったのか」",
+        "ko-KR": "\"갑자기 시작됐는지 서서히 뚜렷해졌는지\", \"언제부터 시작됐는지\"",
+        "vi-VN": "\"bắt đầu đột ngột hay từ từ rõ dần\", \"bắt đầu từ khi nào\"",
+    },
+    "llm.dont_know_ban_examples.duration": {
+        "zh-TW": "「是一直都有，還是間歇／有時候才出現」「持續性還是間歇性」「大概多久了」",
+        "en-US": "\"is it constant or does it come and go / only sometimes\", \"continuous or intermittent\", \"how long has it lasted\"",
+        "ja-JP": "「ずっと続いているのか、時々だけ出るのか」「持続的か間欠的か」「どのくらい続いているのか」",
+        "ko-KR": "\"계속 있는지 가끔씩만 나타나는지\", \"지속적인지 간헐적인지\", \"얼마나 지속됐는지\"",
+        "vi-VN": "\"liên tục hay lúc có lúc không / thỉnh thoảng mới có\", \"liên tục hay ngắt quãng\", \"kéo dài bao lâu rồi\"",
+    },
+    "llm.dont_know_ban_examples.severity": {
+        "zh-TW": "「大概幾分」「有多痛」「多嚴重」",
+        "en-US": "\"on a scale of 0 to 10\", \"how painful is it\", \"how severe is it\"",
+        "ja-JP": "「10段階でどのくらいか」「どのくらい痛いか」「どのくらいひどいか」",
+        "ko-KR": "\"0에서 10 중 몇 점인지\", \"얼마나 아픈지\", \"얼마나 심한지\"",
+        "vi-VN": "\"trên thang điểm 0 đến 10 là bao nhiêu\", \"đau đến mức nào\", \"nặng đến mức nào\"",
     },
     # 問診自動收尾指示（本輪限定，僅在 should_conclude 時由 format_messages 附加到 system prompt）。
     # 目的：HPI 完整度達標或達回合硬上限時，讓 LLM 講一句溫暖的結束語、不再發問，

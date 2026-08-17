@@ -40,17 +40,18 @@ async def _broadcast_red_flag_acknowledged(
 ) -> None:
     """H-8：警示確認後向儀表板推播 red_flag_acknowledged + 最新 queue/stats。
 
-    在同一 FastAPI 進程內透過 in-memory ConnectionManager 廣播；無 dashboard
-    連線時提早 return（不查 DB），故對以 fake DB 驅動的單元測試無副作用。
+    推播一律走 Redis pub/sub 橋接，因此**不得**以本行程的
+    ``manager.dashboard_connection_count`` 當作 early return 條件：該計數是單一
+    uvicorn worker 的行程本地值，多 worker 部署下處理請求的 worker 往往沒有任何
+    dashboard 連線，提早 return 會讓事件進不了 Redis，其他 worker 上連著的醫師
+    就收不到。Redis 端無訂閱者時 publish 成本極低。
+
     本函式吞掉所有例外，絕不影響 acknowledge 主流程（亦不額外觸發 db.flush）。
     """
     try:
         from app.cache.redis_client import get_redis
         from app.websocket.connection_manager import manager
         from app.websocket.dashboard_handler import broadcast_queue_and_stats
-
-        if manager.dashboard_connection_count == 0:
-            return  # 無儀表板連線，免去後續查詢與廣播
 
         await manager.broadcast_red_flag_acknowledged(
             alert_id=str(getattr(alert, "id", "")),

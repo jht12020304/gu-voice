@@ -13,6 +13,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 import jwt
+from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +23,7 @@ from app.core.exceptions import (
     EmailAlreadyExistsException,
     InvalidCredentialsException,
     NotFoundException,
+    ServiceUnavailableException,
     UnauthorizedException,
     ValidationException,
 )
@@ -78,7 +80,13 @@ def _refresh_key(user_id: Any, jti: str) -> str:
 
 
 async def _register_refresh_token(redis: Any, user_id: Any, refresh_token: str) -> None:
-    """Decode 並在 Redis 登記 refresh jti（TTL = exp - now）。"""
+    """Decode 並在 Redis 登記 refresh jti（TTL = exp - now）。
+
+    ⚠️ 這裡 **fail-closed**（與黑名單查詢的 fail-open 相反）：登記不進去就等於發出一張
+    rotation 登記表上沒有的 refresh token，下次 /auth/refresh 會刪不到 jti 而誤判 reuse、
+    連帶撤銷該 user 所有 refresh token 並灑出假的 reuse 告警。故 Redis 不可用時直接拒發，
+    但轉成語意正確的 503（可重試的依賴故障）而非 500（程式錯誤）。
+    """
     try:
         payload = verify_refresh_token(refresh_token)
     except jwt.InvalidTokenError:
@@ -88,7 +96,14 @@ async def _register_refresh_token(redis: Any, user_id: Any, refresh_token: str) 
     if not jti or not exp:
         return
     ttl = max(int(exp) - int(time.time()), 1)
-    await redis.setex(_refresh_key(user_id, jti), ttl, "1")
+    try:
+        await redis.setex(_refresh_key(user_id, jti), ttl, "1")
+    except (RedisError, OSError) as exc:
+        logger.error(
+            "Redis 不可用，拒絕發放 refresh token（rotation 登記失敗）user=%s error=%s",
+            user_id, type(exc).__name__,
+        )
+        raise ServiceUnavailableException(message="errors.service_unavailable")
 
 
 async def _consume_refresh_jti(redis: Any, user_id: Any, jti: str) -> bool:

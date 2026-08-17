@@ -7,7 +7,9 @@ import '../../../core/router/lng.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/sessions_api.dart';
 import '../../../data/models/session.dart';
+import '../../../shared/widgets/language_action.dart';
 import '../models/chat_message.dart';
+import '../services/audio_stream_service.dart';
 import '../services/ws_manager.dart';
 import '../state/conversation_controller.dart';
 import '../state/settings_notifier.dart';
@@ -72,6 +74,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       appBar: AppBar(
         title: Text(t('conversation.title')),
         actions: [
+          // M16 / G34：問診中切語言的入口。`switchLanguage` 認出 `/conversation/:id` 後會
+          // 先跳確認框、REST 收掉場次（→ cancelled）成功才導頁，所以掛在這裡不會留下
+          // 孤兒 in_progress 場次；取消則完全不動 —— 不 pop 本頁、不碰 controller，
+          // WS 與收音都不受影響（autoDispose 的 controller 只在真的離頁時才拆）。
+          const LanguageAction(),
           TextButton(
             onPressed: () => ref.read(conversationControllerProvider.notifier).endSession(),
             child: Text(t('conversation.endSession')),
@@ -83,6 +90,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
           if (s.connection != WsConnState.open) _banner(context, s.connection),
           if (s.redFlags.isNotEmpty) _redFlagBanner(context, s),
           if (s.supervisorDegraded || s.guidance != null) _supervisorBanner(context, s),
+          if (s.voiceUnavailable != null) _voiceUnavailableBanner(context, s.voiceUnavailable!),
           if (s.error != null) _errorBanner(context, s.error!),
           Expanded(child: _transcript(context, s)),
           _statusBar(context, s),
@@ -254,6 +262,22 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     _textCtrl.clear();
   }
 
+  /// 語音降級提示。刻意不是紅色的 `_errorBanner`：問診沒有壞掉，只是要改用打字。
+  /// 全部用既有的 i18n key（五語都有），不新增翻譯字串。
+  Widget _voiceUnavailableBanner(BuildContext context, MicUnavailableReason reason) {
+    final key = switch (reason) {
+      MicUnavailableReason.permissionDenied => 'conversation.error.micPermission',
+      _ => 'conversation.error.micNotFound',
+    };
+    return Container(
+      width: double.infinity,
+      color: Theme.of(context).colorScheme.secondaryContainer,
+      padding: const EdgeInsets.all(8),
+      child: Text('${t(key)}\n${t('conversation.input.textPlaceholder')}',
+          textAlign: TextAlign.center),
+    );
+  }
+
   Widget _errorBanner(BuildContext context, String error) {
     final tk = Theme.of(context).extension<AppTokens>()!;
     return Container(
@@ -316,7 +340,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     String key;
     // userPaused first: while paused the bar used to keep saying "請直接開始說話",
     // telling the patient to do the one thing that cannot work (TODO G-medium).
-    if (s.userPaused) {
+    if (s.voiceUnavailable != null) {
+      // 麥克風不可用時，狀態列原本會叫病患「請直接開始說話」——那是他唯一做不到的事。
+      key = 'conversation.input.textPlaceholder';
+    } else if (s.userPaused) {
       key = 'conversation.voiceControl.pausedBanner';
     } else if (s.isAIResponding) {
       key = 'conversation.status.speaking';

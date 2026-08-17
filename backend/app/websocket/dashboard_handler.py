@@ -257,9 +257,14 @@ async def broadcast_queue_and_stats(
     因此這裡計算的是全域（admin 視角，doctor_id=None）的排隊與統計，
     與既有 `new_red_flag` / `session_status_changed` 的廣播語意一致。
     本函式不可拋例外，避免阻塞呼叫端的主流程。
+
+    此處刻意**不**以 `manager.dashboard_connection_count == 0` 提早 return：
+    該計數是單一 uvicorn worker 的行程本地值，而事件實際走 Redis pub/sub 跨行程
+    橋接；在多 worker 部署下提早 return 會讓其他 worker 上連著的醫師漏收事件。
+    取捨：移除後即使全院無人開儀表板，每次事件仍會跑 queue/stats 的 DB 查詢
+    （正確性優先於這項成本優化）。若日後要把該優化拿回來，正確做法是改用
+    **全域**連線數（由 Redis 維護、跨行程可見），而非本行程的本地計數。
     """
-    if manager.dashboard_connection_count == 0:
-        return
     try:
         queue_data = await _get_queue_status(db, redis, doctor_id=None)
         await manager.broadcast_queue_updated(

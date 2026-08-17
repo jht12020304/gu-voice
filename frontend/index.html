@@ -5,7 +5,15 @@
     <link rel="icon" type="image/png" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- 字體 CDN preconnect:縮短 Google Fonts 首個 woff2 的 TLS/DNS 建連延遲 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- 字型一律走 css2 API,它回傳的 woff2 URL 永遠是現行版本;切勿改回在 CSS 裡
+         手寫版本號寫死的 fonts.gstatic.com 路徑（會隨 Google 改版靜默 404,
+         全 CJK 語系退回系統字)。理由與歷史見 src/styles/fonts.css 檔頭。 -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Noto+Sans:wght@300..700&family=Noto+Sans+TC:wght@300..700&family=Noto+Sans+JP:wght@300..700&family=Noto+Sans+KR:wght@300..700&family=Source+Code+Pro:wght@400..600&display=swap"
+    />
     <title>UroSense</title>
   </head>
   <body>

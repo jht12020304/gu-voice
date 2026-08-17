@@ -27,6 +27,7 @@ from app.core.openai_client import call_with_retry, get_openai_client
 from app.pipelines.llm_conversation import (
     render_critical_risk_factor_items_with_intake,
 )
+from app.pipelines.next_focus_guard import sanitize_guidance
 from app.pipelines.prompts.shared import (
     HPI_FIELD_IDS,
     SINGLE_QUESTION_RULE,
@@ -82,6 +83,21 @@ SUPERVISOR_SYSTEM_PROMPT = f"""你是一位泌尿科資深主治醫師(Superviso
 - 從 missing_hpi 陣列中**移除**該欄,不要讓它一直留在缺失清單裡。
 - next_focus **不得**再指向該欄(包括換句話重問)。
 - hpi_completion_percentage **不因此壓低**——無法取得的資訊視同已覆蓋。
+
+## next_focus 必須與你自己的 missing_hpi 一致(硬性規則,最高優先)
+你的 next_focus **文字**與 missing_hpi **陣列**是同一份判斷的兩種寫法,不得自相矛盾:
+- next_focus 若指向 HPI 十欄中的某一欄,**該欄必須仍在你本次輸出的 missing_hpi 裡**。
+- 某欄一旦不在 missing_hpi(已回答,或病患已表示不知道/記不得/無法回答),
+  next_focus **一律不得**指向它——**換句話、換角度、換成二選一句式同樣禁止**。
+  下列全都算「同一欄的換句話重問」,一律禁止:
+  - Duration(持續時間)已覆蓋 → 不得改問「是一直都有還是間歇出現」「持續性還是間歇性」
+    「是整天都這樣還是斷斷續續」「多久了」。
+  - Onset(發生時間)已覆蓋 → 不得改問「是突然發生還是慢慢變明顯的」「一下子就出現的嗎」。
+  - Severity(嚴重度)已覆蓋 → 不得改問「大概幾分」「有多痛」「多嚴重」。
+- 正確作法:直接改問 missing_hpi 裡**還在**的其中一欄(每次一題);
+  若 missing_hpi 已空,改為「做一次簡短確認後收尾」。
+- 例外:本主訴的關鍵風險因子與次要補問(用藥/家族史/生活習慣)不屬 HPI 十欄,
+  next_focus 指向它們不受本規則限制。
 
 {SINGLE_QUESTION_RULE}
 
@@ -280,6 +296,13 @@ class SupervisorEngine:
 
             raw_content = response.choices[0].message.content or "{}"
             result = json.loads(raw_content)
+
+            # next_focus 自檢（第二道防線，見 next_focus_guard 模組 docstring）：
+            # prompt 的一致性規則管不到 LLM 偶發的自相矛盾——實測 missing_hpi 已正確
+            # 剔除 duration，next_focus 文字仍寫「是一直都有還是間歇出現」，而對話 LLM
+            # 幾乎逐字照抄 → e2e a2_no_duration_reask_after_dontknow FAIL。
+            # 這裡以 Supervisor 自己的 missing_hpi 當權威做內部一致性檢查，命中才換文字。
+            result = sanitize_guidance(result, language)
 
             # 將結果存入 Redis
             redis_key = f"{self._settings.REDIS_KEY_PREFIX}session:{session_id}:supervisor_guidance"

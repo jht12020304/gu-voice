@@ -4,11 +4,28 @@
 """
 
 from datetime import datetime
-from typing import Any, Generic, Optional, TypeVar
+from decimal import Decimal
+from typing import Annotated, Any, Generic, Optional, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 
 T = TypeVar("T")
+
+
+# ── 數值型別 ───────────────────────────────────────────
+# Decimal 欄位輸出 JSON 一律序列化為 float，否則 pydantic v2 預設輸出字串
+# （例如 0.80 → "0.80"）會炸掉 Flutter 端的 `as num?` 解析：
+# flutter_app/lib/data/models/soap_report.dart 的
+# `(json['aiConfidenceScore'] as num?)` / `(json['sttConfidence'] as num?)`
+# 遇到 String 直接丟 TypeError，整份 model 解析失敗且被上層 catch 吞掉，
+# reports 列表變空、session detail 誤判「尚未生成報告」。
+# （React 端靠 JS 隱式轉型僥倖能動，所以這個契約破口一直沒被前端擋下來。）
+# 只影響「回應序列化」：欄位在 Python 端仍是 Decimal，寫入 DB 的 numeric 路徑不變。
+# 任何新的 response schema 只要有小數欄位，一律用這個型別，不要裸寫 Decimal。
+JsonFloatDecimal = Annotated[
+    Decimal,
+    PlainSerializer(float, return_type=float, when_used="json"),
+]
 
 
 # ── 分頁 ───────────────────────────────────────────────

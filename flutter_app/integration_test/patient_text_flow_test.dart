@@ -181,6 +181,13 @@ void main() {
       final before = container.read(conversationControllerProvider).messages.length;
       final input = find.byType(TextField);
       expect(input, findsAtLeast(1), reason: '對話頁找不到文字輸入框');
+      // Web 專有陷阱：`enterText` 本身不足以在第二輪起重新拿到真實 browser
+      // focus（合成 tap 不等於真實 DOM focus 事件），沒有這行第二句起會靜默
+      // 沒送出（2026-08-17 用診斷 log 逐輪核對 msgLen 才抓到——tap send 後
+      // msgLen 完全不變，代表 controller.text 是空的，_sendText() 的
+      // `text.trim().isEmpty` 提早 return 吞掉了）。
+      await tester.tap(input.last);
+      await tester.pump();
       await tester.enterText(input.last, lines[i]);
       await tester.pumpAndSettle();
       // 用送出鍵，不用 receiveAction：送出後輸入框失焦，第二句起 receiveAction 會靜默失效

@@ -33,6 +33,13 @@ class ConversationState {
   final SupervisorGuidance? guidance;
   final bool supervisorDegraded;
   final String? error;
+  /// 語音降級：麥克風開不起來時**只**設這個，不設 `error`。
+  ///
+  /// `error` 是阻斷性錯誤（會渲染成紅色橫幅、也是 e2e 的失敗判準），而且從來沒有
+  /// 任何路徑會清掉它——把「沒有麥克風／權限被拒」寫進去，等於讓一場從頭到尾成功
+  /// 的純文字問診全程掛著一則錯誤（缺陷 B）。麥克風不可用不會擋住問診：文字輸入
+  /// 走的是同一條紅旗／LLM／TTS 管線。
+  final MicUnavailableReason? voiceUnavailable;
   final WsConnState connection;
   final bool noSpeechHint;
   final bool completed;
@@ -52,6 +59,7 @@ class ConversationState {
     this.guidance,
     this.supervisorDegraded = false,
     this.error,
+    this.voiceUnavailable,
     this.connection = WsConnState.connecting,
     this.noSpeechHint = false,
     this.completed = false,
@@ -73,6 +81,7 @@ class ConversationState {
     bool? supervisorDegraded,
     String? error,
     bool clearError = false,
+    MicUnavailableReason? voiceUnavailable,
     WsConnState? connection,
     bool? noSpeechHint,
     bool? completed,
@@ -92,12 +101,36 @@ class ConversationState {
         guidance: guidance ?? this.guidance,
         supervisorDegraded: supervisorDegraded ?? this.supervisorDegraded,
         error: clearError ? null : (error ?? this.error),
+        voiceUnavailable: voiceUnavailable ?? this.voiceUnavailable,
         connection: connection ?? this.connection,
         noSpeechHint: noSpeechHint ?? this.noSpeechHint,
         completed: completed ?? this.completed,
         abortedRedFlag: abortedRedFlag ?? this.abortedRedFlag,
       );
 }
+
+/// `start()` 用到的協作者工廠（麥克風／TTS／WS／audio session 設定）——
+/// 注入 fake 用的**縫隙**，不是抽象層。
+/// 預設值就是正式實作（建構式 tear-off），所以 production 完全不受影響；
+/// 有了它，「沒有麥克風 → 降級而不是炸掉、而且 WS 照連」才驗得起來。
+class VoiceServices {
+  const VoiceServices({
+    this.audio = AudioStreamService.new,
+    this.tts = TtsPlaybackController.new,
+    this.ws = WebSocketManager.new,
+    this.sessions = SessionsApi.new,
+    this.configureSession = configureVoiceAudioSession,
+  });
+
+  final AudioStreamService Function() audio;
+  final TtsPlaybackController Function({required double Function() speed}) tts;
+  final WebSocketManager Function() ws;
+  /// REST 縫隙：`resume_failed` 的逐字稿重抓與 `reconnectResumeToken` 都走它。
+  final SessionsApi Function() sessions;
+  final Future<void> Function() configureSession;
+}
+
+final voiceServicesProvider = Provider<VoiceServices>((ref) => const VoiceServices());
 
 // The interlock: WS events -> state + imperative mic-lock/TTS side effects. Port of the
 // ConversationPage WS wiring + conversationStore. The two hard-lock bools are plain
@@ -107,10 +140,10 @@ class ConversationController extends Notifier<ConversationState> {
   late final AudioStreamService _audio;
   late final TtsPlaybackController _tts;
   late final WebSocketManager _ws;
-  // Lazy: `SessionsApi()` reaches for `ApiClient.dio`, which needs platform channels.
-  // Building it eagerly made the controller unconstructible in unit tests (and did
-  // no work until `start()` anyway).
-  late final _sessions = SessionsApi();
+  // Injected in `start()` alongside the other collaborators (`SessionsApi` itself now
+  // builds its Dio lazily, so constructing it costs nothing and needs no platform
+  // channels). Fakes come in through `voiceServicesProvider`.
+  late final SessionsApi _sessions;
 
   bool _pendingAiUnmute = false;
   bool _pendingReplayUnmute = false;
@@ -136,9 +169,11 @@ class ConversationController extends Notifier<ConversationState> {
     if (_started) return;
     state = state.copyWith(session: session);
 
-    _tts = TtsPlaybackController(speed: () => ref.read(settingsProvider).ttsSpeed);
-    _audio = AudioStreamService();
-    _ws = WebSocketManager();
+    final make = ref.read(voiceServicesProvider);
+    _tts = make.tts(speed: () => ref.read(settingsProvider).ttsSpeed);
+    _audio = make.audio();
+    _ws = make.ws();
+    _sessions = make.sessions();
     // Only now is `_started` true: `_teardown` keys off it before touching these
     // `late final` fields, so flipping it earlier would let a dispose racing an
     // early `start()` hit a LateInitializationError instead of a clean no-op.
@@ -148,11 +183,19 @@ class ConversationController extends Notifier<ConversationState> {
     _ws.resumeTokenProvider = () => _sessions.reconnectResumeToken(session.id);
     _ws.authFailureHandler = () => ApiClient.instance.forceRefresh();
 
+    // 麥克風與 WebSocket 是兩件獨立的事。
+    // (1) 開麥失敗**不得**擋住 `_ws.connect`：文字輸入走的是同一條紅旗／LLM／TTS
+    //     管線，麥克風壞掉只是「不能用講的」，不是「不能問診」。（skill 記載過的
+    //     症狀：權限未授時 start() 卡在 openMic，WS 永遠停在 connecting。）
+    // (2) 開麥失敗**不得**寫進 `state.error`：那是阻斷性錯誤，而且沒有任何路徑會
+    //     清掉它，會讓一場全程成功的純文字問診從頭到尾掛著一則錯誤（缺陷 B）。
     try {
-      await configureVoiceAudioSession();
+      await make.configureSession();
       await _audio.openMic(_audioCallbacks());
-    } catch (e) {
-      state = state.copyWith(error: _micError(e));
+    } on MicUnavailableException catch (e) {
+      state = state.copyWith(voiceUnavailable: e.reason);
+    } catch (_) {
+      state = state.copyWith(voiceUnavailable: MicUnavailableReason.failed);
     }
 
     _ws.connect('${Env.wsBase}/sessions/${session.id}/stream', () => TokenStore.instance.accessToken);
@@ -244,6 +287,7 @@ class ConversationController extends Notifier<ConversationState> {
         state = state.copyWith(guidance: normalizeSupervisorGuidance(p as Map), supervisorDegraded: false));
     _wsOn('supervisor_degraded', (_, _) => state = state.copyWith(supervisorDegraded: true));
     _wsOn('session_status', (p, _) => _onSessionStatus(p as Map));
+    _wsOn('resume_failed', (_, _) => unawaited(_onResumeFailed()));
     _wsOn('error', (p, _) => _onWsError(p as Map));
     _wsOn('_auth_exhausted', (_, _) => state = state.copyWith(error: t('conversation.error.sessionInterrupted')));
   }
@@ -348,6 +392,48 @@ class ConversationController extends Notifier<ConversationState> {
       state = state.copyWith(completed: true, abortedRedFlag: true);
     } else if (status == 'failed') {
       state = state.copyWith(error: _wsCode(p));
+    }
+  }
+
+  /// L10-7：WS 重連時帶的 `?resumeFrom=<checksum>` 對不上伺服器端 history。
+  ///
+  /// 後端送完這則就**直接進主訊息迴圈**：歷史非空時不補開場白，而且照樣拿伺服器端的
+  /// conversation_history 繼續問診（病患下一句正常處理）。所以前端不做事＝畫面靜默停在
+  /// 斷線前的舊逐字稿，之後的 AI 追問接在一份錯的上下文後面（不變式 #6：不得靜默吞掉）。
+  ///
+  /// 伺服器是唯一真相源 → REST 重抓完整逐字稿並**整批取代**本地列表。刻意不合併：
+  /// 斷線瞬間本地可能留著 (a) 樂觀送出但後端從未收到的病患氣泡、(b) 被 `_onDisconnected`
+  /// 砍斷、`isStreaming` 還是 true 的 AI 訊息；用 id 合併會讓這兩種殘影永遠留在畫面上。
+  /// 取代也不會與後續 `ai_response_*` 打架——resume 失敗後的下一則 AI 訊息帶的是全新
+  /// messageId，只會 append，不會命中重建列表裡的 DB id。
+  Future<void> _onResumeFailed() async {
+    final sid = state.session?.id;
+    if (sid == null) return;
+    try {
+      final turns = await _sessions.getConversations(sid);
+      if (_disposed) return; // 重抓期間病患可能已離開對話頁（autoDispose）
+      state = state.copyWith(
+        messages: [
+          for (final turn in turns)
+            ChatMessage(
+              id: turn.id,
+              sessionId: sid,
+              sender: turn.role,
+              content: turn.contentText,
+              timestamp: turn.createdAt ?? _nowIso(),
+              sttConfidence: turn.sttConfidence,
+            ),
+        ],
+        // 那一輪的 ai_response_end / stt_final 已隨舊連線消失，旗標不清會讓狀態列
+        // 永遠停在「AI 回應中」／「正在辨識」。
+        isAIResponding: false,
+        aiStreamingText: '',
+        sttProcessing: false,
+      );
+    } catch (_) {
+      if (_disposed) return;
+      // 重抓失敗才走既有錯誤顯示路徑：此時本地列表確實與伺服器分岔且無從修復。
+      state = state.copyWith(error: t('conversation.error.loadFailed'));
     }
   }
 

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 
 import 'pcm_ring_buffer.dart';
@@ -55,11 +57,109 @@ class AudioStreamCallbacks {
   });
 }
 
+/// 麥克風開不起來的可分類原因。呼叫端據此決定「降級」還是「阻斷性錯誤」——
+/// 這兩種不是同一件事，過去全部塞進 `ConversationState.error` 讓純文字問診
+/// 全程掛著一則永不消失的錯誤（缺陷 B）。
+enum MicUnavailableReason {
+  /// 這台機器上沒有可用的音訊輸入。**必須在 `startStream` 之前擋下**：
+  /// 沒有可用輸入時 record 的原生層 `installTapOnBus` 會因為
+  /// `IsFormatSampleRateAndChannelCountValid(format)` 為 false 直接拋 NSException
+  /// → SIGABRT，Dart 的 try/catch 攔不到、整個 app 當場死掉（缺陷 A）。
+  noInputDevice,
+
+  /// 使用者拒絕（或尚未授予）麥克風權限。
+  permissionDenied,
+
+  /// 其他開啟失敗（audio session 設定失敗、平台丟出非預期錯誤等）。
+  failed,
+}
+
+/// 麥克風不可用（開啟前就判定）。與「開啟後的執行期錯誤」刻意分開：後者走
+/// `AudioStreamCallbacks.onError`，前者由 `openMic()` 拋出交給呼叫端決定降級策略。
+class MicUnavailableException implements Exception {
+  const MicUnavailableException(this.reason);
+  final MicUnavailableReason reason;
+
+  @override
+  String toString() => 'MicUnavailableException(${reason.name})';
+}
+
+/// `AudioStreamService` 真正用到的平台麥克風切片——注入 fake 用的**縫隙**，不是抽象層，
+/// 所以只放實際用到的成員（與 `TtsAudioPlayer` 同一個做法）。有了它，
+/// 「沒有可用輸入 → 不得呼叫 startStream」才驗得起來（真麥克風路徑零實測，見 TODO §V1）。
+abstract class MicRecorder {
+  Future<bool> hasPermission();
+
+  /// 這台機器上「真的錄得到音」嗎？各平台語意見 [RecordMicRecorder.hasUsableInput]。
+  /// 呼叫時機必須在 audio session 已設成 playAndRecord 並啟用之後。
+  Future<bool> hasUsableInput();
+
+  Future<Stream<Uint8List>> startStream(RecordConfig config);
+  Future<bool> isRecording();
+  Future<void> stop();
+  Future<void> dispose();
+}
+
+/// 正式綁定。除了 [hasUsableInput] 以外都是純轉呼叫，沒有自己的行為，
+/// 所以這道縫隙不可能改變已出貨的錄音行為。
+class RecordMicRecorder implements MicRecorder {
+  RecordMicRecorder({@visibleForTesting MethodChannel? iosProbeChannel})
+      : _iosProbe = iosProbeChannel ?? const MethodChannel(iosProbeChannelName);
+
+  /// iOS Runner 端的原生探針（`ios/Runner/MicProbe.swift`）。
+  static const iosProbeChannelName = 'gu_voice/mic_probe';
+
+  final AudioRecorder _recorder = AudioRecorder();
+  final MethodChannel _iosProbe;
+
+  @override
+  Future<bool> hasPermission() => _recorder.hasPermission();
+
+  /// **iOS 一定要走原生探針。** 2026-08-17 在無麥克風的 Mac mini 上實測，
+  /// iOS Simulator 對每一個純 Dart 訊號都回報一支**幽靈**內建麥克風：
+  /// `record.listInputDevices()`、`AVAudioSession.availableInputs`、
+  /// `currentRoute.inputs`、`AudioSession.getDevices()` 全部都是
+  /// `1 [MicrophoneBuiltIn]`，但 `AVAudioEngine.inputNode` 的 format 是 0Hz/0ch，
+  /// 於是 `installTap` 一定 SIGABRT。原生探針讀的就是那個 format 本身，
+  /// 與 record 的實際前置條件一字不差，不是猜的代理訊號。
+  ///
+  /// Android／Web 沒有這個幽靈問題，用 `listInputDevices()` 即可：
+  /// Android 走 `AudioManager.getDevices(GET_DEVICES_INPUTS)`、
+  /// Web 走 `enumerateDevices()`（`--use-fake-device-for-media-stream` 下有裝置）。
+  /// 原生探針缺席（理論上不會發生）時退回同一條路，也就是維持修復前的行為。
+  @override
+  Future<bool> hasUsableInput() async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      try {
+        final usable = await _iosProbe.invokeMethod<bool>('hasUsableInput');
+        if (usable != null) return usable;
+      } catch (_) {
+        // 探針沒註冊或失敗 → 落到下面的裝置列舉。
+      }
+    }
+    final devices = await _recorder.listInputDevices();
+    return devices.isNotEmpty;
+  }
+
+  @override
+  Future<Stream<Uint8List>> startStream(RecordConfig config) => _recorder.startStream(config);
+
+  @override
+  Future<bool> isRecording() => _recorder.isRecording();
+
+  @override
+  Future<void> stop() => _recorder.stop(); // 回傳的檔名沒人讀（stream 模式一律 null）
+
+  @override
+  Future<void> dispose() => _recorder.dispose();
+}
+
 class AudioStreamService {
-  AudioStreamService({this.disableAgc = false});
+  AudioStreamService({this.disableAgc = false, MicRecorder? recorder})
+      : _recorder = recorder ?? RecordMicRecorder();
   final bool disableAgc;
 
-  final _recorder = AudioRecorder();
+  final MicRecorder _recorder;
   AudioStreamCallbacks _cb = const AudioStreamCallbacks();
   StreamSubscription<Uint8List>? _sub;
   PcmRingBuffer? _ring;
@@ -82,13 +182,23 @@ class AudioStreamService {
 
   int get _now => DateTime.now().millisecondsSinceEpoch;
 
+  /// 開麥。失敗時**一定**拋例外，呼叫端要自己決定降級策略（見
+  /// [MicUnavailableException]）——絕對不要讓它擋住 WebSocket 連線：
+  /// 沒有麥克風時病患仍然可以用文字走完整條問診管線。
   Future<void> openMic(AudioStreamCallbacks callbacks) async {
     _cb = callbacks;
     if (_sub != null) return; // idempotent: already streaming, just swapped callbacks
+    // 權限與「有沒有可用輸入」都必須在 startStream 之前解決，而且順序固定：
+    // 先權限（iOS/web 未授權時裝置列舉本來就不可靠），再問輸入。
+    if (!await _recorder.hasPermission()) {
+      throw const MicUnavailableException(MicUnavailableReason.permissionDenied);
+    }
+    if (!await _recorder.hasUsableInput()) {
+      // 缺陷 A：這一步就是那個 blocker 的全部。少了它，宿主機沒有音訊輸入時
+      // 下面那行 startStream 會在原生層 SIGABRT，Dart 一點機會都沒有。
+      throw const MicUnavailableException(MicUnavailableReason.noInputDevice);
+    }
     try {
-      if (!await _recorder.hasPermission()) {
-        throw StateError('microphone permission denied');
-      }
       final stream = await _recorder.startStream(RecordConfig(
         encoder: AudioEncoder.pcm16bits,
         sampleRate: _sampleRate,
@@ -104,9 +214,11 @@ class AudioStreamService {
       _candidateStartAt = 0;
       _lastAboveThresholdAt = _now;
       _sub = stream.listen(_onFrame, onError: (e) => _cb.onError?.call(e));
-    } catch (e) {
+    } catch (_) {
+      // 開啟階段的失敗只走「拋出」這一條路，不再同時打 `onError`：同一個失敗經由兩
+      // 條通道回報，呼叫端會同時降級**又**寫一則永不清除的 `state.error`（缺陷 B）。
+      // 開起來之後的執行期錯誤仍然走 `onError`（上一行的 stream onError）。
       await _cleanup();
-      _cb.onError?.call(e);
       rethrow;
     }
   }

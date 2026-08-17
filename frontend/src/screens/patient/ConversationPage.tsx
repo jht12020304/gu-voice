@@ -7,12 +7,14 @@ import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import ChatBubble from '../../components/chat/ChatBubble';
+import LanguageSwitcher from '../../components/common/LanguageSwitcher';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import StatusBadge from '../../components/medical/StatusBadge';
 import {
   useConversationStore,
   conversationToMessage,
   normalizeSupervisorGuidance,
+  resumedConversationsPatch,
   shouldUnmuteVAD,
 } from '../../stores/conversationStore';
 import type {
@@ -33,6 +35,7 @@ import type {
   AIResponseChunkPayload,
   AIResponseEndPayload,
   RedFlagAlertPayload,
+  ResumeFailedPayload,
   SessionStatusPayload,
 } from '../../types/websocket';
 
@@ -756,6 +759,28 @@ export default function ConversationPage() {
       }
     });
 
+    // L10-7：WS 重連 resume 失敗（`?resumeFrom` checksum 與伺服器端歷史不符）。
+    //
+    // 後端送完這則就直接進主訊息迴圈：歷史非空時**不補開場白**，而且照樣用伺服器端的
+    // conversation_history 繼續問診（病患下一句正常處理）。所以前端不做事＝畫面靜默停在
+    // 斷線前的舊逐字稿，之後的 AI 追問會接在一份錯的上下文後面（不變式 #6：不得靜默吞掉）。
+    // 伺服器是真相源 → REST 重抓完整逐字稿並整批取代（見 resumedConversationsPatch）。
+    on('resume_failed', (payload) => {
+      const data = payload as ResumeFailedPayload;
+      console.warn('[ConversationPage] resume 失敗，改以 REST 重建逐字稿', data);
+      if (!sessionId) return;
+      void (async () => {
+        try {
+          const convs = await sessionsApi.getSessionConversations(sessionId, { limit: 100 });
+          useConversationStore.setState(resumedConversationsPatch(convs.data));
+        } catch (err) {
+          // 重抓失敗才走既有錯誤顯示路徑：這時本地列表確實與伺服器分岔且無從修復。
+          console.error('[ConversationPage] resume 後重抓逐字稿失敗', err);
+          setError(t('conversation:error.loadFailed'));
+        }
+      })();
+    });
+
     // 後端錯誤（TODO-E2：canonical code payload）
     on('error', (payload) => {
       const data = payload as { code?: string; params?: Record<string, unknown> };
@@ -816,6 +841,7 @@ export default function ConversationPage() {
       off('supervisor_guidance');
       off('supervisor_degraded');
       off('session_status');
+      off('resume_failed');
       off('error');
       off('_disconnected');
       off('_connected');
@@ -967,6 +993,13 @@ export default function ConversationPage() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {/* M16：問診中切語言的唯一入口。ConversationPage 不在 PatientLayout 底下（全螢幕
+              路由），所以 Header 的 LanguageSwitcher 到不了這裡——走錯語言的病患一旦進了
+              問診頁就再也換不掉（G34）。放在頁首右側工具列、compact 模式（kiosk 情境要
+              低調，不能比「結束問診」搶眼）。點擊切換時 LanguageSwitcher 讀到 store 裡的
+              in_progress/waiting currentSession → 先跳確認框，確認後才 REST 收場次、
+              導回該語言的病患首頁；取消則什麼都不做，WS 與收音完全不受影響。 */}
+          <LanguageSwitcher />
           {/* #6 靜音切換 */}
           <button
             type="button"

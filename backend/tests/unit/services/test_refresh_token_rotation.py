@@ -6,6 +6,9 @@ Unit tests for refresh token rotation + reuse detection（TODO P1-#11）。
 - 重複使用同一張 refresh → 偵測到 replay，撤銷該 user 所有 refresh 登記並拒絕
 - logout 帶 refresh token → rotation 登記也要刪
 - logout 未帶 refresh token → 撤銷該 user 所有 refresh 登記
+- Redis 掛 → 登記失敗即拒發 refresh token，但回 503（可重試的依賴故障）而非 500。
+  這裡刻意 **fail-closed**（與黑名單查詢的 fail-open 相反）：放行等於發出登記表上
+  沒有的 refresh token，下次 rotation 會誤判 reuse 並撤銷該 user 全部 token。
 
 純 Python stub：不起 FastAPI、不碰真 Redis 或 DB。
 """
@@ -19,9 +22,10 @@ from types import SimpleNamespace
 from typing import Any, Optional
 
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from app.cache import redis_client
-from app.core.exceptions import UnauthorizedException
+from app.core.exceptions import ServiceUnavailableException, UnauthorizedException
 from app.models.enums import UserRole
 from app.services import auth_service as auth_service_mod
 from app.services.auth_service import (
@@ -194,3 +198,47 @@ def test_logout_without_refresh_revokes_all_user_refresh_keys(_swap_redis):
     ))
     remaining = [k for k in _swap_redis.store if k.startswith(f"{REFRESH_TOKEN_KEY_PREFIX}{user_id}:")]
     assert remaining == []
+
+
+# ──────────────────────────────────────────────────────
+# Tests: Redis 掛掉時的 refresh token 登記（fail-closed → 503）
+# ──────────────────────────────────────────────────────
+
+class _DownRedis:
+    """Redis 全掛：任何指令都拋 redis-py 的 ConnectionError。"""
+
+    def __getattr__(self, name: str):
+        def _boom(*args: Any, **kwargs: Any):
+            raise RedisConnectionError(f"redis down (injected, cmd={name})")
+        return _boom
+
+
+def test_login_returns_503_when_redis_unavailable(monkeypatch):
+    """Redis 掛 → login 不得回 500：rate limit 全 fail-open 後卡在 refresh 登記，
+    應轉成語意正確的 503（可重試），而非未處理例外。"""
+    from app.core.security import hash_password
+
+    monkeypatch.setattr(redis_client, "_redis_pool", _DownRedis())
+    user = SimpleNamespace(
+        id=uuid.uuid4(),
+        email="doc@example.com",
+        name="Doc",
+        role=SimpleNamespace(value="doctor"),
+        preferred_language="zh-TW",
+        is_active=True,
+        password_hash=hash_password("Secret123"),
+        last_login_at=None,
+    )
+
+    class _DBWithFlush(_FakeDB):
+        async def flush(self) -> None:
+            return None
+
+    with pytest.raises(ServiceUnavailableException) as exc:
+        _run(
+            AuthService.login(
+                _DBWithFlush(user), email=user.email, password="Secret123"
+            )
+        )
+    assert exc.value.status_code == 503
+    assert exc.value.message == "errors.service_unavailable"

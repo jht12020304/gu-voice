@@ -35,6 +35,7 @@ class ErrorCode(str, Enum):
     REPORT_ALREADY_EXISTS = "REPORT_ALREADY_EXISTS"
     ALERT_ALREADY_ACKNOWLEDGED = "ALERT_ALREADY_ACKNOWLEDGED"
     AI_SERVICE_UNAVAILABLE = "AI_SERVICE_UNAVAILABLE"
+    SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
     RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
@@ -56,6 +57,7 @@ _ERROR_STATUS_MAP: dict[ErrorCode, int] = {
     ErrorCode.REPORT_ALREADY_EXISTS: 409,
     ErrorCode.ALERT_ALREADY_ACKNOWLEDGED: 409,
     ErrorCode.AI_SERVICE_UNAVAILABLE: 503,
+    ErrorCode.SERVICE_UNAVAILABLE: 503,
     ErrorCode.RATE_LIMIT_EXCEEDED: 429,
     ErrorCode.INTERNAL_ERROR: 500,
 }
@@ -239,6 +241,22 @@ class AIServiceUnavailableException(AppException):
         message_kwargs: Optional[dict[str, Any]] = None,
     ):
         super().__init__(ErrorCode.AI_SERVICE_UNAVAILABLE, message, details, message_kwargs=message_kwargs)
+
+
+class ServiceUnavailableException(AppException):
+    """後端依賴（非 AI 服務）暫時不可用 → 503。
+
+    與 `InternalErrorException`(500) 的分工：500 代表程式錯誤，503 代表外部依賴掛了、
+    重試即可能成功（呼叫端可退避重試，維運上也不該被計入 bug）。
+    """
+
+    def __init__(
+        self,
+        message: str = "errors.service_unavailable",
+        details: Optional[dict[str, Any]] = None,
+        message_kwargs: Optional[dict[str, Any]] = None,
+    ):
+        super().__init__(ErrorCode.SERVICE_UNAVAILABLE, message, details, message_kwargs=message_kwargs)
 
 
 class RateLimitExceededException(AppException):
