@@ -16,6 +16,11 @@ from app.core.openai_client import (
     call_with_retry,
     get_openai_client,
 )
+from app.pipelines.next_focus_guard import (
+    build_dont_know_ban,
+    declined_fields_from_history,
+    effective_next_focus,
+)
 from app.pipelines.prompts.shared import (
     SINGLE_QUESTION_RULE,
     get_critical_risk_factors_for_complaint,
@@ -877,14 +882,36 @@ class LLMConversationEngine:
         # 不改指導管線本身，純消費端 prompt。
         # 收尾輪（conclude）**完全跳過** next_focus 注入——next_focus 本質是「下一題要問什麼」，
         # 在收尾輪注入等於再塞一個發問指令與收尾規則打架（實測會讓 LLM 收尾輪硬問一題）。
+        # (c) 2026-08-17：guidance 的一輪延遲撞上「不知道」時，pending next_focus 常正是
+        # 病患**剛剛拒答**的那一欄（它就是上一輪叫 AI 問的題目）。既有的 no_repeat 護欄
+        # 只是叫 LLM 自己判斷，實測 LLM 改成「換句話問得軟一點」→ e2e
+        # a2_no_duration_reask_after_dontknow FAIL。改由 next_focus_guard 確定性判斷：
+        # 只有「剛被拒答的欄位 ∩ next_focus 指向的欄位」非空時才換成推進指令，
+        # 指向別欄一律原樣注入（拒答 A 後改問 B 是正確行為）。
         if not conclude and supervisor_guidance and not supervisor_guidance.get("fallback"):
-            next_focus = supervisor_guidance.get("next_focus", "")
+            next_focus = effective_next_focus(
+                history, supervisor_guidance, language
+            )
             if next_focus:
                 section_title = _i18n_get(
                     "llm.supervisor_guidance_section", language
                 )
                 no_repeat = _i18n_get("llm.supervisor_guidance_no_repeat", language)
                 final_system_prompt += f"\n\n{section_title}\n{next_focus}\n{no_repeat}"
+
+        # (d) 2026-08-17 第三輪 e2e：把過期指導換掉之後，Supervisor 與注入文字都已不再
+        # 提 Duration，對話 LLM **仍自己**問出「頻尿的感覺是一直都有，還是有時候才會出現」。
+        # 靜態問診準則裡那條「不得換句話重問」在長 prompt 中段競爭不過當下語境 →
+        # 改用與收尾指示相同的「三明治」：把**本輪限定**、且只列**剛被拒答那一欄**
+        # 換句話例句的硬性禁令放到最前與最後。收尾輪不加（那輪本來就不發問）。
+        if not conclude:
+            dont_know_ban = build_dont_know_ban(
+                declined_fields_from_history(history), language
+            )
+            if dont_know_ban:
+                final_system_prompt = (
+                    f"{dont_know_ban}\n{final_system_prompt}\n{dont_know_ban}"
+                )
 
         # 收尾指示「三明治」：同時置於系統提示最前（最高優先）與最後（最高 recency），
         # 覆蓋前面 Supervisor 的 next_focus。單靠尾段附加時，中段龐大的 HPI/次要補問/
