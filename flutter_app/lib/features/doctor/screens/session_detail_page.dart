@@ -69,7 +69,10 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
       // generate button whenever any row was present — including a `failed` one — so a
       // failed generation was a dead end with no way to retry (TODO §G medium).
       String? reportStatus;
-      if (session.status == 'completed') {
+      // `aborted_red_flag` is a terminal status that ALSO dispatches SOAP generation, so it
+      // needs the same lookup as `completed` — gating on `completed` alone hid「查看報告」on
+      // every red-flag session. `cancelled` never dispatches SOAP, so it is not queried.
+      if (session.status == 'completed' || session.status == 'aborted_red_flag') {
         try {
           reportStatus = (await ReportsApi().getReportBySession(widget.sessionId))?.status;
         } catch (_) {

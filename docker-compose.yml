@@ -41,6 +41,12 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    # backend/.env 補 compose 沒明列的變數（目前主要是 OPENAI_API_KEY）；
+    # 下面 environment: 區塊的同名變數優先權較高，會覆蓋 .env 裡的值。
+    # backend/.env 是 untracked 佔位檔（.gitignore 已擋 .env*），檔案必須存在
+    # compose 才不會報錯，即使目前只有註解也沒關係。
+    env_file:
+      - ./backend/.env
     environment:
       APP_ENV: development
       APP_DEBUG: "true"
@@ -48,7 +54,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/gu_voice
       REDIS_URL: redis://redis:6379/0
       REDIS_KEY_PREFIX: "gu_dev:"
-      CORS_ORIGINS: "http://localhost:5175,http://localhost:3000,http://localhost:80"
+      # 瀏覽器對預設埠不會把埠寫進 Origin：連 http://localhost:80 送出的是
+      # `Origin: http://localhost`，所以白名單必須是不帶埠的形式，否則本機
+      # 直連 frontend 容器（:80）的登入預檢會 100% 被 CORS 擋掉。
+      CORS_ORIGINS: "http://localhost:5175,http://localhost:3000,http://localhost"
       # Compose 本機用 HS256 避免掛 PEM 檔；production 請改 RS256 + JWT_PRIVATE_KEY
       JWT_ALGORITHM: HS256
       JWT_SECRET_KEY: docker-dev-jwt-secret-at-least-32-characters
