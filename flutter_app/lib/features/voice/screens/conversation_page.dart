@@ -8,6 +8,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/sessions_api.dart';
 import '../../../data/models/session.dart';
 import '../models/chat_message.dart';
+import '../services/audio_stream_service.dart';
 import '../services/ws_manager.dart';
 import '../state/conversation_controller.dart';
 import '../state/settings_notifier.dart';
@@ -83,6 +84,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
           if (s.connection != WsConnState.open) _banner(context, s.connection),
           if (s.redFlags.isNotEmpty) _redFlagBanner(context, s),
           if (s.supervisorDegraded || s.guidance != null) _supervisorBanner(context, s),
+          if (s.voiceUnavailable != null) _voiceUnavailableBanner(context, s.voiceUnavailable!),
           if (s.error != null) _errorBanner(context, s.error!),
           Expanded(child: _transcript(context, s)),
           _statusBar(context, s),
@@ -254,6 +256,22 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     _textCtrl.clear();
   }
 
+  /// 語音降級提示。刻意不是紅色的 `_errorBanner`：問診沒有壞掉，只是要改用打字。
+  /// 全部用既有的 i18n key（五語都有），不新增翻譯字串。
+  Widget _voiceUnavailableBanner(BuildContext context, MicUnavailableReason reason) {
+    final key = switch (reason) {
+      MicUnavailableReason.permissionDenied => 'conversation.error.micPermission',
+      _ => 'conversation.error.micNotFound',
+    };
+    return Container(
+      width: double.infinity,
+      color: Theme.of(context).colorScheme.secondaryContainer,
+      padding: const EdgeInsets.all(8),
+      child: Text('${t(key)}\n${t('conversation.input.textPlaceholder')}',
+          textAlign: TextAlign.center),
+    );
+  }
+
   Widget _errorBanner(BuildContext context, String error) {
     final tk = Theme.of(context).extension<AppTokens>()!;
     return Container(
@@ -316,7 +334,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     String key;
     // userPaused first: while paused the bar used to keep saying "請直接開始說話",
     // telling the patient to do the one thing that cannot work (TODO G-medium).
-    if (s.userPaused) {
+    if (s.voiceUnavailable != null) {
+      // 麥克風不可用時，狀態列原本會叫病患「請直接開始說話」——那是他唯一做不到的事。
+      key = 'conversation.input.textPlaceholder';
+    } else if (s.userPaused) {
       key = 'conversation.voiceControl.pausedBanner';
     } else if (s.isAIResponding) {
       key = 'conversation.status.speaking';
