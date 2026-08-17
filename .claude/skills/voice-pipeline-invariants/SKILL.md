@@ -41,6 +41,7 @@ description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§
 15. 紅旗/場次狀態 dashboard 事件必走 `broadcast_dashboard_event`（Redis 橋接）：生產 4 個 uvicorn 行程，退回 in-memory `broadcast_dashboard` 會讓 3/4 醫師收不到即時紅旗。
 16. 場次狀態機單一權威（2026-07-19）：合法轉移只定義在 `app/core/session_state.py`（`VALID_TRANSITIONS`/`is_valid_transition`），REST 與 WS 共用。改轉移規則只改這一處；WS `_update_session_status` 送 DB 前先過 `is_valid_transition(..., allow_noop=True)`（放行 resume 自轉移），不得繞過。
 17. 自動結束政策與紅旗去重已抽到 `app/pipelines/conclusion_policy.py` 與 `app/pipelines/alert_dedup.py`——**這兩個新模組仍是問診保護區**，改動視同改管線、要 e2e。conversation_handler 以底線別名 re-import，不得把邏輯改回 inline。
+    ※ `app/pipelines/next_focus_guard.py`（2026-08-18 新增，防 supervisor 換句話重問已拒答欄位的四層防線之一）**同屬保護區**，改動視同改管線、要 e2e（`dontknow_zh`）。
 18. **終態的 `session_status` 必須帶 `status`**：`send_localized_to_session` 的 canonical code 只夠拿來顯示文字，前端是靠 `extra` 裡的 `status` 才認得出「這場結束了」而導向感謝頁。`end_session` 曾漏填 → 後端場次 completed、SOAP 也生成了，但病患畫面停在對話頁、按鈕像壞掉（2026-07-27 由 Flutter 真跑抓到）。新增任何終端路徑都要帶。**對稱地，前端不得在送出 `end_session` 後本地搶先設 `completed`**：導頁會讓 autoDispose 拆掉 controller、`_ws.disconnect()` 早於指令送達，整場丟失。
 
 **2026-07-27 §R 新增（見 `docs/TODO.md` §R 與 §R-lessons）**
@@ -55,6 +56,21 @@ description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§
     - severity 分級要照臨床定義。`gross_hematuria_heavy`(critical) 的判準是**量與血塊**不是顏色；把 `bright red`/`bloody` 收進去會讓血尿病患（主訴 c1）一講出自己的主訴就被中止。
 23. **§3b gating 是三態不是兩態**：明確的「無」（`no_*` 旗標）→ 不問；值**真的涵蓋**該風險因子 → 不問；**值不涵蓋或欄位空白 → 仍必問**。判不準一律歸「仍必問」。家族史要**逐筆**判定——整串當 haystack 會讓「母親：乳癌、父親：攝護腺肥大」被判成有泌尿癌家族史，而 prompt 還叫 LLM 直接寫進病史＝**捏造病歷**。gating 只吃本次場次 intake，不吃 `patients` 表舊資料。
 24. **SOAP 的 `plan.patient_education` 與 `summary` 是病患面欄位**（渲染在 React `PatientSessionDetailPage` 與 Flutter `patient_session_detail_page`），受 #11 kiosk 措辭鐵律約束，prompt 與出口消毒兩層都要有。`plan` 的其他欄位是醫師面，不受限制。判準是「**有沒有叫病患自行離場**」而不是「有沒有出現某個詞」——「醫師會為您安排急診評估」對候診中的病患不違規。
+
+**2026-08-18 文字掃蕩新增（見 `docs/TODO.md` R22、G34／G35b 與該輪 commit 索引）**
+
+25. **紅旗規則層是全語言聯集比對**。關鍵字掛在**任一**語言段，都會拿去比對**所有**語言的句子（`_collect_all_language_keywords` 與共現組詞表皆為聯集，W1 設計）。ja 段的裸「熱」因此把中文的「刺刺熱熱／灼熱」——排尿灼熱（dysuria，泌尿科最常見主訴之一）——判成 critical **尿路敗血症並中止問診**（實證 session `dda55701`；R22，2026-08-18 臨床拍板收斂為**全身性發燒語彙**）。
+    - 新增或修改**任何語言**的關鍵字前，先確認該字面**在其他四語的常見句子裡不是高頻子字串**。短字面（1–2 個 CJK 字、去掉助詞的詞根）風險最高。
+    - 判準與雙向語料見 `test_red_flag_urosepsis_fever_semantics.py`（57 條，含「把裸『熱』加回詞表」的注入式回歸）。
+    - 這類修正是**語意修正不是抑制守衛**，不與 #22「偏誤報」政策衝突——但仍受 #22 的舉證責任約束：每個移除的字面都要能說出「為什麼它不會造成漏報」。
+26. **無麥克風降級路徑是保護區**。三者缺一不可，不得移除：
+    - `openMic()` 進入 `startStream` **之前**的「先權限、再可用輸入」兩道檢查；
+    - iOS 的 `ios/Runner/MicProbe.swift`——`AVAudioEngine.inputNode.inputFormat` 是**模擬器上唯一不謊報的訊號**。無音訊輸入的宿主機上 `record.listInputDevices()`／`AVAudioSession.availableInputs`／`currentRoute.inputs`／`isInputAvailable` **全部回報幽靈裝置**，只有 inputNode format 誠實地回 0Hz/0ch；
+    - `ConversationState.voiceUnavailable` 降級旗標。
+    麥克風失敗**不得寫 `state.error`**（那是阻斷性錯誤且無任何路徑會清除，會讓一場全程成功的純文字問診從頭到尾掛著紅色橫幅），**也不得擋住 `_ws.connect`**（文字輸入走同一條紅旗／LLM／TTS 管線，麥克風壞掉只是「不能用講的」，不是「不能問診」）。少了這條防線，無音訊輸入的機器一進問診頁**必定在原生層 SIGABRT**（`installTap` 拿到無效 format → NSException，**Dart 的 try/catch 攔不到**，整個 app 當場死掉，重現 6/6）。
+27. **WS 事件的兩端訂閱清單要同步**。React 與 Flutter 是**手抄兩份、沒有 codegen**，所以後端加事件時漏掉任一端不會有任何編譯或型別訊號。`resume_failed` 就是這樣：後端有發、**兩端都沒訂**，病患畫面靜默停在斷線前的舊逐字稿，而後端其實已經拿伺服器端 history 繼續問診——之後的 AI 追問接在一份錯的上下文後面（違反 #6：不得靜默吞掉）。
+    - 現行為：兩端收到後以 REST `GET /sessions/{id}/conversations` **整批重抓取代**本地列表（不用 id 合併——樂觀送出的氣泡與半截 streaming 訊息會變成永久殘影），並清掉 `isAIResponding`／`sttProcessing`。
+    - 新增任何 WS 事件時，`conversationStore`／`ConversationPage`（React）與 `conversation_controller._registerWsHandlers`（Flutter）**要同輪補齊**，且 React 的 `off()` 清理清單也要一起加。
 
 ## ⚠️ 這些不變式現在有兩份實作
 
