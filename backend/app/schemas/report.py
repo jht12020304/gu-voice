@@ -1,14 +1,13 @@
 """SOAP 報告相關 Pydantic Schema"""
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import ReportRevisionReason, ReportStatus, ReviewStatus
-from app.schemas.common import CursorPagination
+from app.schemas.common import CursorPagination, JsonFloatDecimal
 
 
 class SOAPReportResponse(BaseModel):
@@ -18,7 +17,7 @@ class SOAPReportResponse(BaseModel):
     status: ReportStatus
     review_status: ReviewStatus
     summary: Optional[str] = None
-    ai_confidence_score: Optional[Decimal] = None
+    ai_confidence_score: Optional[JsonFloatDecimal] = None
     generated_at: Optional[datetime] = None
     reviewed_by: Optional[UUID] = None
     reviewed_at: Optional[datetime] = None
@@ -104,7 +103,7 @@ class SOAPReportRevisionResponse(BaseModel):
     raw_transcript: Optional[str] = None
     icd10_codes: Optional[list[str]] = None
     language: str
-    ai_confidence_score: Optional[Decimal] = None
+    ai_confidence_score: Optional[JsonFloatDecimal] = None
     created_by: Optional[UUID] = None
     created_at: datetime
 
