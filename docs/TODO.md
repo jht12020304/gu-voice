@@ -26,6 +26,20 @@
 > E10（等母語臨床覆核）、F8／G35a（等臨床拍板）、E12（投機 schema，無消費端，不做）、
 > H3（dashboard 其餘硬寫中文標籤）、H5（replay 未 await，推測性未驗證）、
 > **§R 四條**（R18 斷言過嚴／R19 第 1 輪重問／R20 收尾後多一輪／R21 政策接受的誤報）。
+>
+> **2026-08-18 文字先行測試掃蕩（P0–P5，分支 `fix/text-sweep-2026-08-18`）**：以文字代替語音把
+> 兩端全流程再走一遍，發現並修掉 14 項。一行式索引（詳情見各 commit message）：
+> `0e33bce` Redis 黑名單 fail-open ＋ refresh 登記失敗改 503／`8a0647d` 移除三處 dashboard
+> 廣播的本地連線數 early-return（多 worker 漏發）／`7758ce2` Decimal 欄位 JSON 輸出改 float
+> （Flutter `as num?` 解析全滅）／`5ec7022` 逾時取消補 CAS ＋ 狀態機驗證 ＋ dashboard 廣播／
+> `ed759d4` 無麥克風降級（iOS 原生探針，修 SIGABRT）＋ `voiceUnavailable` 旗標／
+> `8a7764e` StatusBadge 補 `common.` namespace／`7761e81` 兩端訂閱 `resume_failed` 並以 REST
+> 重建逐字稿／`dadbca3` 本機 CORS 白名單、紅旗場次報告按鈕、Google Fonts 失效 URL／
+> `ec6f46e` supervisor `next_focus` 不得換句話重問已拒答欄位（四層防線，收束 R19 的一部分）／
+> `df486b5` Flutter Web/iOS 整合測試基礎設施／`7a59205` 見 R22／`3877729` 見 G34、G35b。
+> **未含**：P6 真麥克風／STT/TTS/VAD 人工驗證仍未做（§V1／§V4 不變）；
+> `refresh`／`logout`／`reset` 三條路徑的 503 語意一致性列管未收；
+> `ink_sparkle` 著色器在測試環境的問題另案。
 
 ---
 
@@ -818,8 +832,9 @@ autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，�
 - **G33 SOAP 逐字稿分頁**（`soap.tabs.*`，早已入庫未用）：醫師可邊看報告邊比對病患原話再核准。
   逐字稿載入失敗**不致命**——報告才是這頁的重點，不可因此整頁空白
 - **G34 切語言入口**：新 `LanguageAction`（AppBar 用的精簡 popup），加到 select-complaint／
-  medical-info／history／forgot-password／reset-password。**⚠️ 刻意不加到 `/conversation`**：
-  問診中切語言需要下面那條還沒做的後端守衛，加了會留下 in_progress 孤兒場次
+  medical-info／history／forgot-password／reset-password。~~**⚠️ 刻意不加到 `/conversation`**：
+  問診中切語言需要下面那條還沒做的後端守衛，加了會留下 in_progress 孤兒場次~~
+  → **2026-08-18 拍板已掛**（`3877729`），見下方 G35b
 
 ⚠️ 實作時踩到與 G11 同一類的坑：`LanguageAction` 原本在 build 期呼叫 `GoRouterState.of(context)`，
 導致沒有 router 祖先的 widget test 直接拋。改成**在 tap 那一刻才讀** router state——
@@ -836,7 +851,27 @@ autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，�
   ——切語言守衛可能被重試或連點，回 409 會讓「語言切不掉」，而此時「沒有孤兒場次」
   的目的已達成。錯誤路徑的 HTTP 碼不變（`INVALID_STATUS_TRANSITION` 同為 409）
 - Flutter：`sessions_api` 加方法、切語言守衛與 5 語系確認文案。
-  **入口仍未掛進 ConversationPage**（是否在問診中提供切語言是產品決定）
+  ~~**入口仍未掛進 ConversationPage**（是否在問診中提供切語言是產品決定）~~
+
+**2026-08-18 拍板：入口已掛上兩端問診頁**（`3877729`）。React 是 `ConversationPage.tsx`
+頁首工具列的 `<LanguageSwitcher />`（compact；ConversationPage 是全螢幕路由、不在
+PatientLayout 底下，Header 的那顆到不了），Flutter 是 `ConversationPage` AppBar 的
+`LanguageAction`。拍板理由：走錯語言的病患一旦進了問診頁就再也換不掉，比「多一個誤觸
+入口」更重；確認框本身即誤觸防線（取消＝什麼都不做，不 pop 頁面、不碰 controller，
+WS 與收音完全不受影響）。
+
+⚠️ 一併修掉確認後的導向：兩端原本都是把 `:lng` 換掉後回同一條 `/conversation/:id`
+（React `syncUrlLng`／Flutter `router.go(target)`），但那場次剛被後端轉成 cancelled——
+React 不會因為只換 `:lng` 就重掛元件、`currentSession` 已被 `resetSession` 清空 → 卡在
+LoadingSpinner 且 WS 還連著死場次；Flutter 的 `_lngKeyed` 則會重建頁面並對 cancelled
+場次再 `start()` 一次。**現在一律導向該語言的病患首頁**，也正是確認框文案
+（`switchModal.description`）承諾的下一步。React 另修一個語言競態：`changeLanguage` 是
+非同步的，直接 toast 會在英文首頁跳出中文字串（Playwright 實測到），改為先 await 再提示。
+
+驗證：Playwright 29/29 ＋ 新增 `flutter_app/integration_test/patient_language_switch_test.dart`
+（對真後端驗四件既有測試碰不到的事：確認框會出現而非直接切走、取消後仍停在原頁且 WS
+open 還能繼續送文字收 AI 回覆、確認後 REST 成功才導頁且落在新語言病患首頁、場次確實轉
+cancelled 並落 audit）。
 
 ### [x] 測試深度（TTS） — 2026-07-27 完成（PR #46）
 
@@ -1091,6 +1126,39 @@ Flutter model 註解就寫 `the patient-facing advice`），但 SOAP prompt 從�
 `"family" in ai_text` 連「family have diabetes」都中；`"smok"` 連 AI 複述病患的話都中。
 改成要求出現在問句裡並排除複述。措辭檢查原本只掃 `red_flag_alert` payload，
 掃不到 SOAP `patient_education`、`suggestedActions` 與 AI 逐字稿，已抽成所有 analyzer 共用。
+
+### [x] R22. 🔴 尿路敗血症紅旗的「熱」吃掉排尿灼熱 — 2026-08-18 臨床拍板（`7a59205`）
+
+實證 session `dda55701`：病患講「排尿時灼熱刺痛」這類 **dysuria（排尿局部灼熱，泌尿科最
+常見主訴之一）**，規則層判成 critical **尿路敗血症**並中止整場問診——病患一講出自己的主訴
+就被趕走。
+
+根因不是誤報太多，而是**詞表寫錯臨床語意**：urosepsis 的兩軸是「泌尿症狀 ×
+**全身性**感染徵象」，但全身軸收了 ja 段的裸「熱」，而它同時涵蓋局部的 熱い／熱く／灼熱感；
+共現組詞表又是**全語言聯集**（W1 設計），於是那一條裸「熱」連中文的「灼熱／熱熱的」一起吃掉。
+
+> **臨床拍板（2026-08-18）：「熱」只認全身性發燒語彙（發燒／發熱／體溫／畏寒…），
+> 排除灼熱／刺熱等局部症狀描述。**
+
+⚠️ 這是**語意修正，不是 R21 意義下的抑制守衛**——局部灼熱從來就不屬於全身徵象，與 #22 對
+`gross_hematuria_heavy` 的判斷同型（判準照臨床定義，不照字面）。但仍按 R-lessons 第 4 條
+逐字面舉證無漏報。詞表淨變化 **−1／+19 字面**，**發燒側召回率只增不減**：
+
+- **ja**：刪裸「熱」，改用助詞／接尾形（`熱が`／`熱も`／`熱で`／`熱を出`／`度の熱`，另補 `微熱`），
+  確保「熱い」接不到而發熱用法照收
+- **zh**：補口語發燒詞，並要求**全身性主體錨點**（`身體很熱`／`全身發燙`／`額頭發燙`），
+  使「小便很熱」接不到而「身體很熱」接得到
+- **ko／en／vi 逐條審視後維持現狀**，三個**保留在誤報側**的邊緣案例已就地記在詞表註解：
+  ko `열나`（局部灼熱韓文用 화끈거리다／따갑다，實測 0 誤爆，殘餘周邊例依 R21 不動）、
+  en `burning up`（要擋掉需加 `i'm`／`am` 主語錨點，會同時丟掉「the patient is burning up」
+  ＝製造漏報）、vi `sốt ruột`（＝著急的慣用語同形，移除 `sốt` 會丟掉最主要的越南文發燒詞）
+
+驗證：新增 `test_red_flag_urosepsis_fever_semantics.py`——**57 條五語雙向語料**
+（MUST_FIRE／MUST_NOT_FIRE 各語言 ≥3 筆，未受改三語留對照防外溢），語料本輪新寫並由結構性
+測試守住**不抄 dda55701 逐字稿與 e2e persona 台詞**（R-lessons 第 3 條），另以「把裸『熱』
+加回詞表」的**注入式回歸**驗證 11 筆確實轉紅。`test_red_flag_cooccurrence_coverage.py` 的
+ja 探針改為「発熱」並補上「裸『熱』不得回到本軸」的反向對照；`test_red_flag_suppression_policy.py`
+就地記載本次拍板。真 OpenAI e2e：**ruleprobe 36 全過、torsion 10/10、hematuria 基線乾淨**。
 
 ---
 
