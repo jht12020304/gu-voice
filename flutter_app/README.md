@@ -6,22 +6,33 @@
 
 ## ⚠️ 尚未驗證的部分（讀這份之前先看這裡）
 
-**醫師端大致可用、病患端未驗證——而病患端就是產品本身。**
+**病患端非語音全流程已真跑驗畢（2026-07-27，文字代替語音）；麥克風／VAD 路徑仍是零實測。**
 每一條都是「沒人試過」，不是「試過有問題」。`flutter analyze` 與 `flutter test` 全綠
 **不代表**這些能用（這輪就有兩次靜態全綠但 app 在真機一片紅）。
 
 | 未驗證 | 為什麼要緊 |
 |---|---|
-| **語音問診一次都沒跑過** | 這是 app 的存在理由。四條語音修法（AI 回音被當病患答話、TTS chain 洩漏→VAD 卡死、pause 順序讓半句症狀消失、硬鎖 re-assert）全靠單元測試與讀碼推論 |
-| **病患流程只走到 intake** | conversation→對話→SOAP→感謝頁整段沒跑；紅旗中止導向（該顯示「告知現場醫護」）也沒實測 |
+| **麥克風路徑一次都沒跑過** | 這是 app 的存在理由。四條語音修法（AI 回音被當病患答話、TTS chain 洩漏→VAD 卡死、pause 順序讓半句症狀消失、硬鎖 re-assert）全靠單元測試與讀碼推論。文字流程繞過 VAD，驗不到這四條 |
 | **TTS 從未實機播過音** | 測試用 fake player；fake 是 broadcast stream 而真 player 是 `BehaviorSubject.seeded`，「陳舊 completed 被重播」整類 bug 結構性測不到 |
 | **Web 語音是未決策的 HIGH risk** | 麥克風原始 PCM 需手寫 AudioWorklet JS interop。「web 可用」目前只對非語音頁成立 |
 | **Android 完全沒碰** | 只跑過 iOS simulator；release 簽章缺 keystore 會刻意失敗，連 release 包都出不來 |
 | **`replay()` 未 await `stopActive()`** | 推測性：若 just_audio 未串行化 method call → completer 永不解決 → VAD 永久硬靜音。刻意未修（見 docs/TODO.md H5） |
 
-**最小驗證路徑**：iOS Simulator 可以用 Mac 的麥克風，不必實機。跑完整病患流程並特別驗——
-暫停時半句話有沒有進逐字稿、AI 講話時麥克風是否被鎖、TTS 中斷後 VAD 是否恢復、
-紅旗情境是否導到正確的感謝頁變體。會用到真 OpenAI 額度。
+### 已驗過的（別重複做）
+
+`integration_test/patient_text_flow_test.dart`——iOS Simulator × 本機後端 × 真 OpenAI，
+用**文字輸入**代替語音走完 登入→選主訴→intake→WS handshake→AI 追問→結束/紅旗中止→SOAP：
+
+- `normal`（頻尿 4 輪）→ 場次 `completed`、逐字稿 9 則、SOAP `generated` 且 `zh-TW`
+- `redflag`（睪丸扭轉）→ 場次 `aborted_red_flag`、紅旗 1 筆、感謝頁走紅旗變體
+
+跑法見 [`docs/TODO.md`](../docs/TODO.md) §V2。**跑之前一定要
+`xcrun simctl privacy <udid> grant microphone com.guvoice.guVoice`**——`flutter test`
+每次重裝都會重置 TCC，沒授權時 `start()` 會卡在 `await openMic()`，
+`_ws.connect` 排在它後面，症狀是 WS 停在 `connecting`（看起來像 WS 壞掉，其實是麥克風）。
+
+**剩下的最小驗證路徑**：iOS Simulator 可以用 Mac 的麥克風，不必實機。真的對著麥克風講一次，
+特別驗——暫停時半句話有沒有進逐字稿、AI 講話時麥克風是否被鎖、TTS 中斷後 VAD 是否恢復。
 
 ## 現況
 
@@ -57,6 +68,15 @@ xcrun simctl launch booted com.example.guVoice
 ```
 
 ⚠️ Android emulator 上 `localhost` 是模擬器自己，要用 `10.0.2.2` 才連得到宿主機。
+
+## 測試分層
+
+- `test/`（67 項，純函式 + 少量 widget）——CI 會跑（`flutter analyze` 對 info 級也 exit 1）。
+- `integration_test/`（**需要真 simulator，不在 CI**；`flutter test` 不帶參數只跑 `test/`，天然排除）：
+  - `login_smoke_test.dart` — 登入冒煙，驗 dio／iOS Keychain 持久化／bootstrap 還原／導向
+  - `kiosk_idle_logout_test.dart` — 真等逾時驗病患被登出＋token 清除
+  - `patient_text_flow_test.dart` — **病患全流程（文字代替語音）**，打真後端＋真 OpenAI，見上方「已驗過的」
+- 憑證一律只從 `--dart-define` 讀，沒給就 skip。
 
 ## 注意
 
