@@ -34,7 +34,11 @@ def test_aborted_sets_red_flag_and_reason():
     redis = FakeRedis()
     ok = _run(db, redis, "aborted_red_flag", "in_progress", red_flag_reason="睪丸扭轉")
     assert ok is True
-    assert len(db.executed) == 1
+    # executed[0] 必須是 CAS 的 UPDATE。後面可能還有一句 SELECT（場次未指派醫師時
+    # _notify_doctors_red_flag_abort 撈在職醫師），不影響本測試守的 CAS 契約。
+    from sqlalchemy.sql.dml import Update as _Update
+
+    assert isinstance(db.executed[0], _Update)
     params = _compiled_params(db.executed[0])
     assert params["status"] == "aborted_red_flag"
     assert params["red_flag"] is True

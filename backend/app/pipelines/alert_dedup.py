@@ -18,8 +18,22 @@ logger = logging.getLogger(__name__)
 # 跨輪去重的 Redis hash key 與嚴重度排序（升級判斷用）。
 SESSION_EMITTED_RED_FLAGS_KEY = "gu:session:{session_id}:emitted_red_flags"
 RED_FLAG_SEVERITY_RANK = {"medium": 0, "high": 1, "critical": 2}
-# 去重狀態存活時間＝場次上下文生命週期（1 小時）。
-_EMITTED_TTL = 3600
+# 去重狀態存活時間。
+#
+# 原本＝場次上下文生命週期（3600s / 1 小時），但兩者的失效代價完全不同：
+# session context 過期只是「這場問診結束了」，去重狀態過期卻是**默默退化成不去重**
+# ——同一 canonical 紅旗會再次寫進 red_flag_alerts、再廣播一次，直接灌水 research
+# analytics 的紅旗計數與 dashboard 的未確認警示數（護理站看到重複警示 → 警示疲勞）。
+# 一場 kiosk 問診遠短於 1 小時，但場次可能被暫停（病患離開座位、換裝置、系統重連），
+# 恢復後同一 session_id 繼續問診就會踩到過期。TTL 拉到 24 小時：涵蓋任何合理的
+# 「暫停後續問」情境，而一個活超過 24 小時的問診場次已不具臨床意義。
+# 成本可忽略：每 session 一個 hash、欄位數＝該場觸發過的紅旗種類（個位數）。
+#
+# ⚠️ 這只是「更不容易掉」，不是保證：Redis 抖動 / flush / 被驅逐時 `should_suppress`
+# 仍會 fail-open（刻意設計，寧重複不可漏急症，勿改成 fail-close）。真正的最後防線
+# 應該是 DB 端 (session_id, canonical_id, severity) 唯一約束——見回報 needsFromOthers
+# （需 alembic migration，不在本檔範圍）。
+_EMITTED_TTL = 86400
 
 
 def alert_dedup_identity(alert: dict[str, Any]) -> str | None:

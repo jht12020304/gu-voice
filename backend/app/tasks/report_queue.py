@@ -65,6 +65,61 @@ class _SOAPReportTask(Task):
             )
 
 
+def _is_retryable(exc: BaseException) -> bool:
+    """判斷例外是否值得重試。
+
+    預設可重試（OpenAI 逾時／JSON 解析失敗經 ``AIServiceUnavailableException``、
+    DB 連線瞬斷等都屬此類，重跑一次多半就好了）；只有「資料本身有問題」的例外
+    重跑幾次結果都一樣，直接 FAILED 讓醫師端看得到並手動處理，
+    不必白燒 2 次 OpenAI 呼叫與 60 秒。
+    """
+    from app.core.exceptions import NotFoundException, ValidationException
+
+    return not isinstance(exc, (NotFoundException, ValidationException))
+
+
+def _run_task(task, session_id: str) -> dict:
+    """Celery task body：跑生成，並在失敗時決定「重試」或「標 FAILED」。
+
+    抽成獨立函式是為了讓重試決策可用假的 task 物件單元測試——
+    ``bind=True`` 的 task 無法注入 self，而直接呼叫 ``task.retry()``
+    在 worker 外會走 ``called_directly`` 分支，測不到真正的生產行為。
+
+    不變式：**重試前絕不標 FAILED**，否則重試成功也會留下錯誤狀態；
+    只有重試次數用盡（或例外不值得重試）才標 FAILED。
+    """
+    try:
+        return _run_async(_async_generate(session_id))
+    except Exception as exc:
+        retries = task.request.retries or 0
+        max_retries = task.max_retries or 0
+        if _is_retryable(exc) and retries < max_retries:
+            logger.warning(
+                "場次 %s SOAP 報告生成失敗，將重試（第 %d/%d 次，%s 秒後）: %s",
+                session_id,
+                retries + 1,
+                max_retries,
+                task.default_retry_delay,
+                exc,
+            )
+            # 報告維持 GENERATING，等重試結果；retry() 會拋 Retry 中止本次執行。
+            raise task.retry(exc=exc, countdown=task.default_retry_delay)
+
+        logger.error(
+            "場次 %s SOAP 報告生成最終失敗（已重試 %d 次），標記 FAILED: %s",
+            session_id,
+            retries,
+            exc,
+        )
+        try:
+            _run_async(_mark_report_failed(str(session_id)))
+        except Exception:  # noqa: BLE001 — 標記失敗不可蓋掉原始錯誤
+            logger.exception(
+                "場次 %s 標記 FAILED 失敗（on_failure 會再兜底一次）", session_id
+            )
+        raise
+
+
 @celery_app.task(
     base=_SOAPReportTask,
     name="app.tasks.report_queue.generate_soap_report",
@@ -77,13 +132,16 @@ def generate_soap_report(self, session_id: str) -> dict:
     """
     生成 SOAP 報告（同步 Celery 任務，內部以同步方式執行 async 邏輯）
 
+    失敗時最多重試 2 次（間隔 30 秒），重試期間報告維持 GENERATING；
+    重試耗盡或遇到不值得重試的錯誤才標記 FAILED。詳見 ``_run_task``。
+
     Args:
         session_id: 場次 ID
 
     Returns:
         包含報告 ID 與狀態的字典
     """
-    return _run_async(_async_generate(session_id))
+    return _run_task(self, session_id)
 
 
 async def _mark_report_failed(session_id: str) -> None:
@@ -101,9 +159,12 @@ async def _mark_report_failed(session_id: str) -> None:
 
 
 async def _async_generate(session_id: str) -> dict:
-    """非同步報告生成核心邏輯"""
-    from datetime import date
+    """非同步報告生成核心邏輯。
 
+    失敗語意：可預期的資料問題（無場次／無對話／無報告列）以回傳 dict 表示，
+    呼叫端不會重試；非預期例外一律 rollback 後往上拋，**不在此標記 FAILED**——
+    是否重試、何時才標 FAILED 由 ``_run_task`` 依 Celery 重試次數決定。
+    """
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
@@ -113,6 +174,7 @@ async def _async_generate(session_id: str) -> dict:
     from app.models.session import Session
     from app.models.soap_report import SOAPReport
     from app.pipelines.icd10_symptom_map import resolve_symptom_id
+    from app.pipelines.patient_context import build_patient_info
     from app.pipelines.soap_generator import SOAPGenerator
     from app.utils.datetime_utils import utc_now
 
@@ -130,7 +192,11 @@ async def _async_generate(session_id: str) -> dict:
             session_obj = (await db.execute(stmt)).scalar_one_or_none()
 
             if session_obj is None:
+                # 早退也必須把報告列標 FAILED，否則會永遠停在 GENERATING、
+                # 醫師端連「重新生成」按鈕都等不到（報告列若不存在則 no-op）。
                 logger.warning("場次 %s 不存在，無法生成報告", session_id)
+                await _update_report_status(db, session_id, ReportStatus.FAILED)
+                await db.commit()
                 return {
                     "session_id": session_id,
                     "status": "failed",
@@ -159,24 +225,18 @@ async def _async_generate(session_id: str) -> dict:
                     }
                 )
 
-            patient_info: dict[str, object] = {}
-            patient = session_obj.patient
-            if patient is not None:
-                if patient.name:
-                    patient_info["name"] = patient.name
-                if patient.gender:
-                    patient_info["gender"] = (
-                        patient.gender.value
-                        if hasattr(patient.gender, "value")
-                        else str(patient.gender)
-                    )
-                if patient.date_of_birth:
-                    today = date.today()
-                    dob = patient.date_of_birth
-                    patient_info["age"] = (
-                        today.year - dob.year
-                        - ((today.month, today.day) < (dob.month, dob.day))
-                    )
+            # 病患背景資訊與 WS 對話路徑共用單一來源（app/pipelines/patient_context.py）。
+            # 舊版在此自行重組，只放 name/gender/age、完全不讀 sessions.intake_data，
+            # 導致 soap_generator 的 past_medical_history / medications / allergies /
+            # family_history 四個分支在生產路徑成為死碼（實測：intake 明載
+            # 「父親：膀胱癌」，SOAP 卻寫 family_history=「未提供」）。不可再 inline。
+            # patient 關聯已於上方 selectinload 預載，此處存取不會 DetachedInstanceError。
+            # intake_data 用 getattr 取：真實 `Session` 一定有這個 mapped column，
+            # 預設值只為了容忍不完整的測試替身，生產行為完全相同
+            # （WS 路徑的呼叫點亦同）。
+            patient_info: dict[str, object] = build_patient_info(
+                session_obj.patient, getattr(session_obj, "intake_data", None)
+            )
 
             chief_complaint_text = session_obj.chief_complaint_text or ""
             if not chief_complaint_text and session_obj.chief_complaint is not None:
@@ -322,9 +382,10 @@ async def _async_generate(session_id: str) -> dict:
             }
 
         except Exception as exc:
+            # 這裡刻意**不**標 FAILED：本次失敗可能還有重試機會，先標 FAILED 會讓
+            # 重試成功的場次留下錯誤狀態。標記時機交給 _run_task（重試耗盡才標）。
             logger.exception("場次 %s SOAP 報告生成失敗: %s", session_id, exc)
-            await _update_report_status(db, session_id, ReportStatus.FAILED)
-            await db.commit()
+            await db.rollback()
             raise
 
 

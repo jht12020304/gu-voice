@@ -86,7 +86,13 @@ Key `gu:session:{session_id}:context` 的 `conversation_history` 欄（JSON，�
 }
 ```
 
-此快照會被格式化併入 SOAP 生成的 patient_info（`conversation_handler.py:2489-2520`），缺項才 fallback 到 `patients` 表的長期欄位。
+此快照由 `app/pipelines/patient_context.build_patient_info()` 格式化成 `patient_info`，缺項才 fallback 到 `patients` 表的長期欄位。
+
+⚠️ **這句話在 2026-07-27 之前是錯的**（TODO §R1）：當時只有 WS 那條餵對話 LLM 的路徑會讀
+`intake_data`，Celery SOAP 路徑自己重組 `patient_info` 且只放 name/gender/age——
+`soap_generator` 的過去病史／用藥／過敏／家族史四個分支在生產路徑是**死碼**。
+實測後果是 intake 明載「父親：膀胱癌」而 SOAP 寫「未提供」。現已抽成共用模組，
+**WS 與 Celery 兩條路徑都走它**，不得在任一端重新組裝。
 
 ---
 

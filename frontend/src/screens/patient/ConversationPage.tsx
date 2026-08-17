@@ -75,6 +75,9 @@ export default function ConversationPage() {
   // S4：紅旗安全語音是否已主動播報（一次即可，避免多個 red_flag_alert 事件重播 / 打斷）。
   // 亦作為卸載清理的閘：已播報時不在導頁時 cancel()，讓安全語音延續播到感謝頁。
   const redFlagAnnouncedRef = useRef(false);
+  // alertId → 後端送來的在地化病患指引（red_flag_alert.payload.patientNotice）。
+  // 後端依「這則紅旗有沒有真的建立醫師通知」二選一，前端無從自行判斷，故照用。
+  const [redFlagNotices, setRedFlagNotices] = useState<Record<string, string>>({});
 
   const {
     currentSession,
@@ -665,15 +668,36 @@ export default function ConversationPage() {
     });
 
     // 紅旗警示
+    //
+    // 病患端只吃 alertId / severity / title / patientNotice 四個欄位——這是結構性的
+    // 防線，不是 render 層的字串黑名單：`description`（醫師向臨床推理，實測含「建議
+    // 立即急診評估」「排除惡性腫瘤」）與 `suggestedActions`（醫囑處置，實測含「立即
+    // 安排急診評估」）一律**不讀、不寫進 store**。這樣即使日後有人在 JSX 裡寫回
+    // {alert.description}，病患端 store 裡本來就沒有值，也印不出醫師向文字。
+    // 後端這輪已把病患 payload 結構性收斂成同一組欄位，兩邊互為備援。
     on('red_flag_alert', (payload) => {
       const data = payload as RedFlagAlertPayload;
+      // 後端送來的在地化病患指引（依「有沒有真的通知到醫師」二選一）。
+      // 存在本頁 local state 而非 conversationStore：RedFlagEvent 型別在
+      // stores/conversationStore.ts，加欄位要跨檔協調（尚未做，見 TODO）。
+      // 2026-07-27 Gate：RedFlagAlertPayload 已移除 description / suggestedActions
+      // 並補上 patientNotice?，型別與後端實際 payload 一致，故不再需要就地 narrow。
+      // 仍做 typeof 檢查：舊後端不送此欄，且這是跨程序邊界的資料。
+      const rawNotice = data.patientNotice;
+      const notice = typeof rawNotice === 'string' ? rawNotice.trim() : '';
+      if (notice) {
+        setRedFlagNotices((prev) =>
+          prev[data.alertId] === notice ? prev : { ...prev, [data.alertId]: notice },
+        );
+      }
       addRedFlag({
         id: data.alertId,
-        title: data.title,
-        description: data.description,
+        // title 為空（後端解析不到 canonical 顯示名）時退回中性的在地化說法，
+        // 否則橫幅只剩一個驚嘆號圖示，病患不知道發生什麼事。
+        title: (data.title ?? '').trim() || (t('conversation:redFlag.generic') as string),
         severity: data.severity,
         timestamp: new Date().toISOString(),
-        suggestedActions: data.suggestedActions,
+        suggestedActions: [],
         isAcknowledged: false,
       });
       // S4：critical 紅旗 → 主動播語音安全提醒（螢幕紅旗橫幅之外，長者也聽得到）
@@ -899,6 +923,31 @@ export default function ConversationPage() {
   const visibleFlags = unacknowledgedFlags.slice(0, 3);
   const extraFlagCount = Math.max(0, unacknowledgedFlags.length - visibleFlags.length);
 
+  // 橫幅底部的病患行動指引。
+  //
+  // 後端在 red_flag_alert payload 帶 `patientNotice`（已依場次語言在地化），並依
+  // 「這則紅旗有沒有真的建立醫師通知」二選一：真的建了才說「已通知現場醫護人員」，
+  // 否則只說「已為您標記、供醫護看診時查看」。**判斷依據在後端，前端無從得知**，
+  // 所以一律照用後端送來的那句，不自己拼。
+  //
+  // 顯示三則紅旗時各自的 notice 可能不同（一則已通知、一則只標記）。當成共用結尾
+  // 只有在「全部相同」時才成立；不同時退回本地 fallback。
+  // 本地 fallback（conversation:redFlag.patientNotice）逐字等於後端**保守版**
+  // `ws.red_flag_patient_notice_flagged`（「已為您標記供醫護查看」），對每一則紅旗
+  // 都為真，不會替沒真的通知到醫師的紅旗宣稱「已通知」。這條逐字相等由
+  // flutter_app/test/red_flag_banner_wording_test.dart 直接讀後端 i18n_messages.py
+  // 比對守住（後端改文案而前端沒跟 → 測試爆）。
+  // payload 沒帶 patientNotice（舊後端／欄位缺漏）時同樣走這條 fallback。
+  const visibleNotices = visibleFlags
+    .map((f) => redFlagNotices[f.id])
+    .filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+  const bannerNotice =
+    visibleNotices.length === visibleFlags.length &&
+    visibleNotices.length > 0 &&
+    visibleNotices.every((n) => n === visibleNotices[0])
+      ? visibleNotices[0]
+      : (t('conversation:redFlag.patientNotice') as string);
+
   return (
     <div className="flex h-screen flex-col bg-chat-bg dark:bg-dark-bg">
       {/* 頂部欄 */}
@@ -1001,12 +1050,10 @@ export default function ConversationPage() {
                     />
                   </svg>
                   <div className="flex-1 min-w-0">
+                    {/* 病患橫幅只呈現「症狀名（title，後端依場次語言解析）」＋下方
+                        固定的 kiosk 指引。醫師向欄位（description / suggestedActions）
+                        在上方 on('red_flag_alert') 就沒有寫進 store，這裡自然無從渲染。 */}
                     <p className="text-body font-medium line-clamp-2">{alert.title}</p>
-                    {alert.description && (
-                      <p className="mt-0.5 text-small opacity-90 line-clamp-2">
-                        {alert.description}
-                      </p>
-                    )}
                   </div>
                 </div>
                 <button
@@ -1023,6 +1070,12 @@ export default function ConversationPage() {
               {t('conversation:redFlag.more', { count: extraFlagCount })}
             </p>
           )}
+          {/* 病患面唯一的行動指引：院內候診 kiosk，病患已在現場 →「原處稍候、
+              告知現場醫護」，不得出現「盡速就醫／立即急診」這類含糊指引。
+              內容來源見上方 bannerNotice（後端 payload 優先、否則本地保守版）。 */}
+          <p className="px-1 text-small text-ink-secondary dark:text-slate-300">
+            {bannerNotice}
+          </p>
         </div>
       )}
 

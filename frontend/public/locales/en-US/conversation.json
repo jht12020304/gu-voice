@@ -41,7 +41,9 @@
     "sendOffline": "Disconnected — your message wasn't sent. Please retry once reconnected."
   },
   "redFlag": {
-    "more": "+{{count}} more alerts"
+    "more": "+{{count}} more alerts",
+    "patientNotice": "We have flagged this symptom in your record for the on-site clinical staff to review at your visit. Please stay where you are and wait to be seen; if you feel worse, tell the front desk or on-site staff right away.",
+    "generic": "A symptom that needs attention was detected"
   },
   "supervisor": {
     "hintLabel": "Coming up next",

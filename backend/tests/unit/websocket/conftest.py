@@ -147,10 +147,26 @@ class FakeRedis:
 
 
 # ── DB 替身 ─────────────────────────────────────────────
+class _StubScalars:
+    """`result.scalars()` 的替身，只需要 `.all()`。"""
+
+    def __init__(self, values: list[Any]) -> None:
+        self._values = values
+
+    def all(self) -> list[Any]:
+        return list(self._values)
+
+
 class StubResult:
-    def __init__(self, rowcount: int = 1, row: Any | None = None) -> None:
+    def __init__(
+        self,
+        rowcount: int = 1,
+        row: Any | None = None,
+        scalars: list[Any] | None = None,
+    ) -> None:
         self.rowcount = rowcount
         self._row = row
+        self._scalars = scalars or []
 
     def first(self) -> Any | None:
         """UPDATE ... RETURNING 語意：CAS 命中（rowcount≥1）回一列，否則 None。
@@ -164,6 +180,15 @@ class StubResult:
             return SimpleNamespace(language="zh-TW", doctor_id=None, patient_id=None)
         return None
 
+    def scalars(self) -> _StubScalars:
+        """SELECT 的純量投影。預設空清單。
+
+        aborted_red_flag 的醫師通知在場次未指派醫師時會 SELECT 在職醫師
+        （`_notify_doctors_red_flag_abort`）；沒有這個方法會讓那條路徑吃到
+        AttributeError 而看起來像壞掉。用 `StubDB(doctor_ids=[...])` 指定回傳值。
+        """
+        return _StubScalars(self._scalars)
+
 
 class StubDB:
     """捕捉 execute stmt 的最小 AsyncSession 替身。"""
@@ -173,12 +198,15 @@ class StubDB:
         rowcount: int = 1,
         execute_error: Exception | None = None,
         returning_row: Any | None = None,
+        doctor_ids: list[Any] | None = None,
     ) -> None:
         self.executed: list[Any] = []
         self.added: list[Any] = []
         self.rowcount = rowcount
         self.execute_error = execute_error
         self.returning_row = returning_row
+        # 未指派醫師時，_notify_doctors_red_flag_abort 會 SELECT 在職醫師
+        self.doctor_ids: list[Any] = doctor_ids or []
         self.commits = 0
         self.rollbacks = 0
 
@@ -186,7 +214,9 @@ class StubDB:
         if self.execute_error is not None:
             raise self.execute_error
         self.executed.append(stmt)
-        return StubResult(self.rowcount, row=self.returning_row)
+        return StubResult(
+            self.rowcount, row=self.returning_row, scalars=self.doctor_ids
+        )
 
     def add(self, obj: Any) -> None:
         """ORM add 替身（AuditLogService.log / NotificationService.create 用）。"""
@@ -329,11 +359,23 @@ def run_text_turn(
     alert_create_side_effect: Exception | None = None,
     session_id: str = DEFAULT_SESSION_ID,
     red_flag_wait_timeout: float = 0.01,
+    doctor_ids: list[Any] | None = None,
+    notification_create: Any = None,
+    update_status: Any = None,
 ) -> SimpleNamespace:
     """跑一輪 _handle_text_message，回傳所有 spy / capture 供斷言。
 
     session_context / conversation_history / redis 可跨輪傳同一實例
     （模擬同一 WS 連線的多輪對話，例如 _hard_cap_drain_defers 累計）。
+
+    doctor_ids：`_notify_doctors_red_flag` 在場次未指派醫師時會 SELECT 在職醫師，
+        用這個參數餵給主 DB 與 drain DB（預設空 = 查無醫師 → 建 0 筆通知，
+        病患端提示必須退到「已標記」而非「已通知」）。
+    notification_create：`NotificationService.create` 的替身；預設 AsyncMock，
+        回傳一個假 Notification（代表寫入成功）。
+    update_status：`_update_session_status` 的替身；預設 AsyncMock 恆回 True
+        （＝CAS 命中）。要驗 CAS 未命中的分支就傳 `AsyncMock(return_value=False)`
+        或自訂 coroutine（本 driver 一律覆寫模組 global，外部先 monkeypatch 會被蓋掉）。
     """
     cap = _CaptureManager()
     monkeypatch.setattr(ch, "manager", cap)
@@ -354,12 +396,18 @@ def run_text_turn(
             "language": language,
         }
 
-    db = StubDB()
-    drain_db = StubDB()
+    db = StubDB(doctor_ids=doctor_ids)
+    drain_db = StubDB(doctor_ids=doctor_ids)
 
     # 服務層 AsyncMock spy（Mock 不實作 descriptor，staticmethod 直接可換）
     from app.services.alert_service import AlertService
     from app.services.conversation_service import ConversationService
+    from app.services.notification_service import NotificationService
+
+    notif_create = notification_create or AsyncMock(
+        return_value=SimpleNamespace(id=uuid.uuid4())
+    )
+    monkeypatch.setattr(NotificationService, "create", notif_create)
 
     conv_create = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
     monkeypatch.setattr(ConversationService, "create", conv_create)
@@ -369,7 +417,7 @@ def run_text_turn(
     monkeypatch.setattr(AlertService, "create", alert_create)
 
     # 模組級 helper spy（_handle_text_message 走模組 global，patch 即生效）
-    update_status = AsyncMock(return_value=True)
+    update_status = update_status or AsyncMock(return_value=True)
     monkeypatch.setattr(ch, "_update_session_status", update_status)
     soap_spy = AsyncMock(return_value=None)
     monkeypatch.setattr(ch, "_generate_soap_report_async", soap_spy)
@@ -417,6 +465,7 @@ def run_text_turn(
         llm=llm,
         conv_create=conv_create,
         alert_create=alert_create,
+        notif_create=notif_create,
         update_status=update_status,
         soap_spy=soap_spy,
         conversation_history=conversation_history,

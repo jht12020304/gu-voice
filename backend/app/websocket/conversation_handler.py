@@ -11,6 +11,7 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -24,11 +25,13 @@ from app.core.config import Settings
 from app.core.exceptions import RateLimitExceededException
 from app.core.rate_limit import enforce_llm_per_user_rate_limit
 from app.pipelines.llm_conversation import LLMConversationEngine
+from app.pipelines.patient_context import build_patient_info
 from app.pipelines.prompts.shared import count_critical_risk_factors_for_complaint
 from app.pipelines.red_flag_detector import RedFlagDetector
 from app.pipelines.stt_pipeline import STTPipeline, to_whisper_language
 from app.pipelines.tts_pipeline import TTSPipeline
 from app.pipelines.supervisor import SupervisorEngine
+from app.utils.i18n_messages import get_message as _i18n_get
 from app.websocket.auth import authenticate_websocket
 from app.websocket.connection_manager import manager
 
@@ -44,6 +47,9 @@ _SESSION_SUPERVISOR_KEY = "gu:session:{session_id}:supervisor_guidance"
 # 句子邊界（中文句號、驚嘆號、問號、換行）— 用於串流時的增量切句
 _SENTENCE_BOUNDARY_CHARS = "。！？\n"
 
+# fire-and-forget 背景任務的強參照集合（見 _spawn_background）
+_BACKGROUND_TASKS: set["asyncio.Task[Any]"] = set()
+
 
 # ── Audio magic-byte signatures（DoS hardening） ─────────
 # WebM/Matroska: 0x1A 0x45 0xDF 0xA3
@@ -58,6 +64,19 @@ _AUDIO_MAGIC_OGG = b"OggS"
 _AUDIO_MAGIC_WAV = b"RIFF"
 _AUDIO_MAGIC_ID3 = b"ID3"
 _AUDIO_MAGIC_MP4 = b"ftyp"
+
+
+def _spawn_background(coro: Any) -> "asyncio.Task[Any]":
+    """派送 fire-and-forget 背景任務並持強參照到完成。
+
+    `asyncio` 只對執行中的 task 持弱參照：派送者自己隨即結束時（例如遲到紅旗的
+    `_drain_late_red_flags` 派完 SOAP 就返回），task 可能在真正跑起來之前就被 GC
+    回收，SOAP 於是永遠不生成。加入模組級集合、完成時自動移除。
+    """
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
 
 
 def _has_valid_audio_magic(buf: bytes) -> bool:
@@ -271,9 +290,153 @@ def _split_completed_sentences(buffer: str) -> tuple[list[str], str]:
     return completed, remainder
 
 
+# ── BLOCKER F：收尾輪「不得發問」的確定性 backstop ───────────────────
+# 收尾輪（conclude=True）本來只有 prompt 一層防線：`build_wrap_up_prompt` 的極簡
+# 收尾語境 + `format_messages(conclude=True)` 的前後夾擊。實測（2026-07-27 ED 場
+# ed_3b_zh 連跑兩次：run1 紅、run2 綠，同一份碼）證明**遵從是機率性的**——
+# 只要 LLM 那一輪不從，病患就會拿到一個懸空問句然後被導去感謝頁。
+# 更糟：ED 場 effective_hard_cap 正好 15，收尾輪與硬上限重合、零餘裕，沒有下一輪
+# 可以補救（DB 裡 2026-07-06 的 ED 場 a5b71326 有同樣的懸空結尾，是長期缺陷）。
+#
+# 對策：不再加強文案（prompt 靠 LLM 遵從不是結構性保證），改在收尾輪的**輸出路徑**
+# 加確定性檢查——命中問句就整段換成制式收尾語，並記 WARNING 讓「LLM 又不從了」
+# 可被觀察（可觀測性，不是掩蓋）。
+#
+# 判準設計（刻意偏向「寧可替換」）：收尾輪本來就不該有新資訊，替換的代價很低；
+# 漏抓的代價是病患收到懸空問句。故：
+#   1) 任何語言的問號（ASCII / 全形 / CJK 相容字元）→ 一律視為發問，
+#      不區分修辭性問句與真發問（分不清時走安全側）。
+#   2) 無問號時再比對各語言的疑問句式，但這組 pattern **刻意窄化**，
+#      因為它們沒有問號當佐證、誤判成本較高：
+#      - ja：`ですか/ますか/ましたか` 需排除接續助詞「〜から」（"大切な情報ですから"
+#        是陳述句），故用 negative lookahead。
+#      - vi：只留 `phải không / hay không / được không / có không`；
+#        刻意不收 `khi nào`（"bác sĩ sẽ cho bạn biết khi nào" 是陳述句）與 `bao lâu`。
+#      - en：只認**句首**的疑問助動詞／wh 詞，且刻意排除 have/will/shall
+#        （"Have a seat."、"Will be seen shortly." 都是祈使／陳述句）。
+#   3) pattern 一律全語言比對、不依 session language 分流：各語言的字元集互斥
+#      （嗎／ですか／습니까／không／英文詞邊界），跨語言誤命中可忽略，而 LLM 偶爾
+#      回錯語言時仍抓得到。
+_WRAP_UP_QUESTION_MARKS = ("?", "？", "﹖", "⁇", "؟")
+_WRAP_UP_QUESTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # zh-TW：疑問語尾助詞與正反問句式
+    re.compile(r"嗎|呢|請問|有沒有|是不是|要不要|能不能|可不可以"),
+    # ja-JP：丁寧体の疑問形（「〜ですから」等の接続助詞は除外）
+    re.compile(r"ますか(?!ら)|ですか(?!ら)|ましたか(?!ら)|でしょうか|いかがですか"),
+    # ko-KR：해요体の의문형 어미（격식체 `-ㅂ니까` 는 `_has_korean_formal_question`）
+    re.compile(r"나요|까요|인가요|신가요|는지요"),
+    # vi-VN：câu hỏi dạng "…không"
+    re.compile(r"phải không|hay không|được không|có không", re.IGNORECASE),
+    # en-US：句首疑問助動詞／wh 詞（have/will/shall 刻意不收，見上方註解）
+    re.compile(
+        r"(?:^|[.!;\n]\s*)"
+        r"(?:do|does|did|are|is|was|were|has|had|can|could|would|should"
+        r"|may|might|any|what|when|where|why|how|which|who)\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+_HANGUL_BASE = 0xAC00
+_HANGUL_COUNT = 11172
+_HANGUL_JONGSEONG_B = 17  # 終聲 ㅂ 在 28 個終聲表中的索引
+
+
+def _has_korean_formal_question(text: str) -> bool:
+    """韓文格式體疑問形 `-ㅂ니까`：「니까」前一個音節的終聲必須是 ㅂ。
+
+    只比對「니까」會誤抓連結어미（「진행되니까」＝因為…，是陳述句）；
+    只列舉「습니까／입니까」又會漏掉「계십니까／갑니까」這類（實測漏抓）。
+    故用終聲判斷，兩個方向都準。
+    """
+    idx = text.find("니까")
+    while idx > 0:
+        code = ord(text[idx - 1]) - _HANGUL_BASE
+        if 0 <= code < _HANGUL_COUNT and code % 28 == _HANGUL_JONGSEONG_B:
+            return True
+        idx = text.find("니까", idx + 1)
+    return False
+
+
+def _looks_like_question(text: str) -> bool:
+    """收尾輪輸出是否含問句（各語言問號 + 窄化的疑問句式）。
+
+    純函式，供 `_handle_text_message` 的收尾 backstop 使用；判不準時偏向回 True
+    （替換成制式收尾語的代價遠低於讓病患收到懸空問句）。
+    """
+    if not text:
+        return False
+    if any(mark in text for mark in _WRAP_UP_QUESTION_MARKS):
+        return True
+    if any(p.search(text) for p in _WRAP_UP_QUESTION_PATTERNS):
+        return True
+    return _has_korean_formal_question(text)
+
+
 # A3：紅旗 gate 的同步等待秒數。原為 _handle_text_message 內局部常數 3.5，
 # 抬升為模組常數以利單元測試 monkeypatch（值與行為不變）。
 _RED_FLAG_WAIT_TIMEOUT: float = 3.5
+
+# ── 紅旗語意層用的跨輪對話摘要（session_context["conversation_summary"]）─────
+# red_flag_detector._semantic_detect 會把它以「先前對話（依時間排序）：」放進 LLM
+# 的病患背景（消費端的正規化／截斷見該檔 `_format_conversation_summary`），
+# 但這個 key 過去從來沒有人寫入 → 語意層永遠只看得到「本輪單句 + 主訴字串」，
+# 跨輪累積型急症（前輪講發燒、本輪講腰痛＝urosepsis）偵測不到。
+# 長度必須有上限：整場逐字稿塞進紅旗 prompt 會燒 token，也會稀釋最新症狀。
+_CONVERSATION_SUMMARY_MAX_TURNS: int = 4  # 最近 4 組來回（病患＋AI 各算一則 → 8 則）
+_CONVERSATION_SUMMARY_MAX_CHARS: int = 1200  # 摘要總長度上限
+_CONVERSATION_SUMMARY_ENTRY_MAX_CHARS: int = 200  # 單則發言長度上限
+_PATIENT_ROLES = ("patient", "user")
+
+
+def _build_conversation_summary(
+    history: list[dict[str, Any]],
+    *,
+    max_turns: int = _CONVERSATION_SUMMARY_MAX_TURNS,
+    max_chars: int = _CONVERSATION_SUMMARY_MAX_CHARS,
+    entry_max_chars: int = _CONVERSATION_SUMMARY_ENTRY_MAX_CHARS,
+) -> str:
+    """把最近幾輪對話壓成紅旗語意層可讀的多行摘要字串。
+
+    格式（每則一行，最舊在上、最新在下）::
+
+        病患：早上開始發燒到三十九度
+        AI：發燒有多久了？
+        病患：現在右邊腰很痛
+
+    取最後 ``max_turns * 2`` 則（病患／AI 各算一則），單則超過 ``entry_max_chars``
+    截斷並補「…」；組完若總長超過 ``max_chars`` 就從最舊那端逐則丟掉（保留最新，
+    因為紅旗判斷的是「現在」的急症風險）。沒有可用內容時回空字串，呼叫端據此
+    決定不要寫入這個 key（`_semantic_detect` 對空字串會略過整行）。
+
+    不含摘要壓縮後的 system/summary 角色：`_cap_conversation_history` 會把舊輪
+    壓成單則 role="system" 的摘要，那是給主 LLM 的，塞進紅旗 prompt 只會混淆。
+    """
+    if not history:
+        return ""
+    dialog = [
+        e
+        for e in history
+        if isinstance(e, dict)
+        and e.get("role") in (*_PATIENT_ROLES, "assistant", "ai")
+        and str(e.get("content") or "").strip()
+    ]
+    if not dialog:
+        return ""
+
+    lines: list[str] = []
+    for entry in dialog[-(max_turns * 2) :]:
+        speaker = "病患" if entry.get("role") in _PATIENT_ROLES else "AI"
+        content = " ".join(str(entry.get("content")).split())
+        if len(content) > entry_max_chars:
+            content = content[:entry_max_chars] + "…"
+        lines.append(f"{speaker}：{content}")
+
+    # 總長度上限：從最舊那端丟，保留最新的輪次。
+    while lines and sum(len(x) for x in lines) + len(lines) - 1 > max_chars:
+        lines.pop(0)
+    return "\n".join(lines)
+
 
 # ── 自動結束政策與紅旗去重已抽到 app/pipelines/{conclusion_policy,alert_dedup}.py ──
 # 這裡以底線別名 re-import，保持既有呼叫端與測試（ch._should_auto_conclude 等）相容。
@@ -402,6 +565,10 @@ async def conversation_websocket(
             "chief_complaint_display": session_data.get("chief_complaint_display"),
             "patient_info": session_data.get("patient_info", {}),
             "language": session_data.get("language"),
+            # BLOCKER #2：紅旗警示要不要 fan-out 給全體在職醫師，取決於本場次
+            # 有沒有指派醫師（kiosk 恆為 NULL）。`_validate_session` 已撈回來，
+            # 帶進 context 免得 `_persist_and_emit_alert` 每則警示再 SELECT 一次。
+            "doctor_id": session_data.get("doctor_id"),
         }
 
         # 建構系統提示詞
@@ -521,23 +688,18 @@ async def conversation_websocket(
                             idle_for,
                         )
                         try:
-                            await manager.send_localized_to_session(
+                            await _finalize_idle_timeout(
+                                db=db,
+                                redis=redis,
+                                session_id=session_id,
+                                idle_timeout_seconds=idle_timeout_seconds,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "閒置逾時收尾失敗 | session=%s",
                                 session_id,
-                                msg_type="session_status",
-                                code="events.session.idle_timeout",
-                                params={
-                                    "minutes": int(idle_timeout_seconds // 60),
-                                },
-                                severity="warning",
+                                exc_info=True,
                             )
-                        except Exception:
-                            pass
-                        try:
-                            await _update_session_status(
-                                db, redis, session_id, "completed", "in_progress"
-                            )
-                        except Exception:
-                            pass
                         try:
                             await websocket.close(code=4000, reason="idle_timeout")
                         except Exception:
@@ -605,8 +767,9 @@ async def conversation_websocket(
                     )
                     # H-8：完成場次後排隊 / 統計數字改變，順帶推播 queue/stats。
                     await _broadcast_dashboard_queue_and_stats(db, redis)
-                    # 觸發 SOAP 報告非同步生成
-                    asyncio.create_task(
+                    # 觸發 SOAP 報告非同步生成（必須持強參照：下一行就 break 出
+                    # 主迴圈，裸 create_task 可能在跑起來前被 GC 掉）
+                    _spawn_background(
                         _generate_soap_report_async(session_id=session_id)
                     )
 
@@ -910,13 +1073,19 @@ async def _notify_session_already_terminated(
     既有鏈上（每分支唯一 ai_response_end 不變式），沿用此序列可保證 VAD 不
     卡死，且不需要改動前端 payload 契約 / 新增前端 i18n key。
     """
-    from app.utils.i18n_messages import get_message as _i18n_get
-
     message_id = str(uuid.uuid4())
     session_language = session_context.get("language")
     notice_key = _SESSION_TERMINATED_NOTICE_KEYS.get(
         terminated_status, "ws.session_terminated_completed_notice"
     )
+    # BLOCKER #2：aborted_red_flag 的版本明說「已通知現場醫護人員」。只有在本場次
+    # 真的建立過 RED_FLAG 通知（`_persist_and_emit_alert` 的 fan-out 回傳 > 0）時
+    # 才可以這樣講；fan-out 建了 0 筆（查無在職醫師 / 寫入失敗）就退到只陳述
+    # 「已標記在紀錄中」的版本。kiosk 情境病患就在現場，這句話他會當真。
+    if notice_key == "ws.session_terminated_aborted_notice" and not session_context.get(
+        "_red_flag_notified_titles"
+    ):
+        notice_key = "ws.session_terminated_aborted_notice_unnotified"
     notice_text = _i18n_get(notice_key, session_language)
 
     await manager.send_to_session(
@@ -1283,6 +1452,85 @@ async def _broadcast_dashboard_queue_and_stats(
         )
 
 
+# ── 閒置逾時收尾 ─────────────────────────────────────────
+async def _finalize_idle_timeout(
+    *,
+    db: AsyncSession,
+    redis: Redis,
+    session_id: str,
+    idle_timeout_seconds: int,
+) -> bool:
+    """閒置逾時的場次收尾：告知病患 → 轉 completed →（轉成功才）通知＋派 SOAP。
+
+    回傳是否真的把場次從 in_progress 轉成 completed（compare-and-set 命中）。
+
+    以前這裡只做「送 idle 提示 + 改狀態」兩件事，於是：
+    - **沒有 SOAP**。會生成報告的路徑只有 end_session、自動結束、critical 中止、
+      硬上限前遲到 critical 四條，閒置是漏掉的第五條 —— 場次終態是 completed，
+      soap_reports 卻永遠沒有那一列，醫師端等不到報告。
+    - 病患端那則 `session_status` 不帶 `status`（`connection_manager` 只在有 extra
+      時才把 status 併進 payload），前端 `on('session_status')` 認不出終態；WS 隨即
+      被 4000 關掉 → 畫面停在對話頁並不斷重連。
+    - 儀表板收不到 `session_status_changed` / queue / stats，醫師端排隊清單留著一
+      筆早已結束的場次。
+
+    每一步各自 try/except：任何一步失敗都不可讓看門狗死掉（後面還要關 WS）。
+    """
+    try:
+        await manager.send_localized_to_session(
+            session_id,
+            msg_type="session_status",
+            code="events.session.idle_timeout",
+            params={"minutes": int(idle_timeout_seconds // 60)},
+            severity="warning",
+        )
+    except Exception:
+        logger.warning("閒置逾時提示送出失敗 | session=%s", session_id, exc_info=True)
+
+    try:
+        transitioned = await _update_session_status(
+            db, redis, session_id, "completed", "in_progress"
+        )
+    except Exception:
+        logger.error("閒置逾時狀態轉移失敗 | session=%s", session_id, exc_info=True)
+        return False
+
+    if not transitioned:
+        # CAS 未命中＝場次早已是終態（紅旗中止 / 已完成），該路徑已派過 SOAP。
+        return False
+
+    try:
+        # 病患端終態訊號（帶 status 前端才會導離對話頁）。
+        await manager.send_localized_to_session(
+            session_id,
+            msg_type="session_status",
+            code="events.session.idle_timeout",
+            params={"minutes": int(idle_timeout_seconds // 60)},
+            severity="warning",
+            extra={"status": "completed", "previousStatus": "in_progress"},
+        )
+        await manager.broadcast_localized_dashboard(
+            msg_type="session_status_changed",
+            code="events.session.completed_normal",
+            params={},
+            severity="info",
+            extra={
+                "sessionId": session_id,
+                "status": "completed",
+                "previousStatus": "in_progress",
+            },
+        )
+        await _broadcast_dashboard_queue_and_stats(db, redis)
+    except Exception:
+        logger.warning(
+            "閒置逾時通知推播失敗（非致命） | session=%s", session_id, exc_info=True
+        )
+
+    # 派 SOAP —— 這是本函式存在的主因，不可被上面任何非致命失敗擋掉。
+    _spawn_background(_generate_soap_report_async(session_id=session_id))
+    return True
+
+
 # ── 文字訊息處理 ─────────────────────────────────────────
 async def _handle_text_message(
     *,
@@ -1445,6 +1693,12 @@ async def _handle_text_message(
         )
 
     # 啟動紅旗偵測（背景執行）
+    # 先把「前幾輪」壓成摘要寫進 session_context，語意層才看得到跨輪累積的急症線索
+    # （前輪發燒 + 本輪腰痛＝urosepsis）。本輪這句已由 detect(text, …) 單獨帶入，
+    # 故摘要刻意排除剛 append 的最後一則，避免同一句在 prompt 裡重複兩次。
+    _summary = _build_conversation_summary(conversation_history[:-1])
+    if _summary:
+        session_context["conversation_summary"] = _summary
     red_flag_task = asyncio.create_task(
         red_flag_detector.detect(text, session_context)
     )
@@ -1531,12 +1785,48 @@ async def _handle_text_message(
             # 仍空：送在地化 fallback，「直接」整句 _spawn_tts_task —— 不可走切句：
             # _SENTENCE_BOUNDARY_CHARS 是 CJK-only，en/ko/vi 的 ASCII '?' 切不出句子
             # → 會變成 0 個 chunk 的空泡泡（D5 根因之一）。
-            from app.utils.i18n_messages import get_message as _i18n_get
+            # （`_i18n_get` 已在模組層 import；這裡再 import 一次會讓它變成
+            #   `_handle_text_message` 的區域變數，`_persist_and_emit_alert`
+            #   閉包引用時就 NameError。）
 
             used_empty_fallback = True
             full_response = _i18n_get("ws.ai_empty_retry_fallback", session_language)
             _spawn_tts_task(full_response)
     # 不可 early-return：後續歷史寫入 / 紅旗 gate / TTS chunk / ai_response_end 照走。
+
+    # ── BLOCKER F：收尾輪「不得發問」的確定性 backstop ────────────────
+    # prompt（極簡收尾 system prompt + 前後夾擊的收尾規則）只是機率性防線：實測同一
+    # 份碼跑兩次，一次收尾輪硬問了一題、病患留下懸空問句就被導去感謝頁。ED 場的
+    # effective_hard_cap 與收尾輪重合（15）→ 零餘裕，沒有下一輪能補救。
+    # 這裡在輸出路徑做確定性攔截：命中問句就整段換成制式收尾語（5 語齊全、符合
+    # kiosk 措辭「請依現場人員的安排稍候看診」），並記 WARNING 讓不遵從可被觀察。
+    #
+    # 刻意排除 `used_empty_fallback`：那條路徑的 fallback 文案本身就是一句「請您再說
+    # 一次」的提問（A1 [D5] 的設計），且 used_empty_fallback 會讓軟門檻收尾被
+    # soft_defer 否決（場次多半不會在本輪結束）——替換掉會讓病患收到「已經結束」卻
+    # 又被繼續問。兩條 fallback 各自負責，不互相覆寫。
+    #
+    # 換掉 full_response 前必須連同 in-flight TTS 一起作廢並整句重排（與空回應
+    # fallback 同一套處理）：否則病患會「聽到」原本那句問句，只是螢幕文字被換掉。
+    # 整句 _spawn_tts_task 不走切句 —— _SENTENCE_BOUNDARY_CHARS 是 CJK-only。
+    if should_conclude and not used_empty_fallback and _looks_like_question(full_response):
+        logger.warning(
+            "收尾輪 LLM 仍發問，改送制式收尾語 | session=%s, patient_turns=%s, "
+            "hard_cap=%s, llm_output=%r",
+            session_id,
+            patient_turns,
+            _effective_hard_cap(settings, risk_factor_count),
+            full_response[:200],
+        )
+        for _t in pending_tts_tasks:
+            if not _t.done():
+                _t.cancel()
+        pending_sentences.clear()
+        pending_tts_tasks.clear()
+        full_response = _i18n_get(
+            "ws.session_terminated_completed_notice", session_language
+        )
+        _spawn_tts_task(full_response)
 
     # 加入 AI 回應到對話歷史
     conversation_history.append(
@@ -1735,6 +2025,12 @@ async def _handle_text_message(
                 "description": alert.get("description", ""),
                 "trigger_reason": alert.get("trigger_reason", ""),
                 "trigger_keywords": alert.get("trigger_keywords"),
+                # 語意層在 red_flag_detector 產出的 LLM 原判（model / raw_title /
+                # raw_severity / matched_catalogue / description），是 severity floor
+                # 與 title 重解析「之前」的值。AlertService.create 與 red_flag_alerts
+                # 都早就支援這一欄，只有這裡沒帶 → DB 該欄永遠 NULL、事後無從覆核
+                # 「LLM 本來判什麼、被規則層改成什麼」。
+                "llm_analysis": alert.get("llm_analysis"),
                 "suggested_actions": alert.get("suggested_actions", []),
                 "matched_rule_id": _UUID(alert["matched_rule_id"]) if alert.get("matched_rule_id") else None,
                 # E8-4（原 TODO-E6 / TODO-M8）：把 canonical_id + confidence 穿到 DB,
@@ -1796,6 +2092,58 @@ async def _handle_text_message(
             )
             return None
 
+        # ── BLOCKER #2：先讓「已通知醫護」變成真的，再決定要對病患講哪一句 ──
+        # `AlertService.create` 附帶的那則 RED_FLAG 通知只在 `sessions.doctor_id`
+        # 有值時才建，而院內 kiosk 場次恆為 NULL → 實測 notifications 表 0 筆。
+        # 未指派時改 fan-out 給所有在職醫師（沿用 critical 中止路徑已採用的模型）。
+        #
+        # 為什麼「每一則」警示都通知，而不只 critical/high：病患端橫幅對任何嚴重度
+        # 都會顯示同一段提示，只補 critical/high 會讓 medium/low 那幾則繼續說謊；
+        # 且 `AlertService.create` 對「已指派醫師」的場次本來就是每則都通知，這裡
+        # 只是把未指派場次補回同一語意。跨輪去重（上方 `_should_suppress_duplicate_alert`）
+        # 已擋掉同一 canonical 紅旗重覆 emit，通知量＝每場次的相異紅旗數，不是每輪。
+        notified_count = 0
+        _session_doctor_id = session_context.get("doctor_id")
+        try:
+            if _session_doctor_id is not None:
+                # 已指派：`AlertService.create` 在同一交易內建過了（上面 commit 成功
+                # 才走到這裡），再建一次會變成同一事件兩則通知。
+                notified_count = 1
+            else:
+                notified_count = await _notify_doctors_red_flag(
+                    target_db,
+                    session_id=session_id,
+                    doctor_id=None,
+                    language=session_context.get("language"),
+                    red_flag_reason=resolved_title,
+                    extra_data={"alert_id": alert_id, "severity": alert["severity"]},
+                )
+                await target_db.commit()
+        except Exception:
+            notified_count = 0
+            logger.warning(
+                "紅旗醫師通知建立失敗（非致命，警示已持久化） | session=%s, alert=%s",
+                session_id,
+                alert_id,
+                exc_info=True,
+            )
+            try:
+                await target_db.rollback()
+            except Exception:
+                pass
+        if notified_count:
+            # 供 `_finalize_red_flag_abort` 去重（同一紅旗不重複 fan-out）與
+            # `_notify_session_already_terminated` 選擇終止提示文案用。
+            session_context.setdefault("_red_flag_notified_titles", set()).add(
+                resolved_title
+            )
+
+        # BLOCKER #3：病患端 payload 結構性只送病患需要的欄位。
+        # `description` / `suggestedActions` 是 LLM 自由生成的醫師向臨床內容
+        # （真跑 t8 實測 suggestedActions[4]＝「立即安排急診評估」），不是靠禁字
+        # 黑名單過濾——換個講法就繞過去了——而是**根本不送**。醫師端（dashboard
+        # 廣播）與 DB（red_flag_alerts）保留完整內容，資訊沒有變少。
+        # patientNotice 依「有沒有真的建立醫師通知」二選一（見 i18n_messages 註解）。
         await manager.send_to_session(
             session_id,
             {
@@ -1804,8 +2152,12 @@ async def _handle_text_message(
                     "alertId": alert_id,
                     "severity": alert["severity"],
                     "title": resolved_title,
-                    "description": alert["description"],
-                    "suggestedActions": alert.get("suggested_actions", []),
+                    "patientNotice": _i18n_get(
+                        "ws.red_flag_patient_notice_notified"
+                        if notified_count
+                        else "ws.red_flag_patient_notice_flagged",
+                        session_context.get("language"),
+                    ),
                 },
             },
         )
@@ -1832,6 +2184,106 @@ async def _handle_text_message(
         # 去重目的在防重複 DB row / 儀表板轟炸，DB 已寫成功即記。
         await _record_emitted_alert(redis, session_id, alert)
         return alert_id
+
+    async def _finalize_red_flag_abort(
+        *,
+        status_db: AsyncSession,
+        red_flag_reason: str | None,
+    ) -> None:
+        """critical 紅旗中止場次的收尾——五件事，缺一不可，三條路徑共用。
+
+        呼叫者有三條：
+        1. 主 abort 分支（本輪 3.5s 內就等到 critical）；
+        2. `_drain_late_red_flags`（偵測慢於 gate，主迴圈可能已結束）；
+        3. 硬上限收尾前的 inline drain 解析出 late-critical。
+
+        以前是三份手抄，於是各漏各的：drain 那份只改 DB 狀態＋設 `_terminated`，
+        **不生成 SOAP、不通知病患端、不廣播 dashboard**——場次停在 aborted_red_flag
+        卻連一列 soap_reports 都沒有（主迴圈 finally 不生；病患下一則訊息撞
+        `_terminated` 守衛直接 return 也不生），醫師端永遠等不到報告；inline drain
+        那份則漏了 `extra`，`connection_manager` 只在有 extra 時才把 status 併進
+        payload，病患端 `on('session_status')` 認不出終態 → 卡在對話頁 + 無限重連。
+
+        `status_db`：寫狀態／查 queue-stats 用的 session。drain 情境 WS 的 db 已被
+        `get_db` 關閉，必須傳 drain 自有的那個。
+
+        **CAS 回傳值必須被尊重**（覆核指出本函式原本忽略它，與同批新增的
+        `_finalize_idle_timeout` 不一致）：三條路徑競態時（例如主 abort 已收尾、
+        背景 drain 隨後又解析出同一則 critical），第二次呼叫的 CAS 必然 miss，
+        此時再廣播一次就是 dashboard 重複 `session_status_changed`、重複推 queue/
+        stats、重複派 SOAP。只有「確實由本次呼叫完成 in_progress → aborted_red_flag」
+        才做那三件事。
+
+        病患端的 `session_status` 例外：它在 CAS miss 時仍會送，因為
+        `_update_session_status` 回 False 也可能是 DB 例外（場次其實還停在
+        in_progress）——那時不告知病患會讓 kiosk 畫面卡在對話頁。重複送出由
+        下方的 `_terminated` 前置守衛擋掉（同一連線只會走到這裡一次）。
+        """
+        # in-process 去重：三條路徑共用同一個 `session_context`，第一次收尾就會把
+        # `_terminated` 標起來。這道守衛讓「重複病患端 abort 事件」在同一連線內
+        # 結構性不可能發生（不倚賴 DB 狀態，DB 掛掉時也成立）。
+        if session_context.get("_terminated"):
+            logger.info(
+                "紅旗中止收尾已由其他路徑完成，略過重複收尾 | session=%s, terminated=%s",
+                session_id,
+                session_context.get("_terminated"),
+            )
+            return
+
+        transitioned = await _update_session_status(
+            status_db,
+            redis,
+            session_id,
+            "aborted_red_flag",
+            "in_progress",
+            red_flag_reason=red_flag_reason,
+            # BLOCKER #2 去重：這則 critical 若已在 `_persist_and_emit_alert`
+            # fan-out 過（同場次、同 title、同一批醫師），不要再建第二則通知。
+            notify_doctors=red_flag_reason
+            not in session_context.get("_red_flag_notified_titles", ()),
+        )
+        # E8-1：標記本連線場次已終止（不論上面 CAS 是否真的轉移成功——即使因競態
+        # 已被別的路徑轉走，場次現在也一定是終態），讓「下一輪」訊息進
+        # _handle_text_message / _handle_audio_chunk 時被開頭的守衛攔下，不再重新
+        # 跑一次紅旗/LLM/重發 abort 事件。先標再送，避免下方任一 await 期間有
+        # 其他路徑插隊重入。
+        session_context["_terminated"] = "aborted_red_flag"
+        await manager.send_localized_to_session(
+            session_id,
+            msg_type="session_status",
+            code="events.session.aborted_red_flag",
+            params={},
+            severity="critical",
+            # 帶終態 status → 前端導離對話頁（不再卡在「使用中」+ 無限重連）。
+            extra={"status": "aborted_red_flag"},
+        )
+        # 紅旗中止場次同樣需要報告供醫師審閱。刻意放在 CAS 判斷「之前」：
+        # `_update_session_status` 回 False 也可能是 DB 例外（場次仍 in_progress），
+        # 那時把 SOAP 一起跳過會讓醫師端永遠等不到報告。重複派送無害——冪等由
+        # `_generate_soap_report_async` 的存在性檢查 + soap_reports UNIQUE 保護。
+        _spawn_background(_generate_soap_report_async(session_id=session_id))
+        if not transitioned:
+            # CAS 未命中＝場次早已是終態（另一條 abort/結束路徑先到），那條路徑
+            # 已經廣播過 dashboard、推過 queue/stats。這兩件事沒有冪等保護，
+            # 重複做就是醫師端排隊清單抖動 + 重複的 session_status_changed。
+            logger.info(
+                "紅旗中止 CAS 未命中（場次已是終態或轉移失敗），略過重複 dashboard 廣播 | session=%s",
+                session_id,
+            )
+            return
+        await manager.broadcast_localized_dashboard(
+            msg_type="session_status_changed",
+            code="events.session.aborted_red_flag_dashboard",
+            params={},
+            severity="critical",
+            extra={
+                "sessionId": session_id,
+                "status": "aborted_red_flag",
+                "previousStatus": "in_progress",
+            },
+        )
+        # H-8：紅旗中止場次後排隊 / 統計數字改變，順帶推播 queue/stats。
+        await _broadcast_dashboard_queue_and_stats(status_db, redis)
 
     # Step C：在任何 ai_response_chunk（含音訊）送出之前，先送 critical/high 警示
     for alert in critical_alerts:
@@ -1964,18 +2416,17 @@ async def _handle_text_message(
                                 ),
                                 None,
                             )
-                            await _update_session_status(
-                                drain_db,
-                                redis,
+                            logger.warning(
+                                "遲到的 critical 紅旗，中止場次 | session=%s",
                                 session_id,
-                                "aborted_red_flag",
-                                "in_progress",
+                            )
+                            # 與主 abort 分支同一組收尾（狀態＋病患端終態＋dashboard
+                            # ＋queue/stats＋SOAP＋_terminated）。過去這裡只做了狀態
+                            # 與 _terminated 兩件，導致場次 aborted 卻無 SOAP。
+                            await _finalize_red_flag_abort(
+                                status_db=drain_db,
                                 red_flag_reason=late_critical_title,
                             )
-                            # E8-1：遲到的 critical 常在 _handle_text_message 這輪已
-                            # 結束（本輪 return False）之後才落地；沒有這個旗標，
-                            # 病患下一輪訊息仍會被當成場次還活著、整套紅旗/LLM 重跑。
-                            session_context["_terminated"] = "aborted_red_flag"
                 except Exception as exc:
                     logger.error(
                         "背景紅旗 drain 失敗 | session=%s, error=%s",
@@ -1983,7 +2434,9 @@ async def _handle_text_message(
                         str(exc),
                     )
 
-            asyncio.create_task(_drain_late_red_flags())
+            # 強參照：本輪 return 後主迴圈可能立刻結束，裸 create_task 的 drain
+            # 有機會在跑起來前被 GC 掉 → 遲到的急症紅旗連持久化都不會發生。
+            _spawn_background(_drain_late_red_flags())
 
     # Step E：處理非關鍵嚴重度紅旗（ai_response_end 之後送出即可）
     for alert in deferred_alerts:
@@ -2013,45 +2466,9 @@ async def _handle_text_message(
                 ),
                 None,
             )
-            await _update_session_status(
-                db,
-                redis,
-                session_id,
-                "aborted_red_flag",
-                "in_progress",
-                red_flag_reason=critical_title,
+            await _finalize_red_flag_abort(
+                status_db=db, red_flag_reason=critical_title
             )
-            await manager.send_localized_to_session(
-                session_id,
-                msg_type="session_status",
-                code="events.session.aborted_red_flag",
-                params={},
-                severity="critical",
-                # 帶終態 status → 前端導離對話頁（不再卡在「使用中」+ 無限重連）。
-                extra={"status": "aborted_red_flag"},
-            )
-            await manager.broadcast_localized_dashboard(
-                msg_type="session_status_changed",
-                code="events.session.aborted_red_flag_dashboard",
-                params={},
-                severity="critical",
-                extra={
-                    "sessionId": session_id,
-                    "status": "aborted_red_flag",
-                    "previousStatus": "in_progress",
-                },
-            )
-            # H-8：紅旗中止場次後排隊 / 統計數字改變，順帶推播 queue/stats。
-            await _broadcast_dashboard_queue_and_stats(db, redis)
-            # 觸發 SOAP 報告生成（紅旗中止場次同樣需要報告供醫師審閱）
-            asyncio.create_task(
-                _generate_soap_report_async(session_id=session_id)
-            )
-            # E8-1：標記本連線場次已終止（不論上面 CAS 是否真的轉移成功——即使
-            # 因競態已被別的路徑轉走，場次現在也一定是終態），讓「下一輪」訊息
-            # 進 _handle_text_message / _handle_audio_chunk 時被開頭的守衛攔下，
-            # 不再重新跑一次紅旗/LLM/重發 abort 事件。
-            session_context["_terminated"] = "aborted_red_flag"
 
     # ── 自動結束問診（HPI 達標或回合硬上限）──────────────────────
     # 醫療安全多重保護，本區塊刻意放在「紅旗 gate 之後、critical-abort 區塊之後」：
@@ -2121,42 +2538,11 @@ async def _handle_text_message(
                     "硬上限收尾前解析出遲到 critical 紅旗，中止場次 | session=%s",
                     session_id,
                 )
-                await _update_session_status(
-                    db,
-                    redis,
-                    session_id,
-                    "aborted_red_flag",
-                    "in_progress",
-                    red_flag_reason=late_critical_title,
+                # 與主 abort 分支完全相同的收尾組（含病患端終態 extra——這裡以前
+                # 漏帶，病患會卡在對話頁）。
+                await _finalize_red_flag_abort(
+                    status_db=db, red_flag_reason=late_critical_title
                 )
-                # 與既有 critical-abort 區塊相同的通知組（行為一致）。
-                await manager.send_localized_to_session(
-                    session_id,
-                    msg_type="session_status",
-                    code="events.session.aborted_red_flag",
-                    params={},
-                    severity="critical",
-                )
-                await manager.broadcast_localized_dashboard(
-                    msg_type="session_status_changed",
-                    code="events.session.aborted_red_flag_dashboard",
-                    params={},
-                    severity="critical",
-                    extra={
-                        "sessionId": session_id,
-                        "status": "aborted_red_flag",
-                        "previousStatus": "in_progress",
-                    },
-                )
-                await _broadcast_dashboard_queue_and_stats(db, redis)
-                # SOAP 冪等由 _generate_soap_report_async 雙重存在性檢查 + UNIQUE 保護。
-                asyncio.create_task(
-                    _generate_soap_report_async(session_id=session_id)
-                )
-                # E8-1：與其他終態分支一致地標記（雖然下面立刻 return True 結束
-                # 主迴圈，這輪不會再進 handler，但保持所有終態出口一致，避免
-                # 未來重構誤刪 return True 時失去這道保護）。
-                session_context["_terminated"] = "aborted_red_flag"
                 return True
             # late_alerts 不併入 red_flag_alerts：非 critical 由 _drain_late_red_flags
             # 持久化/廣播，避免重跑上方 abort 區塊或 double-persist。
@@ -2200,7 +2586,8 @@ async def _handle_text_message(
                 },
             )
             await _broadcast_dashboard_queue_and_stats(db, redis)
-            asyncio.create_task(
+            # 強參照：下一行 return True 會結束主迴圈（見 _spawn_background）。
+            _spawn_background(
                 _generate_soap_report_async(session_id=session_id)
             )
             # E8-1：正常收尾同樣標記終態（見上方 aborted_red_flag 分支同註解）。
@@ -2355,86 +2742,14 @@ async def _validate_session(
         if session_obj is None:
             return None
 
-        # 組合病患資訊（含完整欄位）
-        patient_info: dict[str, Any] = {}
+        # 組合病患資訊（含完整欄位）。組裝邏輯集中在 app/pipelines/patient_context，
+        # 與 Celery SOAP 路徑（tasks/report_queue）共用同一份——過去兩邊各有一份、
+        # Celery 那份只給 name/gender/age，讓 soap_generator 的病史/用藥/過敏/家族史
+        # 四個分支在生產路徑成為死碼（SOAP 家族史恆寫「未提供」）。
         patient = getattr(session_obj, "patient", None)
-        if patient is not None:
-            # 計算年齡
-            age = None
-            if getattr(patient, "date_of_birth", None):
-                from datetime import date
-                today = date.today()
-                dob = patient.date_of_birth
-                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-
-            def format_jsonb_list(items: Any) -> str | None:
-                if not items:
-                    return None
-                if isinstance(items, list):
-                    parts = []
-                    for item in items:
-                        if isinstance(item, dict):
-                            name = (
-                                item.get("name")
-                                or item.get("medication")
-                                or item.get("condition")
-                                or item.get("allergen")
-                                or str(item)
-                            )
-                            parts.append(name)
-                        else:
-                            parts.append(str(item))
-                    return "、".join(parts) if parts else None
-                return str(items)
-
-            def format_family_history(items: Any) -> str | None:
-                if not items or not isinstance(items, list):
-                    return None
-                parts: list[str] = []
-                for item in items:
-                    if not isinstance(item, dict):
-                        parts.append(str(item))
-                        continue
-                    relation = item.get("relation")
-                    condition = item.get("condition")
-                    if relation and condition:
-                        parts.append(f"{relation}：{condition}")
-                    elif condition:
-                        parts.append(str(condition))
-                return "、".join(parts) if parts else None
-
-            intake = getattr(session_obj, "intake_data", None) or {}
-            intake_summary = {
-                "medical_history": (
-                    "無"
-                    if intake.get("no_past_medical_history")
-                    else format_jsonb_list(intake.get("medical_history"))
-                ),
-                "medications": (
-                    "無"
-                    if intake.get("no_current_medications")
-                    else format_jsonb_list(intake.get("current_medications"))
-                ),
-                "allergies": (
-                    "無"
-                    if intake.get("no_known_allergies")
-                    else format_jsonb_list(intake.get("allergies"))
-                ),
-                "family_history": format_family_history(intake.get("family_history")),
-            }
-
-            patient_info = {
-                "name": getattr(patient, "name", None),
-                "age": age,
-                "gender": getattr(patient, "gender", None),
-                "medical_history": intake_summary["medical_history"]
-                or format_jsonb_list(getattr(patient, "medical_history", None)),
-                "medications": intake_summary["medications"]
-                or format_jsonb_list(getattr(patient, "current_medications", None)),
-                "allergies": intake_summary["allergies"]
-                or format_jsonb_list(getattr(patient, "allergies", None)),
-                "family_history": intake_summary["family_history"],
-            }
+        patient_info: dict[str, Any] = build_patient_info(
+            patient, getattr(session_obj, "intake_data", None)
+        )
 
         # #6：主訴在「場次語言」下的顯示名稱（給開場問診語）。解析不到時為 None，
         # 呼叫端 fallback 回 chief_complaint_text（保留病患原輸入，含多選/自訂備註）。
@@ -2482,6 +2797,118 @@ async def _validate_session(
 
 
 
+async def _notify_doctors_red_flag(
+    db: AsyncSession,
+    *,
+    session_id: str,
+    doctor_id: Any,
+    language: str | None,
+    red_flag_reason: str | None,
+    extra_data: dict[str, Any] | None = None,
+) -> int:
+    """紅旗事件 → 建立 RED_FLAG 站內通知給醫師，回傳**實際建立**的筆數。
+
+    回傳值是「病患端要不要說『已通知現場醫護人員』」的唯一依據（BLOCKER #2）：
+    呼叫端一律以此值挑文案，不可假設通知一定成功。
+
+    為什麼要獨立一條而不是靠 `AlertService.create` 附帶的那則：那則只在
+    `sessions.doctor_id` 有值時才建，而院內 kiosk 的場次在問診當下**通常還沒指派
+    醫師**（實測 DB 內 sessions.doctor_id 全為 NULL）——結果是病患被告知「已通知
+    現場醫護人員」，notifications 表卻 0 筆。
+
+    因此：有指派醫師就通知他；沒有就發給所有在職醫師（未指派佇列的 fan-out）。
+    紅旗是病安事件，寧可多人看到也不能沒人看到。`NotificationType.RED_FLAG` 在
+    `NotificationService` 不受使用者偏好抑制（病安關鍵，恆送）。
+
+    標題語言沿用 `sessions.language`（與 `AlertService` 既有的紅旗推播一致），
+    不另外查每位醫師的 preferred_language —— 避免 N+1 查詢，且兩處紅旗通知
+    對同一事件顯示同一語言。
+
+    `extra_data`：併進 notification.data 的額外欄位（如 alert_id / severity），
+    讓醫師端可以從通知直接跳到該則警示。
+
+    呼叫端負責 commit；本函式只 flush（沿用 NotificationService 慣例）。
+    """
+    from uuid import UUID as _UUID
+
+    from sqlalchemy import select
+
+    from app.models.enums import NotificationType, UserRole
+    from app.models.user import User
+    from app.services.notification_service import NotificationService
+    from app.utils.i18n_messages import get_message as _i18n_get
+
+    targets: list[Any] = []
+    if doctor_id is not None:
+        # `session_context["doctor_id"]` 是字串（`_validate_session` 轉過），
+        # `_update_session_status` 的 RETURNING 則是 UUID —— 統一成 UUID 再進 ORM。
+        if isinstance(doctor_id, str):
+            try:
+                doctor_id = _UUID(doctor_id)
+            except ValueError:
+                logger.warning(
+                    "doctor_id 不是合法 UUID，紅旗通知略過 | session=%s, doctor_id=%r",
+                    session_id,
+                    doctor_id,
+                )
+                return 0
+        targets = [doctor_id]
+    else:
+        # 未指派醫師 → 發給所有在職醫師。查詢自帶 try/except：查不到不可讓
+        # 已 commit 的狀態轉移連帶被外層 except 回滾稽核紀錄。
+        try:
+            result = await db.execute(
+                select(User.id).where(
+                    User.role == UserRole.DOCTOR,
+                    User.is_active.is_(True),
+                )
+            )
+            targets = list(result.scalars().all())
+        except Exception:
+            logger.warning(
+                "查詢在職醫師失敗，紅旗通知略過 | session=%s",
+                session_id,
+                exc_info=True,
+            )
+            return 0
+
+    if not targets:
+        logger.error(
+            "紅旗事件但沒有任何可通知的醫師（場次未指派且無在職醫師） | session=%s",
+            session_id,
+        )
+        return 0
+
+    reason_text = red_flag_reason or _i18n_get("alert.unknown_title", language)
+    title = _i18n_get("alert.push_notification_title", language, title=reason_text)
+    payload: dict[str, Any] = {
+        "type": "red_flag",
+        "session_id": str(session_id),
+        "unassigned_fanout": doctor_id is None,
+    }
+    if extra_data:
+        payload.update(extra_data)
+    created = 0
+    for target_id in targets:
+        notification = await NotificationService.create(
+            db,
+            user_id=target_id,
+            type=NotificationType.RED_FLAG,
+            title=title,
+            body=reason_text,
+            data=dict(payload),
+        )
+        if notification is not None:
+            created += 1
+    logger.info(
+        "紅旗醫師通知已建立 | session=%s, doctors=%d, created=%d",
+        session_id,
+        len(targets),
+        created,
+    )
+    return created
+
+
 async def _update_session_status(
     db: AsyncSession,
     redis: Redis,
@@ -2490,6 +2917,7 @@ async def _update_session_status(
     previous_status: str,
     *,
     red_flag_reason: str | None = None,
+    notify_doctors: bool = True,
 ) -> bool:
     """
     更新場次狀態（資料庫 + Redis 快取），採 compare-and-set。
@@ -2506,6 +2934,10 @@ async def _update_session_status(
         previous_status: 前一狀態（compare-and-set 的條件）
         red_flag_reason: 轉 aborted_red_flag 時的紅旗原因（critical 紅旗 title，
             已按場次語言在地化）；其他轉移忽略此參數。
+        notify_doctors: 轉 aborted_red_flag 時要不要建立醫師 RED_FLAG 通知。
+            預設 True。呼叫端在「同一則 critical 已於 `_persist_and_emit_alert`
+            fan-out 過」時傳 False，避免同一事件對同一批醫師產生兩則通知。
+            其他轉移忽略此參數。
 
     Returns:
         bool: True 表示確實發生狀態轉移；False 表示目前狀態不符（no-op）或失敗。
@@ -2628,6 +3060,18 @@ async def _update_session_status(
                     session_id=session_id,
                     doctor_id=row.doctor_id,
                     patient_id=row.patient_id,
+                )
+            elif new_status == "aborted_red_flag" and notify_doctors:
+                # 病患收到的終止提示原文明說「系統已將…通知現場醫護人員」
+                # （ws.session_terminated_aborted_notice），但這條路徑以前一則通知
+                # 都不建 —— 實測 notifications 表 0 筆，等於對病患說謊。
+                await _notify_doctors_red_flag(
+                    db,
+                    session_id=session_id,
+                    doctor_id=row.doctor_id,
+                    language=row.language,
+                    red_flag_reason=red_flag_reason,
+                    extra_data={"status": "aborted_red_flag"},
                 )
             await db.commit()
         except Exception as exc:

@@ -11,7 +11,11 @@
 - 支援語言以 `settings.SUPPORTED_LANGUAGES` 為準；若 caller 傳入未支援語言，
   自動 fallback 至 `settings.DEFAULT_LANGUAGE`，不 raise。
 - 若某 key 僅在某些語言有翻譯，以 DEFAULT_LANGUAGE 為權威版本進行補洞。
-- 新增 key 時務必兩個 locale 都填；缺譯將在 unit test 中被 catch。
+- **新增 key 時 5 個 locale（zh-TW / en-US / ja-JP / ko-KR / vi-VN）全都要填。**
+  缺譯不會 raise、只會靜靜退回中文 —— 日/韓/越場次會拿到中文字串並寫進 DB
+  （例：`alert.rule_match_reason` 曾只有兩語，導致 `red_flag_alerts.trigger_reason`
+  在日文場次寫入「關鍵字比對：「尿閉」」）。
+  `tests/unit/utils/test_i18n_message_locale_parity.py` 會在 CI 擋下這種缺譯。
 """
 
 from __future__ import annotations
@@ -34,176 +38,303 @@ MESSAGES: dict[str, dict[str, str]] = {
     "errors.unauthorized": {
         "zh-TW": "未認證或 Token 已過期",
         "en-US": "Not authenticated or token expired",
+        "ja-JP": "認証されていないか、トークンの有効期限が切れています",
+        "ko-KR": "인증되지 않았거나 토큰이 만료되었습니다",
+        "vi-VN": "Chưa xác thực hoặc token đã hết hạn",
     },
     "errors.invalid_auth_header": {
         "zh-TW": "Authorization header 格式錯誤",
         "en-US": "Invalid authorization header format",
+        "ja-JP": "Authorization ヘッダーの形式が正しくありません",
+        "ko-KR": "Authorization 헤더 형식이 올바르지 않습니다",
+        "vi-VN": "Định dạng header Authorization không hợp lệ",
     },
     "errors.token_invalid_or_expired": {
         "zh-TW": "Token 無效或已過期",
         "en-US": "Token is invalid or expired",
+        "ja-JP": "トークンが無効か、有効期限が切れています",
+        "ko-KR": "토큰이 유효하지 않거나 만료되었습니다",
+        "vi-VN": "Token không hợp lệ hoặc đã hết hạn",
     },
     "errors.token_payload_missing_sub": {
         "zh-TW": "Token payload 缺少 sub",
         "en-US": "Token payload missing subject",
+        "ja-JP": "トークンのペイロードに sub がありません",
+        "ko-KR": "토큰 페이로드에 sub가 없습니다",
+        "vi-VN": "Payload của token thiếu trường sub",
     },
     "errors.token_revoked": {
         "zh-TW": "Token 已失效",
         "en-US": "Token has been revoked",
+        "ja-JP": "トークンは失効しています",
+        "ko-KR": "토큰이 무효화되었습니다",
+        "vi-VN": "Token đã bị thu hồi",
     },
     "errors.token_payload_incomplete": {
         "zh-TW": "Token payload 不完整",
         "en-US": "Token payload is incomplete",
+        "ja-JP": "トークンのペイロードが不完全です",
+        "ko-KR": "토큰 페이로드가 완전하지 않습니다",
+        "vi-VN": "Payload của token không đầy đủ",
     },
     "errors.refresh_token_invalid": {
         "zh-TW": "Refresh token 無效或已過期",
         "en-US": "Refresh token is invalid or expired",
+        "ja-JP": "リフレッシュトークンが無効か、有効期限が切れています",
+        "ko-KR": "리프레시 토큰이 유효하지 않거나 만료되었습니다",
+        "vi-VN": "Refresh token không hợp lệ hoặc đã hết hạn",
     },
     "errors.refresh_token_reused": {
         "zh-TW": "Refresh token 重複使用，請重新登入",
         "en-US": "Refresh token reuse detected; please sign in again",
+        "ja-JP": "リフレッシュトークンの再使用を検出しました。もう一度ログインしてください",
+        "ko-KR": "리프레시 토큰 재사용이 감지되었습니다. 다시 로그인해 주세요",
+        "vi-VN": "Phát hiện refresh token bị dùng lại; vui lòng đăng nhập lại",
     },
     "errors.password_reset_link_invalid": {
         "zh-TW": "重設密碼連結已過期或無效",
         "en-US": "Password reset link is expired or invalid",
+        "ja-JP": "パスワード再設定リンクの有効期限が切れているか、無効です",
+        "ko-KR": "비밀번호 재설정 링크가 만료되었거나 유효하지 않습니다",
+        "vi-VN": "Liên kết đặt lại mật khẩu đã hết hạn hoặc không hợp lệ",
     },
     "errors.forbidden": {
         "zh-TW": "權限不足",
         "en-US": "Permission denied",
+        "ja-JP": "権限がありません",
+        "ko-KR": "권한이 없습니다",
+        "vi-VN": "Không đủ quyền",
     },
     "errors.complaint_default_forbidden": {
         "zh-TW": "系統預設主訴僅限管理員修改或刪除",
         "en-US": "Only an administrator may modify or delete a system default chief complaint",
         "ja-JP": "システム既定の主訴は管理者のみが変更・削除できます",
         "ko-KR": "시스템 기본 주 증상은 관리자만 수정하거나 삭제할 수 있습니다",
+        "vi-VN": "Chỉ quản trị viên mới có thể sửa hoặc xóa lý do khám mặc định của hệ thống",
     },
     "errors.account_disabled": {
         "zh-TW": "帳號已停用",
         "en-US": "Account has been disabled",
+        "ja-JP": "アカウントは無効化されています",
+        "ko-KR": "계정이 비활성화되었습니다",
+        "vi-VN": "Tài khoản đã bị vô hiệu hóa",
     },
     "errors.role_required": {
         "zh-TW": "需要角色: {roles}",
         "en-US": "Required role: {roles}",
+        "ja-JP": "必要なロール: {roles}",
+        "ko-KR": "필요한 역할: {roles}",
+        "vi-VN": "Cần vai trò: {roles}",
     },
     "errors.session_access_no_principal": {
         "zh-TW": "缺少認證主體，無法判定場次存取權限",
         "en-US": "Missing authenticated principal; cannot authorize session access",
+        "ja-JP": "認証主体がないため、セッションのアクセス権限を判定できません",
+        "ko-KR": "인증 주체가 없어 세션 접근 권한을 확인할 수 없습니다",
+        "vi-VN": "Thiếu chủ thể xác thực; không thể xác định quyền truy cập phiên khám",
     },
     "errors.session_list_no_principal": {
         "zh-TW": "缺少認證主體，無法列出場次",
         "en-US": "Missing authenticated principal; cannot list sessions",
+        "ja-JP": "認証主体がないため、セッション一覧を取得できません",
+        "ko-KR": "인증 주체가 없어 세션 목록을 조회할 수 없습니다",
+        "vi-VN": "Thiếu chủ thể xác thực; không thể liệt kê phiên khám",
     },
     "errors.session_unknown_role": {
         "zh-TW": "未知角色，無法列出場次",
         "en-US": "Unknown role; cannot list sessions",
+        "ja-JP": "不明なロールのため、セッション一覧を取得できません",
+        "ko-KR": "알 수 없는 역할이므로 세션 목록을 조회할 수 없습니다",
+        "vi-VN": "Vai trò không xác định; không thể liệt kê phiên khám",
     },
     "errors.session_forbidden_other_doctor": {
         "zh-TW": "此場次已由其他醫師負責",
         "en-US": "This session is already assigned to another doctor",
+        "ja-JP": "このセッションは他の医師が担当しています",
+        "ko-KR": "이 세션은 다른 의사가 담당하고 있습니다",
+        "vi-VN": "Phiên khám này do bác sĩ khác phụ trách",
     },
     "errors.session_forbidden_patient": {
         "zh-TW": "您沒有權限存取此場次",
         "en-US": "You do not have permission to access this session",
+        "ja-JP": "このセッションにアクセスする権限がありません",
+        "ko-KR": "이 세션에 접근할 권한이 없습니다",
+        "vi-VN": "Bạn không có quyền truy cập phiên khám này",
     },
     "errors.session_unknown_role_access": {
         "zh-TW": "未知角色，拒絕存取",
         "en-US": "Unknown role; access denied",
+        "ja-JP": "不明なロールのため、アクセスを拒否しました",
+        "ko-KR": "알 수 없는 역할이므로 접근이 거부되었습니다",
+        "vi-VN": "Vai trò không xác định; truy cập bị từ chối",
     },
     "errors.patient_access_no_principal": {
         "zh-TW": "缺少認證主體，無法判定病患存取權限",
         "en-US": "Missing authenticated principal; cannot authorize patient access",
+        "ja-JP": "認証主体がないため、患者へのアクセス権限を判定できません",
+        "ko-KR": "인증 주체가 없어 환자 접근 권한을 확인할 수 없습니다",
+        "vi-VN": "Thiếu chủ thể xác thực; không thể xác định quyền truy cập bệnh nhân",
     },
     "errors.patient_forbidden_other_doctor": {
         "zh-TW": "此病患已由其他醫師負責",
         "en-US": "This patient is assigned to another doctor",
+        "ja-JP": "この患者は他の医師が担当しています",
+        "ko-KR": "이 환자는 다른 의사가 담당하고 있습니다",
+        "vi-VN": "Bệnh nhân này do bác sĩ khác phụ trách",
     },
     "errors.patient_forbidden_role": {
         "zh-TW": "您沒有權限存取此病患",
         "en-US": "You do not have permission to access this patient",
+        "ja-JP": "この患者にアクセスする権限がありません",
+        "ko-KR": "이 환자에 접근할 권한이 없습니다",
+        "vi-VN": "Bạn không có quyền truy cập bệnh nhân này",
     },
     "errors.assign_doctor_conflict": {
         "zh-TW": "此場次已由其他醫師負責，無法重新指派",
         "en-US": "This session is already assigned to another doctor; cannot reassign",
+        "ja-JP": "このセッションは他の医師が担当しているため、再割り当てできません",
+        "ko-KR": "이 세션은 다른 의사가 담당하고 있어 재배정할 수 없습니다",
+        "vi-VN": "Phiên khám này do bác sĩ khác phụ trách; không thể phân công lại",
     },
     "errors.assign_doctor_role_required": {
         "zh-TW": "僅 doctor / admin 可指派醫師",
         "en-US": "Only doctor or admin can assign a doctor",
+        "ja-JP": "医師の割り当ては doctor / admin のみ実行できます",
+        "ko-KR": "의사 배정은 doctor / admin만 할 수 있습니다",
+        "vi-VN": "Chỉ doctor / admin mới có thể phân công bác sĩ",
     },
     "errors.session_patient_unresolved": {
         "zh-TW": "無法決定場次對應的病患",
         "en-US": "Cannot determine the patient associated with this session",
+        "ja-JP": "このセッションに対応する患者を特定できません",
+        "ko-KR": "이 세션에 해당하는 환자를 확인할 수 없습니다",
+        "vi-VN": "Không xác định được bệnh nhân tương ứng với phiên khám này",
     },
     "errors.session_not_found": {
         "zh-TW": "場次不存在",
         "en-US": "Session not found",
+        "ja-JP": "セッションが見つかりません",
+        "ko-KR": "세션을 찾을 수 없습니다",
+        "vi-VN": "Không tìm thấy phiên khám",
     },
     "errors.session_not_active": {
         "zh-TW": "場次非活躍狀態",
         "en-US": "Session is not active",
+        "ja-JP": "セッションは進行中ではありません",
+        "ko-KR": "세션이 활성 상태가 아닙니다",
+        "vi-VN": "Phiên khám không ở trạng thái hoạt động",
     },
     "errors.session_not_switchable": {
         "zh-TW": "目前場次狀態無法切換語言",
         "en-US": "Cannot switch language on a session in the current state",
+        "ja-JP": "現在のセッション状態では言語を切り替えられません",
+        "ko-KR": "현재 세션 상태에서는 언어를 전환할 수 없습니다",
+        "vi-VN": "Không thể đổi ngôn ngữ ở trạng thái hiện tại của phiên khám",
     },
     "errors.invalid_status_transition": {
         "zh-TW": "不合法的狀態轉移",
         "en-US": "Invalid status transition",
+        "ja-JP": "不正な状態遷移です",
+        "ko-KR": "허용되지 않는 상태 전환입니다",
+        "vi-VN": "Chuyển trạng thái không hợp lệ",
     },
     "errors.status_transition_not_allowed": {
         "zh-TW": "無法從 {current} 轉移至 {target}",
         "en-US": "Cannot transition from {current} to {target}",
+        "ja-JP": "{current} から {target} へは遷移できません",
+        "ko-KR": "{current}에서 {target}(으)로 전환할 수 없습니다",
+        "vi-VN": "Không thể chuyển từ {current} sang {target}",
     },
     "errors.report_not_found": {
         "zh-TW": "報告不存在",
         "en-US": "Report not found",
+        "ja-JP": "レポートが見つかりません",
+        "ko-KR": "보고서를 찾을 수 없습니다",
+        "vi-VN": "Không tìm thấy báo cáo",
     },
     "errors.report_not_ready": {
         "zh-TW": "報告尚未產生完成",
         "en-US": "Report is not ready yet",
+        "ja-JP": "レポートはまだ生成中です",
+        "ko-KR": "보고서가 아직 생성되지 않았습니다",
+        "vi-VN": "Báo cáo chưa được tạo xong",
     },
     "errors.report_already_exists": {
         "zh-TW": "報告已存在",
         "en-US": "Report already exists",
+        "ja-JP": "レポートは既に存在します",
+        "ko-KR": "보고서가 이미 존재합니다",
+        "vi-VN": "Báo cáo đã tồn tại",
     },
     "errors.alert_not_found": {
         "zh-TW": "警示不存在",
         "en-US": "Alert not found",
+        "ja-JP": "警告が見つかりません",
+        "ko-KR": "경고를 찾을 수 없습니다",
+        "vi-VN": "Không tìm thấy cảnh báo",
     },
     "errors.alert_already_acknowledged": {
         "zh-TW": "警示已確認",
         "en-US": "Alert has already been acknowledged",
+        "ja-JP": "警告は既に確認済みです",
+        "ko-KR": "경고가 이미 확인되었습니다",
+        "vi-VN": "Cảnh báo đã được xác nhận",
     },
     "errors.red_flag_rule_not_found": {
         "zh-TW": "紅旗規則不存在",
         "en-US": "Red flag rule not found",
+        "ja-JP": "レッドフラグのルールが見つかりません",
+        "ko-KR": "레드플래그 규칙을 찾을 수 없습니다",
+        "vi-VN": "Không tìm thấy quy tắc cờ đỏ",
     },
     "errors.complaint_not_found": {
         "zh-TW": "主訴不存在",
         "en-US": "Chief complaint not found",
+        "ja-JP": "主訴が見つかりません",
+        "ko-KR": "주 증상을 찾을 수 없습니다",
+        "vi-VN": "Không tìm thấy lý do khám",
     },
     "errors.notification_not_found": {
         "zh-TW": "通知不存在",
         "en-US": "Notification not found",
+        "ja-JP": "通知が見つかりません",
+        "ko-KR": "알림을 찾을 수 없습니다",
+        "vi-VN": "Không tìm thấy thông báo",
     },
     "errors.patient_not_found": {
         "zh-TW": "病患不存在",
         "en-US": "Patient not found",
+        "ja-JP": "患者が見つかりません",
+        "ko-KR": "환자를 찾을 수 없습니다",
+        "vi-VN": "Không tìm thấy bệnh nhân",
     },
     "errors.conversation_not_found": {
         "zh-TW": "對話紀錄不存在",
         "en-US": "Conversation record not found",
+        "ja-JP": "会話記録が見つかりません",
+        "ko-KR": "대화 기록을 찾을 수 없습니다",
+        "vi-VN": "Không tìm thấy bản ghi hội thoại",
     },
     "errors.audit_log_not_found": {
         "zh-TW": "稽核日誌不存在",
         "en-US": "Audit log not found",
+        "ja-JP": "監査ログが見つかりません",
+        "ko-KR": "감사 로그를 찾을 수 없습니다",
+        "vi-VN": "Không tìm thấy nhật ký kiểm toán",
     },
     "errors.user_not_found": {
         "zh-TW": "使用者不存在",
         "en-US": "User not found",
+        "ja-JP": "ユーザーが見つかりません",
+        "ko-KR": "사용자를 찾을 수 없습니다",
+        "vi-VN": "Không tìm thấy người dùng",
     },
     "errors.cannot_toggle_self": {
         "zh-TW": "無法變更自己的帳號啟用狀態",
         "en-US": "You cannot change the active status of your own account",
+        "ja-JP": "自分のアカウントの有効・無効状態は変更できません",
+        "ko-KR": "본인 계정의 활성 상태는 변경할 수 없습니다",
+        "vi-VN": "Không thể thay đổi trạng thái kích hoạt tài khoản của chính bạn",
     },
     "errors.cannot_reset_own_password": {
         "zh-TW": "無法重設自己的密碼，請改用「變更密碼」（需驗證舊密碼）",
@@ -215,132 +346,219 @@ MESSAGES: dict[str, dict[str, str]] = {
     "errors.not_found": {
         "zh-TW": "資源不存在",
         "en-US": "Resource not found",
+        "ja-JP": "リソースが見つかりません",
+        "ko-KR": "리소스를 찾을 수 없습니다",
+        "vi-VN": "Không tìm thấy tài nguyên",
     },
     "errors.validation_failed": {
         "zh-TW": "請求參數驗證失敗",
         "en-US": "Request validation failed",
+        "ja-JP": "リクエスト内容の検証に失敗しました",
+        "ko-KR": "요청 값 검증에 실패했습니다",
+        "vi-VN": "Xác thực tham số yêu cầu thất bại",
     },
     "errors.invalid_date_format": {
         "zh-TW": "日期格式無效，必須為 ISO-8601",
         "en-US": "Invalid date format; must be ISO-8601",
         "ja-JP": "日付の形式が無効です。ISO-8601 形式である必要があります",
         "ko-KR": "날짜 형식이 잘못되었습니다. ISO-8601 형식이어야 합니다",
+        "vi-VN": "Định dạng ngày không hợp lệ; phải theo chuẩn ISO-8601",
     },
     "errors.invalid_severity": {
         "zh-TW": "警示嚴重度數值無效",
         "en-US": "Invalid alert severity value",
         "ja-JP": "アラートの重大度の値が無効です",
         "ko-KR": "경보 심각도 값이 잘못되었습니다",
+        "vi-VN": "Giá trị mức độ nghiêm trọng của cảnh báo không hợp lệ",
     },
     "errors.invalid_status": {
         "zh-TW": "狀態數值無效",
         "en-US": "Invalid status value",
         "ja-JP": "ステータスの値が無効です",
         "ko-KR": "상태 값이 잘못되었습니다",
+        "vi-VN": "Giá trị trạng thái không hợp lệ",
     },
     "errors.conflict": {
         "zh-TW": "資源衝突",
         "en-US": "Resource conflict",
+        "ja-JP": "リソースが競合しています",
+        "ko-KR": "리소스 충돌이 발생했습니다",
+        "vi-VN": "Xung đột tài nguyên",
     },
     "errors.invalid_credentials": {
         "zh-TW": "帳號或密碼錯誤",
         "en-US": "Invalid credentials",
+        "ja-JP": "メールアドレスまたはパスワードが正しくありません",
+        "ko-KR": "이메일 또는 비밀번호가 올바르지 않습니다",
+        "vi-VN": "Email hoặc mật khẩu không đúng",
     },
     "errors.current_password_incorrect": {
         "zh-TW": "目前密碼不正確",
         "en-US": "Current password is incorrect",
+        "ja-JP": "現在のパスワードが正しくありません",
+        "ko-KR": "현재 비밀번호가 올바르지 않습니다",
+        "vi-VN": "Mật khẩu hiện tại không đúng",
     },
     "errors.email_already_exists": {
         "zh-TW": "Email 已註冊",
         "en-US": "Email is already registered",
+        "ja-JP": "このメールアドレスは既に登録されています",
+        "ko-KR": "이미 등록된 이메일입니다",
+        "vi-VN": "Email đã được đăng ký",
     },
     "errors.ai_service_unavailable": {
         "zh-TW": "AI 服務不可用",
         "en-US": "AI service is unavailable",
+        "ja-JP": "AI サービスを利用できません",
+        "ko-KR": "AI 서비스를 사용할 수 없습니다",
+        "vi-VN": "Dịch vụ AI không khả dụng",
     },
     "errors.ai_chat_unavailable": {
         "zh-TW": "AI 對話服務暫時不可用，請稍後重試",
         "en-US": "AI chat service is temporarily unavailable; please retry later",
+        "ja-JP": "AI 対話サービスは一時的に利用できません。しばらくしてからもう一度お試しください",
+        "ko-KR": "AI 대화 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요",
+        "vi-VN": "Dịch vụ hội thoại AI tạm thời không khả dụng; vui lòng thử lại sau",
     },
     "errors.soap_generation_bad_format": {
         "zh-TW": "SOAP 報告生成失敗：回應格式異常",
         "en-US": "SOAP report generation failed: unexpected response format",
+        "ja-JP": "SOAP レポートの生成に失敗しました：応答形式が不正です",
+        "ko-KR": "SOAP 보고서 생성에 실패했습니다: 응답 형식이 올바르지 않습니다",
+        "vi-VN": "Tạo báo cáo SOAP thất bại: định dạng phản hồi không hợp lệ",
     },
     "errors.soap_generation_unavailable": {
         "zh-TW": "SOAP 報告生成服務暫時不可用，請稍後重試",
         "en-US": "SOAP report generation is temporarily unavailable; please retry later",
+        "ja-JP": "SOAP レポート生成サービスは一時的に利用できません。しばらくしてからもう一度お試しください",
+        "ko-KR": "SOAP 보고서 생성 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요",
+        "vi-VN": "Dịch vụ tạo báo cáo SOAP tạm thời không khả dụng; vui lòng thử lại sau",
     },
     "errors.rate_limit_exceeded": {
         "zh-TW": "超過速率限制",
         "en-US": "Rate limit exceeded",
+        "ja-JP": "リクエスト回数の上限を超えました",
+        "ko-KR": "요청 한도를 초과했습니다",
+        "vi-VN": "Đã vượt quá giới hạn tần suất",
     },
     "errors.login_ip_rate_limited": {
         "zh-TW": "登入嘗試過於頻繁，請於 {retry_after} 秒後再試",
         "en-US": "Too many login attempts; please retry in {retry_after} seconds",
+        "ja-JP": "ログインの試行が多すぎます。{retry_after} 秒後にもう一度お試しください",
+        "ko-KR": "로그인 시도가 너무 잦습니다. {retry_after}초 후에 다시 시도해 주세요",
+        "vi-VN": "Đăng nhập quá nhiều lần; vui lòng thử lại sau {retry_after} giây",
     },
     "errors.account_locked": {
         "zh-TW": "帳號因連續登入失敗已暫時鎖定，請於 {retry_after} 秒後再試",
         "en-US": "Account is temporarily locked due to repeated failures; please retry in {retry_after} seconds",
+        "ja-JP": "ログインの連続失敗によりアカウントを一時的にロックしました。{retry_after} 秒後にもう一度お試しください",
+        "ko-KR": "로그인 실패가 반복되어 계정이 일시적으로 잠겼습니다. {retry_after}초 후에 다시 시도해 주세요",
+        "vi-VN": "Tài khoản tạm khóa do đăng nhập sai nhiều lần; vui lòng thử lại sau {retry_after} giây",
     },
     "errors.llm_rate_limited": {
         "zh-TW": "AI 呼叫過於頻繁，請於 {retry_after} 秒後再試",
         "en-US": "AI calls are too frequent; please retry in {retry_after} seconds",
+        "ja-JP": "AI の呼び出しが多すぎます。{retry_after} 秒後にもう一度お試しください",
+        "ko-KR": "AI 호출이 너무 잦습니다. {retry_after}초 후에 다시 시도해 주세요",
+        "vi-VN": "Gọi AI quá thường xuyên; vui lòng thử lại sau {retry_after} giây",
     },
     "errors.internal_error": {
         "zh-TW": "內部伺服器錯誤",
         "en-US": "Internal server error",
+        "ja-JP": "サーバー内部エラーが発生しました",
+        "ko-KR": "서버 내부 오류가 발생했습니다",
+        "vi-VN": "Lỗi máy chủ nội bộ",
     },
     "errors.dashboard_date_format": {
         "zh-TW": "date 必須為 YYYY-MM-DD",
         "en-US": "date must be in YYYY-MM-DD format",
+        "ja-JP": "date は YYYY-MM-DD 形式で指定してください",
+        "ko-KR": "date는 YYYY-MM-DD 형식이어야 합니다",
+        "vi-VN": "date phải theo định dạng YYYY-MM-DD",
     },
     "errors.dashboard_month_format": {
         "zh-TW": "month 必須為 YYYY-MM",
         "en-US": "month must be in YYYY-MM format",
+        "ja-JP": "month は YYYY-MM 形式で指定してください",
+        "ko-KR": "month는 YYYY-MM 형식이어야 합니다",
+        "vi-VN": "month phải theo định dạng YYYY-MM",
     },
 
     # ── Auth 成功訊息（MessageResponse body） ─────────
     "messages.logout_success": {
         "zh-TW": "登出成功",
         "en-US": "Logged out successfully",
+        "ja-JP": "ログアウトしました",
+        "ko-KR": "로그아웃되었습니다",
+        "vi-VN": "Đã đăng xuất",
     },
     "messages.password_changed": {
         "zh-TW": "密碼變更成功",
         "en-US": "Password changed successfully",
+        "ja-JP": "パスワードを変更しました",
+        "ko-KR": "비밀번호가 변경되었습니다",
+        "vi-VN": "Đã đổi mật khẩu thành công",
     },
     "messages.password_reset_link_sent": {
         "zh-TW": "若此電子郵件已註冊，密碼重設連結已寄出",
         "en-US": "If this email is registered, a password reset link has been sent",
+        "ja-JP": "このメールアドレスが登録されている場合、パスワード再設定リンクを送信しました",
+        "ko-KR": "이 이메일이 등록되어 있다면 비밀번호 재설정 링크를 보냈습니다",
+        "vi-VN": "Nếu email này đã được đăng ký, liên kết đặt lại mật khẩu đã được gửi",
     },
     "messages.password_reset_success": {
         "zh-TW": "密碼重設成功，請使用新密碼登入",
         "en-US": "Password reset successful; please sign in with your new password",
+        "ja-JP": "パスワードを再設定しました。新しいパスワードでログインしてください",
+        "ko-KR": "비밀번호가 재설정되었습니다. 새 비밀번호로 로그인해 주세요",
+        "vi-VN": "Đặt lại mật khẩu thành công; vui lòng đăng nhập bằng mật khẩu mới",
     },
 
     # ── Alert / Red Flag 固定模板 ────────────────────
+    # 這幾條會直接寫進 `red_flag_alerts.trigger_reason` / `title`（DB 持久化），
+    # 並在醫師端 UI 與推播中顯示 → 5 語必備，缺一語該語系場次就會落回中文。
+    # 術語對齊 frontend locales：ja「レッドフラグ」／ko「레드플래그」／vi「cờ đỏ」。
     "alert.rule_match_reason": {
         "zh-TW": "關鍵字比對：「{keyword}」",
         "en-US": "Keyword match: \"{keyword}\"",
+        "ja-JP": "キーワード一致：「{keyword}」",
+        "ko-KR": "키워드 일치: '{keyword}'",
+        "vi-VN": "Khớp từ khóa: \"{keyword}\"",
     },
     "alert.regex_match_reason": {
         "zh-TW": "模式比對：「{match}」",
         "en-US": "Pattern match: \"{match}\"",
+        "ja-JP": "パターン一致：「{match}」",
+        "ko-KR": "패턴 일치: '{match}'",
+        "vi-VN": "Khớp mẫu: \"{match}\"",
     },
     "alert.combined_trigger_reason": {
         "zh-TW": "[規則] {rule_reason} | [語意] {semantic_reason}",
         "en-US": "[Rule] {rule_reason} | [Semantic] {semantic_reason}",
+        "ja-JP": "[ルール] {rule_reason} | [意味解析] {semantic_reason}",
+        "ko-KR": "[규칙] {rule_reason} | [의미 분석] {semantic_reason}",
+        "vi-VN": "[Quy tắc] {rule_reason} | [Ngữ nghĩa] {semantic_reason}",
     },
     "alert.unknown_title": {
         "zh-TW": "未知紅旗",
         "en-US": "Unknown red flag",
+        "ja-JP": "不明なレッドフラグ",
+        "ko-KR": "알 수 없는 레드플래그",
+        "vi-VN": "Cờ đỏ không xác định",
     },
     "alert.semantic_default_title": {
         "zh-TW": "語意偵測紅旗",
         "en-US": "Semantic-detected red flag",
+        "ja-JP": "意味解析で検出したレッドフラグ",
+        "ko-KR": "의미 분석으로 감지된 레드플래그",
+        "vi-VN": "Cờ đỏ phát hiện bằng phân tích ngữ nghĩa",
     },
     "alert.push_notification_title": {
         "zh-TW": "紅旗警示: {title}",
         "en-US": "Red flag alert: {title}",
+        "ja-JP": "レッドフラグ警告: {title}",
+        "ko-KR": "레드플래그 경고: {title}",
+        "vi-VN": "Cảnh báo cờ đỏ: {title}",
     },
 
     # ── 站內通知（doctor-facing；以醫師 preferred_language 解析） ───
@@ -606,6 +824,9 @@ MESSAGES: dict[str, dict[str, str]] = {
             "- Không xen lẫn nguyên văn ngôn ngữ khác."
         ),
     },
+    # 語意層紅旗偵測的輸出語言指示。缺譯 → get_message 退回 zh-TW → 日/韓/越場次的
+    # description / suggested_actions（以及 LLM 自創非目錄紅旗的 title）會整段變中文，
+    # 而 title 因為另有 display_title_by_lang 反而是對的，肉眼極易誤判成「已在地化」。
     "llm.red_flag_language_instruction": {
         "zh-TW": (
             "\n\n## 輸出語言（硬性規定）\n"
@@ -618,32 +839,65 @@ MESSAGES: dict[str, dict[str, str]] = {
             "- trigger_reason should preserve the original language "
             "(the patient's actual utterance), do not translate."
         ),
+        "ja-JP": (
+            "\n\n## 出力言語(必須)\n"
+            "- title / description / suggested_actions などのフィールドは必ず**日本語**で記述してください。\n"
+            "- trigger_reason は原文(患者が実際に話した言語)のまま保持し、翻訳しないでください。"
+        ),
+        "ko-KR": (
+            "\n\n## 출력 언어(필수)\n"
+            "- title / description / suggested_actions 등의 필드는 반드시 **한국어**로 작성하세요.\n"
+            "- trigger_reason은 원문(환자가 실제로 말한 언어)을 그대로 유지하고 번역하지 마세요."
+        ),
+        "vi-VN": (
+            "\n\n## Ngôn ngữ đầu ra (bắt buộc)\n"
+            "- Các trường title / description / suggested_actions phải được viết bằng **tiếng Việt**.\n"
+            "- Giữ nguyên trigger_reason theo nguyên văn (ngôn ngữ bệnh nhân thực sự nói), không dịch."
+        ),
     },
 
     # ── SOAP Plan urgency（TODO-M13 enum 化 4 級）────
     # UI 渲染 Plan 的 urgency 時依 locale 取此字串，再與 boilerplate 組合。
     # 新增 urgency 必須同時更新 `Urgency` enum 與此表（測試有守護）。
+    # 注意：soap.* 是**醫師端報告**用語（SOAP_REPORT_LANGUAGE 目前硬鎖 zh-TW），
+    # 不是病患 kiosk 畫面用語，故保留「就醫 / 急診」等臨床指示措辭；
+    # 病患面措辭鐵律（「請稍候等看診 / 請告知現場醫護」）適用的是 ws.* 與 llm.conversation_*。
+    # 補齊 5 語是為了 SOAP_REPORT_LANGUAGE 一旦被覆寫（config 註記可恢復「報告跟問診語言」）
+    # 時不會退回中文。
     "soap.red_flag_impression_prefix": {
         "zh-TW": "偵測到紅旗徵象，需優先緊急評估。",
         "en-US": "Red flag detected — requires urgent priority evaluation.",
         "ja-JP": "レッドフラグを検出しました。緊急の優先評価が必要です。",
         "ko-KR": "위험 징후가 감지되었습니다. 긴급 우선 평가가 필요합니다.",
+        "vi-VN": "Đã phát hiện dấu hiệu cờ đỏ — cần đánh giá ưu tiên khẩn cấp.",
     },
     "soap.urgency.er_now": {
         "zh-TW": "若有以下情況請立即就醫：請立刻前往急診。",
         "en-US": "Seek emergency care immediately if the following applies: proceed to the ER now.",
+        "ja-JP": "以下に該当する場合は直ちに受診してください：今すぐ救急外来を受診してください。",
+        "ko-KR": "다음에 해당하면 즉시 진료를 받으세요: 지금 바로 응급실로 가세요.",
+        "vi-VN": "Nếu có tình huống sau, hãy đi khám ngay: đến khoa cấp cứu ngay lập tức.",
     },
     "soap.urgency.24h": {
         "zh-TW": "若有以下情況請立即就醫：請於 24 小時內就醫評估。",
         "en-US": "Seek emergency care immediately if the following applies: obtain medical evaluation within 24 hours.",
+        "ja-JP": "以下に該当する場合は直ちに受診してください：24 時間以内に医療機関の評価を受けてください。",
+        "ko-KR": "다음에 해당하면 즉시 진료를 받으세요: 24시간 이내에 진료 평가를 받으세요.",
+        "vi-VN": "Nếu có tình huống sau, hãy đi khám ngay: được đánh giá y tế trong vòng 24 giờ.",
     },
     "soap.urgency.this_week": {
         "zh-TW": "若有以下情況請立即就醫：請於本週內安排門診評估。",
         "en-US": "Seek emergency care immediately if the following applies: arrange a clinic visit within this week.",
+        "ja-JP": "以下に該当する場合は直ちに受診してください：今週中に外来受診を予約してください。",
+        "ko-KR": "다음에 해당하면 즉시 진료를 받으세요: 이번 주 안에 외래 진료를 예약하세요.",
+        "vi-VN": "Nếu có tình huống sau, hãy đi khám ngay: sắp xếp khám ngoại trú trong tuần này.",
     },
     "soap.urgency.routine": {
         "zh-TW": "若有以下情況請立即就醫：建議常規門診追蹤即可。",
         "en-US": "Seek emergency care immediately if the following applies: routine outpatient follow-up is sufficient.",
+        "ja-JP": "以下に該当する場合は直ちに受診してください：通常の外来フォローアップで差し支えありません。",
+        "ko-KR": "다음에 해당하면 즉시 진료를 받으세요: 일반 외래 추적 관찰로 충분합니다.",
+        "vi-VN": "Nếu có tình huống sau, hãy đi khám ngay: theo dõi ngoại trú thường quy là đủ.",
     },
 
     # ── Greeting（初始問診語） ───────────────────────
@@ -699,6 +953,44 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ja-JP": "今回の問診はすでに終了しました。注意が必要な症状については、現場の医療スタッフにすでにお伝えしています。現場スタッフの案内に従ってお待ちください。",
         "ko-KR": "이번 문진은 이미 종료되었습니다. 주의가 필요한 증상은 이미 현장 의료진에게 전달되었습니다. 현장 안내에 따라 기다려 주세요.",
         "vi-VN": "Buổi hỏi bệnh này đã kết thúc. Nhân viên y tế tại chỗ đã được thông báo về triệu chứng cần lưu ý mà bạn đã mô tả. Vui lòng chờ và làm theo hướng dẫn của nhân viên tại chỗ.",
+    },
+    # BLOCKER #2：上面那則明說「已通知現場醫護人員」。這句話只有在真的建立了
+    # `notifications` 列時才成立 —— 院內 kiosk 場次 `sessions.doctor_id` 恆為 NULL，
+    # 若 fan-out 因「查無在職醫師 / DB 失敗」建了 0 筆，上面那句就是對病患說謊。
+    # `_notify_session_already_terminated` 依 `session_context["_red_flag_notified"]`
+    # （建立筆數 > 0 的實測結果）在兩則之間二選一；本則只陳述必然為真的事：
+    # 警示已寫進 `red_flag_alerts` 並可在醫師端查看。
+    "ws.session_terminated_aborted_notice_unnotified": {
+        "zh-TW": "本次問診已經結束。您先前描述、需要留意的症狀已為您標記在紀錄中，供現場醫護人員查看；請依現場人員的安排稍候看診，若不適加劇請主動告知現場櫃台或醫護人員。",
+        "en-US": "This intake session has already ended. The symptoms you described that need attention are flagged in your record for the on-site clinical staff to review. Please wait and follow the on-site staff's instructions; if you feel worse, tell the front desk or on-site staff yourself.",
+        "ja-JP": "今回の問診はすでに終了しました。注意が必要な症状は、現場の医療スタッフが確認できるよう記録に残しています。現場スタッフの案内に従ってお待ちください。症状が悪化した場合は、ご自身から受付または現場の医療スタッフにお知らせください。",
+        "ko-KR": "이번 문진은 이미 종료되었습니다. 주의가 필요한 증상은 현장 의료진이 확인할 수 있도록 기록에 남겼습니다. 현장 안내에 따라 기다려 주세요. 증상이 심해지면 직접 접수처나 현장 의료진에게 알려 주세요.",
+        "vi-VN": "Buổi hỏi bệnh này đã kết thúc. Triệu chứng cần lưu ý mà bạn đã mô tả đã được ghi nhận để nhân viên y tế tại chỗ xem. Vui lòng chờ và làm theo hướng dẫn của nhân viên tại chỗ; nếu thấy nặng hơn, hãy chủ động báo cho quầy tiếp nhận hoặc nhân viên y tế.",
+    },
+
+    # ── 紅旗警示的「病患面」提示（BLOCKER #2 / #3）────────────────
+    # 送往病患 WS 的 `red_flag_alert` payload 只帶 alertId / severity / title
+    # ＋這一段固定提示。`description` 與 `suggested_actions` 是 LLM 自由生成的
+    # **醫師向**臨床內容（真跑實測含「立即安排急診評估」「排除惡性腫瘤」），
+    # 結構性地不送給病患，而不是靠禁字黑名單事後過濾。
+    #
+    # 兩則的差別＝「有沒有真的建立醫師通知」，由 `_notify_doctors_red_flag`
+    # 實際建立的筆數決定，不是文案作者的假設：
+    #   notified → 確實有 notifications 列（已指派醫師，或未指派時 fan-out 成功）
+    #   flagged  → 一筆都沒建（查無在職醫師 / 通知寫入失敗）→ 只講必然為真的事
+    "ws.red_flag_patient_notice_notified": {
+        "zh-TW": "我們已將這項需要留意的症狀通知現場醫護人員。請在原處稍候等看診；若不適加劇，請立即告知現場櫃台或醫護人員。",
+        "en-US": "We have notified the on-site clinical staff about this symptom. Please stay where you are and wait to be seen; if you feel worse, tell the front desk or on-site staff right away.",
+        "ja-JP": "この症状は現場の医療スタッフにお伝えしました。そのままの場所で診察をお待ちください。症状が悪化した場合は、受付または現場の医療スタッフにすぐお知らせください。",
+        "ko-KR": "이 증상을 현장 의료진에게 전달했습니다. 자리에서 그대로 진료를 기다려 주세요. 증상이 심해지면 접수처나 현장 의료진에게 바로 알려 주세요.",
+        "vi-VN": "Chúng tôi đã báo triệu chứng này cho nhân viên y tế tại chỗ. Vui lòng ngồi tại chỗ chờ đến lượt khám; nếu thấy nặng hơn, hãy báo ngay cho quầy tiếp nhận hoặc nhân viên y tế tại chỗ.",
+    },
+    "ws.red_flag_patient_notice_flagged": {
+        "zh-TW": "我們已為您標記這項需要留意的症狀，供現場醫護人員在看診時查看。請在原處稍候等看診；若不適加劇，請主動告知現場櫃台或醫護人員。",
+        "en-US": "We have flagged this symptom in your record for the on-site clinical staff to review at your visit. Please stay where you are and wait to be seen; if you feel worse, tell the front desk or on-site staff right away.",
+        "ja-JP": "この症状は、現場の医療スタッフが診察時に確認できるよう記録しました。そのままの場所で診察をお待ちください。症状が悪化した場合は、受付または現場の医療スタッフにご自身からお知らせください。",
+        "ko-KR": "이 증상은 현장 의료진이 진료 때 확인할 수 있도록 기록해 두었습니다. 자리에서 그대로 진료를 기다려 주세요. 증상이 심해지면 접수처나 현장 의료진에게 직접 알려 주세요.",
+        "vi-VN": "Chúng tôi đã ghi nhận triệu chứng này để nhân viên y tế tại chỗ xem khi khám. Vui lòng ngồi tại chỗ chờ đến lượt khám; nếu thấy nặng hơn, hãy chủ động báo cho quầy tiếp nhận hoặc nhân viên y tế tại chỗ.",
     },
 }
 

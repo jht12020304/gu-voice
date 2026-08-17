@@ -51,6 +51,23 @@ export default function PatientSessionDetailPage() {
   const chiefComplaintValue =
     session.chiefComplaintText || session.chiefComplaint?.name || t('patientDetail.chiefComplaintEmpty');
 
+  // 病患衛教（SOAP plan.patientEducation）——這是本頁唯一允許呈現給病患的「建議」。
+  //
+  // 型別上是 string[]，但實際來源是 LLM 產出 + 後端出口過濾，執行期可能是
+  // undefined / null / 空陣列 / 單一字串 / 含空字串或 null 的陣列。舊寫法
+  // `report?.plan?.patientEducation?.join('；')` 在「被換成字串」時會直接
+  // TypeError（字串沒有 .join）把整頁炸掉，在「['', '']」時則印出一個孤零零的
+  // 分隔符號。這裡一律正規化成「非空字串陣列」再渲染，任何非預期形狀都退回
+  // adviceEmpty，不會壞畫面。
+  const patientEducation: string[] = (() => {
+    const raw: unknown = report?.plan?.patientEducation;
+    const items = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
+    return items
+      .filter((x): x is string => typeof x === 'string')
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0);
+  })();
+
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-20">
       <div className="flex items-center gap-4">
@@ -101,8 +118,20 @@ export default function PatientSessionDetailPage() {
               <FileText className="h-4 w-4 text-surface-400" />
               {t('patientDetail.adviceHeading')}
             </h3>
-            <div className="p-4 bg-white border border-surface-200 shadow-sm rounded-xl text-surface-800 leading-relaxed indent-4">
-              {report?.plan?.patientEducation?.join('；') || report?.reviewNotes || t('patientDetail.adviceEmpty')}
+            {/* 沒有衛教內容時**不可**退回 report.reviewNotes——那是醫師的審閱備註
+                （醫師向自由文字），退回去等於把醫師的內部註記直接顯示給病患。
+                後端這輪對 patientEducation 加了出口過濾，過濾後常態就是空陣列，
+                舊的 `|| report?.reviewNotes` 會讓這個洩漏從邊角情境變成常態。 */}
+            <div className="p-4 bg-white border border-surface-200 shadow-sm rounded-xl text-surface-800 leading-relaxed">
+              {patientEducation.length > 0 ? (
+                <ul className="list-disc pl-5 space-y-1">
+                  {patientEducation.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="indent-4">{t('patientDetail.adviceEmpty')}</p>
+              )}
             </div>
           </section>
 

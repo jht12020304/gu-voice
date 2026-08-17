@@ -152,7 +152,7 @@ class TestCriticalProseWindow:
     def test_direct_denial_still_suppressed(self):
         """critical 的直接否認仍必須抑制（否則 E11 點名的誤 abort 又回來）。"""
         assert present("睪丸劇痛", "我完全沒有睪丸劇痛", _CRIT) is False
-        assert present("testicular pain", "patient denies testicular pain", _CRIT) is False
+        assert present("testicle pain", "patient denies testicle pain", _CRIT) is False
 
     def test_negated_enumeration_still_suppressed(self):
         """並列否認列舉：list 分隔不吃散文預算 → 末端的 critical 關鍵字仍抑制。
@@ -220,7 +220,13 @@ class TestCriticalProseWindow:
 
 
 class TestCueFalseFriends:
-    """字面含否定詞、語意其實肯定的詞不得當成否定線索（否則守衛製造漏報）。"""
+    """字面含否定詞、語意其實肯定的詞不得當成否定線索（否則守衛製造漏報）。
+
+    ⚠️ 2026-07-27 第四輪：假朋友從「逐個案補」改成**按族系統性展開**（時間敘事／
+    轉折／確認語／能力喪失／程度加強 × 5 語言），完整的雙向語料在
+    `test_red_flag_negation_false_friends.py`（跨 5 個 critical canonical，
+    修復前 28 句中 26 句規則層 0 命中）。本類只留代表性的幾筆當就地回歸。
+    """
 
     @pytest.mark.parametrize(
         "keyword,text,prose",
@@ -234,13 +240,35 @@ class TestCueFalseFriends:
             # 「不舒服」「不停」都是肯定陳述
             ("血尿", "我很不舒服，有血尿", _DEFAULT),
             ("尿不出來", "血一直流不停，尿不出來", _CRIT),
+            # ── 第四輪新增的族（各留一筆代表）──
+            # (a) 時間敘事：「沒多久」＝過了一小段時間
+            ("尿不出來", "喝了水沒多久就尿不出來", _CRIT),
+            # (b) 轉折/意外：「沒想到」
+            ("血尿", "本來只是悶悶的，沒想到有血尿", _DEFAULT),
+            # (d) 能力喪失/程度加強：「沒辦法」「沒力氣」
+            ("尿不出來", "脹到沒辦法忍了，尿不出來", _CRIT),
+            # en：cannot / without warning / no idea
+            ("testicle pain", "i cannot stop vomiting and i have testicle pain", _CRIT),
+            ("testicle pain", "without warning i got testicle pain", _CRIT),
+            # ja：可能形否定＝加強語氣（前置也要擋，不只後置）
+            ("睾丸の激痛", "我慢できないほどの睾丸の激痛です", _CRIT),
+            # ko：참을 수 없이＝加強語氣
+            ("고환이 아파", "참을 수 없이 고환이 아파요", _CRIT),
+            # vi：không thể＝能力喪失
+            ("bìu sưng đau", "tôi không thể chịu được, bìu sưng đau", _CRIT),
         ],
     )
     def test_false_friend_does_not_negate(self, keyword, text, prose):
         assert present(keyword, text, prose) is True, text
 
     @pytest.mark.parametrize(
-        "text", ["無血尿", "我沒有血尿", "不會有血尿", "未見血尿", "並無血尿", "否認血尿"]
+        "text",
+        [
+            "無血尿", "我沒有血尿", "不會有血尿", "未見血尿", "並無血尿", "否認血尿",
+            # 第四輪：族展開之後，這些**明確否認**仍必須抑制（對照組）
+            "我沒有注意到血尿",
+            "沒有大量的血尿",
+        ],
     )
     def test_real_negation_still_suppressed(self, text):
         """假朋友白名單不得把真正的否定詞一起放過。"""
@@ -346,7 +374,14 @@ _CONTRAST_MUST_FIRE = [
     ("열은 없지만 요폐가 생겼어요", "ko-KR", "urinary_retention"),
     ("열은 아니고 극심한 고환 통증이 있어요", "ko-KR", "testicular_pain_severe"),
     ("chưa có sốt nhưng tiểu ra máu", "vi-VN", "gross_hematuria"),
-    ("denies fever, however he has testicular pain", "en-US", "testicular_pain_severe"),
+    # 2026-07-27：原文用的是「testicular pain」，但那個字串**就是** en-US 的主訴
+    # 選單標籤（complaint_fallback_i18n["睪丸疼痛"]["en-US"] == "Testicular pain"），
+    # 病患複誦一次主訴名稱就會被 critical abort，因此已從 catalogue 移除
+    # （見 shared.py 該處註解與 test_red_flag_over_trigger.py 的結構性守衛）。
+    # 這一筆測的是**轉折詞 however 是否重置否定範圍**，與用哪個症狀詞無關，
+    # 故改用同樣是 critical trigger、且不是主訴標籤的「testicle pain」，
+    # 斷言維持原樣（仍必須命中，仍是 under-triage 防線）。
+    ("denies fever, however he has testicle pain", "en-US", "testicular_pain_severe"),
     ("我沒有發燒，但是尿不出來", "zh-TW", "urinary_retention"),
 ]
 
@@ -356,7 +391,9 @@ _PLAIN_DENIAL_MUST_SUPPRESS = [
     ("열은 없어요", "ko-KR"),
     ("고환 통증이 없어요", "ko-KR"),
     ("không có tiểu ra máu", "vi-VN"),
-    ("denies testicular pain", "en-US"),
+    # 同上：改用仍在 catalogue 內的「testicle pain」，斷言才是有效的
+    #（用已移除的關鍵字會變成永遠 trivially pass 的空測試）。
+    ("denies testicle pain", "en-US"),
     ("我沒有睪丸劇痛", "zh-TW"),
 ]
 

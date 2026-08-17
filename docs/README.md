@@ -11,6 +11,7 @@
 | 主題 | 文件 |
 |---|---|
 | 系統架構 + 問診管線不變式 | [app_architecture.md](app_architecture.md)（權威）；高層 onboarding 看 [system_overview.md](system_overview.md) |
+| 紅旗偵測（規則層設計＋偏誤報政策） | [app_architecture.md §2.3.2](app_architecture.md)；**改關鍵字或抑制守衛前必讀** [TODO.md](TODO.md) §R-lessons |
 | 問診端到端流程 | [consultation_flow.md](consultation_flow.md) |
 | 一場問診的資料落地 | [session_data_inventory.md](session_data_inventory.md) |
 | /research 研究分析 | [research_analytics.md](research_analytics.md) |
@@ -22,7 +23,7 @@
 | 新增語言 / i18n 上線 | [runbook/](runbook/) |
 | 監控告警 | [observability/](observability/) |
 | UI 設計系統 | [DESIGN.md](DESIGN.md)；參考分析見 [design_references/](design_references/) |
-| 活的 backlog | [TODO.md](TODO.md) |
+| 活的 backlog | [TODO.md](TODO.md)；2026-07-27 真跑修復與六條測試設計教訓見 §R／§R-lessons |
 | Flutter 前端（未上生產） | [../flutter_app/README.md](../flutter_app/README.md)；缺口清單見 [TODO.md](TODO.md) §G |
 
 ## 歷史文件

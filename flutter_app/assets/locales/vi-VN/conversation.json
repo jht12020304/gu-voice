@@ -41,7 +41,9 @@
     "sendOffline": "Mất kết nối — tin nhắn chưa được gửi. Vui lòng thử lại sau khi kết nối lại."
   },
   "redFlag": {
-    "more": "+{{count}} cảnh báo khác"
+    "more": "+{{count}} cảnh báo khác",
+    "patientNotice": "Chúng tôi đã ghi nhận triệu chứng này để nhân viên y tế tại chỗ xem khi khám. Vui lòng ngồi tại chỗ chờ đến lượt khám; nếu thấy nặng hơn, hãy chủ động báo cho quầy tiếp nhận hoặc nhân viên y tế tại chỗ.",
+    "generic": "Đã phát hiện triệu chứng cần lưu ý"
   },
   "supervisor": {
     "hintLabel": "Sắp hỏi tiếp",

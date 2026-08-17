@@ -24,10 +24,12 @@ from redis.asyncio import Redis
 from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
 from app.core.openai_client import call_with_retry, get_openai_client
+from app.pipelines.llm_conversation import (
+    render_critical_risk_factor_items_with_intake,
+)
 from app.pipelines.prompts.shared import (
     HPI_FIELD_IDS,
     SINGLE_QUESTION_RULE,
-    render_critical_risk_factor_items,
     render_hpi_checklist,
 )
 from app.utils.i18n_messages import get_message as _i18n_get
@@ -122,9 +124,14 @@ _INTAKE_CONTEXT_FIELDS: list[tuple[str, str]] = [
 
 def build_patient_info_str(patient_info: dict[str, Any]) -> str:
     """組合 Supervisor 背景用的病患資訊字串（age/gender + intake 已提供項）。"""
+    # `.get(key, '未知')` 只在 key 不存在時 fallback；patient_context.build_patient_info
+    # 一定會放 age/gender 兩個 key（值可能是 None）→ 舊寫法會渲染成「年齡：None」。
+    # 用 `is not None` 判斷同時保住 age==0（未滿一歲）不被當成缺值。
+    age = patient_info.get("age")
+    gender = patient_info.get("gender")
     parts: list[str] = [
-        f"年齡：{patient_info.get('age', '未知')}",
-        f"性別：{patient_info.get('gender', '未知')}",
+        f"年齡：{age if age is not None else '未知'}",
+        f"性別：{gender if gender else '未知'}",
     ]
     for key, label in _INTAKE_CONTEXT_FIELDS:
         val = patient_info.get(key)
@@ -200,12 +207,18 @@ class SupervisorEngine:
         # 與上方「不因次要補問未問完壓低分數」的規則搭配:這些風險因子被提升為與 HPI 十欄
         # 同級,故可 gate 完整度;但仍遵守 don't-know 不變式——病患一旦回答或表示不知道即
         # 視為已採集,不再壓低、不再重問。無匹配主訴則不附加(其他主訴行為完全不變)。
-        risk_factor_items = render_critical_risk_factor_items(chief_complaint)
-        if risk_factor_items:
+        # 本次 intake 已**涵蓋**的風險因子才不進必問清單(三態判定見 llm_conversation
+        # 模組頂端:明確「無」/ 值真的涵蓋 / 其餘一律仍必問),否則 next_focus 會一直指向
+        # 病患表單裡已經寫過的東西(實測第 4 / 12 輪重問抗凝血藥與泌尿癌家族史)。
+        # 判定與 conversation 端同源,避免兩邊漂移。
+        must_ask_items, intake_covered_items = (
+            render_critical_risk_factor_items_with_intake(chief_complaint, patient_info)
+        )
+        if must_ask_items:
             system_prompt += (
                 "\n\n## 本主訴的關鍵風險因子(與 HPI 十欄同級,收尾前必問)\n"
                 "下列風險因子對本主訴的惡性 / 心血管風險分層至關重要,與 HPI 十欄同級:\n"
-                f"{risk_factor_items}\n"
+                f"{must_ask_items}\n"
                 "- 請**逐項**檢查上列**每一個**風險因子是否都已在對話中被詢問過"
                 "(病患已回答、或已明確表示不知道 / 沒有,才算「問到」)。切勿因其中一項已問到、"
                 "就把整組視為已完成。\n"
@@ -215,7 +228,23 @@ class SupervisorEngine:
                 "- 唯有上列**每一項**都已問到(或病患已表示不知道 / 沒有)之後,"
                 "才可依 HPI 十欄完整度正常評分(可 >= 80)。\n"
                 "- 某一項一旦病患已回答、或已明確表示不知道 / 沒有,即視為該項**已盡力採集**:"
-                "不再因該項壓低分數、next_focus 不再指向該項(與 don't-know 規則一致)。"
+                "不再因該項壓低分數、next_focus 不再指向該項(與 don't-know 規則一致)。\n"
+                "- **優先序最高**:上列項目**不受**「不得要求病患重述 intake 既有資料」"
+                "那條規則限制。即使【背景資訊】的過去病史 / 目前用藥 / 家族史欄已有內容,"
+                "只要該內容**沒有涵蓋**上列某一項風險因子(它才會出現在這份清單),"
+                "next_focus 仍**必須**指向它,不可視為已知而跳過。"
+            )
+        if intake_covered_items:
+            system_prompt += (
+                "\n\n## 風險因子中「本次 intake 已涵蓋」的項目(視同已問到,禁止再問)\n"
+                f"{intake_covered_items}\n"
+                "- 這些項目病患已在本次 intake 表單答過(明確填「無」,或填的內容已涵蓋"
+                "該風險因子),視同**已盡力採集**:next_focus **一律不得**指向它們"
+                "(換句話、確認式問法同樣禁止)。\n"
+                "- 也**不得**因為它們沒有在對話中被問過就壓低 hpi_completion_percentage"
+                "——intake 的答案與病患口頭回答等價。\n"
+                "- 只有本清單列出的項目算已問到;沒列在這裡的風險因子一律以上一段的"
+                "必問規則處理。"
             )
 
         # 把場次語言硬性規則附加到 system prompt 尾段，讓 next_focus 跟輸出語言一致。
