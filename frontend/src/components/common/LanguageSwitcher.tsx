@@ -10,7 +10,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
-import { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../../i18n';
+import i18n, { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../../i18n';
 import { buildSwitchedPath } from '../../i18n/paths';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -128,11 +128,24 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
       await sessionsApi.endSessionForLanguageSwitch(currentSession.id, pendingLng);
       resetSession();
       setLanguage(pendingLng);
-      syncUrlLng(pendingLng);
+      // 刻意**不**用 syncUrlLng：`currentSession` 只在 ConversationPage 存在，所以走到這裡
+      // 目前 URL 必定是 `/:lng/conversation/:id`，而那場次剛剛已被後端轉成 cancelled。
+      // 換上新 lng 的同一條路徑等於把病患留在一個已死場次的問診頁（React 不會因為只換
+      // `:lng` 就重掛元件 → currentSession 已被 resetSession 清空 → 畫面卡在 LoadingSpinner，
+      // 且 WS 還連著一場 cancelled 的場次）。導回該語言的病患首頁，病患可直接用新語言
+      // 重新開始問診——這也是確認框文案（switchModal.description）承諾的下一步。
+      navigate(`/${pendingLng}/patient`, { replace: true });
       persistPreference(pendingLng);
+      // 導頁後畫面已是新語言，提示也要用新語言 —— 與 Flutter `switchLanguage` 對齊。
+      // `setLanguage` 內的 `i18n.changeLanguage` 是非同步的（新 locale 的 JSON 還在載），
+      // 直接 toast 會拿到舊語言的字串，在英文首頁上跳出一句中文（Playwright 實測到）；
+      // 光傳 `{ lng }` 也不夠，資源沒載完一樣 fallback。故先等資源到位再提示。
+      // 失敗不擋流程：語言已切、場次已收，提示退回目前語言仍是正確資訊。
+      await i18n.changeLanguage(pendingLng).catch(() => undefined);
       toast.success(
         t('language.switchModal.switchedEnded', {
-          name: t(`language.names.${pendingLng}`),
+          lng: pendingLng,
+          name: t(`language.names.${pendingLng}`, { lng: pendingLng }),
         }),
       );
       setPendingLng(null);

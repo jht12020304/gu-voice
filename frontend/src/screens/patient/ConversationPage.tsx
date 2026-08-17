@@ -7,6 +7,7 @@ import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import ChatBubble from '../../components/chat/ChatBubble';
+import LanguageSwitcher from '../../components/common/LanguageSwitcher';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import StatusBadge from '../../components/medical/StatusBadge';
 import {
@@ -992,6 +993,13 @@ export default function ConversationPage() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {/* M16：問診中切語言的唯一入口。ConversationPage 不在 PatientLayout 底下（全螢幕
+              路由），所以 Header 的 LanguageSwitcher 到不了這裡——走錯語言的病患一旦進了
+              問診頁就再也換不掉（G34）。放在頁首右側工具列、compact 模式（kiosk 情境要
+              低調，不能比「結束問診」搶眼）。點擊切換時 LanguageSwitcher 讀到 store 裡的
+              in_progress/waiting currentSession → 先跳確認框，確認後才 REST 收場次、
+              導回該語言的病患首頁；取消則什麼都不做，WS 與收音完全不受影響。 */}
+          <LanguageSwitcher />
           {/* #6 靜音切換 */}
           <button
             type="button"

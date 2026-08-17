@@ -7,6 +7,7 @@ import '../../../core/router/lng.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/sessions_api.dart';
 import '../../../data/models/session.dart';
+import '../../../shared/widgets/language_action.dart';
 import '../models/chat_message.dart';
 import '../services/audio_stream_service.dart';
 import '../services/ws_manager.dart';
@@ -73,6 +74,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       appBar: AppBar(
         title: Text(t('conversation.title')),
         actions: [
+          // M16 / G34：問診中切語言的入口。`switchLanguage` 認出 `/conversation/:id` 後會
+          // 先跳確認框、REST 收掉場次（→ cancelled）成功才導頁，所以掛在這裡不會留下
+          // 孤兒 in_progress 場次；取消則完全不動 —— 不 pop 本頁、不碰 controller，
+          // WS 與收音都不受影響（autoDispose 的 controller 只在真的離頁時才拆）。
+          const LanguageAction(),
           TextButton(
             onPressed: () => ref.read(conversationControllerProvider.notifier).endSession(),
             child: Text(t('conversation.endSession')),
