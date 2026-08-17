@@ -413,6 +413,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ko-KR": "AI 서비스를 사용할 수 없습니다",
         "vi-VN": "Dịch vụ AI không khả dụng",
     },
+    "errors.service_unavailable": {
+        "zh-TW": "服務暫時不可用，請稍後重試",
+        "en-US": "Service is temporarily unavailable; please retry later",
+        "ja-JP": "サービスは一時的に利用できません。しばらくしてからもう一度お試しください",
+        "ko-KR": "서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요",
+        "vi-VN": "Dịch vụ tạm thời không khả dụng; vui lòng thử lại sau",
+    },
     "errors.ai_chat_unavailable": {
         "zh-TW": "AI 對話服務暫時不可用，請稍後重試",
         "en-US": "AI chat service is temporarily unavailable; please retry later",

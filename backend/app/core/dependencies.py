@@ -8,11 +8,13 @@
 """
 
 from collections.abc import AsyncGenerator, Callable
+import logging
 from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import Depends, Header, Query, Request
 import jwt
+from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +27,8 @@ from app.core.database import async_session_factory
 from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.security import verify_access_token
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 # JWT 黑名單 Redis key 前綴（與 services.auth_service.BLACKLIST_KEY_PREFIX 一致）
 BLACKLIST_KEY_PREFIX = "gu:token_blacklist:"
@@ -70,11 +74,24 @@ async def get_current_user(
     if not user_id:
         raise UnauthorizedException(message="errors.token_payload_missing_sub")
 
-    # 黑名單檢查：logout 過的 access token 即使未過期也要拒絕
+    # 黑名單檢查：logout 過的 access token 即使未過期也要拒絕。
+    # Redis 掛掉時 fail-open 放行（記 warning），與 app/core/rate_limit.py、
+    # app/websocket/auth.py 同一政策：黑名單是加強機制，不該讓 Redis 故障把
+    # 每一個帶 JWT 的請求（含 /auth/login 以外的整個認證面）打成 500。
+    # 只攔連線類例外：RedisError 是 redis-py 的故障族（ConnectionError/TimeoutError），
+    # OSError 補上未被 redis-py 包裝的 socket 層錯誤；業務例外照常往上拋。
     jti = payload.get("jti")
     if jti:
-        redis = await get_redis()
-        if await redis.exists(f"{BLACKLIST_KEY_PREFIX}{jti}"):
+        try:
+            redis = await get_redis()
+            revoked = bool(await redis.exists(f"{BLACKLIST_KEY_PREFIX}{jti}"))
+        except (RedisError, OSError) as exc:
+            logger.warning(
+                "token 黑名單檢查失敗（Redis 不可用），fail-open 放行：%s",
+                type(exc).__name__,
+            )
+            revoked = False
+        if revoked:
             raise UnauthorizedException(message="errors.token_revoked")
 
     result = await db.execute(select(User).where(User.id == UUID(user_id)))
