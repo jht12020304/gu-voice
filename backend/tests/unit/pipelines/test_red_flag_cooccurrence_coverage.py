@@ -646,6 +646,15 @@ def test_urosepsis_is_documented_as_cross_symptom_combination():
 
     這個紅旗最容易被寫成「發燒」單維度（現況就是：裸『高燒』一個詞即 critical）。
     共現組必須把泌尿那一軸帶進來，否則跨症狀組合的臨床語意消失。
+
+    ⚠️ 2026-08-18 臨床拍板後的探針調整：日文探針由裸「熱」改為「発熱」。
+    理由（不是為了讓測試變綠）：裸「熱」同時是「熱い／熱く／灼熱感」＝排尿時
+    **局部**灼熱（dysuria），而本軸的臨床定義是**全身性**感染徵象。而且本表是
+    全語言和集合，裸「熱」連中文的「灼熱／熱熱的」都一起吃 → 「解尿灼熱感」被判
+    critical 尿路敗血症並中止問診（實證 session dda55701）。
+    這條探針保護的東西沒有變：**日文軸必須有發燒詞**；只是把探針換成一個
+    真正只表示發燒的字面。行為面的雙向釘子在
+    `test_red_flag_urosepsis_fever_semantics.py`。
     """
     groups = _groups(UROSEPSIS)
     assert groups, "urosepsis 沒有共現組"
@@ -655,8 +664,15 @@ def test_urosepsis_is_documented_as_cross_symptom_combination():
     for probe in ("小便", "urine", "尿", "소변", "tiểu"):
         assert probe in sites, f"urosepsis 泌尿軸缺 {probe!r}"
     # 全身性感染軸：五語都要有代表詞
-    for probe in ("發燒", "fever", "熱", "오한", "sốt"):
+    for probe in ("發燒", "fever", "発熱", "오한", "sốt"):
         assert probe in acuities, f"urosepsis 感染徵象軸缺 {probe!r}"
+    # 2026-08-18 臨床拍板：本軸**不得**收裸「熱」（局部灼熱與發燒同形）。
+    # 這一條是上面那條的反向對照——沒有它，有人只要把「熱」加回去就又全綠。
+    assert "熱" not in acuities, (
+        "裸「熱」回到 urosepsis 感染徵象軸 → 「解尿灼熱感／尿完刺刺熱熱」"
+        "（dysuria，泌尿科最常見主訴之一）會再度被判 critical 並中止問診。"
+        "要改需臨床重新拍板（前次拍板 2026-08-18）。"
+    )
 
 
 @pytest.mark.parametrize("canonical_id", NEW_COOCCURRENCE_FLAGS)
