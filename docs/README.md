@@ -24,7 +24,7 @@
 | 監控告警 | [observability/](observability/) |
 | UI 設計系統 | [DESIGN.md](DESIGN.md)；參考分析見 [design_references/](design_references/) |
 | 活的 backlog | [TODO.md](TODO.md)；2026-07-27 真跑修復與六條測試設計教訓見 §R／§R-lessons |
-| Flutter 前端（未上生產） | [../flutter_app/README.md](../flutter_app/README.md)；缺口清單見 [TODO.md](TODO.md) §G |
+| Flutter Web staged rollout | [flutter_web_cutover.md](flutter_web_cutover.md)；程式與本機跑法見 [../flutter_app/README.md](../flutter_app/README.md)，缺口見 [TODO.md](TODO.md) §G／§V |
 
 ## 歷史文件
 

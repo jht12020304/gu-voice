@@ -9,8 +9,11 @@ backend/            → FastAPI + Celery。app/pipelines/ 問診管線（llm_con
                       supervisor、soap_generator、prompts/）、app/websocket/、alembic/ migrations
 frontend/           → React + Vite + TS，**目前的生產前端**。src/i18n/locales/ 是翻譯源頭；
                       public/locales/ 是 build 鏡像
-flutter_app/        → Flutter 單一碼庫前端（web+iOS+Android），要取代 frontend/。**已入 main
-                      但未上生產**，沒有部署管道。assets/locales/ 是同一份翻譯的第三份拷貝，
+flutter_app/        → Flutter 單一碼庫前端（web+iOS+Android），要取代 frontend/。
+                      **平台分工（2026-08-20 拍板）：Web＝病患語音問診（院內 kiosk）；
+                      iOS＝醫師端查看報告/通知（不做語音問診）**。Web 已有
+                      Vercel staged production 部署管道與固定預覽網址，但尚未 promote 為正式前端。
+                      assets/locales/ 是同一份翻譯的第三份拷貝，
                       切換期要與 frontend 兩份同步。已知缺口見 docs/TODO.md §G；
                       病患端非語音全流程已真跑驗畢（2026-07-27，文字代替語音，§V2）；
                       ⚠️ **麥克風／VAD 路徑仍是零實測**（§V1），別因 analyze/test 全綠就當它可用
@@ -35,10 +38,11 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 
 **部署是手動的——merge 到 main 不會上線。** Railway 與 Vercel 的 GitHub App 雖裝在 repo 上，但 check suite 在每一次 main merge 都永遠卡在 `queued`（2026-07-26 對 #29/#30/#31/#32 逐一查證），從未真的觸發部署；歷史上所有生產部署的 `cliCaller` 都是手動 CLI。要上線必須自己跑：
 
-- 後端：`railway up`（在 `backend/`，服務 `gu-voice-app`／專案 `gu-voice-api`）→ 驗 `curl <host>/api/v1/healthz/deep`
-- 前端：`cd frontend && npm run build && vercel --prod`（專案 `gu-voice`，在個人 team `chuns-projects-068de742`；新 clone 要先 `vercel link --yes --project gu-voice`，`.vercel/` 不入庫）
+- 後端：⚠️ CLI 5.41.2 起 `railway up` 一律上傳 git root（在 `backend/` 裡跑也一樣→FAILED），必須先 `git archive HEAD:backend | tar -x -C <非git臨時目錄>`，在該目錄 `railway link -p gu-voice-api -s gu-voice-app -e production && railway up --detach` → 驗 `curl <host>/api/v1/healthz/deep`（完整流程見 `docs/deployment_guide.md` 一、）
+- React 前端：`cd frontend && npm run build && vercel --prod`，然後 **手動** `vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.app`（正式 alias 不會隨 --prod 自動移動）
+- Flutter Web：`cd flutter_app && ./tool/build_vercel_output.sh && vercel deploy --prebuilt --prod --skip-domain --scope chuns-projects-068de742`；正式切換前照 `docs/flutter_web_cutover.md` 驗語音並保留 React rollback
 
-活後端域名 = `gu-voice-app-production.up.railway.app`（`api-` 是死域名）。⚠️ **前端唯一活的網址＝`gu-voice-chuns-projects-068de742.vercel.app`**（Vercel 專案 `gu-voice`，2026-07-26 在現帳號重建並端到端驗證）。舊 scope 的 `project-9w0vq.vercel.app`／`gu-voice-jht12020304y-7696s-projects.vercel.app` 在停用帳號下、無法再部署，且 **2026-07-26 已從 `CORS_ORIGINS` 移除——開那兩個網址會登入失敗（CORS 擋掉所有 API）**。⚠️ **kiosk 裝置必須改指新網址**；`FRONTEND_BASE_URL`（重設密碼信連結）仍指舊網址待改。生產 DB = Supabase `gu-voice-prod`（ref `xobxnlvtilezridrekdm`，ap-southeast-1）；環境變數真相 = Railway `DATABASE_URL`，docs 內舊 ref（udydl…/nydhm…）已過期。細節與除錯流程見 `deploy-production` skill 與 [docs/AGENTS.md](docs/AGENTS.md)。
+活後端域名 = `gu-voice-app-production.up.railway.app`（`api-` 是死域名）。正式 React 網址仍為 `gu-voice-chuns-projects-068de742.vercel.app`；Flutter Web 固定驗證網址為 `gu-voice-flutter-preview.vercel.app`（2026-08-17 已驗 build、78 tests、五語 deep link、CORS、病患測試登入，**實體麥克風/STT/TTS/VAD 尚待人工驗證，未通過前不得 promote**）。React rollback deployment 是 `gu-voice-ktox9rgon-chuns-projects-068de742.vercel.app`。測試登入按鈕只可使用無真實資料的 patient 帳號，禁止內嵌 doctor/admin 憑證。生產 DB = Supabase `gu-voice-prod`（ref `xobxnlvtilezridrekdm`，ap-southeast-1）；環境變數真相 = Railway。細節見 `docs/flutter_web_cutover.md`、`deploy-production` skill 與 [docs/AGENTS.md](docs/AGENTS.md)。
 
 ## 專案技能（.claude/skills/）
 

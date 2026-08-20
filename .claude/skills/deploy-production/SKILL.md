@@ -31,8 +31,17 @@ description: GU Voice 生產部署（手動 railway up + vercel --prod，merge m
 
 1. 程式碼先進 main（PR merge）
 2. 若改了 `backend/scripts/start.sh`：`git update-index --chmod=+x backend/scripts/start.sh`，否則 Railway 起不來
-3. 後端：`cd backend && railway up --detach --service gu-voice-app`（Dockerfile 在 `backend/`）。⚠️ **非互動 link 必須在 `backend/` 裡跑** `railway link -p gu-voice-api -s gu-voice-app -e production`——`railway up` 上傳的是 **link 綁定的目錄**，在 repo 根目錄 link 會把整個 repo 上傳 → Railpack 找不到 Dockerfile → 部署 FAILED（2026-08-17 實測；`railway up <path>` 帶路徑參數在 CLI v5.23 會 `prefix not found`，不可用）。失敗徵兆：build log 出現 `Railpack could not determine how to build the app`，且 `railway status --json` 的 `latestDeployment` FAILED 但舊容器仍 active——**healthz 綠不代表新碼上線**
+3. 後端：⚠️ **Railway CLI 5.41.2 起 `railway up` 一律上傳 git root——cwd 在 `backend/` 也一樣、link 綁哪個目錄也救不了**（2026-08-20 實測推翻 08-17 的「link 綁定目錄」結論；帶路徑參數 `railway up <path>` 也 `prefix not found` 不可用）。唯一可靠做法＝匯出已 commit 的 backend/ 到非 git 目錄再 up：
+   ```bash
+   DEPLOY_DIR=$(mktemp -d)
+   git archive HEAD:backend | tar -x -C "$DEPLOY_DIR"
+   cd "$DEPLOY_DIR"
+   railway link -p gu-voice-api -s gu-voice-app -e production
+   railway up --detach
+   ```
+   （`git archive HEAD:backend` 只帶已 commit 內容——部署前確認要上線的碼真的在 HEAD 上。）失敗徵兆：build log 出現 `Railpack could not determine how to build the app`，且 `railway status --json` 的 `latestDeployment` FAILED 但舊容器仍 active——**healthz 綠不代表新碼上線**
 4. 前端：`cd frontend && npm run build && vercel --prod`（專案 `gu-voice`，個人 team `chuns-projects-068de742`；新 clone 先 `vercel link --yes --project gu-voice`，`.vercel/` 不入庫）。
+   ⚠️ **`--prod` 完不算完**：正式網址 `gu-voice-chuns-projects-068de742.vercel.app` 的 alias **不會**自動移到新 deployment（2026-08-20 實測，會釘在舊的；`gu-voice.vercel.app` 才會自動跟上），必須手動 `vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.app`，否則正式網址永遠供應舊 bundle。
    ⚠️ **唯一活的前端網址＝`gu-voice-chuns-projects-068de742.vercel.app`**。舊 scope 的 `project-9w0vq` / `gu-voice-jht12020304y-7696s-projects` 在停用帳號下無法再部署，**2026-07-26 已從 CORS 移除 → 開了會「頁面載得出來但登入沒反應」**。⚠️ kiosk 裝置必須改指新網址；`FRONTEND_BASE_URL` 仍指舊網址待改。
    ⚠️ 新 Vercel 專案預設開 Deployment Protection → 全站 **302 到 `vercel.com/sso-api`**（不是 401）。關法見 `docs/deployment_guide.md` 一、（dashboard 或 API PATCH `ssoProtection:null`）
    ⚠️ **絕不要在 `frontend/` 直接 `vercel --prod --yes` 而不指定專案**——目錄名 `frontend` 會撞到個人 team 既有的 `frontend` 專案（那是 AI_Investing），等於拿病歷系統覆蓋掉別的線上專案
@@ -59,6 +68,8 @@ description: GU Voice 生產部署（手動 railway up + vercel --prod，merge m
 
 - [ ] health endpoint 回 200
 - [ ] `railway up` 與 `vercel --prod` **都真的跑過**（沒跑就是沒上線，不論 main 上有什麼）
+- [ ] Railway dashboard 最新 deployment 是 **Active 且時間吻合本次**（舊容器續跑會讓 healthz 假綠）
+- [ ] `vercel alias set` 跑過，正式網址 `gu-voice-chuns-projects-068de742.vercel.app` 供應的是**新** bundle
 - [ ] Vercel 與 Railway build log 無錯、rollout 完成
 - [ ] 若動了 migration：Railway 啟動 log 顯示 alembic 升級成功
 - [ ] `railway logs` 看到 `celery@... ready.` 與 `beat: Starting...`（SOAP 生成是 Celery 單一路徑，worker 沒起＝報告永遠卡 GENERATING）
