@@ -270,10 +270,21 @@ def _server_code_provenance() -> dict:
         return out
 
     for pid in pids:
-        info = _run(["ps", "-p", pid, "-o", "lstart=,command="]).strip()
+        # LC_ALL=C 是必要的：非英文 locale 下 `ps -o lstart=` 會印在地化格式
+        # （zh_TW：「四 8月20 20:51:33 2026」），既不合 %a %b %d 也不是 24 字元寬 →
+        # started_at 恆為 None → server_provenance.verified 恆為 null → i0 永遠
+        # precondition_not_met（本機 2026-08-20 實測踩到）。
+        info = _run(["env", "LC_ALL=C", "ps", "-p", pid, "-o", "lstart=,command="]).strip()
         # lstart 固定 24 字元寬（'Mon Jul 27 13:06:41 2026'）
         lstart_raw, cmd = info[:24], info[24:].strip()
         started = _parse_ps_lstart(lstart_raw)
+        if started is None:
+            # 保底：以 token 切（前 5 個 token 是 lstart），避免寬度假設失效時整條失明
+            toks = info.split()
+            if len(toks) > 5:
+                maybe = _parse_ps_lstart(" ".join(toks[:5]))
+                if maybe is not None:
+                    started, cmd = maybe, " ".join(toks[5:])
         started_after = None if started is None else (started.timestamp() > newest_mtime)
         out["listeners"].append(
             {
@@ -593,8 +604,13 @@ SCENARIOS = {
             "ago, it got so bad I threw up, and that side is swollen now."
         ),
     },
-    # ED 配合病患：預期 8-10 輪自動結束；SOAP icd10_codes 含 N52 開頭 +
-    # icd10_verified=true（B1+B2）。
+    # ED 配合病患：SOAP icd10_codes 含 N52 開頭 + icd10_verified=true（B1+B2）。
+    # ⚠️ max_patient_turns 從 12 調到 18（2026-08-20）：ED 屬 §3b 高風險主訴，
+    # 後端動態硬上限 = MAX_PATIENT_TURNS_HARD_CAP(10) + K 個必問風險因子(3)
+    # + RISK_FACTOR_HARD_CAP_BUFFER(2) = 15。舊值 12 是動態加成上線前寫的，
+    # driver 會在後端收尾之前先自己停掉 → session 卡 in_progress、無 SOAP，
+    # e1/e2/e3/e4 全部假性 FAIL（2026-08-20 實測，AI 在第 12 輪還在問吸菸/血脂）。
+    # 與 ed_3b_zh 的 18 對齊（留 backstop margin）。
     "ed_zh": {
         "language": "zh-TW",
         "chief_complaint_id": CC_ED,
@@ -605,7 +621,7 @@ SCENARIOS = {
         "persona": ED_ZH_PERSONA,
         "farewell_after_turn": None,
         "farewell_text": None,
-        "max_patient_turns": 12,
+        "max_patient_turns": 18,
     },
     # intake 佈線驗收：驗「前面選的主訴 + 填的年齡 + intake 四項」有沒有真的進到
     # 問答對話的判斷。核心是白箱斷言（probe_intake_wiring 就地重建 system prompt），

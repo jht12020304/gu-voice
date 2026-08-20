@@ -10,8 +10,10 @@
 # - local.env 覆寫本機 DB/Redis/REDIS_KEY_PREFIX（見 README）
 set -e
 E2E_DIR="$(cd "$(dirname "$0")" && pwd)"
-BACKEND="${E2E_BACKEND_DIR:-/Users/chun/Desktop/GU_0410/backend}"
-VENV=/Users/chun/Desktop/GU_0410/backend/venv
+BACKEND="${E2E_BACKEND_DIR:-$(cd "$E2E_DIR/../../backend" && pwd)}"
+# venv 預設用受測 backend 自己的（舊機器上是 /Users/chun/Desktop/GU_0410/backend/venv）
+VENV="${E2E_VENV:-$BACKEND/venv}"
+PORT="${E2E_PORT:-8000}"
 
 if [[ ! -f "$BACKEND/.env" ]]; then
   echo "FATAL: $BACKEND/.env 不存在（worktree 需先複製 .env）" >&2
@@ -23,4 +25,4 @@ source "$E2E_DIR/local.env"
 set +a
 
 cd "$BACKEND"
-exec "$VENV/bin/uvicorn" app.main:app --host 127.0.0.1 --port 8000 --log-level info
+exec "$VENV/bin/uvicorn" app.main:app --host 127.0.0.1 --port "$PORT" --log-level info
