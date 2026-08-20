@@ -39,6 +39,15 @@ cd "$DEPLOY_DIR"
 railway link -p gu-voice-api -s gu-voice-app -e production
 railway up --detach
 curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep   # 期待 {"status":"ok",...}
+#    ⚠️ healthz 綠**不代表新碼上線**（舊容器還活著時它照樣綠）。要證明流量已切到新版，
+#    打 openapi 找這次新增的欄位／端點：
+curl -s https://gu-voice-app-production.up.railway.app/openapi.json | python3 -c \
+  "import json,sys; d=json.load(sys.stdin); print('<本次新增的欄位名>' in json.dumps(d))"
+#    ⚠️ 自動化時**不要**用 `... | grep -c 欄位 || echo 0` 判斷：grep 沒命中會「印 0 **且** 回傳非零」，
+#    `|| echo 0` 於是再追加一個 0，變數變成 "0\n0" ≠ "0" → 判成「有命中」。2026-08-20 用這種寫法
+#    的監看誤報「新碼已上線」，實際上生產仍跑舊碼。判定一律交給 python（解析失敗要當 unknown，不是 true）。
+#    部署卡在 DEPLOYING 時：先看新容器 log 有沒有「Application startup complete」（有＝碼沒問題），
+#    再查 status.railway.com 是否有平台事故——事故期間不要重送 railway up。
 
 # 3a. 現行 React 前端 → Vercel（專案 gu-voice，個人 team chuns-projects-068de742）
 cd frontend && npm run build && vercel --prod

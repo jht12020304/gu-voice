@@ -45,7 +45,21 @@ description: GU Voice 生產部署（手動 railway up + vercel --prod，merge m
    ⚠️ **唯一活的前端網址＝`gu-voice-chuns-projects-068de742.vercel.app`**。舊 scope 的 `project-9w0vq` / `gu-voice-jht12020304y-7696s-projects` 在停用帳號下無法再部署，**2026-07-26 已從 CORS 移除 → 開了會「頁面載得出來但登入沒反應」**。⚠️ kiosk 裝置必須改指新網址；`FRONTEND_BASE_URL` 仍指舊網址待改。
    ⚠️ 新 Vercel 專案預設開 Deployment Protection → 全站 **302 到 `vercel.com/sso-api`**（不是 401）。關法見 `docs/deployment_guide.md` 一、（dashboard 或 API PATCH `ssoProtection:null`）
    ⚠️ **絕不要在 `frontend/` 直接 `vercel --prod --yes` 而不指定專案**——目錄名 `frontend` 會撞到個人 team 既有的 `frontend` 專案（那是 AI_Investing），等於拿病歷系統覆蓋掉別的線上專案
-5. 驗證：`curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep` 回 `{"status":"ok"}` + Railway 部署 log。事故復原用 `railway up` 不要用 `railway redeploy`（實測後者不換容器）
+5. 驗證：`curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep` 回 `{"status":"ok"}` + Railway 部署 log。事故復原用 `railway up` 不要用 `railway redeploy`（實測後者不換容器）。
+   ⚠️ **healthz／healthz-deep 都不能證明「新碼在服務流量」**——舊容器還活著時它們照樣全綠（2026-08-20 實測：新容器已啟動、migration 已跑，但 Railway 卡住沒切流量，線上仍是舊碼而 healthz-deep 回 ok）。**唯一可靠的判準是打 `/openapi.json` 找這次新增的 schema 欄位**：
+   ```bash
+   curl -s <host>/openapi.json | python3 -c "import json,sys; d=json.load(sys.stdin); \
+     print('patient_facing_localized' in json.dumps(d))"   # 換成本次新增的欄位/端點
+   ```
+   沒有新增 schema 可驗時，退而求其次比對 `railway status --json` 的 `latestDeployment.id` 是否等於本次 `railway up` 印出的 id **且** status 為 SUCCESS（⚠️ 平台事故期間這個欄位也會落後於實況，見下節）。
+   ⚠️ **探針自動化的陷阱**：不要寫 `live=$(curl … | grep -c FIELD || echo 0)`——grep 沒命中時會**印 `0` 並回傳非零**，`|| echo 0` 再追加一個 `0`，變數成為 `"0\n0"`，任何 `!= "0"` 的判斷都會誤判成命中。2026-08-20 就是這個寫法讓監看誤報「新碼已上線」，實際生產仍跑舊碼。判定一律交給 python（且**解析失敗要當 unknown，不能當成功**）。
+
+## 部署卡住（DEPLOYING 遲遲不收斂）時的判斷順序
+
+1. **先看新容器自己有沒有起來**：`railway logs <deployment-id> -d --lines 400 | grep -iE "alembic|Application startup complete|celery@|Firebase|error"`。看得到 `Application startup complete` 就代表**碼沒問題**，卡的是平台端的切換，不是我們。
+2. **查 Railway 平台事故**：dashboard 頂端橫幅，或 status.railway.com。**事故期間不要重送 `railway up`、不要 restart**——只會多排一個卡住的 deployment（同 Supabase 事故的處置原則）。2026-08-20 實例：事故 `VVL3A03V`「Deployments are slow to progress」全區域，新容器健康但流量一直沒切。
+3. **確認生產目前實際跑的是哪一份碼**（見上面第 5 點的 openapi 探針），據此評估「新前端 × 舊後端」的混合狀態風險，再決定要不要回滾前端。
+4. ⚠️ **migration 會先生效**：啟動腳本在 healthcheck 之前就跑完 alembic，所以「流量還沒切，DB schema 已經升好」是常態。這正是 migration 一律要**向後相容**（新增 nullable 欄位、不改既有語意）的理由——舊碼要能在新 schema 上照跑。
 
 ## 生產 DB 除錯順序
 
@@ -60,6 +74,8 @@ description: GU Voice 生產部署（手動 railway up + vercel --prod，merge m
 | 「PR merge 進 main 了，所以已經上線」 | 沒有。要跑 `railway up` + `vercel --prod`。main 與生產可以差好幾週（2026-07-26 發現生產跑的是 07-06 的 build） |
 | 「TODO/文件說 celery worker service 已 ACTIVE，所以 SOAP 沒問題」 | 那條記載曾是假的（2026-07-26 實查兩個 service 都不存在，SOAP 全卡 GENERATING）。現行做法＝同容器起 worker+beat（`RUN_CELERY_IN_API`）；部署後一律用 log 確認 `celery@... ready.` 與 `beat: Starting...` |
 | 「CI 綠了就等於部署成功」 | GitHub Actions 只跑測試；`railway-app`／`vercel` 的 check suite 永遠停在 `queued`，那不是部署 |
+| 「healthz / healthz-deep 回 ok，所以新版上線了」 | 舊容器還活著時它們照樣全綠。2026-08-20 實測：新容器啟動完成、migration 也跑完，但 Railway 平台事故讓流量一直沒切，線上仍是舊碼。要驗就打 `/openapi.json` 找新欄位 |
+| 「部署卡住，再 `railway up` 一次看看」 | 先查平台事故。事故期間重送只會多排一個卡住的 deployment；新容器 log 有 `Application startup complete` 就代表碼沒問題，該做的是等 |
 | 「DB timeout，先重啟 Supabase 專案試試」 | 多次事故根因是 Supabase 平台端；事故期間重啟只會延長不可用 |
 | 「docs 寫的 DB ref 跟 Railway 不一樣，改 Railway 對齊 docs」 | 方向反了：Railway 是真相，docs 是過期的 |
 | 「pool 開大一點就不會 timeout」 | pooler 額度曾被 idle 連線佔滿，2+1 是刻意壓低的，加大會復發 |
@@ -67,6 +83,7 @@ description: GU Voice 生產部署（手動 railway up + vercel --prod，merge m
 ## Verification
 
 - [ ] health endpoint 回 200
+- [ ] **`/openapi.json` 找得到本次新增的 schema 欄位／端點**——這是「新碼真的在服務流量」的唯一硬證據，healthz 綠不算數
 - [ ] `railway up` 與 `vercel --prod` **都真的跑過**（沒跑就是沒上線，不論 main 上有什麼）
 - [ ] Railway dashboard 最新 deployment 是 **Active 且時間吻合本次**（舊容器續跑會讓 healthz 假綠）
 - [ ] `vercel alias set` 跑過，正式網址 `gu-voice-chuns-projects-068de742.vercel.app` 供應的是**新** bundle
