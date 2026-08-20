@@ -26,6 +26,7 @@ from app.pipelines.prompts.shared import (
     URO_RED_FLAGS,
     get_display_title,
     has_locale_coverage,
+    normalize_canonical_id,
     render_red_flag_titles_for_prompt,
     render_red_flags_by_severity,
 )
@@ -203,6 +204,17 @@ _CONTRAST_MARKERS: tuple[str, ...] = (
     # `아니` cue 整句吃掉（2026-07-26 對抗式驗證實測 critical MISS）。
     # 不收裸「고」：那是泛用連接詞，到處都是，收了等於關掉守衛。
     "지만", "하지만", "그런데", "그러나", "아니고", "아니라",
+    # 2026-08-20 稽核 RF-2：韓文最常見的「否認病史 ＋ 真急症」接法**沒有標點**，
+    # 靠連接語尾「~는데／~은데／~인데」串起來：
+    #   「당뇨는 없고 고혈압도 없는데 어젯밤부터 고환이 갑자기 심하게 아파요」
+    # 舊表只有終結形的「지만／그런데」，接不到語尾形 →「없」把整句吃掉、
+    # critical 漏報（五語探針裡韓文唯一的漏法）。
+    # ⚠️ 這幾個語尾也用在非轉折的「背景說明」語境（「소변이 안 나오는데 어떡하죠」），
+    #   但依本表的方向性註記，重置只會讓否定範圍**變短** → 抑制變少 → 更容易命中，
+    #   是安全的一側。真正的否認（「고환 통증은 없어요」）不含這些語尾，不受影響。
+    # 註：「아픈데」這種 ㄴ 已併入音節的形（아프＋ㄴ데）字面上抓不到，
+    #   本表只收獨立成音節的三種；那不影響本輪修的形狀（없는데／괜찮은데／아닌데）。
+    "는데", "은데", "인데",
     # vi-VN
     "nhưng", "mà",
 )
@@ -233,6 +245,24 @@ _NEG_MAX_LOOKBACK = 120
 _NEG_CRITICAL_PROSE_LOOKBACK = 16
 # list 分隔符（散文預算歸零點）。刻意只放標點：中文頓號/逗號與半形逗號。
 _NEG_LIST_SEPARATORS: str = "、，,"
+
+# ── critical：不被 list 分隔符重置的**總**回看上限（2026-08-20 稽核 RF-2）──
+# 上面的散文預算在每一個 、／，ˍ處歸零，所以「否定的作用範圍」實質只受
+# `_NEG_MAX_LOOKBACK`（120 字元）約束：一句
+#   「我沒有糖尿病、沒有高血壓、沒有心臟病、沒有腎結石、沒有開過刀、睪丸突然劇痛」
+# 裡最前面那個「沒有」照樣構得到最後的關鍵字。120 字元對 CJK ≒ 120 個語素，
+# 那不是「同一個否認下的並列列舉」該有的長度，是 runaway。
+# 這裡加一個**不歸零**的總預算當硬牆。
+# 為什麼是 48 而不是更緊：E11 明文要保護的最長合法形狀是
+#   `test_negated_enumeration_still_suppressed` 那句對抗性 e2e 語料——單一「沒有」
+#   帶 12 個並列症狀，從尾端的 critical 關鍵字「完全排不出」回看到「沒有」實測是
+#   **39 個語素當量**。收到 40 以下就會讓那句翻面（實測會紅）。48 留約兩成餘裕，
+#   同時把 CJK 的回看距離砍成原本 120 字元上限的四成。
+# ⚠️ 這條只是 runaway 的硬牆，**不是** RF-2 的修法：RF-2 那類「否認病史 ＋ 逗號 ＋
+#   真急症」的最近否定詞只隔 5–7 個語素當量，任何長度上限都攔不住它，
+#   真正承重的是下面 (b) 的「新發作陳述」切斷。
+# 方向性：上限只會讓否定範圍**變短** → 抑制變少 → critical 更容易命中（安全側）。
+_NEG_CRITICAL_TOTAL_LOOKBACK_UNITS = 48
 
 
 # ── 語素當量計數（**同一個 bug 同時造成兩個方向的錯**，2026-07-27 第三輪 Gate）──
@@ -309,6 +339,16 @@ _JA_POTENTIAL_NEG_STEMS: tuple[str, ...] = (
 )
 _JA_NEG_SUFFIXES: tuple[str, ...] = (
     "ない", "ないです", "ません", "なかった", "ませんでした", "ず",
+    # 2026-08-20 稽核 RF-4 の副産物：**連用形否定**「なく／なくて」が抜けていた。
+    # `_POST_NEGATION_CUES` には「なく」が入っているので、
+    #   「尿が全く出なくて下腹がパンパンです」
+    #   「昨日の夜から全然おしっこが出なくて下腹が張って痛いです」
+    # の尿語が「否認された」と判定されていた（＝症状陳述を否認と読む、
+    # `_JA_SYMPTOM_NEG_STEMS` がまさに潰そうとしていた穴の活用形違い）。
+    # これまでは同じ文の「下腹」側が命中を救っていたので露見しなかったが、
+    # RF-4 で「下腹」を外した時点で critical 漏報として表面化した。
+    # 方向性：假朋友は抑制を**減らす**だけ（fail-open 側）。
+    "なく", "なくて",
 )
 # 2026-07-27 第四輪 Gate：日文的**急性尿閉本身就是一個否定述語**（「尿が出ません」
 # ＝尿出不來），感覚脱失／脱力也是（「感覚がない」「力が入らない」）。這些不是可能形
@@ -322,6 +362,13 @@ _JA_NEG_SUFFIXES: tuple[str, ...] = (
 #   仍然照常被抑制。
 _JA_SYMPTOM_NEG_STEMS: tuple[str, ...] = (
     "出", "尿が出", "おしっこが出", "小便が出", "感覚が", "力が入ら", "動かせ",
+    # 2026-08-20 稽核 RF-4：可能形「排尿できない／排尿ができません」も同じ族。
+    # `_clause_final_denial`（子句尾述語否定）が「朝から排尿ができません」を
+    # **否認**と読んでいたため、急性尿閉の最も教科書的な日本語文が
+    # 規則層 0 命中だった（RF-4 で共現組の裸「できない」を外した時点で表面化）。
+    # 「排尿ができない」に否認の読みは存在しない（＝症状そのもの）ので安全。
+    "排尿でき", "排尿ができ", "おしっこでき", "おしっこができ",
+    "小便でき", "小便ができ", "尿ができ",
 )
 _POST_CUE_FALSE_FRIENDS: tuple[str, ...] = tuple(
     stem + suffix
@@ -774,6 +821,15 @@ def _has_current_episode_evidence(sentence: str) -> bool:
     return any(m in sentence for m in _CURRENT_EPISODE_MARKERS)
 
 
+def _has_time_anchor(segment: str) -> bool:
+    """段落中是否有**時間錨點**（今天早上／兩小時前／last night／昨夜／어젯밤／tối qua）。
+
+    比 `_has_current_episode_evidence` 窄：不含急性伴隨症狀。給 `_clause_before` 的
+    「否認列舉之後已經開始講這次發作」判定用——見該函式 (b) 的說明。
+    """
+    return any(m in segment for m in _CURRENT_EPISODE_TIME_ANCHORS)
+
+
 def _has_acute_companion_evidence(sentence: str) -> bool:
     """句中是否有**急性伴隨症狀**（吐／走不動／vomit…）——條件句專用的較嚴證據。
 
@@ -839,13 +895,46 @@ def _clause_before(
 
     prose_lookback 不為 None 時（critical），額外限制「距離最近 list 分隔符以來的
     散文字元數」不得超過該預算，超過就截斷 → 遠處的否定線索構不到這個關鍵字。
+
+    critical 另有兩道 2026-08-20 稽核 RF-2 補上的邊界（都只會讓否定範圍變短
+    → 抑制變少 → 紅旗更容易命中，是安全的一側）：
+
+    (a) **不歸零的總預算** `_NEG_CRITICAL_TOTAL_LOOKBACK_UNITS`——散文預算在每個
+        頓號/逗號歸零，等於「否定作用範圍」實質無上限（只剩 120 字元的 runaway 上限）。
+
+    (b) **list 分隔符後若已經是新的一次發作陳述，就切斷**。這是本輪真正承重的一條：
+        「否認一串病史 ＋ 逗號 ＋ 真急症」是門診第一句話最常見的形狀，五種語言都是
+          「我沒有糖尿病、沒有高血壓、沒有心臟病、沒有開過刀，昨晚睪丸突然劇痛痛到吐」
+          "no diabetes, no high blood pressure, …, last night my testicle suddenly …"
+          「糖尿病はありません、高血圧もありません、昨夜から精巣が急に激しく痛みます」
+          「tôi không bị tiểu đường, không bị cao huyết áp, tối qua tinh hoàn đau dữ dội」
+        而 (a) 那種**純長度**的上限對它完全無效——實測最近的那個否定詞只隔 5–7 個
+        語素當量，任何合理的長度上限都攔不住（把上限收到 7 以下會把「沒有睪丸劇痛」
+        這種真否認也放行，方向反了）。真正能分開兩者的不是距離而是**語意**：
+        並列列舉的每一項都是裸症狀名詞，而「，昨晚睪丸突然劇痛」是一個帶**時間錨點**
+        的新發作陳述。本檔早就有這個判準（`_CURRENT_EPISODE_TIME_ANCHORS`，
+        3b/時態否定守衛的反向閘門），這裡沿用同一份表。
+        ⚠️ 只用 (a) 時間錨點、**不用** (b) 急性伴隨症狀：後者含「吐」，而「嘔吐」
+        正是並列否認列舉裡最常見的項目之一
+        （`test_negated_enumeration_still_suppressed` 的語料就有），
+        拿它當「新發作」的證據會把一整句「我都排除了」變成多個 critical 誤中止。
+        時間錨點沒有這個同形問題：沒有人會在症狀列舉中間插「昨晚／last night」。
+        為什麼不會把真否認變成誤報：切斷只丟掉**分隔符之前**的線索，分隔符與關鍵字
+        之間的否定詞照樣搜得到——「我沒有血尿，今天早上也沒有尿不出來」切斷後的
+        clause 是「今天早上也沒有」，仍含 cue，仍抑制。而「我沒有睪丸疼痛，只是來拿藥」
+        的關鍵字在分隔符**之前**，這條規則根本碰不到它。
     """
     i = start - 1
     n = 0
     prose_run = 0
+    total_units = 0
     while i >= 0 and n < _NEG_MAX_LOOKBACK and text_lower[i] not in _NEG_SCOPE_BREAKS:
         if prose_lookback is not None:
             if text_lower[i] in _NEG_LIST_SEPARATORS:
+                # (b) 分隔符之後到關鍵字之間若已經是「這次發作」的陳述
+                #     （時間錨點）→ 前面那串否認管不到它。
+                if _has_time_anchor(text_lower[i + 1 : start]):
+                    break
                 prose_run = 0  # 並列列舉不吃預算（同一個否認下的多個症狀）
             else:
                 # 語素當量計費：CJK 每字 1、拉丁/越南文每個空白（＝詞界）1、
@@ -853,6 +942,10 @@ def _clause_before(
                 prose_run += _char_units(text_lower[i])
                 if prose_run > prose_lookback:
                     break
+            # (a) 總預算（分隔符也計費，不歸零）
+            total_units += _char_units(text_lower[i])
+            if total_units > _NEG_CRITICAL_TOTAL_LOOKBACK_UNITS:
+                break
         i -= 1
         n += 1
     clause = text_lower[i + 1 : start]
@@ -1349,6 +1442,26 @@ _CANONICAL_KEYWORDS: dict[str, list[str]] = {
 }
 
 
+# 目錄 title（含各語言 display title）→ canonical_id 反查表。
+# 兩個用途：
+#   (1) 語意層把 LLM 回的 title 解回 canonical_id（`_semantic_detect`）；
+#   (2) DB 規則的 `canonical_id` 為 NULL 時，用 rule.name 把它救回來（`_load_rules`，
+#       2026-08-20 稽核 D-6）。沒有 (2) 的話，canonical_id 會 fallback 成 rule.name，
+#       而共現組是以 canonical_id 查表的 → 整個共現層對那條規則靜默失效，
+#       規則層退回「只有相鄰複合詞」的舊行為（那正是 2026-07-27 量到 60/61 漏報的形狀）。
+def _build_title_to_canonical() -> dict[str, str]:
+    table: dict[str, str] = {}
+    for flag in URO_RED_FLAGS:
+        cid = flag["canonical_id"]
+        table[normalize_canonical_id(flag["title"])] = cid
+        for display in (flag.get("display_title_by_lang") or {}).values():
+            table[normalize_canonical_id(display)] = cid
+    return table
+
+
+_TITLE_TO_CANONICAL: dict[str, str] = _build_title_to_canonical()
+
+
 def _canonical_denied_in_text(canonical_id: str, text_lower: str) -> bool:
     """canonical 的關鍵字在文中出現但全被否定（且無任一非否定出現）→ 是否定幻覺。
 
@@ -1517,10 +1630,9 @@ class RedFlagDetector:
                         "id": str(rule.id),
                         # E8-4（原 TODO-E6）：canonical_id 為跨語言穩定標識符;
                         # dedup 以此為 key。若 DB 既有 rule 尚未 backfill
-                        # canonical_id,fallback 回 name。
-                        "canonical_id": (
-                            getattr(rule, "canonical_id", None) or rule.name
-                        ),
+                        # canonical_id,先試著用 name 反查目錄救回（D-6），
+                        # 救不回才 fallback 回 name（見 `_resolve_db_canonical_id`）。
+                        "canonical_id": self._resolve_db_canonical_id(rule),
                         "name": rule.name,
                         "display_title_by_lang": (
                             getattr(rule, "display_title_by_lang", None) or {}
@@ -1544,6 +1656,49 @@ class RedFlagDetector:
             # 載入失敗時使用內建規則作為備援
             self._rules = self._get_fallback_rules()
             self._rules_loaded = True
+
+    @staticmethod
+    def _resolve_db_canonical_id(rule: Any) -> str:
+        """DB 規則的 canonical_id；NULL 時盡量救回目錄 id，救不回才退回 rule.name。
+
+        2026-08-20 稽核 D-6（latent）：舊行為是 `canonical_id or rule.name`。
+        `canonical_id` 是共現組（`_CANONICAL_COOCCURRENCE`）、severity floor
+        （`_CANONICAL_CATALOG_SEVERITY`）、否定幻覺後過濾（`_CANONICAL_KEYWORDS`）
+        三張表的查表鍵，全部以目錄 id 為鍵。退回 rule.name 等於這三層對該規則
+        **靜默失效**——最嚴重的是共現組，那條規則會退回「只有相鄰複合詞」的舊行為，
+        也就是 2026-07-27 量到 60/61 漏報的那個形狀，而且完全沒有訊號。
+
+        保守處理：
+          1. 用 rule.name 反查目錄 title / 各語言 display title（DB 的 name 歷史上
+             就是目錄 title，見 `_get_fallback_rules` 的 `"name": flag["title"]`）。
+             救得回 → 三張表都正常運作。
+          2. 救不回 → 保留舊的 name fallback（不可回 None：dedup 需要一個身份），
+             但 **log warning**，讓「規則表被 seed 但沒 backfill canonical_id」
+             這件事在生產可觀測，而不是靜默降級。
+        """
+        canonical_id = getattr(rule, "canonical_id", None)
+        if canonical_id:
+            return str(canonical_id)
+        name = getattr(rule, "name", "") or ""
+        recovered = _TITLE_TO_CANONICAL.get(normalize_canonical_id(name))
+        if recovered:
+            logger.warning(
+                "DB 紅旗規則的 canonical_id 為空，已用 name 反查目錄救回 | "
+                "rule_id=%s name=%s → canonical_id=%s（請 backfill DB 欄位）",
+                getattr(rule, "id", None),
+                name,
+                recovered,
+            )
+            return recovered
+        logger.warning(
+            "DB 紅旗規則的 canonical_id 為空且無法從 name 反查目錄 | "
+            "rule_id=%s name=%s → 退回以 name 當身份；"
+            "此規則的共現組／severity floor／否定幻覺後過濾**都不會生效**，"
+            "請 backfill red_flag_rules.canonical_id",
+            getattr(rule, "id", None),
+            name,
+        )
+        return str(name)
 
     @staticmethod
     def _collect_all_language_keywords(flag: dict[str, Any]) -> list[str]:
@@ -1705,15 +1860,45 @@ class RedFlagDetector:
                     )
 
             # 正則表達式比對（關鍵字未命中時）
+            #
+            # ⚠️ 2026-08-20 稽核 D-6：這條路徑**只有 DB 規則會走**（內建 catalogue 的
+            # regex_pattern 恆為 None），而 red_flag_rules 表在生產從未 seed，所以它
+            # 一直是 latent 的。缺陷：regex 命中直接 `matched = True`，完全繞過
+            # `_occurrence_negated`——同一句「我沒有血尿」，關鍵字路徑會被否定守衛
+            # 抑制，regex 路徑卻照樣 critical。哪天有人 seed 了規則表（那正是
+            # `_load_rules` 的設計情境），整組否定守衛就對那些規則靜默失效。
+            # 修法：regex 的**命中位置**也要過同一組守衛，逐一 match 找第一個非否定的。
+            # guard 關掉（kill-switch）時退回原本的「第一個 match 就算」行為，與關鍵字
+            # 路徑一致。
             if not matched and rule.get("regex_pattern"):
                 try:
-                    match = re.search(rule["regex_pattern"], text, re.IGNORECASE)
+                    match = None
+                    # 在 text_lower 上搜尋（而非 text）：守衛的所有索引都是
+                    # text_lower 的索引，兩者必須同一個座標系。pattern 帶
+                    # re.IGNORECASE，所以換成小寫 haystack 不改變命中集合。
+                    for candidate in re.finditer(
+                        rule["regex_pattern"], text_lower, re.IGNORECASE
+                    ):
+                        if not guard_on or not _occurrence_negated(
+                            text_lower,
+                            candidate.start(),
+                            candidate.end() - candidate.start(),
+                            prose_lookback,
+                        ):
+                            match = candidate
+                            break
+                        logger.info(
+                            "regex 紅旗命中但被否定守衛抑制 | canonical=%s pattern=%s",
+                            rule.get("canonical_id") or rule.get("name"),
+                            rule.get("regex_pattern"),
+                        )
                     if match:
                         matched = True
                         trigger_reason = get_message(
                             "alert.regex_match_reason",
                             language,
-                            match=match.group(),
+                            # 顯示用回到原文大小寫（索引同座標系）
+                            match=text[match.start() : match.end()],
                         )
                 except re.error as exc:
                     logger.warning(
@@ -1829,24 +2014,25 @@ class RedFlagDetector:
             parsed = json.loads(raw_content)
             raw_alerts = parsed.get("alerts", [])
 
-            # 預先建 title → canonical_id 反查表(所有語言的 display title 都會指向同一 canonical_id),
+            # title → canonical_id 反查表(所有語言的 display title 都會指向同一 canonical_id),
             # 讓 LLM 回「Hematuria」、「肉眼血尿」、「Gross Hematuria」都能對到 canonical_id=gross_hematuria。
-            title_to_canonical: dict[str, str] = {}
-            for flag in URO_RED_FLAGS:
-                cid = flag["canonical_id"]
-                title_to_canonical[flag["title"].lower().strip()] = cid
-                for display in (flag.get("display_title_by_lang") or {}).values():
-                    title_to_canonical[display.lower().strip()] = cid
+            # 模組層已建好（`_TITLE_TO_CANONICAL`，同時給 D-6 的 DB canonical_id 救援用）。
+            title_to_canonical = _TITLE_TO_CANONICAL
 
             alerts: list[dict[str, Any]] = []
             for alert in raw_alerts:
                 raw_title = alert.get("title", default_semantic_title)
-                normalized_title = raw_title.lower().strip()
+                normalized_title = normalize_canonical_id(raw_title)
                 is_catalogue_match = normalized_title in title_to_canonical
                 canonical_id = title_to_canonical.get(
                     normalized_title,
-                    # 新型紅旗(LLM 自創命名)→ 無對應 canonical_id,以 title 當 fallback
-                    raw_title,
+                    # 新型紅旗(LLM 自創命名)→ 無對應 canonical_id,以 title 當 fallback。
+                    # ⚠️ 2026-08-20 稽核 D-7：這裡**必須用正規化後的字串**。用 raw_title
+                    # 會讓 LLM 同一個紅旗換個大小寫/空白就變成不同身份 →
+                    # 同輪 merge 合不起來、跨輪 Redis 去重失效（每輪重複 emit）。
+                    # 見 `shared.normalize_canonical_id`。顯示用的 title 仍是 raw_title,
+                    # 所以護理站看到的文字不變。
+                    normalized_title,
                 )
                 # E8-4：system prompt 的「title 命名對齊」段落固定列出 zh-TW 範例
                 # 名稱,要求 LLM「使用完全相同的 title」以利跨層合併——這會讓
@@ -1995,14 +2181,35 @@ class RedFlagDetector:
         # 合併並去重
         merged = self._merge_and_deduplicate(rule_alerts, semantic_alerts, language)
 
-        # 否定幻覺後過濾（涵蓋語意層）：病患明確否認的症狀不應成為紅旗。
-        # 規則層真命中(有非否定出現)與語意層情境推論(關鍵字不在文中)皆不受影響。
+        # 否定幻覺後過濾（**只涵蓋語意層**）：病患明確否認的症狀不應成為紅旗。
+        #
+        # ⚠️ 2026-08-20 稽核 RF-1（P0 漏報）：本過濾原本套在**所有** alert 上，
+        # 但它的判準 `_CANONICAL_KEYWORDS` 只收 triggers / triggers_by_lang，
+        # **不認識共現組**（`trigger_cooccurrence`）。於是規則層靠共現組命中的
+        # critical 會被整筆丟掉：
+        #   「我沒有高燒，但是我發燒到三十八度而且小便會痛」
+        #     → 規則層 urosepsis critical（發燒 × 小便），但 canonical 關鍵字
+        #       只有「高燒」出現且被否認 → 整筆被刪 → 漏報。
+        # 同型的還有 urinary_retention（否認「尿滯留」但描述膀胱脹到尿不出）、
+        # cauda_equina_suspected（否認「會陰麻木」但描述腳沒力＋漏尿）。
+        #
+        # 修法：只對 `alert_type == "semantic"` 生效。理由（不是為了讓測試變綠）：
+        #   規則層**自己的**否定守衛更嚴謹——它對每一個關鍵字出現位置、以及共現組的
+        #   部位詞／急性詞／整段跨度三處都跑過 `_occurrence_negated`。規則層能產出
+        #   alert，就代表已經有一處證據是非否定的。再拿一份**看不到共現組**的關鍵字
+        #   表去覆蓋那個判斷，只會刪掉規則層正確的命中，不可能發現規則層漏掉的否認。
+        #   combined（兩層都命中）同理：規則層那一半仍是有效證據，不得刪。
+        # 本過濾原本要解的問題（LLM 對病患明確否認的症狀幻覺紅旗）完全保留。
         if self._negation_guard_enabled():
             text_lower = text.lower()
             kept: list[dict[str, Any]] = []
             for alert in merged:
                 cid = alert.get("canonical_id")
-                if cid and _canonical_denied_in_text(cid, text_lower):
+                if (
+                    cid
+                    and alert.get("alert_type") == "semantic"
+                    and _canonical_denied_in_text(cid, text_lower)
+                ):
                     logger.warning(
                         "紅旗否定幻覺抑制 | session=%s, canonical=%s, alert_type=%s, severity=%s",
                         session_id,
@@ -2129,11 +2336,17 @@ class RedFlagDetector:
         severity_priority = {"critical": 0, "high": 1, "medium": 2}
 
         def _dedup_key(alert: dict[str, Any]) -> str:
-            """優先用 canonical_id(跨語言穩定),fallback 用 lowercased title。"""
+            """優先用 canonical_id(跨語言穩定),fallback 用 title。
+
+            兩者都走 `normalize_canonical_id`（lowercase＋strip＋空白摺疊，
+            2026-08-20 稽核 D-7）：LLM 自創紅旗的 canonical_id 就是它自己回的 title，
+            大小寫/空白每輪都可能不同，不正規化就會把「換句話說的同一個紅旗」
+            當成兩筆。對目錄的 snake_case id 是恆等變換。
+            """
             cid = alert.get("canonical_id")
             if cid:
-                return f"cid:{cid}"
-            return f"title:{alert.get('title', '').lower().strip()}"
+                return f"cid:{normalize_canonical_id(cid)}"
+            return f"title:{normalize_canonical_id(alert.get('title', ''))}"
 
         # 先加入規則比對結果
         rule_keys: set[str] = set()
