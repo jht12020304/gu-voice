@@ -287,5 +287,11 @@
     "loadMore": "Tải thêm",
     "loadingMore": "Đang tải thêm...",
     "allLoaded": "Đã hiển thị tất cả"
+  },
+  "patientUnsupported": {
+    "title": "Ứng dụng dành cho nhân viên y tế",
+    "message": "Ứng dụng này để bác sĩ và nhân viên y tế xem báo cáo hỏi bệnh và thông báo. Ứng dụng không cung cấp chức năng hỏi bệnh bằng giọng nói.",
+    "kioskHint": "Nếu quý vị cần hỏi bệnh, vui lòng sử dụng máy hỏi bệnh bằng giọng nói tại khu vực chờ. Cần hỗ trợ, xin báo nhân viên y tế tại chỗ.",
+    "logoutAction": "Đăng xuất và đổi tài khoản"
   }
 }

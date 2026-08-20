@@ -287,5 +287,11 @@
     "loadMore": "Load more",
     "loadingMore": "Loading more...",
     "allLoaded": "All items shown"
+  },
+  "patientUnsupported": {
+    "title": "For clinical staff only",
+    "message": "This app lets doctors and clinical staff review consultation reports and notifications. It does not provide voice intake.",
+    "kioskHint": "To complete a consultation, please use the voice intake kiosk in the waiting area. On-site staff can assist you.",
+    "logoutAction": "Log out and switch account"
   }
 }
