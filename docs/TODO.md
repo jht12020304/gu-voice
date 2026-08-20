@@ -597,6 +597,14 @@ flutter test integration_test/patient_text_flow_test.dart -d <udid> \
 78 tests、五語 deep link、Railway CORS 與測試病患登入。**尚未用真人麥克風驗 STT/TTS/VAD**，
 所以只能說非語音頁與登入可用；未完成 `docs/flutter_web_cutover.md` 的 voice checklist 前不得 promote。
 
+### [ ] V7. 🟡 iOS 醫師端（報告/通知/APNs 推播）— 2026-08-20 拍板新方向
+
+**平台分工拍板：Web＝病患語音問診（kiosk），iOS＝醫師端查看報告與通知，不做語音問診。**
+影響：實體麥克風驗證（V1/V4）只需針對 Web；iOS 的麥克風/MicProbe/TCC 坑不再是 blocker。
+iOS 這條線的待辦：醫師登入後的角色分流、通知列表與 SOAP 報告查看頁、APNs 推播
+（simulator 開發期用 `xcrun simctl push` 模擬；真機/TestFlight 需 Apple Developer 的 .p8 推播金鑰）、
+TestFlight 發佈管道（V6 註明另案）。
+
 ### [ ] V5. 🟡 Android 完全沒碰
 
 本輪只跑 iOS simulator。release 簽章缺 keystore 會刻意失敗（G37 的設計），

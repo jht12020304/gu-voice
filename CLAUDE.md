@@ -9,7 +9,9 @@ backend/            → FastAPI + Celery。app/pipelines/ 問診管線（llm_con
                       supervisor、soap_generator、prompts/）、app/websocket/、alembic/ migrations
 frontend/           → React + Vite + TS，**目前的生產前端**。src/i18n/locales/ 是翻譯源頭；
                       public/locales/ 是 build 鏡像
-flutter_app/        → Flutter 單一碼庫前端（web+iOS+Android），要取代 frontend/。Web 已有
+flutter_app/        → Flutter 單一碼庫前端（web+iOS+Android），要取代 frontend/。
+                      **平台分工（2026-08-20 拍板）：Web＝病患語音問診（院內 kiosk）；
+                      iOS＝醫師端查看報告/通知（不做語音問診）**。Web 已有
                       Vercel staged production 部署管道與固定預覽網址，但尚未 promote 為正式前端。
                       assets/locales/ 是同一份翻譯的第三份拷貝，
                       切換期要與 frontend 兩份同步。已知缺口見 docs/TODO.md §G；
