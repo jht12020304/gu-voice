@@ -36,7 +36,12 @@ railway up --detach
 curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep
 #    A green healthz does NOT prove the new code is serving: it stays green while the previous
 #    container is still up. Probe the OpenAPI schema for something this release added instead:
-curl -s https://gu-voice-app-production.up.railway.app/openapi.json | grep -c '<field added by this release>'
+curl -s https://gu-voice-app-production.up.railway.app/openapi.json | python3 -c \
+  "import json,sys; d=json.load(sys.stdin); print('<field added by this release>' in json.dumps(d))"
+#    Do NOT script this as `... | grep -c FIELD || echo 0`: on no match grep prints "0" AND exits
+#    non-zero, so `|| echo 0` appends a second "0" and the variable becomes "0\n0" != "0" — which
+#    reads as a match. That exact bug made a watcher report "new code is live" while production was
+#    still on the old build (2026-08-20). Let python decide; treat a parse failure as unknown.
 #    Stuck in DEPLOYING? Check the new container's log for "Application startup complete"
 #    (present = our code is fine), then status.railway.com for a platform incident.
 #    During an incident do NOT re-run `railway up` — it only queues another stuck deployment.

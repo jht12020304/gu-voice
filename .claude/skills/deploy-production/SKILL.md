@@ -51,7 +51,8 @@ description: GU Voice 生產部署（手動 railway up + vercel --prod，merge m
    curl -s <host>/openapi.json | python3 -c "import json,sys; d=json.load(sys.stdin); \
      print('patient_facing_localized' in json.dumps(d))"   # 換成本次新增的欄位/端點
    ```
-   沒有新增 schema 可驗時，退而求其次比對 `railway status --json` 的 `latestDeployment.id` 是否等於本次 `railway up` 印出的 id **且** status 為 SUCCESS。
+   沒有新增 schema 可驗時，退而求其次比對 `railway status --json` 的 `latestDeployment.id` 是否等於本次 `railway up` 印出的 id **且** status 為 SUCCESS（⚠️ 平台事故期間這個欄位也會落後於實況，見下節）。
+   ⚠️ **探針自動化的陷阱**：不要寫 `live=$(curl … | grep -c FIELD || echo 0)`——grep 沒命中時會**印 `0` 並回傳非零**，`|| echo 0` 再追加一個 `0`，變數成為 `"0\n0"`，任何 `!= "0"` 的判斷都會誤判成命中。2026-08-20 就是這個寫法讓監看誤報「新碼已上線」，實際生產仍跑舊碼。判定一律交給 python（且**解析失敗要當 unknown，不能當成功**）。
 
 ## 部署卡住（DEPLOYING 遲遲不收斂）時的判斷順序
 
