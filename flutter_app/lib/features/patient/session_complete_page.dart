@@ -11,6 +11,7 @@ import '../../data/api/sessions_api.dart';
 import '../../data/models/session.dart';
 import '../../data/models/soap_report.dart';
 import '../../shared/format.dart';
+import 'patient_facing_summary.dart';
 
 // Port of SessionCompletePage.tsx — the reviewable post-consult summary reached by tapping
 // a completed session. Session fetch failure degrades gracefully (summary card hidden, rest
@@ -167,15 +168,18 @@ class _SessionCompletePageState extends State<SessionCompletePage> {
         'revision_needed' => (t('session.complete.reviewStatusRevisionNeeded'), tk.alertCritical),
         _ => (t('session.complete.reviewStatusPending'), tk.alertMedium),
       };
+      // 摘要三態（見 patient_facing_summary.dart）：非中文場次沒有在地化版本時顯示
+      // 通用訊息，不得退回中文病歷原文。
+      final view = resolvePatientFacingSummary(
+        sessionLanguage: _session?.language ?? currentLng,
+        reportSummary: r.summary,
+        localized: r.patientFacingLocalized,
+      );
+      final summaryText = view.summary ?? (view.useGenericNotice ? t('session.patientFacing.notice') : null);
+      // ICD-10 碼與 AI 信心分數**不**顯示給病患：前者未經醫師確認就會被讀成診斷，
+      // 後者讓病患拿一個百分比去衡量還沒審閱過的 AI 判斷。兩者都只留在醫師端。
       body = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (r.summary != null) Text(r.summary!),
-        if (r.icd10Codes.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Wrap(spacing: 6, runSpacing: 6, children: [
-            for (final c in r.icd10Codes)
-              Chip(label: Text(c), visualDensity: VisualDensity.compact),
-          ]),
-        ],
+        if (summaryText != null) Text(summaryText),
         const SizedBox(height: 12),
         Row(children: [
           Container(
@@ -183,11 +187,6 @@ class _SessionCompletePageState extends State<SessionCompletePage> {
             decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(9999)),
             child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 12)),
           ),
-          if (r.aiConfidenceScore != null) ...[
-            const SizedBox(width: 8),
-            Text(t('session.complete.aiConfidence', args: {'percent': (r.aiConfidenceScore! * 100).round()}),
-                style: theme.textTheme.bodySmall),
-          ],
         ]),
       ]);
     } else {

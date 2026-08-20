@@ -51,8 +51,19 @@ class ReportsApi {
   }
 
   // Trigger async (Celery) SOAP generation. Endpoint is under /sessions.
+  //
+  // 一律帶 `{"regenerate": true}`。後端 report_service.generate_report 在**該場次已有
+  // report row** 而請求沒帶 regenerate 時直接丟 ReportAlreadyExistsException(409)；而
+  // row 早在第一次派工時就建好了，狀態才是 generating/failed/generated。也就是說舊寫法
+  // 下「failed 後重試」與醫師端的「重新產生」按下去只會拿到 409——按鈕看得到、按不動。
+  // 首次產生時沒有 row，帶不帶 regenerate 行為相同，所以無條件帶是安全的。
+  // 呼叫端各自負責 UI 閘門（generating 期間不得再派工，見 canGenerateSoapReport /
+  // canRegenerateSoapReport）。
   Future<SoapReport> generateReport(String sessionId) async {
-    final res = await _dio.post('/sessions/$sessionId/reports/generate');
+    final res = await _dio.post(
+      '/sessions/$sessionId/reports/generate',
+      data: {'regenerate': true},
+    );
     return SoapReport.fromJson(res.data as Map);
   }
 

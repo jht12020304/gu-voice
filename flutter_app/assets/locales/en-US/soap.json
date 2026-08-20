@@ -66,10 +66,22 @@
     "awaitingReview": "Awaiting physician review"
   },
   "highlights": {
-    "positive": { "title": "Key Positive Findings", "empty": "No clear positive findings identified yet." },
-    "negative": { "title": "Key Negative Findings", "empty": "No clear negative findings identified yet." },
-    "riskFactors": { "title": "Risk Factors", "empty": "No significant risk factors identified." },
-    "impression": { "title": "Preliminary Impression", "empty": "No clear impression identified yet." }
+    "positive": {
+      "title": "Key Positive Findings",
+      "empty": "No clear positive findings identified yet."
+    },
+    "negative": {
+      "title": "Key Negative Findings",
+      "empty": "No clear negative findings identified yet."
+    },
+    "riskFactors": {
+      "title": "Risk Factors",
+      "empty": "No significant risk factors identified."
+    },
+    "impression": {
+      "title": "Preliminary Impression",
+      "empty": "No clear impression identified yet."
+    }
   },
   "diagnosis": {
     "title": "Diagnosis Codes",
@@ -235,6 +247,7 @@
     "cancel": "Cancel",
     "confirm": "Confirm Regenerate",
     "success": "Report regenerated",
-    "error": "Failed to regenerate report. Please try again later."
+    "error": "Failed to regenerate report. Please try again later.",
+    "disabledGenerating": "Report is being generated — please wait until it finishes before regenerating"
   }
 }

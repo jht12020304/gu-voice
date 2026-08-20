@@ -66,10 +66,22 @@
     "awaitingReview": "의사 검토 대기 중"
   },
   "highlights": {
-    "positive": { "title": "주요 양성 소견", "empty": "명확한 양성 증상이 정리되지 않았습니다." },
-    "negative": { "title": "주요 음성 소견", "empty": "명확한 음성 증상이 정리되지 않았습니다." },
-    "riskFactors": { "title": "위험 요인", "empty": "뚜렷한 위험 요인이 없습니다." },
-    "impression": { "title": "초기 소견", "empty": "명확한 소견이 정리되지 않았습니다." }
+    "positive": {
+      "title": "주요 양성 소견",
+      "empty": "명확한 양성 증상이 정리되지 않았습니다."
+    },
+    "negative": {
+      "title": "주요 음성 소견",
+      "empty": "명확한 음성 증상이 정리되지 않았습니다."
+    },
+    "riskFactors": {
+      "title": "위험 요인",
+      "empty": "뚜렷한 위험 요인이 없습니다."
+    },
+    "impression": {
+      "title": "초기 소견",
+      "empty": "명확한 소견이 정리되지 않았습니다."
+    }
   },
   "diagnosis": {
     "title": "진단 코드",
@@ -235,6 +247,7 @@
     "cancel": "취소",
     "confirm": "다시 생성 확인",
     "success": "보고서를 다시 생성했습니다",
-    "error": "보고서 다시 생성에 실패했습니다. 잠시 후 다시 시도해 주세요."
+    "error": "보고서 다시 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+    "disabledGenerating": "보고서를 생성하는 중입니다. 완료된 후 다시 생성해 주세요"
   }
 }

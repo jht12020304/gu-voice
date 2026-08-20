@@ -68,6 +68,7 @@ class _FakeReport:
     plan: Optional[dict] = field(default_factory=lambda: {"treatment": "antibiotics"})
     summary: Optional[str] = "Patient presents with dysuria."
     icd10_codes: Optional[list[str]] = field(default_factory=lambda: ["N39.0"])
+    icd10_verified: bool = True
     language: str = "zh-TW"
     ai_confidence_score: Optional[Decimal] = Decimal("0.82")
     raw_transcript: Optional[str] = None
@@ -79,17 +80,29 @@ class _FakeReport:
 
 
 class _FakeDB:
-    """極簡 AsyncSession：僅追蹤 add + flush；Service 其餘查詢用 monkeypatch 取代。"""
+    """極簡 AsyncSession：追蹤 add / flush / commit；其餘查詢用 monkeypatch 取代。
+
+    `events` 依序記錄動作名，供 SO-4「先 commit 再 delay」的順序斷言使用。
+    刻意**不**實作 `begin_nested`——`_snapshot_revision` 會走無 SAVEPOINT 的
+    等價路徑（真 DB 上才有 SAVEPOINT 重試）。
+    """
 
     def __init__(self) -> None:
         self.added: list[Any] = []
         self.flushed = 0
+        self.committed = 0
+        self.events: list[str] = []
 
     def add(self, obj: Any) -> None:
         self.added.append(obj)
 
     async def flush(self) -> None:
         self.flushed += 1
+        self.events.append("flush")
+
+    async def commit(self) -> None:
+        self.committed += 1
+        self.events.append("commit")
 
     async def execute(self, stmt: Any):  # default — 會被 monkeypatch 覆蓋
         class _Empty:

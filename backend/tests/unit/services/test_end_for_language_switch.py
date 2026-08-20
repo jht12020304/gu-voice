@@ -63,6 +63,7 @@ class _FakeDB:
     def __init__(self, user: Optional[_FakeUser] = None) -> None:
         self._user = user
         self.flushed = 0
+        self.commits = 0
 
     async def execute(self, stmt: Any):
         class _Result:
@@ -74,6 +75,10 @@ class _FakeDB:
 
     async def flush(self):
         self.flushed += 1
+
+    async def commit(self):
+        # D-8：轉移後的 dashboard 推播必須在 commit 之後才做。
+        self.commits += 1
 
 
 @pytest.fixture(autouse=True)
@@ -92,6 +97,23 @@ def _patch_audit_and_authorize(monkeypatch):
         return None
 
     monkeypatch.setattr(ss_mod, "_authorize_session_access", _no_auth)
+
+    # D-8：轉移後的附帶效應（dashboard 廣播 / queue-stats / Redis 快取）換成
+    # spy，本檔案只驗 end_for_language_switch 自身行為；有沒有廣播由
+    # test_terminal_paths_six_things.py 的矩陣測試負責。
+    calls: list[dict[str, Any]] = []
+
+    async def _spy(db, *, session_id, previous_status, new_status):
+        calls.append(
+            {
+                "session_id": session_id,
+                "previous_status": previous_status,
+                "new_status": new_status,
+            }
+        )
+
+    monkeypatch.setattr(ss_mod, "_after_status_transition", _spy)
+    fake_audit.after_transition_calls = calls
 
     return fake_audit
 

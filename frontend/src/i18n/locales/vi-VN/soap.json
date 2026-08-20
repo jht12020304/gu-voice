@@ -235,6 +235,7 @@
     "cancel": "Hủy",
     "confirm": "Xác nhận tạo lại",
     "success": "Đã tạo lại báo cáo",
-    "error": "Tạo lại báo cáo thất bại. Vui lòng thử lại sau."
+    "error": "Tạo lại báo cáo thất bại. Vui lòng thử lại sau.",
+    "disabledGenerating": "Đang tạo báo cáo, vui lòng đợi hoàn tất rồi mới tạo lại"
   }
 }

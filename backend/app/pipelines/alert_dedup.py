@@ -13,6 +13,8 @@ from typing import Any
 
 from redis.asyncio import Redis
 
+from app.pipelines.prompts.shared import normalize_canonical_id
+
 logger = logging.getLogger(__name__)
 
 # 跨輪去重的 Redis hash key 與嚴重度排序（升級判斷用）。
@@ -37,13 +39,21 @@ _EMITTED_TTL = 86400
 
 
 def alert_dedup_identity(alert: dict[str, Any]) -> str | None:
-    """A5 [D3] 去重身份：優先 canonical_id（跨語言穩定），fallback lowercase title；
-    都沒有回 None（不去重，fail-open）。"""
-    cid = alert.get("canonical_id")
+    """A5 [D3] 去重身份：優先 canonical_id（跨語言穩定），fallback title；
+    都沒有回 None（不去重，fail-open）。
+
+    ⚠️ 2026-08-20 稽核 D-7：**canonical_id 也要正規化**。舊碼只對 title 做
+    strip+lower，canonical_id 直接 `str(cid)` 原樣用——而語意層對 LLM 自創的
+    紅旗就是拿它回的 title 當 canonical_id，大小寫/前後空白/內部空白每輪都可能
+    不同（"Testicular Torsion Suspected" vs "testicular torsion suspected"）。
+    於是 Redis hash 的欄位每輪換一個 → 跨輪去重靜默失效 → 同一個紅旗每輪重寫
+    一筆 alert、重新廣播一次（護理站警示疲勞、analytics 紅旗數灌水）。
+    正規化規則與 `red_flag_detector._dedup_key` 共用同一個函式，兩處不得漂移。
+    """
+    cid = normalize_canonical_id(alert.get("canonical_id"))
     if cid:
-        return str(cid)
-    title = str(alert.get("title", "")).strip().lower()
-    return title or None
+        return cid
+    return normalize_canonical_id(alert.get("title")) or None
 
 
 async def should_suppress_duplicate_alert(

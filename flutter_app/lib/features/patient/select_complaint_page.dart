@@ -7,6 +7,82 @@ import '../../core/router/lng.dart';
 import '../../data/api/complaints_api.dart';
 import '../../data/models/session.dart';
 import '../../shared/widgets/language_action.dart';
+import 'intake_route.dart';
+
+// ── Pure helpers ───────────────────────────────────────────────────────────────
+// Medical-safety invariants (SelectComplaintPage.tsx): count by code points (runes) to
+// match Python len(); complaint NAMES must never be mid-truncated, only the trailing
+// custom note. TEXT_MAX=200 (backend chief_complaint_text), NAME_BUDGET=160 on joined names.
+const complaintTextMax = 200;
+const complaintNameBudget = 160;
+const complaintMaxSelect = 5;
+
+int _cp(String s) => s.runes.length;
+
+String clampCp(String s, int max) {
+  final runes = s.runes.toList();
+  return runes.length <= max ? s : String.fromCharCodes(runes.take(max));
+}
+
+String complaintSeparator(String lng) =>
+    lng.startsWith('zh') || lng.startsWith('ja') ? '、' : ', ';
+
+/// Joined complaint names, EXCLUDING the 'Other' sentinel — the literal word 「其他」 is a
+/// UI placeholder, not a symptom, so it must never reach the AI / SOAP as one.
+String joinedComplaintNames(List<Complaint> selected, String lng) => selected
+    .where((c) => c.id != otherComplaintId)
+    .map((c) => c.name)
+    .join(complaintSeparator(lng));
+
+/// What the AI / Supervisor / SOAP / red-flag layer actually consumes.
+/// When 'Other' is picked the patient's own words ARE the trace of that choice: the
+/// sentinel is stripped from the names and the primary FK may be a real complaint, so
+/// dropping the free text would erase the choice entirely. `complaintSelectionReady`
+/// therefore refuses to leave the page while 'Other' is ticked with a blank note.
+String buildComplaintText({
+  required List<Complaint> selected,
+  required String customText,
+  required String lng,
+}) {
+  final cjk = lng.startsWith('zh') || lng.startsWith('ja');
+  final open = cjk ? '（' : ' (';
+  final close = cjk ? '）' : ')';
+  final names = joinedComplaintNames(selected, lng);
+  final custom = customText.trim();
+  if (custom.isEmpty) return clampCp(names, complaintTextMax);
+  if (names.isEmpty) return clampCp(custom, complaintTextMax); // only 'Other' -> patient's own words
+  final full = '$names$open$custom$close';
+  if (_cp(full) <= complaintTextMax) return full;
+  // Tail-only truncation: keep names intact, clamp only the custom note.
+  final room = complaintTextMax - _cp(names) - _cp(open) - _cp(close);
+  if (room <= 0) return clampCp(names, complaintTextMax);
+  return '$names$open${clampCp(custom, room)}$close';
+}
+
+/// CTA gate. 'Other' with a blank note would produce a chief complaint with no symptom
+/// in it at all (names exclude the sentinel), so the whole session would start blind.
+bool complaintSelectionReady({
+  required List<Complaint> selected,
+  required String customText,
+}) {
+  if (selected.isEmpty) return false;
+  final hasOther = selected.any((c) => c.id == otherComplaintId);
+  return !hasOther || customText.trim().isNotEmpty;
+}
+
+/// Re-map the current picks onto a freshly fetched (re-localized) list, by id.
+/// Complaints come back pre-localized, so after a mid-intake language switch the old
+/// objects still carried the PREVIOUS language's `name` — and that stale name is what
+/// went into `chief_complaint_text`, i.e. into the prompt and the SOAP. Re-mapping keeps
+/// the patient's picks (clearing them would silently throw away their work) and only
+/// swaps in the new labels; ids that no longer exist are dropped.
+List<Complaint> remapSelectionToLocale(List<Complaint> selected, List<Complaint> fresh) {
+  final byId = {for (final c in fresh) c.id: c};
+  return [
+    for (final c in selected)
+      if (byId[c.id] != null) byId[c.id]!,
+  ];
+}
 
 // Port of SelectComplaintPage.tsx (core flow). Multi-select chief complaints (first =
 // primary), optional free-text; 'Other' sentinel requires free text. Builds the
@@ -14,7 +90,10 @@ import '../../shared/widgets/language_action.dart';
 // 200 code points. ponytail: category grouping + the 160-cp name budget are deferred
 // display niceties — not required to reach the conversation.
 class SelectComplaintPage extends ConsumerStatefulWidget {
-  const SelectComplaintPage({super.key});
+  const SelectComplaintPage({super.key, this.api});
+
+  /// Test seam only; production passes nothing and gets the real client.
+  final ComplaintsApi? api;
 
   @override
   ConsumerState<SelectComplaintPage> createState() => _SelectComplaintPageState();
@@ -36,10 +115,17 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final list = await ComplaintsApi().getComplaints();
+      final list = await (widget.api ?? ComplaintsApi()).getComplaints();
       if (!mounted) return;
       setState(() {
         _complaints = list;
+        // Re-localize the existing picks instead of leaving them on the old language's
+        // strings (see remapSelectionToLocale). The patient's own free text is NOT
+        // touched — those are their words, not a label.
+        final remapped = remapSelectionToLocale(_selected, list);
+        _selected
+          ..clear()
+          ..addAll(remapped);
         _loading = false;
       });
     } catch (_) {
@@ -49,41 +135,8 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
 
   bool get _hasOther => _selected.any((c) => c.id == otherComplaintId);
   bool get _otherNeedsText => _hasOther && _customCtrl.text.trim().isEmpty;
-
-  // Medical-safety invariants (SelectComplaintPage.tsx): count by code points (runes) to
-  // match Python len(); complaint NAMES must never be mid-truncated, only the trailing
-  // custom note. TEXT_MAX=200 (backend chief_complaint_text), NAME_BUDGET=160 on joined names.
-  static const _textMax = 200;
-  static const _nameBudget = 160;
-  static const _maxSelect = 5;
-
-  int _cp(String s) => s.runes.length;
-
-  String _clampCp(String s, int max) {
-    final runes = s.runes.toList();
-    return runes.length <= max ? s : String.fromCharCodes(runes.take(max));
-  }
-
-  String _sep() => currentLng.startsWith('zh') || currentLng.startsWith('ja') ? '、' : ', ';
-
-  String _joinedNames([List<Complaint>? sel]) =>
-      (sel ?? _selected).where((c) => c.id != otherComplaintId).map((c) => c.name).join(_sep());
-
-  String _buildComplaintText() {
-    final cjk = currentLng.startsWith('zh') || currentLng.startsWith('ja');
-    final open = cjk ? '（' : ' (';
-    final close = cjk ? '）' : ')';
-    final names = _joinedNames();
-    final custom = _customCtrl.text.trim();
-    if (custom.isEmpty) return _clampCp(names, _textMax);
-    if (names.isEmpty) return _clampCp(custom, _textMax); // only 'Other' -> patient's own words
-    final full = '$names$open$custom$close';
-    if (_cp(full) <= _textMax) return full;
-    // Tail-only truncation: keep names intact, clamp only the custom note.
-    final room = _textMax - _cp(names) - _cp(open) - _cp(close);
-    if (room <= 0) return _clampCp(names, _textMax);
-    return '$names$open${_clampCp(custom, room)}$close';
-  }
+  bool get _ready =>
+      complaintSelectionReady(selected: _selected, customText: _customCtrl.text);
 
   void _toggle(Complaint c) {
     final i = _selected.indexWhere((x) => x.id == c.id);
@@ -91,15 +144,15 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
       setState(() => _selected.removeAt(i));
       return;
     }
-    if (_selected.length >= _maxSelect) {
-      _toast(t('intake.selectComplaint.maxReached', args: {'max': _maxSelect}));
+    if (_selected.length >= complaintMaxSelect) {
+      _toast(t('intake.selectComplaint.maxReached', args: {'max': complaintMaxSelect}));
       return;
     }
     // First pick always allowed; a later pick that would push joined NAMES past the budget
     // is rejected so names are never silently truncated downstream.
     if (_selected.isNotEmpty && c.id != otherComplaintId) {
-      final next = _joinedNames([..._selected, c]);
-      if (_cp(next) > _nameBudget) {
+      final next = joinedComplaintNames([..._selected, c], currentLng);
+      if (_cp(next) > complaintNameBudget) {
         _toast(t('intake.selectComplaint.nameLimitReached'));
         return;
       }
@@ -111,14 +164,22 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
 
   void _start() {
-    if (_selected.isEmpty || _otherNeedsText) return;
+    if (!_ready) return;
     // Display name includes the localized 'Other'; clamp to TEXT_MAX for the header.
-    final displayName = _clampCp(_selected.map((c) => c.name).join(_sep()), _textMax);
-    context.go(prefixLngToPath('/patient/medical-info', currentLng), extra: {
-      'complaintId': _selected.first.id,
-      'complaintName': displayName,
-      'complaintText': _buildComplaintText(),
-    });
+    final displayName =
+        clampCp(_selected.map((c) => c.name).join(complaintSeparator(currentLng)), complaintTextMax);
+    // Query params, not `extra:` — `extra` is in-memory only, so a refresh or a deep link
+    // handed MedicalInfoPage a null complaintId and POST /sessions 422'd (see intake_route.dart).
+    context.go(medicalInfoLocation(
+      lng: currentLng,
+      complaintId: _selected.first.id,
+      complaintName: displayName,
+      complaintText: buildComplaintText(
+        selected: _selected,
+        customText: _customCtrl.text,
+        lng: currentLng,
+      ),
+    ));
   }
 
   @override
@@ -173,7 +234,7 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: FilledButton(
-                      onPressed: (_selected.isEmpty || _otherNeedsText) ? null : _start,
+                      onPressed: _ready ? _start : null,
                       child: Text(_selected.isEmpty
                           ? t('intake.selectComplaint.cta')
                           : t('intake.selectComplaint.ctaCount', args: {'count': _selected.length})),

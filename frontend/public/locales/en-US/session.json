@@ -123,5 +123,8 @@
       "abortedRedFlag": "Aborted (Red Flag)",
       "cancelled": "Cancelled"
     }
+  },
+  "patientFacing": {
+    "notice": "Your consultation is complete. The doctor will go through the detailed report with you. Please wait outside the consultation room to be called."
   }
 }

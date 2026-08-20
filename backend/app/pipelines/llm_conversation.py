@@ -23,9 +23,11 @@ from app.pipelines.next_focus_guard import (
 )
 from app.pipelines.prompts.shared import (
     SINGLE_QUESTION_RULE,
+    count_critical_risk_factors_for_complaint,
     get_critical_risk_factors_for_complaint,
     render_hpi_checklist,
     render_red_flags_for_conversation,
+    sanitize_for_prompt,
 )
 from app.utils.i18n_messages import get_message as _i18n_get
 
@@ -85,6 +87,11 @@ logger = logging.getLogger(__name__)
 # `session_intake_fields()`——只採信可證明來自本次 intake 的值。
 # =============================================================================
 
+# `_cap_conversation_history`（conversation_handler）壓縮舊輪次後寫入 history 的那一則
+# 摘要，其 content 一律以此為前綴。`format_messages` 靠它把「該進 LLM 的壓縮摘要」與
+# 「其餘不該進 LLM 的 system 歷史」區分開來——單一來源，避免兩邊字面漂移。
+HISTORY_SUMMARY_PREFIX = "[前段對話摘要]"
+
 # intake 四欄的中文標籤（顯示在禁問清單裡，與 supervisor.build_patient_info_str 一致）
 INTAKE_FIELD_LABELS: dict[str, str] = {
     "medical_history": "過去病史",
@@ -114,6 +121,24 @@ _EXPLICIT_NONE_VALUES: frozenset[str] = frozenset(
 # ── 風險因子「被涵蓋」的判定詞庫 ──────────────────────────────
 # 原則:寧可漏判（→ 仍必問）也不可誤判（→ 誤跳過）。故一律不收會誤命中其他名詞的
 # 短縮寫（asa / dm / cad）與泌尿科同名詞（「支架」可能是輸尿管雙 J 管）。
+#
+# ── 五語詞庫（IN-2，2026-08-20） ─────────────────────────────
+# 舊版只有 zh + en。場次語言是五語（zh-TW / en-US / ja-JP / ko-KR / vi-VN），intake
+# 是**病患用場次語言自填**的自由文字，所以 ko「방광암」、vi「ung thư bàng quang」、
+# ja 假名「膀胱がん」「ワーファリン」在舊詞庫下一律判不出涵蓋 → 該項退回「仍必問」
+# → §3b 必問條款的優先序高於次要補問的禁問清單（build_system_prompt 的「例外（優先序
+# 最高）」）→ **病患剛在 intake 填過的家族史／抗凝血用藥被口頭重問一次**。
+#
+# 收詞判準（照不變式 #23 的安全方向）:
+#   - 判不準 → 歸「仍必問」是**安全**方向（多問一句）；錯誤的涵蓋判定（誤跳過 +
+#     寫進病史）才是危險方向。故只收**高確信**的醫療常用語彙,寧缺勿濫。
+#   - 每個字面都先檢查「在其他四語的常見句子裡是不是高頻子字串」（不變式 #25 的
+#     全語言聯集教訓）——這裡的比對對象是 intake 欄位值,不是逐字稿,但同樣是聯集。
+#   - ja 的漢字**不等於**zh 的漢字:悪性/腫瘍/前立腺/睾丸/心筋梗塞/高血圧/脳梗塞
+#     都與繁中寫法不同,必須並列;純假名寫法（がん／ワーファリン）也要收。
+#   - 短字面只在「另有詞群把關」時才收:`_MALIGNANCY_TERMS` 只用在家族史規則
+#     （same_entry=True,必須同一筆同時命中泌尿部位詞）,故 ko「암」可收；
+#     vi 的「u」（腫瘤）則**不收**——單字母會誤命中一切。
 _ANTICOAGULANT_TERMS: tuple[str, ...] = (
     "抗凝",
     "抗血小板",
@@ -160,6 +185,35 @@ _ANTICOAGULANT_TERMS: tuple[str, ...] = (
     "肝素",
     "enoxaparin",
     "clexane",
+    # ── ja-JP ──（漢字「抗凝固」已被 zh 的「抗凝」涵蓋；假名藥名必須另收）
+    "ワーファリン",
+    "ワルファリン",
+    "アスピリン",  # 同時涵蓋「バイアスピリン」
+    "クロピドグレル",
+    "プラビックス",
+    "エリキュース",
+    "イグザレルト",
+    "リクシアナ",
+    "プラザキサ",
+    "ヘパリン",
+    # 刻意不收 ja 的口語「血液サラサラ」——那是納豆／EPA 等保健食品的行銷用語,
+    # 收了會讓「吃保健食品」被判成「已在用抗凝血劑」＝誤跳過（危險方向）。
+    # ── ko-KR ──
+    "항응고",
+    "항혈소판",
+    "와파린",
+    "아스피린",
+    "클로피도그렐",
+    "플라빅스",
+    "자렐토",
+    "엘리퀴스",
+    "헤파린",
+    "혈액 응고 억제",
+    # ── vi-VN ──
+    "chống đông",
+    "kháng đông",
+    "chống kết tập tiểu cầu",
+    "loãng máu",
 )
 
 # 刻意不收單字「瘤」——「腎血管肌脂肪瘤」「膀胱乳突瘤」是良性病灶，收了會讓良性
@@ -174,6 +228,21 @@ _MALIGNANCY_TERMS: tuple[str, ...] = (
     "tumour",
     "malignan",
     "neoplasm",
+    # ── ja-JP ──（「癌」漢字已收；ja 日常多寫假名「がん」,惡性/腫瘤的 ja 漢字不同）
+    "がん",
+    "ガン",
+    "悪性",
+    "腫瘍",
+    # ── ko-KR ──（「암」是單音節,但本詞群**只**用於家族史規則且 same_entry=True,
+    #   必須與同一筆裡的泌尿部位詞共現才成立,故短字面在此安全）
+    "암",
+    "악성",
+    "종양",
+    # ── vi-VN ──（刻意不收單字「u」——單字母會誤命中一切）
+    "ung thư",
+    "ung bướu",
+    "ác tính",
+    "khối u",
 )
 
 _UROLOGIC_TERMS: tuple[str, ...] = (
@@ -197,6 +266,35 @@ _UROLOGIC_TERMS: tuple[str, ...] = (
     "urethra",
     "testic",
     "testis",
+    # ── ja-JP ──（膀胱／腎／尿路／尿道／泌尿 與繁中同漢字,已被上面涵蓋；
+    #   以下是 ja 特有寫法:前立腺≠前列腺、睾丸≠睪丸、尿管≠輸尿管）
+    "前立腺",
+    "睾丸",
+    "精巣",
+    "尿管",
+    "ぼうこう",
+    "じんぞう",
+    # ── ko-KR ──
+    "방광",
+    "신장",
+    "신우",
+    "콩팥",
+    "요로",
+    "요관",
+    "요도",
+    "전립선",
+    "전립샘",
+    "고환",
+    "비뇨",
+    # ── vi-VN ──
+    "bàng quang",
+    "thận",
+    "niệu quản",
+    "niệu đạo",
+    "tiết niệu",
+    "tiền liệt tuyến",
+    "tuyến tiền liệt",
+    "tinh hoàn",
 )
 
 # ED 的「心血管疾病史」是**複合子項**（高血壓 / 冠狀動脈疾病 / 心肌梗塞 / 腦中風），
@@ -210,6 +308,13 @@ _HYPERTENSION_TERMS: tuple[str, ...] = (
     "血壓偏高",
     "hypertension",
     "htn",
+    # ja 用簡化漢字「圧」,與繁中「壓」不同字
+    "高血圧",
+    "血圧が高",
+    # ko / vi
+    "고혈압",
+    "tăng huyết áp",
+    "cao huyết áp",
 )
 
 _CORONARY_TERMS: tuple[str, ...] = (
@@ -223,6 +328,19 @@ _CORONARY_TERMS: tuple[str, ...] = (
     "angioplasty",
     "繞道",
     "cabg",
+    # ja（冠動脈≠冠狀動脈、狭心症≠心絞痛）
+    "冠動脈",
+    "狭心症",
+    "心臓カテーテル",
+    "バイパス手術",
+    # ko
+    "관상동맥",
+    "협심증",
+    "관상 동맥",
+    # vi
+    "động mạch vành",
+    "đau thắt ngực",
+    "bắc cầu mạch vành",
 )
 
 _MYOCARDIAL_INFARCTION_TERMS: tuple[str, ...] = (
@@ -230,6 +348,11 @@ _MYOCARDIAL_INFARCTION_TERMS: tuple[str, ...] = (
     "心梗",
     "myocardial",
     "infarct",
+    # ja 寫「心筋梗塞」（筋≠肌）
+    "心筋梗塞",
+    # ko / vi
+    "심근경색",
+    "nhồi máu cơ tim",
 )
 
 _STROKE_TERMS: tuple[str, ...] = (
@@ -238,6 +361,20 @@ _STROKE_TERMS: tuple[str, ...] = (
     "腦血管",
     "stroke",
     "cerebrovascular",
+    # ja 用簡化漢字「脳」
+    "脳梗塞",
+    "脳卒中",
+    "脳出血",
+    "脳血管",
+    # ko
+    "뇌졸중",
+    "뇌경색",
+    "뇌출혈",
+    "중풍",
+    # vi
+    "đột quỵ",
+    "tai biến mạch máu não",
+    "nhồi máu não",
 )
 
 _DIABETES_TERMS: tuple[str, ...] = (
@@ -247,6 +384,12 @@ _DIABETES_TERMS: tuple[str, ...] = (
     "t2dm",
     "iddm",
     "niddm",
+    # ja「糖尿病」與繁中同漢字（已被「糖尿」涵蓋）；假名寫法另收
+    "とうにょうびょう",
+    # ko / vi
+    "당뇨",
+    "tiểu đường",
+    "đái tháo đường",
 )
 
 # ── 取消資格的限定語:整「筆」不採計（→ 退回仍必問） ───────────
@@ -271,9 +414,31 @@ _MEDICATION_DISQUALIFIERS: tuple[str, ...] = (
     "stopped",
     "no longer",
     "allerg",
+    # ja / ko / vi:與詞庫同輪補齊。限定語只會讓判定**更保守**（整筆不採計 → 退回
+    # 仍必問）,所以這裡收詞的風險方向與涵蓋詞庫相反,不需要同等嚴格,但仍只收高確信詞。
+    "中止",
+    "服用していない",
+    "飲んでいない",
+    "やめました",
+    "アレルギー",
+    "중단",
+    "끊었",
+    "복용 안",
+    "알레르기",
+    "đã ngưng",
+    "đã ngừng",
+    "ngưng dùng",
+    "không còn dùng",
+    "dị ứng",
 )
 
-_FAMILY_HISTORY_DISQUALIFIERS: tuple[str, ...] = ("轉移", "metasta")
+_FAMILY_HISTORY_DISQUALIFIERS: tuple[str, ...] = (
+    "轉移",
+    "metasta",
+    "転移",  # ja 簡化漢字
+    "전이",  # ko
+    "di căn",  # vi
+)
 
 
 class TermGroup(NamedTuple):
@@ -538,17 +703,20 @@ def split_risk_factors_by_intake(
                 rule = _rule_for_factor(factor)
                 if rule and evaluate_coverage(unprovable[field], rule)[0]:
                     downgraded.append(factor)
+            # D-1：`value` 是病患 intake 自填文字，會被插進 prompt 的條列行 →
+            # 一律消毒（判定本身用未消毒原值，消毒只影響渲染，不影響三態結論）。
+            safe_value = sanitize_for_prompt(value)
             if state == ANSWERED_NO and field:
                 covered.append(
                     f"- {factor} → 病患已在本次 intake 表單自填「無」"
-                    f"（{INTAKE_FIELD_LABELS[field]}：{value}）＝已問到，答案為「否」"
+                    f"（{INTAKE_FIELD_LABELS[field]}：{safe_value}）＝已問到，答案為「否」"
                 )
             elif state == ANSWERED_YES and field:
                 # 只陳述「表單上填了什麼」，**不得**要 LLM 把它當成已確認的臨床事實
                 # 寫進病史——intake 是病患自填、可能誤填或填錯欄位（BLOCKER D）。
                 covered.append(
                     f"- {factor} → 病患於本次 intake 表單自填為"
-                    f"「{INTAKE_FIELD_LABELS[field]}：{value}」，不需重複詢問；"
+                    f"「{INTAKE_FIELD_LABELS[field]}：{safe_value}」，不需重複詢問；"
                     "記錄時須標明此為**病患表單自填**內容（例如「病患表單自填：…」），"
                     "不得改寫成已由問診確認的事實，也不得替病患補上表單沒寫的細節"
                 )
@@ -556,7 +724,7 @@ def split_risk_factors_by_intake(
                 # 複合子項只被涵蓋一部分（例如病史只寫高血壓）→ 仍必問，但標明
                 # 已知的部分不必重問，避免 AI 拿表單上已有的項目再問一次。
                 must_ask.append(
-                    f"- {factor}（表單自填「{value}」只涵蓋其中一部分，"
+                    f"- {factor}（表單自填「{safe_value}」只涵蓋其中一部分，"
                     f"仍須逐一口頭問到：{'、'.join(uncovered)}）"
                 )
             else:
@@ -570,6 +738,28 @@ def split_risk_factors_by_intake(
             downgraded,
         )
     return must_ask, covered
+
+
+def count_must_ask_risk_factors(
+    chief_complaint: Any, patient_info: dict[str, Any]
+) -> int:
+    """§3b 配額用的 K：**本次 intake 過濾後**仍必須口頭問到的風險因子題數。
+
+    D-2 的根因：`conclusion_policy` 的動態硬上限與軟門檻下限原本吃
+    `shared.count_critical_risk_factors_for_complaint`（只看主訴的未過濾 K），但
+    prompt 端的必問清單早已被 intake 三態判定過濾過。血尿場 K=3、intake 已涵蓋
+    2 項時，配額仍照 K=3 抬高 → 軟門檻下限 base+3-1=12、硬上限 base+3+2=15，
+    病患實際只剩 1 個風險因子要答，卻被多綁 6–7 輪才收得了尾。
+
+    **方向護欄**：must_ask ⊆ 全部 factors，故過濾後 K 天生 ≤ 原 K；這裡再用
+    `min()` 明寫一次，確保任何上游改動都不可能讓 K 變大（K 變大＝配額被抬高＝
+    病患被多綁更多輪，是這個修復絕不能引入的反方向）。
+    """
+    total = count_critical_risk_factors_for_complaint(chief_complaint)
+    if total <= 0:
+        return 0
+    must_ask, _covered = split_risk_factors_by_intake(chief_complaint, patient_info or {})
+    return max(0, min(len(must_ask), total))
 
 
 def render_critical_risk_factor_items_with_intake(
@@ -598,8 +788,10 @@ def render_intake_known_block(patient_info: dict[str, Any]) -> str:
     改與 §3b gating 同一個標準:只採信可證明來自**本次場次 intake** 的值。
     """
     provided = session_intake_fields(patient_info or {})
+    # D-1：病患自填值 → 一律消毒後才插進 prompt（見 shared.sanitize_for_prompt）。
     return "\n".join(
-        f"- {INTAKE_FIELD_LABELS[key]}：{value}" for key, value in provided.items()
+        f"- {INTAKE_FIELD_LABELS[key]}：{sanitize_for_prompt(value)}"
+        for key, value in provided.items()
     )
 
 
@@ -653,6 +845,12 @@ class LLMConversationEngine:
         Returns:
             完整系統提示詞字串
         """
+        # D-1：主訴可能是病患自填的 200 字自由文字（`chief_complaint_text`），而且它被
+        # 插在 `## 主訴` 標題的**下一行行首**——多行值的第二行若以 `##` 起頭，渲染後
+        # 與真正的區段標題無法區分。消毒只摺疊空白與剝掉開頭的 `#`，不改臨床字面，
+        # 故下游的紅旗 / §3b 主訴關鍵字比對結果不變。
+        chief_complaint = sanitize_for_prompt(chief_complaint)
+
         # 角色定位第二行與尾段的「輸出語言（硬性規定）」都依 session 語言查表。
         # 之前硬寫「使用繁體中文與病患溝通」會導致前端傳 en-US 也被 LLM 以中文回覆。
         role_language_line = _i18n_get("llm.conversation_language_rule", language)
@@ -670,29 +868,27 @@ class LLMConversationEngine:
         # 組合病患資訊摘要
         # 標籤與性別採英文內部碼（Name / Age / Gender / male / female），
         # 避免 zh-TW 標籤在 en-US session 被 LLM 照抄（「性別：male」）。
+        # D-1：所有**病患自由輸入**的值（姓名、四欄病史、主訴自填文字）一律先過
+        # sanitize_for_prompt——它們原本零消毒直入 system prompt，多行 + `##` 開頭
+        # 就能在渲染後偽裝成一個新的指令區段（見 shared.sanitize_for_prompt 註解）。
+        # age/gender 是內部碼（int / enum value），不是自由文字，不需消毒。
         patient_summary_parts: list[str] = []
-        if patient_info.get("name"):
-            patient_summary_parts.append(f"Name: {patient_info['name']}")
+        if (name := sanitize_for_prompt(patient_info.get("name"))):
+            patient_summary_parts.append(f"Name: {name}")
         # age 用 `is not None`——truthy 判斷會讓 age==0（未滿一歲）整行從 prompt 消失，
         # 且與 supervisor.build_patient_info_str 的行為不一致。
         if patient_info.get("age") is not None:
             patient_summary_parts.append(f"Age: {patient_info['age']}")
         if patient_info.get("gender"):
             patient_summary_parts.append(f"Gender: {patient_info['gender']}")
-        if patient_info.get("medical_history"):
-            patient_summary_parts.append(
-                f"Past medical history: {patient_info['medical_history']}"
-            )
-        if patient_info.get("medications"):
-            patient_summary_parts.append(
-                f"Current medications: {patient_info['medications']}"
-            )
-        if patient_info.get("allergies"):
-            patient_summary_parts.append(f"Allergies: {patient_info['allergies']}")
-        if patient_info.get("family_history"):
-            patient_summary_parts.append(
-                f"Family history: {patient_info['family_history']}"
-            )
+        if (value := sanitize_for_prompt(patient_info.get("medical_history"))):
+            patient_summary_parts.append(f"Past medical history: {value}")
+        if (value := sanitize_for_prompt(patient_info.get("medications"))):
+            patient_summary_parts.append(f"Current medications: {value}")
+        if (value := sanitize_for_prompt(patient_info.get("allergies"))):
+            patient_summary_parts.append(f"Allergies: {value}")
+        if (value := sanitize_for_prompt(patient_info.get("family_history"))):
+            patient_summary_parts.append(f"Family history: {value}")
 
         patient_section = (
             "\n".join(patient_summary_parts)
@@ -934,7 +1130,17 @@ class LLMConversationEngine:
                 messages.append({"role": "user", "content": content})
             elif role in ("assistant", "ai"):
                 messages.append({"role": "assistant", "content": content})
-            # system 角色的歷史訊息跳過（系統提示已在最前面）
+            elif role == "system" and str(content).startswith(HISTORY_SUMMARY_PREFIX):
+                # D-8：`_cap_conversation_history` 把超過 CONVERSATION_HISTORY_MAX_TURNS
+                # 的舊輪次壓成**一則** role="system" 的摘要，就是為了「不靜默丟棄舊輪次、
+                # 以免遺失紅旗臨床脈絡」。但這裡原本無條件跳過所有 system 歷史 →
+                # 摘要**從來沒有進過 LLM**，壓縮＝丟棄，長場次的前段病史對 AI 完全消失。
+                # 放行這一則（且**只放行**帶 `[前段對話摘要]` 前綴的那一則，其餘 system
+                # 歷史仍跳過），比改 `_cap_conversation_history` 的 role 侵入更小：
+                # 改成 assistant 會讓這則摘要一併漏進紅旗語意層的
+                # `_build_conversation_summary`（那裡刻意排除摘要角色）。
+                messages.append({"role": "system", "content": content})
+            # 其餘 system 角色的歷史訊息跳過（系統提示已在最前面）
 
         return messages
 

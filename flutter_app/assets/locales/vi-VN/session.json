@@ -48,6 +48,9 @@
     "durationLabel": "Thời lượng hội thoại",
     "durationEmpty": "-"
   },
+  "patientFacing": {
+    "notice": "Buổi hỏi bệnh đã hoàn tất. Bác sĩ sẽ giải thích chi tiết báo cáo cho bạn. Vui lòng chờ trước phòng khám đến lượt."
+  },
   "doctor": {
     "list": {
       "title": "Phiên khám",

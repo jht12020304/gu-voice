@@ -48,6 +48,9 @@
     "durationLabel": "会話時間",
     "durationEmpty": "-"
   },
+  "patientFacing": {
+    "notice": "問診が完了しました。詳しい内容は担当医からご説明します。診察室の前でそのままお待ちください。"
+  },
   "doctor": {
     "list": {
       "title": "問診セッション",

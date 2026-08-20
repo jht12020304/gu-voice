@@ -59,6 +59,7 @@ HPI 欄位，誤判就會把「病患其實沒拒答的欄位」永久關掉（�
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, NamedTuple
 
 from app.pipelines.prompts.shared import HPI_FIELD_IDS, HPI_STEPS
@@ -292,10 +293,82 @@ _DONT_KNOW_MARKERS: tuple[str, ...] = (
 )
 
 
-def is_dont_know(text: str) -> bool:
-    """這句病患回答是否為「不知道／記不得／無法回答」。"""
+# ── 「帶保留的有效回答」不得判成拒答（D-8，2026-08-20） ───────────
+# 標記詞比對是**裸子字串**，所以「我不確定，大概三天前吧」「不知道要打幾分，大概七分」
+# 這種**先保留、後給值**的回答會整句被判成拒答。後果是本層對它啟動全套拒答處理：
+# `effective_next_focus` 把 pending 指導換成推進指令、`build_dont_know_ban` 再把該欄
+# 的所有換句話句式在本輪列為硬性禁令——病患**明明給了值**，AI 卻連一次澄清
+# （「所以是三天前開始的嗎」）都不能問。
+#
+# 窄化法：標記詞 + 同句出現**具體數值 + 單位**（3 天／七分／2 weeks／3日／3일／
+# 3 ngày）→ 不算拒答。判準刻意要求「數詞緊接量詞」，而不是「句中有任何數字」：
+#
+# 不變式 #22 的舉證責任（這裡「漏報」＝該判拒答卻沒判到 → don't-know ban 不啟動 →
+# 可能換句話重問，也就是 e2e `a2_no_duration_reask_after_dontknow` 那個回歸）：
+#   - 疑問數詞（幾／多少／how many／how long／どのくらい／얼마나／bao lâu）**不在**
+#     數詞集合裡，所以「不知道幾天」「不知道多少分」「don't know how many days」
+#     全部仍判拒答——這是最常見的拒答句型，也是最容易被寫壞的一條。
+#   - 沒有量詞的裸數字不算（「不知道，一開始就這樣」的「一」後面接的是「開」而非量詞
+#     → 仍判拒答）。
+#   - 量詞白名單只收**時間 / 次數 / 程度分數**——那正是 FIELD_PATTERNS 涵蓋的
+#     onset / duration / severity 三欄會拿到的值型別；其餘欄位不受影響。
+# 因此本窄化只在「病患確實說出一個可記錄的值」時關閉拒答處理，不存在「病患拒答但被
+# 判成有回答」的路徑。
+_QUESTION_QUANTIFIERS: tuple[str, ...] = (
+    "幾", "几", "多少", "how many", "how long", "how much",
+    "どのくらい", "どれくらい", "何日", "何週", "何回",
+    "얼마나", "며칠", "몇",
+    "bao lâu", "bao nhiêu", "mấy",
+)
+
+# 數詞：阿拉伯數字（含全形）與明確的中日文數字。**刻意不收**「幾/多少/數」等疑問或
+# 概數詞（見上方舉證）。
+_NUMERAL = r"(?:[0-9０-９]+|[一二兩两三四五六七八九十半兩]+)"
+# 量詞：時間單位、次數、程度分數（五語）。
+_UNIT = (
+    r"(?:天|日|週|周|星期|个月|個月|ヶ月|か月|カ月|箇月|月|年|小時|時間|分鐘|分钟|"
+    r"分|點|点|次|週間|回|"
+    r"days?|weeks?|months?|years?|hours?|minutes?|times?|"
+    r"일|주|개월|달|년|시간|분|점|번|회|"
+    r"ngày|tuần|tháng|năm|giờ|phút|điểm|lần)"
+)
+_CONCRETE_VALUE = re.compile(
+    rf"{_NUMERAL}\s*(?:個|个|かい)?\s*{_UNIT}", re.IGNORECASE
+)
+# 英文拼寫數字 + 單位（"about three days ago"）。
+_CONCRETE_VALUE_EN = re.compile(
+    r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|half)\s+"
+    r"(?:days?|weeks?|months?|years?|hours?|minutes?)\b",
+    re.IGNORECASE,
+)
+
+
+def has_concrete_value(text: str) -> bool:
+    """這句話裡是否帶著「數值 + 單位」的具體值（＝病患其實給了答案）。
+
+    疑問數詞（幾天 / 多少分 / how long）不算——那是拒答句型的一部分。
+    """
     lowered = _normalize(text)
-    return any(marker in lowered for marker in _DONT_KNOW_MARKERS)
+    if not lowered.strip():
+        return False
+    # 先把疑問數詞挖掉，避免「不知道幾天」的「幾天」被下面的量詞比對撿走。
+    for q in _QUESTION_QUANTIFIERS:
+        lowered = lowered.replace(q, " ")
+    return bool(_CONCRETE_VALUE.search(lowered) or _CONCRETE_VALUE_EN.search(lowered))
+
+
+def is_dont_know(text: str) -> bool:
+    """這句病患回答是否為「不知道／記不得／無法回答」。
+
+    帶保留但**仍給出具體值**的回答（「我不確定，大概三天前吧」）不算拒答——
+    見上方 `_QUESTION_QUANTIFIERS` 區段的窄化理由與 #22 舉證。
+    對應的雙向語料在 `tests/unit/pipelines/test_next_focus_reask_guard.py`
+    （MUST_FIRE：純拒答與「不知道幾天」；MUST_NOT_FIRE：帶保留的有效回答）。
+    """
+    lowered = _normalize(text)
+    if not any(marker in lowered for marker in _DONT_KNOW_MARKERS):
+        return False
+    return not has_concrete_value(lowered)
 
 
 def declined_fields_from_history(history: list[dict[str, Any]]) -> set[str]:

@@ -77,4 +77,36 @@ void main() {
     expect(find.text(t('intake.medicalInfo.relations.father')), findsWidgets);
     expect(find.text(t('intake.medicalInfo.family.conditionPlaceholder')), findsWidgets);
   });
+
+  testWidgets('family history has a "none" checkbox like the other three sections', (tester) async {
+    // D-10: without it the patient cannot say 「沒有家族病史」, so the backend can only
+    // tell 「沒填」 from 「有填」 — `no_family_history` stayed a dead branch in
+    // patient_context.build_patient_info and §3b re-asked the urological-cancer family
+    // history every session.
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await pumpPage(tester);
+
+    final noneLabel = t('intake.medicalInfo.family.noneLabel');
+    expect(find.text(noneLabel), findsOneWidget);
+    // The label must be real copy, not the key echoed back by a missing translation.
+    expect(noneLabel, isNot(contains('intake.medicalInfo')));
+
+    // Ticking it collapses the rows: rows kept alive behind a ticked box are invisible
+    // data that submit() drops, while the payload claims the patient denied it.
+    await tester.tap(find.text(t('intake.medicalInfo.family.add')));
+    await tester.pumpAndSettle();
+    expect(find.text(t('intake.medicalInfo.family.conditionPlaceholder')), findsWidgets);
+
+    // Tap the checkbox itself (the label is not a tap target here).
+    final noneRow = find.ancestor(of: find.text(noneLabel), matching: find.byType(Row)).first;
+    await tester.tap(find.descendant(of: noneRow, matching: find.byType(Checkbox)));
+    await tester.pumpAndSettle();
+
+    expect(find.text(t('intake.medicalInfo.family.conditionPlaceholder')), findsNothing,
+        reason: '勾了「無家族病史」還留著輸入列＝看不見的資料，送出時會被靜默丟掉');
+    expect(find.text(t('intake.medicalInfo.family.add')), findsNothing);
+  });
 }

@@ -266,6 +266,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ko-KR": "보고서가 이미 존재합니다",
         "vi-VN": "Báo cáo đã tồn tại",
     },
+    # SO-2：報告正在生成中（防連點；與「已存在」語意不同——這是暫時性衝突，稍候即可）
+    "errors.report_generating": {
+        "zh-TW": "報告正在產生中，請稍候再試",
+        "en-US": "Report is currently being generated, please try again later",
+        "ja-JP": "レポートを生成中です。しばらくしてからお試しください",
+        "ko-KR": "보고서를 생성 중입니다. 잠시 후 다시 시도해 주세요",
+        "vi-VN": "Báo cáo đang được tạo, vui lòng thử lại sau",
+    },
     "errors.alert_not_found": {
         "zh-TW": "警示不存在",
         "en-US": "Alert not found",

@@ -9,6 +9,7 @@ import type { Session, SOAPReport } from '../../types';
 import * as sessionsApi from '../../services/api/sessions';
 import * as reportsApi from '../../services/api/reports';
 import { formatDate, formatDuration } from '../../utils/format';
+import { resolvePatientFacing } from '../../utils/patientFacingReport';
 
 export default function PatientSessionDetailPage() {
   const { sessionId } = useParams();
@@ -51,22 +52,14 @@ export default function PatientSessionDetailPage() {
   const chiefComplaintValue =
     session.chiefComplaintText || session.chiefComplaint?.name || t('patientDetail.chiefComplaintEmpty');
 
-  // 病患衛教（SOAP plan.patientEducation）——這是本頁唯一允許呈現給病患的「建議」。
+  // 病患面文字（summary + plan.patientEducation）——本頁唯一允許呈現給病患的報告內容。
   //
-  // 型別上是 string[]，但實際來源是 LLM 產出 + 後端出口過濾，執行期可能是
-  // undefined / null / 空陣列 / 單一字串 / 含空字串或 null 的陣列。舊寫法
-  // `report?.plan?.patientEducation?.join('；')` 在「被換成字串」時會直接
-  // TypeError（字串沒有 .join）把整頁炸掉，在「['', '']」時則印出一個孤零零的
-  // 分隔符號。這裡一律正規化成「非空字串陣列」再渲染，任何非預期形狀都退回
-  // adviceEmpty，不會壞畫面。
-  const patientEducation: string[] = (() => {
-    const raw: unknown = report?.plan?.patientEducation;
-    const items = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
-    return items
-      .filter((x): x is string => typeof x === 'string')
-      .map((x) => x.trim())
-      .filter((x) => x.length > 0);
-  })();
+  // 來源依**場次語言**決定：有 patient_facing_localized 且語言相符就用它；zh-TW 場次用
+  // 報告本體；非中文場次無在地化文字則顯示通用訊息（絕不把中文報告丟給看不懂的病患）。
+  // 執行期形狀正規化（LLM 產出可能是字串 / null / 含空字串的陣列，舊寫法 `.join('；')`
+  // 會 TypeError 把整頁炸掉）也一併在 resolvePatientFacing 內處理。
+  const patientFacing = resolvePatientFacing(report, session.language);
+  const patientEducation = patientFacing.patientEducation;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-20">
@@ -108,7 +101,9 @@ export default function PatientSessionDetailPage() {
           <section>
             <h3 className="text-sm font-semibold text-surface-900 uppercase tracking-wider mb-3">{t('patientDetail.summaryHeading')}</h3>
             <div className="p-4 bg-surface-50 rounded-xl text-surface-700 leading-relaxed border border-surface-100">
-              {report?.summary || t('patientDetail.summaryEmpty')}
+              {patientFacing.useGenericFallback
+                ? t('patientFacing.notice')
+                : patientFacing.summary || t('patientDetail.summaryEmpty')}
             </div>
           </section>
 

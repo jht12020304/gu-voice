@@ -24,7 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.exceptions import RateLimitExceededException
 from app.core.rate_limit import enforce_llm_per_user_rate_limit
-from app.pipelines.llm_conversation import LLMConversationEngine
+from app.pipelines.llm_conversation import (
+    HISTORY_SUMMARY_PREFIX as _HISTORY_SUMMARY_PREFIX,
+    LLMConversationEngine,
+)
 from app.pipelines.patient_context import build_patient_info
 from app.pipelines.prompts.shared import count_critical_risk_factors_for_complaint
 from app.pipelines.red_flag_detector import RedFlagDetector
@@ -203,6 +206,11 @@ async def _cap_conversation_history(
     若 conversation_history 超過上限（預設 50 輪 = 100 entries），
     將最舊的一半超額部分摘要為單一 system 訊息，其餘保留。
     就地修改 history。摘要失敗時保留原始舊輪次（不靜默丟棄），以免遺失紅旗臨床脈絡。
+
+    ⚠️ 摘要那則的 content **必須**以 `HISTORY_SUMMARY_PREFIX` 起頭：
+    `llm_conversation.format_messages` 原本無條件跳過所有 role="system" 的歷史，
+    這則摘要因此**從來沒有進過 LLM**——壓縮等於丟棄，長場次的前段病史對對話 LLM
+    完全消失（D-8）。現在 format_messages 以這個前綴放行它，前綴是兩邊共用的常數。
     """
     max_turns = getattr(settings, "CONVERSATION_HISTORY_MAX_TURNS", 50)
     # 一輪 = patient + assistant → 2 筆，list 長度上限 = max_turns * 2
@@ -219,11 +227,13 @@ async def _cap_conversation_history(
 
     summary_text: str | None = await _summarize_history_segment(settings, old_segment)
 
-    # 合併既有摘要（若最前面已經是 [前段對話摘要] system 訊息）
+    # 合併既有摘要（若最前面已經是摘要 system 訊息）
     existing_summary = ""
     if recent and recent[0].get("role") == "system":
         first_content = recent[0].get("content", "")
-        if isinstance(first_content, str) and first_content.startswith("[前段對話摘要]"):
+        if isinstance(first_content, str) and first_content.startswith(
+            _HISTORY_SUMMARY_PREFIX
+        ):
             existing_summary = first_content
             recent = recent[1:]
 
@@ -233,7 +243,7 @@ async def _cap_conversation_history(
         if existing_summary:
             merged = existing_summary + "\n" + summary_text
         else:
-            merged = f"[前段對話摘要] {summary_text}"
+            merged = f"{_HISTORY_SUMMARY_PREFIX} {summary_text}"
         history.append(
             {
                 "role": "system",
@@ -262,7 +272,10 @@ async def _cap_conversation_history(
         history.append(
             {
                 "role": "system",
-                "content": "[前段對話摘要] 摘要暫時無法產生，以下保留原始較舊對話內容以維持臨床脈絡完整。",
+                "content": (
+                    f"{_HISTORY_SUMMARY_PREFIX} 摘要暫時無法產生，"
+                    "以下保留原始較舊對話內容以維持臨床脈絡完整。"
+                ),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -741,9 +754,39 @@ async def conversation_websocket(
 
                 if action == "end_session":
                     logger.info("收到結束場次指令 | session=%s", session_id)
-                    await _update_session_status(
+                    # EM-4：與其他終態路徑（`_finalize_red_flag_abort`／自動結束／
+                    # `_finalize_idle_timeout`）對齊三件事：
+                    #   (1) 先查 `_terminated` 前置守衛：紅旗中止／自動結束已收尾的
+                    #       場次再收到一則 end_session（病患連點、或前端在收到終態
+                    #       事件前就送出），以前會再跑一整套 —— 重複 dashboard
+                    #       `session_status_changed`、重複推 queue/stats、重複派 SOAP。
+                    if session_context.get("_terminated"):
+                        logger.info(
+                            "場次已終止（%s），end_session 指令略過重複收尾 | session=%s",
+                            session_context.get("_terminated"),
+                            session_id,
+                        )
+                        break
+                    #   (2) 尊重 CAS 回傳：以前完全忽略，於是「場次早已是
+                    #       aborted_red_flag / cancelled（REST 取消、逾時清理）」時，
+                    #       仍照樣對病患端送 completed、對 dashboard 廣播 completed
+                    #       —— 醫師端排隊清單看到的是一場「已完成」的紅旗中止場次。
+                    #       CAS 未命中就什麼都不送（終態的 fan-out 屬於真正完成轉移
+                    #       的那條路徑）。
+                    transitioned = await _update_session_status(
                         db, redis, session_id, "completed", "in_progress"
                     )
+                    if not transitioned:
+                        logger.info(
+                            "end_session CAS 未命中（場次已是終態或轉移失敗），"
+                            "不送 completed、不廣播、不派 SOAP | session=%s",
+                            session_id,
+                        )
+                        break
+                    #   (3) 成功轉移才設 `_terminated`，且**先標再送**（與紅旗中止
+                    #       分支同一理由）：下面三個 await 期間背景 late-critical
+                    #       drain 可能插隊，看不到旗標就會再跑一套 abort 收尾。
+                    session_context["_terminated"] = "completed"
                     await manager.send_localized_to_session(
                         session_id,
                         msg_type="session_status",
@@ -1475,6 +1518,12 @@ async def _finalize_idle_timeout(
       筆早已結束的場次。
 
     每一步各自 try/except：任何一步失敗都不可讓看門狗死掉（後面還要關 WS）。
+
+    不變式 #20「六件事」在本路徑的第 6 件（**設 `_terminated`**）：**不適用**。
+    本函式跑在閒置看門狗 task 裡，拿不到主迴圈的 `session_context`（那是
+    `conversation_websocket` 的區域變數，只傳給 `_handle_*` 系列）；而且收尾完
+    下一步就是 `websocket.close(4000)`，主迴圈會直接以 WebSocketDisconnect 收工，
+    沒有「下一輪訊息」需要被旗標攔下。刻意省略，不是漏做。
     """
     try:
         await manager.send_localized_to_session(
@@ -1622,7 +1671,14 @@ async def _handle_text_message(
     import json
     supervisor_guidance = None
     try:
-        raw_guidance = await redis.get(f"gu:session:{session_id}:supervisor_guidance")
+        # key 前綴必須與**寫入端**（`supervisor.analyze_next_step` 用
+        # `settings.REDIS_KEY_PREFIX`）同源。這裡原本硬寫 "gu:"，只要環境把
+        # REDIS_KEY_PREFIX 設成別的值（多環境共用一台 Redis 時就會），讀取端就永遠
+        # 讀不到 guidance → supervisor 整條指導管線靜默失效（不會報錯，只是 AI 從此
+        # 沒有 next_focus，也沒有 hpi_completion_percentage 可觸發軟門檻收尾）。
+        raw_guidance = await redis.get(
+            f"{settings.REDIS_KEY_PREFIX}session:{session_id}:supervisor_guidance"
+        )
         if raw_guidance:
             supervisor_guidance = json.loads(raw_guidance)
     except Exception as exc:
@@ -1917,6 +1973,10 @@ async def _handle_text_message(
     # 是否仍有「遲到紅旗」背景 drain 在跑；若有，本輪不可自動結束（會 break 主迴圈、
     # 關閉 WS db），必須讓場次多撐一輪，確保急症紅旗能被持久化（醫療安全）。
     red_flag_drain_in_flight = False
+    # SO-3：背景 drain 的「持久化階段已跑完」訊號。硬上限 inline drain 解析出
+    # late-critical 時要等它 set 之後才收尾派 SOAP，否則 SOAP 會在 red_flag_alerts
+    # 尚未 commit 時就開始生成（報告漏掉觸發中止的那面紅旗）。
+    late_persist_done: asyncio.Event | None = None
     try:
         red_flag_alerts = await asyncio.wait_for(
             asyncio.shield(red_flag_task), timeout=_RED_FLAG_WAIT_TIMEOUT
@@ -2230,6 +2290,18 @@ async def _handle_text_message(
             )
             return
 
+        # E8-1：標記本連線場次已終止（不論下面 CAS 是否真的轉移成功——即使因競態
+        # 已被別的路徑轉走，場次現在也一定是終態），讓「下一輪」訊息進
+        # _handle_text_message / _handle_audio_chunk 時被開頭的守衛攔下，不再重新
+        # 跑一次紅旗/LLM/重發 abort 事件。
+        #
+        # 先標再做，**含 `_update_session_status` 這個 await 在內**：上面的守衛與
+        # 這行之間不能有任何 await，否則兩條路徑（背景 late-critical drain vs 硬
+        # 上限 inline drain）可以同時通過守衛，各自跑一整套收尾 —— 病患收到兩則
+        # 終態、dashboard 兩則 session_status_changed。以前這行在 CAS 之後，那段
+        # await 就是那個窗口；SO-3 讓 inline drain 改為等 drain 持久化完成之後才
+        # 收尾，兩者的交會時間點正好落在這裡。
+        session_context["_terminated"] = "aborted_red_flag"
         transitioned = await _update_session_status(
             status_db,
             redis,
@@ -2242,12 +2314,6 @@ async def _handle_text_message(
             notify_doctors=red_flag_reason
             not in session_context.get("_red_flag_notified_titles", ()),
         )
-        # E8-1：標記本連線場次已終止（不論上面 CAS 是否真的轉移成功——即使因競態
-        # 已被別的路徑轉走，場次現在也一定是終態），讓「下一輪」訊息進
-        # _handle_text_message / _handle_audio_chunk 時被開頭的守衛攔下，不再重新
-        # 跑一次紅旗/LLM/重發 abort 事件。先標再送，避免下方任一 await 期間有
-        # 其他路徑插隊重入。
-        session_context["_terminated"] = "aborted_red_flag"
         await manager.send_localized_to_session(
             session_id,
             msg_type="session_status",
@@ -2375,8 +2441,19 @@ async def _handle_text_message(
         else:
             # 仍未完成：於背景等待並於完成後處理（避免阻塞當前 turn）。
             red_flag_drain_in_flight = True
+            late_persist_done = asyncio.Event()
+            _persist_done_signal = late_persist_done
 
             async def _drain_late_red_flags() -> None:
+                # SO-3：不論走哪個 return / 例外路徑，離開時一定要放行等在
+                # `late_persist_done` 上的硬上限 inline drain（否則它只能靠逾時
+                # fallback 才會繼續，白等一段）。
+                try:
+                    await _drain_late_red_flags_inner()
+                finally:
+                    _persist_done_signal.set()
+
+            async def _drain_late_red_flags_inner() -> None:
                 try:
                     late_alerts = await red_flag_task
                 except Exception as exc:
@@ -2402,6 +2479,11 @@ async def _handle_text_message(
                                     session_id,
                                     str(exc),
                                 )
+                        # SO-3：持久化階段（含 commit）到此結束——先放行硬上限 inline
+                        # drain，再做自己的收尾。放在 `_finalize_red_flag_abort` 之前
+                        # 是刻意的：兩條路徑誰先收尾都行（`_terminated` 去重擋掉第二次），
+                        # 但「SOAP 派送時 red_flag_alerts 已 commit」必須先成立。
+                        _persist_done_signal.set()
                         # 遲到的 critical 仍需把場次升級為 aborted_red_flag（compare-and-set
                         # 只在仍 in_progress 時生效，不會覆寫已是 completed/aborted 的終態）。
                         if any(
@@ -2469,6 +2551,14 @@ async def _handle_text_message(
             await _finalize_red_flag_abort(
                 status_db=db, red_flag_reason=critical_title
             )
+            # EM-1：**必須 return**，不可 fall-through 進下方自動結束區塊。
+            # `_finalize_red_flag_abort` 的 CAS 若因 DB 例外失敗（場次其實還停在
+            # in_progress），fall-through 後下方 `_update_session_status(completed,
+            # in_progress)` 的 CAS 就會命中 → 剛判定 critical 中止的場次被**降級成
+            # completed**，抹掉醫師端的紅旗分流訊號，還會對病患端送一則 completed
+            # （紅旗中止的病患該看到的是「請告知現場醫護」而不是一般感謝頁）。
+            # 回 True＝呼叫端結束主迴圈（與其他終態路徑同語意）。
+            return True
 
     # ── 自動結束問診（HPI 達標或回合硬上限）──────────────────────
     # 醫療安全多重保護，本區塊刻意放在「紅旗 gate 之後、critical-abort 區塊之後」：
@@ -2538,6 +2628,32 @@ async def _handle_text_message(
                     "硬上限收尾前解析出遲到 critical 紅旗，中止場次 | session=%s",
                     session_id,
                 )
+                # SO-3：**先等 drain 把 late alerts persist + commit 完，再收尾**。
+                # 本路徑刻意不自己 persist（交給已在跑的 `_drain_late_red_flags`，
+                # 避免 double-persist 競態），但 `_finalize_red_flag_abort` 會立刻
+                # `generate_soap_report.delay()`——以前沒有這道等待，Celery worker
+                # 常在 alert 那筆 INSERT commit 之前就 SELECT 完 red_flag_alerts，
+                # 生出來的 SOAP 少掉「觸發本次中止的那面 critical 紅旗」。順序對齊
+                # 主 abort 分支與背景 drain 的「先持久化再派 SOAP」。
+                #
+                # 有界等待：drain 端不論成功/失敗/無 alert 都會在 finally set 這個
+                # Event，正常情況幾乎立刻返回。逾時仍照舊收尾——保命線（硬上限一定
+                # 要出得了 SOAP）優先於報告完整性，`asyncio.shield` 也不受影響。
+                if late_persist_done is not None:
+                    try:
+                        await asyncio.wait_for(
+                            late_persist_done.wait(),
+                            timeout=float(
+                                getattr(
+                                    settings, "HARD_CAP_DRAIN_AWAIT_SECONDS", 5.0
+                                )
+                            ),
+                        )
+                    except asyncio.TimeoutError:
+                        logger.error(
+                            "等待遲到紅旗持久化逾時，仍照常收尾（SOAP 可能少一面紅旗） | session=%s",
+                            session_id,
+                        )
                 # 與主 abort 分支完全相同的收尾組（含病患端終態 extra——這裡以前
                 # 漏帶，病患會卡在對話頁）。
                 await _finalize_red_flag_abort(
@@ -2552,6 +2668,13 @@ async def _handle_text_message(
             db, redis, session_id, "completed", "in_progress"
         )
         if transitioned:
+            # EM-5：**先標再送**（與 `_finalize_red_flag_abort` :「先標再送，避免下方
+            # 任一 await 期間有其他路徑插隊重入」同一理由）。以前這行放在下面三個
+            # await（病患端 session_status → dashboard 廣播 → queue/stats）之後，
+            # 那段窗口內背景 late-critical drain 可以插隊：它看不到 `_terminated`，
+            # 於是跑完整套 abort 收尾（含病患端 aborted 訊息與第二份 SOAP 派送），
+            # 病患在同一秒收到 completed 與 aborted_red_flag 兩則終態。
+            session_context["_terminated"] = "completed"
             logger.info(
                 "HPI 完整度達門檻或回合達上限，自動結束場次 | session=%s, turns=%s, guidance_hpi=%s",
                 session_id,
@@ -2590,8 +2713,6 @@ async def _handle_text_message(
             _spawn_background(
                 _generate_soap_report_async(session_id=session_id)
             )
-            # E8-1：正常收尾同樣標記終態（見上方 aborted_red_flag 分支同註解）。
-            session_context["_terminated"] = "completed"
             return True
 
     return False
@@ -2944,14 +3065,30 @@ async def _update_session_status(
     """
     try:
         from app.core.session_state import is_valid_transition
+        from app.models.enums import SessionStatus
         from app.models.session import Session
         from sqlalchemy import Integer, func, update
 
         # 單一權威狀態機（與 REST update_status_static 共用 VALID_TRANSITIONS）：
         # 先前 WS 只靠 compare-and-set 的 WHERE 擋，不查合法轉移表 → 可執行表外轉移。
-        # allow_noop=True：resume 重連的 in_progress→in_progress 冪等補寫需放行。
+        #
+        # EM-6：`allow_noop` 收斂成「只放行 in_progress 自轉移」。它存在的唯一理由
+        # 是 resume 重連的 `in_progress → in_progress` 冪等補寫 started_at
+        # （`is_valid_transition` 的 docstring 也只宣稱這一條），但以前無條件傳
+        # True，等於連 `completed → completed`、`aborted_red_flag →
+        # aborted_red_flag`、`cancelled → cancelled` 都算合法轉移而放行進 UPDATE
+        # ——終態表是空 list（`VALID_TRANSITIONS`），任何從終態出發的轉移都該在
+        # 這裡就被擋掉。實務上 CAS 的 WHERE 會讓終態自轉移變成無害的 no-op
+        # UPDATE，但那是「靠第二道防線兜住第一道的破口」，且會白寫一次 Redis
+        # 快取與稽核路徑；宣稱與實作對齊後這個窗口結構性不存在。
         # 非法轉移不 raise（fire-and-forget，不可炸主迴圈），記 warning 後 no-op。
-        if not is_valid_transition(previous_status, new_status, allow_noop=True):
+        _in_progress = (SessionStatus.IN_PROGRESS, SessionStatus.IN_PROGRESS.value)
+        _noop_allowed = (
+            previous_status in _in_progress and new_status in _in_progress
+        )
+        if not is_valid_transition(
+            previous_status, new_status, allow_noop=_noop_allowed
+        ):
             logger.warning(
                 "非法場次狀態轉移，略過 | %s → %s | session=%s",
                 previous_status,

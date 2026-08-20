@@ -270,10 +270,21 @@ def _server_code_provenance() -> dict:
         return out
 
     for pid in pids:
-        info = _run(["ps", "-p", pid, "-o", "lstart=,command="]).strip()
+        # LC_ALL=C 是必要的：非英文 locale 下 `ps -o lstart=` 會印在地化格式
+        # （zh_TW：「四 8月20 20:51:33 2026」），既不合 %a %b %d 也不是 24 字元寬 →
+        # started_at 恆為 None → server_provenance.verified 恆為 null → i0 永遠
+        # precondition_not_met（本機 2026-08-20 實測踩到）。
+        info = _run(["env", "LC_ALL=C", "ps", "-p", pid, "-o", "lstart=,command="]).strip()
         # lstart 固定 24 字元寬（'Mon Jul 27 13:06:41 2026'）
         lstart_raw, cmd = info[:24], info[24:].strip()
         started = _parse_ps_lstart(lstart_raw)
+        if started is None:
+            # 保底：以 token 切（前 5 個 token 是 lstart），避免寬度假設失效時整條失明
+            toks = info.split()
+            if len(toks) > 5:
+                maybe = _parse_ps_lstart(" ".join(toks[:5]))
+                if maybe is not None:
+                    started, cmd = maybe, " ".join(toks[5:])
         started_after = None if started is None else (started.timestamp() > newest_mtime)
         out["listeners"].append(
             {
@@ -593,8 +604,13 @@ SCENARIOS = {
             "ago, it got so bad I threw up, and that side is swollen now."
         ),
     },
-    # ED 配合病患：預期 8-10 輪自動結束；SOAP icd10_codes 含 N52 開頭 +
-    # icd10_verified=true（B1+B2）。
+    # ED 配合病患：SOAP icd10_codes 含 N52 開頭 + icd10_verified=true（B1+B2）。
+    # ⚠️ max_patient_turns 從 12 調到 18（2026-08-20）：ED 屬 §3b 高風險主訴，
+    # 後端動態硬上限 = MAX_PATIENT_TURNS_HARD_CAP(10) + K 個必問風險因子(3)
+    # + RISK_FACTOR_HARD_CAP_BUFFER(2) = 15。舊值 12 是動態加成上線前寫的，
+    # driver 會在後端收尾之前先自己停掉 → session 卡 in_progress、無 SOAP，
+    # e1/e2/e3/e4 全部假性 FAIL（2026-08-20 實測，AI 在第 12 輪還在問吸菸/血脂）。
+    # 與 ed_3b_zh 的 18 對齊（留 backstop margin）。
     "ed_zh": {
         "language": "zh-TW",
         "chief_complaint_id": CC_ED,
@@ -605,7 +621,7 @@ SCENARIOS = {
         "persona": ED_ZH_PERSONA,
         "farewell_after_turn": None,
         "farewell_text": None,
-        "max_patient_turns": 12,
+        "max_patient_turns": 18,
     },
     # intake 佈線驗收：驗「前面選的主訴 + 填的年齡 + intake 四項」有沒有真的進到
     # 問答對話的判斷。核心是白箱斷言（probe_intake_wiring 就地重建 system prompt），
@@ -972,9 +988,12 @@ async def drive_conversation(session_id: str, token: str, sc: dict, sim: Patient
                     await drain(1)
 
             # ── E8-1 驗收：場次終結後再送訊息，觀察 server 回什麼 ──────────
-            # 預期（修復後）：回固定的 ai_response_start/chunk/end 終止提示
-            # （i18n ws.session_terminated_*_notice），不跑紅旗/LLM、
-            # 不重發 abort session_status。修復前：LLM 續答 + 重發 abort。
+            # ⚠️ 預期行為在 2026-08-20（commit 116282d，EM-1）**變了**，判準與理由
+            # 全部寫在 `analyze_torsion` 的 t5 註解裡。現在的合格樣態是「送不出去／
+            # 送出去也收不到任何東西，因為 server 在 abort 當下就主動關閉了連線」；
+            # 舊行為（回固定終止提示 ai_response_* 三段）留在那段註解裡供考古。
+            # driver 這邊**照舊送**：「終止後不跑 LLM」的實質仍要被證明
+            # ——送了也不能有任何 AI 回應。
             n_probes = sc.get("post_terminal_probes", 0)
             if n_probes and completed_event is not None:
                 probe_text = sc.get("probe_text") or "還需要我補充什麼嗎？"
@@ -1037,6 +1056,54 @@ async def drive_conversation(session_id: str, token: str, sc: dict, sim: Patient
             record_event("driver_timeout", {"note": f"no WS message within {AI_RESPONSE_TIMEOUT}s"})
             print("[DRIVER] timeout waiting for WS message", flush=True)
 
+    # ── 終結後重連探針（2026-08-20 新增，配合 EM-1 的行為變更）──────────────
+    # server 現在在 abort 當下就關閉 WS，於是「終止後不跑 LLM」不能再靠
+    # 「回的是固定模板、不是 LLM 續答」來證明——連線已經沒了。這條補上證據的
+    # 另一半：**病患端重連也拿不到一條能跑 LLM 的通道**。
+    # `conversation_handler.py:530-536` 對非 waiting/in_progress 的場次一律
+    # close(4009, "errors.ws.session_wrong_status")；少了這道守衛，客戶端只要重連
+    # 就能對已中止的場次繼續送訊息、重跑 LLM/紅旗——那正是 E8-1 當初要擋的事故。
+    # 純觀測：不動逐字稿/事件，失敗只降級成「無證據」。
+    reconnect_probe: dict | None = None
+    if sc.get("post_terminal_probes") and completed_event is not None:
+        reconnect_probe = {
+            "attempted": True,
+            "ts": now_iso(),
+            "close_code": None,
+            "close_reason": None,
+            "accepted_and_stayed_open": False,
+            "messages_received": [],
+            "error": None,
+        }
+        try:
+            async with websockets.connect(
+                ws_url, max_size=None, ping_interval=None, open_timeout=30
+            ) as ws2:
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    raw = await asyncio.wait_for(
+                        ws2.recv(), timeout=max(0.1, deadline - time.monotonic())
+                    )
+                    data = json.loads(raw)
+                    reconnect_probe["messages_received"].append(
+                        {"type": data.get("type"), "ts": now_iso()}
+                    )
+                # 跑到 deadline 都沒被關閉 ＝ server 接受了對已終結場次的重連
+                reconnect_probe["accepted_and_stayed_open"] = True
+        except websockets.exceptions.ConnectionClosed as exc:
+            reconnect_probe["close_code"] = exc.code
+            reconnect_probe["close_reason"] = str(exc.reason)
+        except asyncio.TimeoutError:
+            reconnect_probe["accepted_and_stayed_open"] = True
+        except Exception as exc:  # noqa: BLE001 — 探針失敗只降級成無證據
+            reconnect_probe["error"] = f"{type(exc).__name__}: {exc}"
+        print(
+            f"[RECONNECT] close_code={reconnect_probe['close_code']} "
+            f"reason={reconnect_probe['close_reason']!r} "
+            f"error={reconnect_probe['error']}",
+            flush=True,
+        )
+
     # WS 關閉後補撈一次最終 guidance（斷線路徑可能沒跑到本輪 poll）
     try:
         final_raw = rds.get(guidance_key)
@@ -1053,6 +1120,7 @@ async def drive_conversation(session_id: str, token: str, sc: dict, sim: Patient
         "ws_close": ws_close,
         "final_guidance": final_guidance,
         "post_terminal_probes": post_terminal_probes,
+        "post_terminal_reconnect": reconnect_probe,
     }
 
 
@@ -2223,17 +2291,63 @@ def analyze_torsion(
         ),
     }
 
-    # E8-1：abort 後補送訊息 → 回固定終止提示（ai_response_* 三段、內容為
-    # ws.session_terminated_aborted_notice 模板），不跑紅旗/LLM、不重發 abort，
-    # 且 server 隨後「結束主迴圈、關閉 WS」（實作規格）。因此合格樣態是：
-    #   probe1 = 終止提示模板；probe2 = 同模板 或 乾淨 close（1000/1001）。
+    # ══ t5：abort 後不得再跑 LLM（2026-08-20 判準改版）════════════════════
+    #
+    # 舊斷言名：`t5_post_abort_terminated_notice`（2026-06-28 ～ 2026-08-20）。
+    # 舊判準：abort 後再送 2 則訊息，server **每則**都回一段固定終止提示
+    #   （`ai_response_start/chunk/end` 三段、內容逐字等於 backend i18n
+    #   `ws.session_terminated_aborted_notice[_unnotified]`），不跑 LLM／紅旗、
+    #   不重發 abort 事件，最後才乾淨關閉 WS。舊判準把「一定收得到提示」寫死成
+    #   pass 的必要條件，於是 2026-08-20 之後兩場 torsion 都紅。
+    #
+    # **為什麼改：** commit 116282d（稽核修復 EM-1）在 `_handle_text_message` 的
+    # critical-abort 分支尾端補了 `return True`。那是 P0 修復：CAS 失敗時不可
+    # fall-through 進下方自動結束區塊，否則剛判定 critical 中止的場次會被降級成
+    # `completed`（醫師端失去紅旗分流訊號、病患拿到一般感謝頁）。副作用是呼叫端
+    # `ended → break`：主迴圈當場結束、WS 以 1000 關閉，`_terminated` 守衛 +
+    # `_notify_session_already_terminated` 那條「回固定提示」的路徑在這條 abort
+    # 上不再可達（completed 收尾路徑本來就是同一個 break，兩條終態路徑現在對稱）。
+    #
+    # **裁決（2026-08-20，主控）：採方案 (a)，接受新行為。** 理由：病患端在關閉前
+    # 已收到 `session_status = aborted_red_flag` 終態事件與紅旗版感謝頁；重連由
+    # `conversation_handler.py:530-536` 的 4009（`errors.ws.session_wrong_status`）
+    # 守衛擋住；主動關閉還省掉一次無意義的 LLM/TTS 呼叫。
+    #
+    # ⚠️ **但「一定會立刻關閉」同樣不可以寫死**——2026-08-20 驗收實測到兩種**都合法**
+    #    的樣態，取決於這一輪的 critical 是「inline 解析出來」還是「背景 late drain
+    #    解析出來」：
+    #      路徑 A（inline，`_handle_text_message` 內判定）：EM-1 的 `return True`
+    #        當場 break → **第 1 則 probe 就撞上 close 1000**。
+    #      路徑 B（背景 `_drain_late_red_flags` → `_finalize_red_flag_abort`）：
+    #        本輪 handler 正常返回、主迴圈續跑 → **下一則 probe 被 `_terminated`
+    #        守衛接住，回固定 i18n 終止提示（不跑 LLM）**，然後才 break/close。
+    #    同一份碼、同一個情境，兩場真跑各中一次（uvicorn.log 分別可見
+    #    「遲到的 critical 紅旗，中止場次」與 inline 分支）。把任一種寫成唯一合格樣態
+    #    都會製造抽樣性假紅。
+    #
+    # **新判準＝守住那個不變的實質：終止後不得有任何 LLM 產物。**
+    #   (a) 收到的 AI 文字**只能**是 backend i18n 的終止提示模板（逐字相符 ＝ 確定性
+    #       backstop 的產物，不是 LLM 續答）；一則都沒收到（路徑 A）同樣合格；
+    #   (b) 不得重跑紅旗、不得重發 abort 事件；
+    #   (c) server 最後**主動乾淨關閉**連線（1000/1001）——這條擋掉「連線一直開著、
+    #       只是這次沒回東西」那種靜默失敗；
+    #   (d) 重連被 4009 拒絕（`post_terminal_reconnect`）。少了它，(a)–(c) 只證明
+    #       「這條連線沒了」，證明不了「病患端沒有別的通道能繼續跑 LLM」。舊結果檔
+    #       沒有這個欄位 → 記 `unavailable` 且不 gating（不得靜靜當 pass，所以它一定
+    #       會出現在 `reconnect_evidence` 欄位裡讓覆核者看見）。
+    #
+    # ⚠️ 恆真防呆（README §斷言強度守則 #15）：`probes_sent >= 1` 與
+    #    `server_closed_connection` 是 pass 的前提。少了它們，「沒收到 LLM 回應」
+    #    在「一則 probe 都沒送出去」時恆真。
     probes = result.get("post_terminal_probes") or []
     probe_issues: list[dict] = []
     notice_texts: list[str] = []
-    clean_close_after_notice = False
-    # ⚠️ 以前這裡寫死中文子字串（「問診已經結束」「現場」）＝這條斷言只有 zh-TW 場
-    # 能用。新增非 zh 的紅旗情境（torsion_critical_en）後改成一律比對「該場語言的
-    # backend i18n 模板」——同時是更強的證據（等於整句相符，不是關鍵字沾邊）。
+    non_template_ai_replies: list[str] = []
+    unverifiable_ai_replies: list[str] = []   # 收到文字但讀不到模板 → 證明不了
+    server_close_codes: list = []
+    # ⚠️ 這裡曾經寫死中文子字串（「問診已經結束」「現場」）＝只有 zh-TW 場能用。
+    # 改成一律比對「該場語言的 backend i18n 模板」——同時是更強的證據
+    # （整句相符，不是關鍵字沾邊）。
     scen_lang = (SCENARIOS.get(scenario) or {}).get("language") or "zh-TW"
     expected_notices = [
         t
@@ -2246,12 +2360,16 @@ def analyze_torsion(
     for idx, p in enumerate(probes, 1):
         if "connection_closed" in p:
             code = p["connection_closed"].get("code")
-            if idx >= 2 and notice_texts and code in (1000, 1001):
-                # 已先收到過終止提示，之後 server 收掉連線 → 符合實作規格
-                clean_close_after_notice = True
-            else:
+            server_close_codes.append(code)
+            # 1000/1001 ＝ server 主動乾淨關閉。其他 code（含 1006 異常斷線）
+            # 代表不是這條路徑，要人看。
+            if code not in (1000, 1001):
                 probe_issues.append(
-                    {"probe": idx, "issue": "connection_closed", "detail": p["connection_closed"]}
+                    {
+                        "probe": idx,
+                        "issue": "unclean_close",
+                        "detail": p["connection_closed"],
+                    }
                 )
             continue
         resp = p.get("responses", [])
@@ -2267,48 +2385,108 @@ def analyze_torsion(
             for r in resp
         ):
             probe_issues.append({"probe": idx, "issue": "abort_event_resent"})
-        if not ft:
-            probe_issues.append({"probe": idx, "issue": "no_reply"})
-        elif expected_notices and ft not in expected_notices:
+        if ft:
+            if not expected_notices:
+                # 讀不到 backend i18n 模板 → 無從分辨「確定性提示」與「LLM 續答」。
+                # 這種是**證明不了**，不是 fail（下面走 precondition_not_met）。
+                unverifiable_ai_replies.append(ft[:200])
+            elif ft in expected_notices:
+                notice_texts.append(ft)          # 路徑 B：確定性 backstop 的固定提示
+            else:
+                # 逐字對不上模板 ＝ 只能是 LLM 續答（或模板漂移），兩者都要人看。
+                non_template_ai_replies.append(ft[:200])
+                probe_issues.append(
+                    {"probe": idx, "issue": "non_template_ai_reply", "text": ft[:160]}
+                )
+        elif resp:
             probe_issues.append(
-                {"probe": idx, "issue": "unexpected_text", "text": ft[:160]}
+                {
+                    "probe": idx,
+                    "issue": "unexpected_messages_after_abort",
+                    "types": sorted({r.get("type") for r in resp}),
+                }
             )
         else:
-            notice_texts.append(ft)
+            # 連線還開著、卻什麼都沒回：既不是路徑 A 也不是路徑 B，要人看。
+            probe_issues.append(
+                {"probe": idx, "issue": "connection_stayed_open_silent"}
+            )
 
-    # 「非 LLM 續答」的證據。
-    # ⚠️ 舊寫法 `len(set(notice_texts)) == 1` 對 n=1 恆真＝零證據力，而
-    #    server 規格就是「回一次提示後關 WS」→ n 幾乎必然是 1。改成拿實收文字
-    #    去比對 backend i18n 模板字面量（ast 讀 MESSAGES，不 import backend）。
-    if not expected_notices:
+    server_closed_connection = bool(server_close_codes) and all(
+        c in (1000, 1001) for c in server_close_codes
+    )
+    if unverifiable_ai_replies:
+        # 收到了 AI 文字卻讀不到 backend i18n 模板 → 無法證明它不是 LLM 續答。
         template_evidence = "unavailable"
-        template_ok = None
-    else:
+    elif notice_texts:
         template_evidence = "backend_i18n_literal"
-        template_ok = bool(notice_texts) and all(
-            t in expected_notices for t in notice_texts
+    else:
+        template_evidence = "not_needed(路徑 A：abort 當下即關閉，零 AI 訊息)"
+
+    # (d) 重連守衛。原始觀測在 `post_terminal_reconnect`；舊結果檔沒有 → 不 gating。
+    reconnect = result.get("post_terminal_reconnect")
+    reconnect_ok = None
+    if not isinstance(reconnect, dict) or not reconnect.get("attempted"):
+        reconnect_evidence = "unavailable（舊結果檔或未探測；這一半不 gating）"
+    elif reconnect.get("error"):
+        reconnect_evidence = f"probe_error: {reconnect['error']}"
+    else:
+        reconnect_evidence = (
+            f"close_code={reconnect.get('close_code')} "
+            f"reason={reconnect.get('close_reason')!r} "
+            f"accepted_and_stayed_open={reconnect.get('accepted_and_stayed_open')}"
         )
+        reconnect_ok = bool(
+            reconnect.get("close_code") == 4009
+            and not reconnect.get("accepted_and_stayed_open")
+        )
+
+    post_abort_shape = (
+        "A:immediate_close" if not notice_texts else "B:terminated_notice_then_close"
+    )
     t5_fields = {
+        "criterion_version": (
+            "2026-08-20（EM-1 / 116282d 之後）：abort 後零 LLM 產物 ＋ server 主動關閉"
+            "；固定 i18n 終止提示與立即關閉皆為合格樣態"
+        ),
+        "post_abort_shape": post_abort_shape,
         "probes_sent": len(probes),
+        "server_closed_connection": server_closed_connection,
+        "server_close_codes": server_close_codes,
         "notices_received": len(notice_texts),
-        "distinct_notice_texts": len(set(notice_texts)),
-        "server_closed_ws_after_notice": clean_close_after_notice,
-        "issues": probe_issues,
-        "template_evidence": template_evidence,
-        "notice_language": scen_lang,
-        "notice_matches_backend_i18n_template": template_ok,
-        "expected_templates": expected_notices,
         "notice_text": notice_texts[0][:200] if notice_texts else None,
+        "template_evidence": template_evidence,
+        "expected_templates": expected_notices,
+        "non_template_ai_replies": non_template_ai_replies,
+        "unverifiable_ai_replies": unverifiable_ai_replies,
+        "issues": probe_issues,
+        "reconnect_evidence": reconnect_evidence,
+        "reconnect_rejected_4009": reconnect_ok,
+        "reconnect_probe": reconnect,
+        "notice_language": scen_lang,
+        "legacy_behavior_note": (
+            "2026-08-20 之前：server 對**每一則** post-abort 訊息都回固定終止提示之後"
+            "才關 WS，舊斷言把它寫成唯一合格樣態。EM-1 在 inline abort 分支補"
+            " return True 後，主迴圈當場 break、WS 立刻關閉（路徑 A）；背景 late "
+            "drain 判定的 critical 則仍走舊樣態（路徑 B）。主控 2026-08-20 裁決接受"
+            "新行為（病患端已先收到終態事件與紅旗感謝頁，重連由 4009 守衛擋住），"
+            "本斷言改判『零 LLM 產物 ＋ 乾淨關閉 ＋ 重連 4009』，兩種樣態都合格。"
+        ),
     }
-    if template_ok is None:
-        assertions["t5_post_abort_terminated_notice"] = _pnm(
-            "讀不到 backend i18n 模板（BACKEND_DIR 不可用），"
-            "無法證明回覆是固定模板而非 LLM 續答；單靠 n=1 的一致性是恆真斷言",
+    if unverifiable_ai_replies:
+        assertions["t5_post_abort_ws_closed_no_llm"] = _pnm(
+            "abort 後收到了 AI 文字，但讀不到 backend i18n 模板"
+            "（BACKEND_DIR 不可用）→ 無法證明它是確定性提示而不是 LLM 續答",
             **t5_fields,
         )
     else:
-        assertions["t5_post_abort_terminated_notice"] = _chk(
-            len(probes) == 2 and not probe_issues and template_ok,
+        assertions["t5_post_abort_ws_closed_no_llm"] = _chk(
+            len(probes) >= 1
+            and server_closed_connection
+            and not probe_issues
+            and not non_template_ai_replies
+            # 重連證據可得時必須是 4009；不可得（舊檔）時這一半不 gating。
+            and reconnect_ok is not False,
             **t5_fields,
         )
     # E8-3：started_at / completed_at 補寫
@@ -4619,6 +4797,10 @@ async def reanalyze(scenario_name: str) -> None:
         "patient_turns": output["patient_turns"],
         "events": output.get("events", []),
         "post_terminal_probes": output.get("post_terminal_probes", []),
+        # 2026-08-20 之後的結果檔才有。舊檔為 None → t5 的「重連被 4009 擋掉」那一半
+        # 降級成 `unavailable`（不 gating、但會出現在斷言欄位裡讓人看見），
+        # 「server 主動關閉」與「無 AI 回應」兩半照判。
+        "post_terminal_reconnect": output.get("post_terminal_reconnect"),
         # intake_wiring_zh 的白箱探針結果（其他情境為 None，analyzer 不讀）
         "intake_probe": output.get("intake_probe"),
         # ⚠️ 只認**跑那一場當下**記下的 provenance。reanalyze 當下重新量伺服器狀態
@@ -4690,7 +4872,11 @@ def preflight(scenario_name: str) -> int:
     except Exception as exc:  # noqa: BLE001
         ch["chief_complaint_row"] = f"db_error: {type(exc).__name__}: {exc}"
 
-    # 這場語言的終止提示模板（t5 靠它；缺了 t5 只能 precondition_not_met）
+    # 這場語言的終止提示模板。
+    # ⚠️ 2026-08-20（EM-1 / 116282d）之後 **t5 不再依賴它**：abort 後 server 直接關閉
+    # WS，那條「回固定提示」的路徑不可達（判準改版見 analyze_torsion 的 t5 註解）。
+    # 保留純粹當診斷：模板仍服務 `completed`／音訊路徑的 `_terminated` 守衛，
+    # 五語模板缺漏仍是要知道的事，只是不再是這場能不能 PASS 的前提。
     if sc.get("post_terminal_probes"):
         ch["terminated_notice_templates"] = {
             k: bool(_backend_i18n(f"ws.{k}", lang or "zh-TW"))
@@ -4875,6 +5061,7 @@ async def main() -> None:
         "db_state": db_state,
         "final_guidance": result.get("final_guidance"),
         "post_terminal_probes": result.get("post_terminal_probes", []),
+        "post_terminal_reconnect": result.get("post_terminal_reconnect"),
         "intake_probe": intake_probe,
         "analysis": analysis,
         "guidance_timeline": result["guidance_timeline"],

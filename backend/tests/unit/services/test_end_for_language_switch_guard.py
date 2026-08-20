@@ -81,6 +81,7 @@ class _FakeDB:
         self._owner_user_id = owner_user_id
         self._user = user
         self.flushed = 0
+        self.commits = 0
 
     async def execute(self, stmt: Any) -> _Result:
         sql = str(stmt).lower()
@@ -95,6 +96,10 @@ class _FakeDB:
     async def flush(self) -> None:
         self.flushed += 1
 
+    async def commit(self) -> None:
+        # D-8：轉移後的 dashboard 推播必須在 commit 之後才做。
+        self.commits += 1
+
 
 @pytest.fixture(autouse=True)
 def _capture_audit(monkeypatch):
@@ -108,6 +113,15 @@ def _capture_audit(monkeypatch):
         return SimpleNamespace(**kwargs)
 
     monkeypatch.setattr(als_mod.AuditLogService, "log", _log)
+
+    # D-8：轉移後的附帶效應在本檔案（授權守衛測試）與斷言無關，換成 no-op
+    # 以免打到 Redis / dashboard 廣播。
+    from app.services import session_service as ss_mod
+
+    async def _noop_after(db, *, session_id, previous_status, new_status):
+        return None
+
+    monkeypatch.setattr(ss_mod, "_after_status_transition", _noop_after)
     return calls
 
 

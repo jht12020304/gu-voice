@@ -9,6 +9,7 @@ import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useReportStore } from '../../stores/reportStore';
 import { formatDate } from '../../utils/format';
+import { resolvePatientFacing } from '../../utils/patientFacingReport';
 import type { Session } from '../../types';
 import * as sessionsApi from '../../services/api/sessions';
 
@@ -81,6 +82,9 @@ export default function SessionCompletePage() {
 
   const report = selectedReport;
   const hasReport = !!report && report.status === 'generated';
+
+  // 病患面文字依**場次語言**（非 UI 當下語言）決定來源，見 utils/patientFacingReport。
+  const patientFacing = resolvePatientFacing(report, session?.language);
 
   const reviewStatusLabel = report
     ? report.reviewStatus === 'approved'
@@ -161,29 +165,27 @@ export default function SessionCompletePage() {
             </div>
           ) : hasReport ? (
             <div className="space-y-3">
-              {report.summary && (
-                <p className="text-body leading-relaxed text-ink-body dark:text-white/80">
-                  {report.summary}
+              {/* 摘要：非中文場次若沒有 patient_facing_localized，顯示在地化通用訊息，
+                  **不得**退回中文 report.summary（病患看不懂卻以為那是給自己的醫囑）。 */}
+              {patientFacing.useGenericFallback ? (
+                <p className="text-body leading-relaxed text-ink-muted dark:text-white/60">
+                  {t('patientFacing.notice')}
                 </p>
+              ) : (
+                patientFacing.summary && (
+                  <p className="text-body leading-relaxed text-ink-body dark:text-white/80">
+                    {patientFacing.summary}
+                  </p>
+                )
               )}
-              {report.icd10Codes && report.icd10Codes.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {report.icd10Codes.map((code) => (
-                    <span key={code} className="rounded-pill border border-primary-200 bg-primary-50 px-2.5 py-0.5 font-data text-small text-primary-700 dark:border-primary-800 dark:bg-primary-950 dark:text-primary-300">
-                      {code}
-                    </span>
-                  ))}
-                </div>
-              )}
+              {/* 這裡刻意**不渲染 ICD-10 碼與 AI 信心分數**（2026-08 稽核拍板）：
+                  兩者都是醫師面資訊。診斷碼會被病患當成「AI 已經診斷了」，信心百分比
+                  則是模型自評，對候診中的病患既無行動意義又容易誤讀成病情嚴重度。
+                  醫師端（SOAPReportPage）維持顯示，不受此限。 */}
               <div className="flex items-center gap-2">
                 <span className={`badge ${report.reviewStatus === 'approved' ? 'badge-completed' : report.reviewStatus === 'revision_needed' ? 'badge-red-flag' : 'badge-waiting'}`}>
                   {reviewStatusLabel}
                 </span>
-                {report.aiConfidenceScore !== undefined && (
-                  <span className="text-small font-data text-ink-muted dark:text-white/40">
-                    {t('complete.aiConfidence', { percent: Math.round(report.aiConfidenceScore * 100) })}
-                  </span>
-                )}
               </div>
             </div>
           ) : (

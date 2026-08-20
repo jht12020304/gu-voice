@@ -6,6 +6,7 @@ import '../../core/i18n/loc.dart';
 import '../../core/router/lng.dart';
 import '../../data/api/sessions_api.dart';
 import '../../shared/widgets/language_action.dart';
+import 'intake_payload.dart';
 
 // Port of MedicalInfoPage.tsx — identity + intake (allergies / medications / past history)
 // then createSession, into the conversation. ponytail: the 2-step wizard chrome (progress
@@ -49,16 +50,21 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
   String? _error;
   bool _showErrors = false;
 
+  // These four are the ONLY source of the backend's `no_*` flags. A flag means "the
+  // patient explicitly denied it" (backend puts the topic on the §3b do-not-ask list and
+  // the SOAP writes 「病患自述無」), so it must never be inferred from an empty list.
   bool _noAllergies = false;
   bool _noMedications = false;
   bool _noHistory = false;
+  bool _noFamilyHistory = false;
   final List<_Allergy> _allergies = [];
   final List<_Medication> _medications = [];
   final List<_History> _histories = [];
   final List<_Family> _families = [];
 
-  // Optional section: no "none" checkbox, matching the React page (family history is
-  // 選填 there too). Backend shape is {relation, condition}.
+  // Optional section, but it does carry a "none" checkbox now: without it the backend
+  // could not tell 「沒填」 from 「病患說沒有」 and §3b re-asked the urological-cancer
+  // family history every time (D-10). Backend shape is {relation, condition}.
   static const _relationKeys = [
     'father',
     'mother',
@@ -94,6 +100,14 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
 
   bool get _valid => _nameCtrl.text.trim().isNotEmpty && _gender != null && _dob != null;
 
+  // Args now arrive as URL query params (see intake_route.dart), where "missing" reads
+  // back as '' rather than null. Collapse both to null so the `??` fallbacks still work.
+  String? _arg(String key) {
+    final v = widget.args[key];
+    if (v is! String) return null;
+    return v.trim().isEmpty ? null : v;
+  }
+
   String _sessionLanguage() => supportedLanguages.contains(currentLng) ? currentLng : 'zh-TW';
 
   Future<void> _submit() async {
@@ -106,41 +120,11 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
     final dob = _dob!;
     two(int n) => n.toString().padLeft(2, '0');
 
-    // Intake enum fields are sent as TRANSLATED display strings (backend legacy schema).
-    final allergies = _noAllergies
-        ? []
-        : [
-            for (final a in _allergies)
-              if (a.ctrl.text.trim().isNotEmpty)
-                {
-                  'allergen': a.ctrl.text.trim(),
-                  'hadHospitalization': a.hospitalized,
-                  if (a.hospitalized) 'reaction': t('intake.medicalInfo.allergy.hospitalized'),
-                  if (a.hospitalized) 'severity': 'severe',
-                },
-          ];
-    final medications = _noMedications
-        ? []
-        : [
-            for (final m in _medications)
-              if (m.ctrl.text.trim().isNotEmpty)
-                {'name': m.ctrl.text.trim(), 'frequency': t('intake.medicalInfo.frequency.${m.frequency}')},
-          ];
-    final history = _noHistory
-        ? []
-        : [
-            for (final h in _histories)
-              if (h.ctrl.text.trim().isNotEmpty)
-                {
-                  'condition': h.ctrl.text.trim(),
-                  'yearsAgo': t('intake.medicalInfo.yearsAgo.${h.yearsAgo}'),
-                  'stillHas': h.stillHas,
-                },
-          ];
-
     final payload = {
-      'chiefComplaintId': widget.args['complaintId'],
-      'chiefComplaintText': widget.args['complaintText'] ?? widget.args['complaintName'],
+      'chiefComplaintId': _arg('complaintId'),
+      // The AI/SOAP-facing text; fall back to the display name only when it is genuinely
+      // absent (an empty query param is "not provided", not an empty complaint).
+      'chiefComplaintText': _arg('complaintText') ?? _arg('complaintName'),
       'language': _sessionLanguage(),
       'patientInfo': {
         'name': _nameCtrl.text.trim(),
@@ -148,21 +132,26 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
         'dateOfBirth': '${dob.year.toString().padLeft(4, '0')}-${two(dob.month)}-${two(dob.day)}',
         'phone': _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
       },
-      'intake': {
-        'noKnownAllergies': _noAllergies || allergies.isEmpty,
-        'allergies': allergies,
-        'noCurrentMedications': _noMedications || medications.isEmpty,
-        'currentMedications': medications,
-        'noPastMedicalHistory': _noHistory || history.isEmpty,
-        'medicalHistory': history,
-        // Was hardcoded `[]`, so prostate-cancer family history was ALWAYS blank and the
-        // doctor could not tell "never asked" from "patient denied it" (TODO G13).
-        'familyHistory': [
-          for (final f in _families)
-            if (f.ctrl.text.trim().isNotEmpty)
-              {'relation': f.relation, 'condition': f.ctrl.text.trim()},
+      // Pure projection (intake_payload.dart) so the exact JSON is unit-testable.
+      'intake': buildIntakePayload(
+        noAllergies: _noAllergies,
+        allergies: [
+          for (final a in _allergies) AllergyEntry(allergen: a.ctrl.text, hospitalized: a.hospitalized),
         ],
-      },
+        noMedications: _noMedications,
+        medications: [
+          for (final m in _medications) MedicationEntry(name: m.ctrl.text, frequencyKey: m.frequency),
+        ],
+        noHistory: _noHistory,
+        histories: [
+          for (final h in _histories)
+            HistoryEntry(condition: h.ctrl.text, yearsAgoKey: h.yearsAgo, stillHas: h.stillHas),
+        ],
+        noFamilyHistory: _noFamilyHistory,
+        families: [
+          for (final f in _families) FamilyEntry(relationKey: f.relation, condition: f.ctrl.text),
+        ],
+      ),
     };
     try {
       final session = await SessionsApi().createSession(payload);
@@ -184,7 +173,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(t('intake.medicalInfo.complaintLabel',
-            args: {'name': widget.args['complaintName'] ?? t('intake.medicalInfo.complaintUnset')})),
+            args: {'name': _arg('complaintName') ?? t('intake.medicalInfo.complaintUnset')})),
         actions: const [LanguageAction()],
       ),
       body: AbsorbPointer(
@@ -275,7 +264,13 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
 
   Widget _allergySection(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _sectionHeader(context, t('intake.medicalInfo.allergy.title'), t('intake.medicalInfo.allergy.noneLabel'), _noAllergies,
-            (v) => setState(() => _noAllergies = v)),
+            (v) => setState(() {
+                  _noAllergies = v;
+                  // Clear, don't just hide (React does the same). Rows kept alive behind
+                  // a ticked box are invisible data that submit() silently drops, and the
+                  // payload would then claim the patient denied what they had typed.
+                  if (v) _allergies.clear();
+                })),
         if (!_noAllergies) ...[
           for (var i = 0; i < _allergies.length; i++)
             Padding(
@@ -305,7 +300,10 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
 
   Widget _medicationSection(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _sectionHeader(context, t('intake.medicalInfo.medication.title'), t('intake.medicalInfo.medication.noneLabel'), _noMedications,
-            (v) => setState(() => _noMedications = v)),
+            (v) => setState(() {
+                  _noMedications = v;
+                  if (v) _medications.clear();
+                })),
         if (!_noMedications) ...[
           for (var i = 0; i < _medications.length; i++)
             Padding(
@@ -340,54 +338,77 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
   Widget _familySection(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
           padding: const EdgeInsets.only(top: 8, bottom: 4),
+          // Same "none" affordance as the other three sections: without it the patient
+          // has no way to say 「沒有家族病史」 and §3b keeps asking (D-10).
           child: Row(children: [
-            Text(t('intake.medicalInfo.family.title'),
-                style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(width: 8),
-            Text(t('intake.medicalInfo.family.optional'),
-                style: Theme.of(context).textTheme.bodySmall),
+            Expanded(
+              child: Row(children: [
+                Flexible(
+                  child: Text(t('intake.medicalInfo.family.title'),
+                      style: Theme.of(context).textTheme.titleSmall),
+                ),
+                const SizedBox(width: 8),
+                Text(t('intake.medicalInfo.family.optional'),
+                    style: Theme.of(context).textTheme.bodySmall),
+              ]),
+            ),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Checkbox(
+                value: _noFamilyHistory,
+                onChanged: (v) => setState(() {
+                  _noFamilyHistory = v ?? false;
+                  if (_noFamilyHistory) _families.clear();
+                }),
+              ),
+              Text(t('intake.medicalInfo.family.noneLabel')),
+            ]),
           ]),
         ),
         Text(t('intake.medicalInfo.family.hint'), style: Theme.of(context).textTheme.bodySmall),
-        for (var i = 0; i < _families.length; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(children: [
-              DropdownButton<String>(
-                value: _families[i].relation,
-                items: [
-                  for (final r in _relationKeys)
-                    DropdownMenuItem(value: r, child: Text(t('intake.medicalInfo.relations.$r')))
-                ],
-                onChanged: (v) => setState(() => _families[i].relation = v ?? 'father'),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: _families[i].ctrl,
-                  maxLength: 100,
-                  decoration: InputDecoration(
-                    labelText: t('intake.medicalInfo.family.conditionPlaceholder'),
-                    counterText: '',
+        if (!_noFamilyHistory) ...[
+          for (var i = 0; i < _families.length; i++)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(children: [
+                DropdownButton<String>(
+                  value: _families[i].relation,
+                  items: [
+                    for (final r in _relationKeys)
+                      DropdownMenuItem(value: r, child: Text(t('intake.medicalInfo.relations.$r')))
+                  ],
+                  onChanged: (v) => setState(() => _families[i].relation = v ?? 'father'),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _families[i].ctrl,
+                    maxLength: 100,
+                    decoration: InputDecoration(
+                      labelText: t('intake.medicalInfo.family.conditionPlaceholder'),
+                      counterText: '',
+                    ),
                   ),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.remove_circle_outline),
-                onPressed: () => setState(() => _families.removeAt(i)),
-              ),
-            ]),
+                IconButton(
+                  icon: const Icon(Icons.remove_circle_outline),
+                  onPressed: () => setState(() => _families.removeAt(i)),
+                ),
+              ]),
+            ),
+          TextButton.icon(
+            icon: const Icon(Icons.add),
+            label: Text(t('intake.medicalInfo.family.add')),
+            onPressed: () => setState(() => _families.add(_Family())),
           ),
-        TextButton.icon(
-          icon: const Icon(Icons.add),
-          label: Text(t('intake.medicalInfo.family.add')),
-          onPressed: () => setState(() => _families.add(_Family())),
-        ),
+        ],
       ]);
 
   Widget _historySection(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _sectionHeader(context, t('intake.medicalInfo.history.title'), t('intake.medicalInfo.history.noneLabel'), _noHistory,
-            (v) => setState(() => _noHistory = v)),
+            (v) => setState(() {
+                  _noHistory = v;
+                  if (v) _histories.clear();
+                })),
         if (!_noHistory) ...[
           for (var i = 0; i < _histories.length; i++)
             Padding(

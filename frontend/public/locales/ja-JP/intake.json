@@ -82,7 +82,8 @@
       "optional": "任意",
       "hint": "直系親族に遺伝性疾患はありますか？不明な場合はスキップしてください。",
       "conditionPlaceholder": "疾患（例：糖尿病）",
-      "add": "家族歴を追加"
+      "add": "家族歴を追加",
+      "noneLabel": "家族歴なし"
     },
     "summary": {
       "title": "送信内容の確認",

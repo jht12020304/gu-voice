@@ -80,6 +80,7 @@
     "family": {
       "title": "Family history",
       "optional": "Optional",
+      "noneLabel": "No family history",
       "hint": "Any hereditary conditions in your direct family? Skip if unsure.",
       "conditionPlaceholder": "Condition (e.g. diabetes)",
       "add": "Add family history"

@@ -80,6 +80,7 @@
     "family": {
       "title": "家族病史",
       "optional": "選填",
+      "noneLabel": "無家族病史",
       "hint": "直系親屬中有無遺傳性疾病？如不清楚可略過。",
       "conditionPlaceholder": "疾病（例：糖尿病）",
       "add": "新增家族病史"

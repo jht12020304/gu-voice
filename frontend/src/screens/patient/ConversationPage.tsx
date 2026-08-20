@@ -47,6 +47,13 @@ const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 /** #6 AI 語音語速循環選項（前端 playbackRate 倍率） */
 const SPEED_PRESETS = [1.0, 1.25, 1.5];
 
+/**
+ * 送出 end_session 後等待後端終態 `session_status` 的上限（毫秒）。
+ * 逾時就解除「結束中」disabled，讓病患能重按——不變式 #18 對稱條款下導頁
+ * 完全由後端事件驅動，若後端沒回應而按鈕永久 disabled，kiosk 會變成死畫面。
+ */
+const END_SESSION_ACK_TIMEOUT_MS = 12_000;
+
 const mockConvSession: Session = {
   id: 's1', patientId: 'p1', doctorId: 'mock-doctor-001', chiefComplaintId: 'cc1',
   chiefComplaintText: '血尿持續三天', status: 'in_progress', redFlag: true,
@@ -925,11 +932,44 @@ export default function ConversationPage() {
     chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
   }, [aiStreamingText, sttPartialText, userScrolledUp]);
 
-  // 結束問診
-  const handleEndSession = () => {
+  // 結束問診（不變式 #18 的**對稱條款**：前端不得搶先本地認定場次已結束）
+  //
+  // 舊寫法在 send() 之後立刻 navigate 到感謝頁。`websocket.ts` 的 send() 在
+  // readyState !== OPEN 時只 console.warn 就 return（靜默 no-op，違反不變式 #6），
+  // 而導頁會卸載本頁 → cleanup 走 off()/disconnect() → 那筆 end_session 永遠送不出去。
+  // 症狀：後端場次卡在 in_progress、SOAP 不會生成，病患卻已看到「問診完成」。
+  // 重連中（reconnecting/closed）按下結束鍵是最容易踩到的路徑。
+  //
+  // 現行行為（比照 Flutter conversation_controller.endSession 的註解）：
+  //   1. 未連線 → 不送、給看得見的錯誤、按鈕保持可按（可重試）
+  //   2. 已連線 → 送出後進入「結束中」disabled 狀態防連點，**不導頁**
+  //   3. 導頁一律由後端 `session_status`（extra.status 帶終態）事件驅動，
+  //      見上方 on('session_status') handler
+  //   4. 逾時未收到終態 → 解除 disabled 並提示可重試（kiosk 不能留死按鈕）
+  const [isEndingSession, setIsEndingSession] = useState(false);
+
+  const handleEndSession = useCallback(() => {
+    if (isEndingSession) return;
+    // send() 在非 OPEN 時靜默丟棄 → 這裡先擋下並給回饋，不得讓病患以為已送出。
+    if (connectionState !== 'open') {
+      setError(t('conversation:error.endSessionOffline'));
+      return;
+    }
+    setError(null);
+    setIsEndingSession(true);
     send('control', { action: 'end_session' });
-    navigate(`/patient/session/${sessionId}/thank-you`, { replace: true });
-  };
+  }, [isEndingSession, connectionState, send, setError, t]);
+
+  // 結束指令的 ACK 看門狗：後端終態 session_status 會導頁（本 effect 隨頁面卸載一起清掉）。
+  // 若逾時仍在本頁，代表指令沒被處理 → 解除 disabled 讓病患重按，並給可見提示。
+  useEffect(() => {
+    if (!isEndingSession) return;
+    const timer = setTimeout(() => {
+      setIsEndingSession(false);
+      setError(t('conversation:error.endSessionTimeout'));
+    }, END_SESSION_ACK_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [isEndingSession, setError, t]);
 
   if (!currentSession && !error) {
     return <LoadingSpinner fullPage message={t('conversation:loading')} />;
@@ -1040,10 +1080,13 @@ export default function ConversationPage() {
             {ttsSpeed}x
           </button>
           <button
-            className="rounded-btn px-3 py-1.5 text-caption font-medium text-alert-critical hover:bg-alert-critical-bg transition-colors"
+            type="button"
+            className="rounded-btn px-3 py-1.5 text-caption font-medium text-alert-critical transition-colors hover:bg-alert-critical-bg disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
             onClick={handleEndSession}
+            disabled={isEndingSession}
+            aria-busy={isEndingSession}
           >
-            {t('conversation:endSession')}
+            {isEndingSession ? t('conversation:endSessionPending') : t('conversation:endSession')}
           </button>
         </div>
       </header>

@@ -70,7 +70,9 @@
     "audioTooLong": "録音時間が長すぎるため、自動で終了しました",
     "micPermission": "ブラウザの設定でマイクへのアクセスを許可し、ページを再読み込みしてください",
     "micNotFound": "マイクが見つかりません。マイクが接続されているかご確認ください",
-    "micGeneric": "マイクでエラーが発生しました：{{message}}"
+    "micGeneric": "マイクでエラーが発生しました：{{message}}",
+    "endSessionOffline": "接続が切れているため、問診終了の指示が送信されていません。再接続後にもう一度「問診を終了」を押してください。",
+    "endSessionTimeout": "終了の確認がまだ届いていません。もう一度「問診を終了」を押してください。反応がない場合は、その場の医療スタッフにお知らせください。"
   },
   "mockMessages": {
     "systemStart": "問診を開始しました — 主訴：{{complaint}}"
@@ -78,5 +80,6 @@
   "connection": {
     "reconnecting": "接続が切断されました。再接続しています…",
     "retry": "再試行"
-  }
+  },
+  "endSessionPending": "終了処理中…"
 }

@@ -83,7 +83,7 @@ venv/bin/python ../scripts/e2e_realopenai/driver.py reanalyze <scenario>
 |---|---|
 | `ANALYZERS` / `SCENARIO_RED_FLAG_SPEC` 有沒有登記這場 | main 直接 KeyError／紅旗期待未宣告 |
 | `chief_complaint_id` 在不在 DB 且 `is_active` | 建場次就 4xx，整場白跑 |
-| 這場語言有沒有 `ws.session_terminated_aborted_notice*` 模板 | `t5` 只能 `precondition_not_met` |
+| 這場語言有沒有 `ws.session_terminated_aborted_notice*` 模板 | 純診斷（2026-08-20 起 `t5` 只有在**真的收到** post-abort 文字時才需要模板；見下方「t5 判準改版」） |
 | persona 硬性規定的第一句，規則層**現在**會不會命中 | `t9`（規則層 fallback 必須命中）一定 FAIL |
 | `backend/.env` 的 `OPENAI_API_KEY` | 跑到一半才死 |
 | `server_provenance`（診斷，不 blocking） | 白箱斷言的證據力 |
@@ -363,6 +363,12 @@ venv/bin/python ../scripts/e2e_realopenai/driver.py ruleprobe   # exit 1 ＝有 
 14. **`reanalyze` 只讀結果檔＝對產品碼變動失明。** 任何「依賴當前產品碼行為」的
     斷言，`reanalyze` 時要嘛真的重跑（規則層是純字串運算，離線可行），要嘛標
     `stale`。**不可以拿舊紀錄靜靜回 pass。**
+16. **不要把「其中一種合格樣態」寫死成唯一樣態。** `t5` 舊判準要求 abort 後一定要
+    收到固定終止提示；EM-1（116282d）之後，critical 由 inline 判定時主迴圈當場
+    break、WS 立刻關閉，**收不到任何提示**——同一份碼會依「inline vs 背景 drain
+    誰先解析出 critical」而落在兩種樣態，於是同一份碼可以一場紅一場綠。判準要寫
+    在**不變的實質**上（這裡是「終止後不得有 LLM 產物」），把各樣態列成合法分支，
+    並記在 `post_abort_shape` 這種欄位裡讓覆核者看得見走了哪條。
 15. **恆真的「空值即通過」。** `_wrapup_has_no_question` 舊寫法是
     `"?" not in last_ai_text`，最後一則 AI 訊息為空／不存在時**恆真** →
     整場沒有 AI 收尾訊息也照樣綠。凡是「某文字不含 X」型斷言，都要先確認
@@ -386,7 +392,7 @@ venv/bin/python ../scripts/e2e_realopenai/driver.py ruleprobe   # exit 1 ＝有 
 - **torsion_critical_zh**（zh-TW、陰囊腫脹 c7，上限 4 回合）：第一輪即典型睪丸扭轉描述。
   斷言：t1 第 1 輪 `aborted_red_flag`；t2 critical alert 入庫；t3 有 SOAP；
   **t4 `sessions.red_flag=true` 且 `red_flag_reason` 非空（A4；修復前 false/空）**；
-  t5 終止提示、t6 時間戳、t7 中止場次也要有 generated SOAP、
+  **t5 abort 後零 LLM 產物（判準 2026-08-20 改版，見下節）**、t6 時間戳、t7 中止場次也要有 generated SOAP、
   **t8 病患端措辭鐵律（四類來源）**、**t9 規則層必須命中 `testicular_pain_severe`
   的 critical（`confidence=rule_hit` + `trigger_keywords` 非空 + 離線重跑複驗）**、
   **t10 措辭變體語料雙向通過**。
@@ -400,6 +406,32 @@ venv/bin/python ../scripts/e2e_realopenai/driver.py ruleprobe   # exit 1 ＝有 
   （`testicle suddenly` / `pain in my testicle` …），端到端從未驗過——原本 7 個情境
   裡只有一場宣告 `rule_layer_gate`，規則層 fallback 的迴歸偵測全押在一場 zh-TW。
   `t5` 的終止提示比對改成依情境語言取 backend i18n 模板（以前寫死中文子字串）。
+
+### `t5` 判準改版（2026-08-20，EM-1 / commit 116282d）
+
+舊斷言 `t5_post_abort_terminated_notice` 要求 abort 後**每一則** probe 都收到固定
+終止提示；新斷言 `t5_post_abort_ws_closed_no_llm` 守的是同一個實質——
+**終止後不得有任何 LLM 產物**——但接受兩種都合法的樣態：
+
+| 樣態 | 什麼時候發生 | 病患端看到 |
+|---|---|---|
+| **A：立即關閉** | critical 在 `_handle_text_message` 內 inline 判定 → EM-1 的
+  `return True` 讓主迴圈當場 break | 終態事件 + 紅旗感謝頁，WS close 1000 |
+| **B：固定提示後關閉** | critical 由背景 `_drain_late_red_flags` 判定 → 本輪 handler
+  正常返回、主迴圈續跑 → 下一則訊息被 `_terminated` 守衛接住 | 固定 i18n 終止提示（非 LLM），之後 close 1000 |
+
+同一份碼、同一個情境兩場真跑各中一次（`uvicorn.log` 可見「遲到的 critical 紅旗，
+中止場次」＝路徑 B）。**把任一種寫成唯一合格樣態都會製造抽樣性假紅。**
+
+pass 需要：`probes_sent>=1`、server 主動乾淨關閉（1000/1001）、收到的 AI 文字
+（若有）逐字等於該場語言的 backend i18n 終止提示模板、無紅旗重跑／abort 事件重發、
+且**重連被 4009 拒絕**（新增觀測欄位 `post_terminal_reconnect`；舊結果檔沒有時
+記 `unavailable` 且不 gating）。讀不到 i18n 模板卻收到文字 → `precondition_not_met`
+（證明不了那是確定性提示而不是 LLM 續答），不是 pass 也不是 fail。
+
+主控 2026-08-20 裁決接受 EM-1 帶來的行為變更（方案 a）：病患端在關閉前已收到
+`aborted_red_flag` 終態事件與紅旗版感謝頁，重連由 `conversation_handler.py:530-536`
+的 4009 守衛擋住，主動關閉還省掉一次無意義的 LLM/TTS 呼叫。
 
 ⚠️ **這兩場到第四輪為止仍是「宣告了但沒真跑」**——「語序變體已驗」只有離線 replay
 撐著。第四輪對它們做了離線體檢（`driver.py preflight`），三場 torsion 都綠：

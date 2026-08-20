@@ -101,11 +101,21 @@ async def generate_report(
     current_user=Depends(get_current_user),
 ) -> ReportDetail:
     """
-    依指定場次的對話記錄，觸發 AI 生成 SOAP 格式報告。
-    場次必須處於 completed 狀態。生成為非同步作業。
+    依指定場次的對話記錄，觸發 AI 生成 SOAP 格式報告。生成為非同步作業。
+
+    場次必須處於可產報告的終態（completed 或 aborted_red_flag，見
+    `ReportService.REPORT_ELIGIBLE_SESSION_STATUSES`）。
+
+    Body 完全可選（SO-2）：不送 body 等同 `{"regenerate": false}`；
+    要重生只需送 `{"regenerate": true}`。body 若仍帶 `session_id`（舊 client）
+    一律忽略——場次以 path param 為準。
 
     回傳剛建立／重置的 SOAPReport（status=generating），前端 reportStore
     以完整 SOAPReport 結構消費。
+
+    409 情境：
+    - 已有報告且未要求 regenerate → REPORT_ALREADY_EXISTS
+    - 報告正在生成中（防連點）→ CONFLICT / errors.report_generating
     """
     regenerate = payload.regenerate if payload else False
     additional_notes = payload.additional_notes if payload else None

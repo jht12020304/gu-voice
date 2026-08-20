@@ -26,12 +26,14 @@ from app.core.exceptions import AIServiceUnavailableException
 from app.core.openai_client import call_with_retry, get_openai_client
 from app.pipelines.llm_conversation import (
     render_critical_risk_factor_items_with_intake,
+    session_intake_fields,
 )
 from app.pipelines.next_focus_guard import sanitize_guidance
 from app.pipelines.prompts.shared import (
     HPI_FIELD_IDS,
     SINGLE_QUESTION_RULE,
     render_hpi_checklist,
+    sanitize_for_prompt,
 )
 from app.utils.i18n_messages import get_message as _i18n_get
 
@@ -73,9 +75,12 @@ SUPERVISOR_SYSTEM_PROMPT = f"""你是一位泌尿科資深主治醫師(Superviso
 - 若實習醫師問錯方向或重複問已得到答案的項目,next_focus 要明確拉回正確方向。
 - 病患已明確表示不知道、記不得或無法回答的項目,**不得**再讓 next_focus 指向它
   (換句話、換角度重問同樣禁止),一律改問其他尚未覆蓋的面向。
-- 【背景資訊】中標註「intake 已提供」的過去病史/用藥/過敏/家族史屬既有資料,
-  next_focus **不得**要求病患重述這些已知項目(它們也不屬 HPI 十欄);若臨床上需要
-  釐清細節,才可針對「與本主訴直接相關」的單一具體點追問。
+- 【背景資訊】中標註「intake 已提供」的過去病史/用藥/過敏/家族史屬**本次問診表單**
+  剛填的資料, next_focus **不得**要求病患重述這些已知項目(它們也不屬 HPI 十欄);
+  若臨床上需要釐清細節,才可針對「與本主訴直接相關」的單一具體點追問。
+- 相對地,標註「病歷記載(過往)」的項目來自**過去建檔的長期病歷,不是本次填寫的**,
+  可能已經過時。這條「不得要求重述」的限制**不適用**於它們:必要時仍可就其中與本
+  主訴相關的項目做一次口頭確認(仍受「一次一題」與 don't-know 不重問規則約束)。
 - next_focus 最大長度 60 個中文字以內,保持精簡。
 
 ## 病患表示「不知道」的處理(硬性規則)
@@ -128,8 +133,23 @@ hpi_completion_percentage 為 0-100 的整數,評估 HPI 十欄的整體完整�
 
 
 # P0-1：把 patient_info（含 intake 已提供的病史/用藥/過敏/家族史）組成 Supervisor
-# 背景資訊字串。抽成純函式以便單元測試（不需 mock OpenAI/Redis）。intake 欄位標註
-# 「intake 已提供」讓 Supervisor prompt 的護欄能明確不重問已知項。
+# 背景資訊字串。抽成純函式以便單元測試（不需 mock OpenAI/Redis）。
+#
+# ── IN-3（2026-08-20）：來源標籤必須分辨「本次 intake」與「patients 表舊資料」 ──
+# `patient_context.build_patient_info` 的**扁平**四欄在本次 intake 空白時會 fallback
+# 到 `patients` 表的長期資料（可能是幾個月前建檔的）。舊版把扁平值整批標成
+# 「（intake 已提供）」，再配上 prompt 裡那條硬規則「不得要求病患重述這些已知項目」
+# ——結果是**幾個月前的舊病歷把本次問診的口頭確認整個關掉**，而對話端
+# （`llm_conversation.render_intake_known_block` / `session_intake_fields`）早在
+# BLOCKER E 就已經改成只採信本次 intake。兩端判準不同 ＝ 靜默漂移。
+#
+# 現行作法（與對話端同一個判準、同一支函式）：
+#   - `session_intake_fields()` 認得出來的 → 「（intake 已提供）」，受不得重述限制。
+#   - 其餘扁平非空值（＝patients 表 fallback，來源不可證為本次）→
+#     「（病歷記載，過往）」，prompt 明文**不**套用不得重述條款。
+INTAKE_LABEL_SUFFIX = "（intake 已提供）"
+LEGACY_RECORD_LABEL_SUFFIX = "（病歷記載，過往）"
+
 _INTAKE_CONTEXT_FIELDS: list[tuple[str, str]] = [
     ("medical_history", "過去病史"),
     ("medications", "目前用藥"),
@@ -139,20 +159,33 @@ _INTAKE_CONTEXT_FIELDS: list[tuple[str, str]] = [
 
 
 def build_patient_info_str(patient_info: dict[str, Any]) -> str:
-    """組合 Supervisor 背景用的病患資訊字串（age/gender + intake 已提供項）。"""
+    """組合 Supervisor 背景用的病患資訊字串。
+
+    age/gender + 四欄病史；四欄依來源分別標註「（intake 已提供）」（本次問診表單）
+    與「（病歷記載，過往）」（patients 表長期資料），見上方 IN-3 註記。
+    """
+    info = patient_info or {}
     # `.get(key, '未知')` 只在 key 不存在時 fallback；patient_context.build_patient_info
     # 一定會放 age/gender 兩個 key（值可能是 None）→ 舊寫法會渲染成「年齡：None」。
     # 用 `is not None` 判斷同時保住 age==0（未滿一歲）不被當成缺值。
-    age = patient_info.get("age")
-    gender = patient_info.get("gender")
+    age = info.get("age")
+    gender = info.get("gender")
     parts: list[str] = [
         f"年齡：{age if age is not None else '未知'}",
         f"性別：{gender if gender else '未知'}",
     ]
+    this_session_intake = session_intake_fields(info)
     for key, label in _INTAKE_CONTEXT_FIELDS:
-        val = patient_info.get(key)
-        if val:
-            parts.append(f"{label}（intake 已提供）：{val}")
+        # D-1：四欄都是病患自填自由文字 → 插進 prompt 前一律消毒。
+        val = sanitize_for_prompt(info.get(key))
+        if not val:
+            continue
+        suffix = (
+            INTAKE_LABEL_SUFFIX
+            if key in this_session_intake
+            else LEGACY_RECORD_LABEL_SUFFIX
+        )
+        parts.append(f"{label}{suffix}：{val}")
     return " / ".join(parts)
 
 
@@ -202,6 +235,11 @@ class SupervisorEngine:
         # （conversation_handler _validate_session 組好，與 build_system_prompt 同源），
         # 此前僅用 age/gender，現改用 build_patient_info_str 一併帶入 intake 已提供項。
         patient_info_str = build_patient_info_str(patient_info)
+
+        # D-1：主訴可能是病患自填的自由文字，且被 .replace() 插進 system prompt 的
+        # 「- 主訴:{chief_complaint}」條列行 → 多行值會在渲染後長出新的區段/條列。
+        # 消毒只摺疊空白與剝掉開頭的 `#`，§3b 主訴關鍵字比對結果不變。
+        chief_complaint = sanitize_for_prompt(chief_complaint)
 
         # 格式化對話
         transcript_lines = []

@@ -66,10 +66,22 @@
     "awaitingReview": "Đang chờ bác sĩ xem xét"
   },
   "highlights": {
-    "positive": { "title": "Dấu hiệu dương tính quan trọng", "empty": "Chưa xác định được triệu chứng dương tính rõ ràng." },
-    "negative": { "title": "Dấu hiệu âm tính quan trọng", "empty": "Chưa xác định được triệu chứng âm tính rõ ràng." },
-    "riskFactors": { "title": "Yếu tố nguy cơ", "empty": "Không có yếu tố nguy cơ rõ ràng." },
-    "impression": { "title": "Nhận định sơ bộ", "empty": "Chưa có nhận định rõ ràng." }
+    "positive": {
+      "title": "Dấu hiệu dương tính quan trọng",
+      "empty": "Chưa xác định được triệu chứng dương tính rõ ràng."
+    },
+    "negative": {
+      "title": "Dấu hiệu âm tính quan trọng",
+      "empty": "Chưa xác định được triệu chứng âm tính rõ ràng."
+    },
+    "riskFactors": {
+      "title": "Yếu tố nguy cơ",
+      "empty": "Không có yếu tố nguy cơ rõ ràng."
+    },
+    "impression": {
+      "title": "Nhận định sơ bộ",
+      "empty": "Chưa có nhận định rõ ràng."
+    }
   },
   "diagnosis": {
     "title": "Mã chẩn đoán",
@@ -235,6 +247,7 @@
     "cancel": "Hủy",
     "confirm": "Xác nhận tạo lại",
     "success": "Đã tạo lại báo cáo",
-    "error": "Tạo lại báo cáo thất bại. Vui lòng thử lại sau."
+    "error": "Tạo lại báo cáo thất bại. Vui lòng thử lại sau.",
+    "disabledGenerating": "Đang tạo báo cáo, vui lòng đợi hoàn tất rồi mới tạo lại"
   }
 }

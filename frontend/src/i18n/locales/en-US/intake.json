@@ -82,7 +82,8 @@
       "optional": "Optional",
       "hint": "Any hereditary conditions in your direct family? Skip if unsure.",
       "conditionPlaceholder": "Condition (e.g. diabetes)",
-      "add": "Add family history"
+      "add": "Add family history",
+      "noneLabel": "No family history"
     },
     "summary": {
       "title": "Review before submitting",
