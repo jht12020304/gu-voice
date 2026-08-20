@@ -24,7 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.exceptions import RateLimitExceededException
 from app.core.rate_limit import enforce_llm_per_user_rate_limit
-from app.pipelines.llm_conversation import LLMConversationEngine
+from app.pipelines.llm_conversation import (
+    HISTORY_SUMMARY_PREFIX as _HISTORY_SUMMARY_PREFIX,
+    LLMConversationEngine,
+)
 from app.pipelines.patient_context import build_patient_info
 from app.pipelines.prompts.shared import count_critical_risk_factors_for_complaint
 from app.pipelines.red_flag_detector import RedFlagDetector
@@ -203,6 +206,11 @@ async def _cap_conversation_history(
     若 conversation_history 超過上限（預設 50 輪 = 100 entries），
     將最舊的一半超額部分摘要為單一 system 訊息，其餘保留。
     就地修改 history。摘要失敗時保留原始舊輪次（不靜默丟棄），以免遺失紅旗臨床脈絡。
+
+    ⚠️ 摘要那則的 content **必須**以 `HISTORY_SUMMARY_PREFIX` 起頭：
+    `llm_conversation.format_messages` 原本無條件跳過所有 role="system" 的歷史，
+    這則摘要因此**從來沒有進過 LLM**——壓縮等於丟棄，長場次的前段病史對對話 LLM
+    完全消失（D-8）。現在 format_messages 以這個前綴放行它，前綴是兩邊共用的常數。
     """
     max_turns = getattr(settings, "CONVERSATION_HISTORY_MAX_TURNS", 50)
     # 一輪 = patient + assistant → 2 筆，list 長度上限 = max_turns * 2
@@ -219,11 +227,13 @@ async def _cap_conversation_history(
 
     summary_text: str | None = await _summarize_history_segment(settings, old_segment)
 
-    # 合併既有摘要（若最前面已經是 [前段對話摘要] system 訊息）
+    # 合併既有摘要（若最前面已經是摘要 system 訊息）
     existing_summary = ""
     if recent and recent[0].get("role") == "system":
         first_content = recent[0].get("content", "")
-        if isinstance(first_content, str) and first_content.startswith("[前段對話摘要]"):
+        if isinstance(first_content, str) and first_content.startswith(
+            _HISTORY_SUMMARY_PREFIX
+        ):
             existing_summary = first_content
             recent = recent[1:]
 
@@ -233,7 +243,7 @@ async def _cap_conversation_history(
         if existing_summary:
             merged = existing_summary + "\n" + summary_text
         else:
-            merged = f"[前段對話摘要] {summary_text}"
+            merged = f"{_HISTORY_SUMMARY_PREFIX} {summary_text}"
         history.append(
             {
                 "role": "system",
@@ -262,7 +272,10 @@ async def _cap_conversation_history(
         history.append(
             {
                 "role": "system",
-                "content": "[前段對話摘要] 摘要暫時無法產生，以下保留原始較舊對話內容以維持臨床脈絡完整。",
+                "content": (
+                    f"{_HISTORY_SUMMARY_PREFIX} 摘要暫時無法產生，"
+                    "以下保留原始較舊對話內容以維持臨床脈絡完整。"
+                ),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -1658,7 +1671,14 @@ async def _handle_text_message(
     import json
     supervisor_guidance = None
     try:
-        raw_guidance = await redis.get(f"gu:session:{session_id}:supervisor_guidance")
+        # key 前綴必須與**寫入端**（`supervisor.analyze_next_step` 用
+        # `settings.REDIS_KEY_PREFIX`）同源。這裡原本硬寫 "gu:"，只要環境把
+        # REDIS_KEY_PREFIX 設成別的值（多環境共用一台 Redis 時就會），讀取端就永遠
+        # 讀不到 guidance → supervisor 整條指導管線靜默失效（不會報錯，只是 AI 從此
+        # 沒有 next_focus，也沒有 hpi_completion_percentage 可觸發軟門檻收尾）。
+        raw_guidance = await redis.get(
+            f"{settings.REDIS_KEY_PREFIX}session:{session_id}:supervisor_guidance"
+        )
         if raw_guidance:
             supervisor_guidance = json.loads(raw_guidance)
     except Exception as exc:

@@ -10,12 +10,33 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.config import settings
 from app.models.enums import Gender, SessionStatus
+from app.pipelines.prompts.shared import sanitize_for_prompt
 from app.schemas.common import CursorPagination
 from app.schemas.conversation import ConversationResponse
 from app.utils.language import normalize_bcp47
 
 
-class SessionIntakeAllergyItem(BaseModel):
+class PromptSafeFreeText(BaseModel):
+    """所有欄位皆為病患自由輸入、且會被插進 LLM system prompt 的 schema 基底。
+
+    D-1：intake 四欄的每一筆（各 100 字）與主訴自填文字（200 字）原本零消毒直入
+    system prompt。prompt 用 markdown 標題分區，多行值 + `##` 開頭在渲染後與真正的
+    區段標題字面上無法區分（偽區段）。消毒放在**入口**（本層）與 **prompt 組裝層**
+    （`app.pipelines.prompts.shared.sanitize_for_prompt` 的呼叫端）兩處：入口這層讓
+    髒值不會落進 DB 的 `sessions.intake_data`，組裝層則涵蓋非本 schema 進來的路徑
+    （`patients` 表舊資料、e2e 裸 JSON）。
+
+    只摺疊空白 / 剝控制字元，臨床內容（「38度」「50%」「PSA 4.5」）原樣保留。
+    """
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def _sanitize_free_text(cls, v: Any) -> Any:
+        # bool（had_hospitalization / still_has）與非字串欄位原樣放行。
+        return sanitize_for_prompt(v) if isinstance(v, str) else v
+
+
+class SessionIntakeAllergyItem(PromptSafeFreeText):
     """本次問診 intake - 過敏史"""
 
     allergen: str = Field(..., min_length=1, max_length=100)
@@ -24,14 +45,14 @@ class SessionIntakeAllergyItem(BaseModel):
     had_hospitalization: bool = False
 
 
-class SessionIntakeMedicationItem(BaseModel):
+class SessionIntakeMedicationItem(PromptSafeFreeText):
     """本次問診 intake - 目前用藥"""
 
     name: str = Field(..., min_length=1, max_length=100)
     frequency: Optional[str] = Field(None, max_length=100)
 
 
-class SessionIntakeMedicalHistoryItem(BaseModel):
+class SessionIntakeMedicalHistoryItem(PromptSafeFreeText):
     """本次問診 intake - 過去病史"""
 
     condition: str = Field(..., min_length=1, max_length=100)
@@ -39,7 +60,7 @@ class SessionIntakeMedicalHistoryItem(BaseModel):
     still_has: bool = True
 
 
-class SessionIntakeFamilyHistoryItem(BaseModel):
+class SessionIntakeFamilyHistoryItem(PromptSafeFreeText):
     """本次問診 intake - 家族病史"""
 
     relation: str = Field(..., min_length=1, max_length=50)
@@ -91,6 +112,21 @@ class SessionCreate(BaseModel):
     patient_info: Optional[PatientInfoPayload] = Field(None, alias="patientInfo")
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("chief_complaint_text")
+    @classmethod
+    def _sanitize_chief_complaint_text(cls, v: Optional[str]) -> Optional[str]:
+        """D-1：主訴自填文字（200 字、可多行）是最直接的偽區段載體。
+
+        它被 `build_system_prompt` 插在 `## 主訴` 標題的**下一行行首**，多行值的
+        第二行若以 `##` 起頭，渲染後與真正的區段標題無法區分。消毒只摺疊空白、
+        剝掉控制字元與開頭的 `#`，不動臨床字面（長度上限仍由 max_length 把關）。
+        消毒後變空字串時回 None——與「沒填」同語意，讓 router 走 ChiefComplaint 名稱。
+        """
+        if v is None:
+            return None
+        cleaned = sanitize_for_prompt(v)
+        return cleaned or None
 
     @field_validator("language")
     @classmethod

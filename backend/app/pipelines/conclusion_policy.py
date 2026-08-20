@@ -12,6 +12,7 @@ tests/unit/websocket/test_auto_conclude.py 完整覆蓋。抽到此獨立模組�
 from typing import Any
 
 from app.core.config import Settings
+from app.pipelines.llm_conversation import count_must_ask_risk_factors
 from app.pipelines.prompts.shared import count_critical_risk_factors_for_complaint
 
 
@@ -107,10 +108,29 @@ def session_risk_factor_count(session_context: dict[str, Any]) -> int:
     這兩處注入相同的主訴字串」，否則會漂移：實測 ED 場 chief_complaint_display 不含
     「勃起」→ 用 display 算成 K=0、軟門檻下限沒抬高，但 conversation/supervisor 用 raw
     「勃起功能障礙」→ K=3 確實把風險因子列為必問，兩者矛盾導致收尾邏輯漏問。
+
+    ── D-2（2026-08-20）：K 必須是 **intake 過濾後**的必問題數 ──
+    同一個「與注入清單對齊」的理由，也要求 K 對齊**過濾後**的清單。prompt 端注入的
+    必問清單早已被 `llm_conversation` 的 intake 三態判定過濾過（明確「無」/ 值真的
+    涵蓋 → 移出必問、改列禁問），但配額原本仍吃未過濾的 K：血尿場 K=3、intake 已
+    涵蓋 2 項時，病患實際只剩 1 題要答，卻照 K=3 被抬高成軟門檻下限 base+3-1=12、
+    硬上限 base+3+2=15 → **白綁 6–7 輪**才收得了尾。改吃
+    `llm_conversation.count_must_ask_risk_factors`（同一支過濾邏輯，不另建第三份判定）。
+
+    **方向護欄**：過濾後 K 只會 ≤ 原 K（must_ask ⊆ factors，且該函式再 min 一次，
+    這裡又 min 一次）。`patient_info` 型別不對 / 缺席時退回未過濾 K——那是「多綁
+    幾輪」的保守側，絕不能反過來讓 K 變大。K==0 時 `effective_hard_cap` /
+    `should_auto_conclude` 的既有語意完全不變（cap 回 base、soft_min 回
+    MIN_PATIENT_TURNS_BEFORE_AUTO_END）。
     """
-    return count_critical_risk_factors_for_complaint(
-        session_context.get("chief_complaint", "")
-    )
+    chief_complaint = session_context.get("chief_complaint", "")
+    raw = count_critical_risk_factors_for_complaint(chief_complaint)
+    if raw <= 0:
+        return 0
+    patient_info = session_context.get("patient_info")
+    if not isinstance(patient_info, dict):
+        return raw
+    return min(count_must_ask_risk_factors(chief_complaint, patient_info), raw)
 
 
 def should_conclude_now(

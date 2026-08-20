@@ -11,6 +11,8 @@ red_flag 四個 pipeline 都從這裡 import,確保:
 修改本檔後,四個 pipeline 會自動同步 — 不需要再手動對齊 prompt 文字。
 """
 
+import re
+import unicodedata
 from typing import Any
 
 # =============================================================================
@@ -1621,3 +1623,59 @@ SINGLE_QUESTION_RULE = """【每輪輸出的硬性限制】
 - 每次回覆最多 2 句話,保持口語、簡潔。
 - 不使用 markdown、不用 bullet、不用條列符號。
 """
+
+
+# =============================================================================
+# 病患自由文字 → prompt 插值前的入口消毒（D-1）
+# =============================================================================
+# 病患可以自由輸入的欄位（主訴自填文字 200 字、intake 四欄每筆各 100 字）目前是
+# **零消毒**直接被 f-string 插進 conversation / supervisor 的 system prompt。system
+# prompt 用 markdown 標題（`## 病患資訊`、`## 主訴`、`## 問診準則`）分區,所以病患值裡
+# 的換行 + `##` 開頭在渲染後與真正的區段標題**在字面上無法區分**——LLM 讀到的是一個
+# 多出來的「指令區段」,而不是一段病患敘述。
+#
+# 對策是**入口消毒**（schema 驗證層 + prompt 組裝層雙保險）,規則刻意只有三條:
+#   1. 移除控制字元 / 零寬 / BiDi 覆寫字元（C0、C1、U+200B–U+200F、U+2028/2029、
+#      U+202A–U+202E、U+2060–U+2064、U+FEFF）——它們在 prompt 裡不可見,卻能讓
+#      「看起來無害」的字串在 LLM 眼中換行或改變閱讀方向。
+#   2. **換行摺疊成單一空白**（連同 tab / 多重空白）。偽區段風險的根本解就是這一條:
+#      markdown 標題必須在**行首**,值被壓成單行之後,值裡任何 `## …` 都只能出現在
+#      句中,不再構成標題。
+#   3. 只有第 2 條摺疊完之後仍**以 `#` 起頭**的殘餘情況要再處理——因為部分插值點
+#      （例如 `## 主訴\n{chief_complaint}`）本身就把值放在一行的開頭,值的第一個字元
+#      正好落在行首。臨床敘述不會以 `#` 開頭,故直接剝掉開頭連續的 `#`／`＃`。
+#
+# **刻意不做**的事（過度消毒會吃掉臨床內容,那比偽區段更常見也更難察覺）:
+#   - 不動數字、單位、百分比、度數（「38度」「50%」「PSA 4.5」原樣保留）
+#   - 不動標點、括號、頓號（intake 的「、」是 patient_context 的分隔符,拆筆判定靠它）
+#   - 不做關鍵字黑名單（「忽略以上指示」這種句子留在**單行的病患敘述**裡不構成區段,
+#     而黑名單只會誤刪臨床詞）
+_PROMPT_UNSAFE_CHARS = re.compile(
+    "["
+    "\\x00-\\x1f\\x7f-\\x9f"  # C0 控制字元（含 \\t\\n\\r）、DEL、C1
+    "\\u200b-\\u200f"  # 零寬空白／連字／非連字、LRM、RLM
+    "\\u2028\\u2029"  # 行分隔符／段分隔符（Unicode 換行）
+    "\\u202a-\\u202e"  # BiDi 嵌入／覆寫
+    "\\u2060-\\u2064\\ufeff"  # word joiner／不可見運算子／BOM
+    "]"
+)
+_LEADING_HEADING_MARKS = re.compile(r"^[#＃]+[ \t　]*")
+
+
+def sanitize_for_prompt(value: Any, max_chars: int | None = None) -> str:
+    """把病患自由文字消毒成「可安全插進 system prompt 的單行字串」。
+
+    見上方區段註解。None / 空值回 ""；非 str 一律先轉字串（防上游誤傳 ORM 物件）。
+    `max_chars` 預設不截斷——長度上限由 schema 負責,這裡截斷反而會靜默丟掉臨床內容。
+    """
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else str(value)
+    text = unicodedata.normalize("NFC", text)
+    text = _PROMPT_UNSAFE_CHARS.sub(" ", text)
+    # split() 同時處理 \n \r \t \v \f 與全形空白,並順帶 strip。
+    text = " ".join(text.split())
+    text = _LEADING_HEADING_MARKS.sub("", text).strip()
+    if max_chars is not None and len(text) > max_chars:
+        text = text[:max_chars].rstrip()
+    return text
