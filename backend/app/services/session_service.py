@@ -78,6 +78,157 @@ async def _broadcast_session_created(db: AsyncSession, session: Session) -> None
         )
 
 
+# ── REST 狀態轉移的附帶效應（不變式 #20「終態六件事」） ──────────────
+#
+# EM-2：`PUT /sessions/{id}/status` 以前只做「改 status」一件事——把場次標成
+# completed 卻不派 SOAP、不廣播 dashboard、不通知任何人，醫師端排隊清單留著一筆
+# 已結束的場次、且永遠等不到報告。以下把 REST 路徑能做的補齊。
+#
+# dashboard `session_status_changed` 的在地化 code：刻意只挑「既有」的 canonical
+# code（新增一個 key 要同步 frontend/src + frontend/public 鏡像 + flutter_app
+# 三份共 15 個 locale 檔），cancelled 沿用「病患或助手結束場次」語意吻合。
+_STATUS_CHANGED_CODES: dict[SessionStatus, str] = {
+    SessionStatus.COMPLETED: "events.session.completed_normal",
+    SessionStatus.ABORTED_RED_FLAG: "events.session.aborted_red_flag_dashboard",
+    SessionStatus.CANCELLED: "events.session.ended_by_user",
+}
+_STATUS_CHANGED_SEVERITIES: dict[SessionStatus, str] = {
+    SessionStatus.ABORTED_RED_FLAG: "critical",
+}
+# 會派 SOAP 的終態。cancelled **刻意不派**：與 P7 的既有政策一致
+# （`tasks/session_timeout` 的逾時 cancelled、病患直接關瀏覽器皆無報告——
+# 未完成場次不出報告是產品決策，不是缺陷）。要改政策請三處一起改。
+_SOAP_ON_TERMINAL: frozenset[SessionStatus] = frozenset(
+    {SessionStatus.COMPLETED, SessionStatus.ABORTED_RED_FLAG}
+)
+
+
+async def _refresh_session_state_cache(session_id: UUID, new_status: SessionStatus) -> None:
+    """把 Redis 的場次狀態快取更新成新狀態（與 WS `_update_session_status` 對稱）。
+
+    key 格式刻意從 `conversation_handler` import 而不是在這裡再寫一份字面值：
+    兩處漂移的後果是「REST 改了狀態但快取還是舊值」，而且不會有任何訊號。
+    """
+    from app.cache.redis_client import get_redis
+    from app.websocket.conversation_handler import (
+        _SESSION_STATE_KEY,
+        _SESSION_STATE_TTL,
+    )
+
+    redis = await get_redis()
+    state_key = _SESSION_STATE_KEY.format(session_id=str(session_id))
+    await redis.hset(state_key, "status", new_status.value)
+    await redis.expire(state_key, _SESSION_STATE_TTL)
+
+
+async def _after_status_transition(
+    db: AsyncSession,
+    *,
+    session_id: UUID,
+    previous_status: SessionStatus,
+    new_status: SessionStatus,
+) -> None:
+    """REST 狀態轉移 **commit 之後** 的附帶效應。逐項對照不變式 #20 的六件事：
+
+    1. **改 status**：呼叫端（`update_status_static`）已做。
+    2. **派 SOAP**：做——`completed` / `aborted_red_flag` 走與 WS 完全同一個觸發器
+       （`conversation_handler._generate_soap_report_async`：建 GENERATING row →
+       派 Celery `generate_soap_report`）。不變式 #13「SOAP 生成單一路徑」要求所有
+       路徑共用同一個觸發器，因此這裡刻意 import 那個私有 helper 而不是自己再寫
+       一份「建 row + delay」。冪等由存在性檢查 + `soap_reports.session_id` UNIQUE
+       保證，與 WS 路徑同時觸發也只會有一份報告。`cancelled` 不派（見
+       `_SOAP_ON_TERMINAL`）。
+    3. **送病患端 `session_status`**：**做不到（架構限制，刻意省略）**。病患 WS 連線
+       在 `ConnectionManager.active_connections`——那是**行程本地** dict，生產是 4 個
+       uvicorn worker，處理本次 REST 請求的行程有 3/4 機率不是持有該連線的行程；
+       全碼庫唯一的跨行程橋接是 `DASHBOARD_EVENTS_CHANNEL`（只 fan-out 給 dashboard
+       連線，見 `dashboard_handler._dispatch_dashboard_event`），沒有 per-session 的
+       等價物。這與 `tasks/session_timeout` 的同一格是同一個限制、同一個理由。
+       **後果與現有防線**：
+       - 新連線：`conversation_websocket` 步驟 2 的狀態守衛（`status not in
+         ("waiting", "in_progress")` → close 4009）擋掉，病患無法對已終態場次重連。
+       - **已在飛的連線：擋不住**——`session_context["_terminated"]` 是行程內旗標，
+         REST 在別的行程改狀態時設不了它，所以那條 WS 會繼續問診。狀態不會被弄髒
+         （WS 所有終態轉移都是 `... WHERE status='in_progress'` 的 compare-and-set，
+         對已終態場次必定 miss，且 EM-4 之後 CAS miss 就不送 completed / 不廣播 /
+         不派 SOAP），SOAP 也不會多一份（冪等），但病患畫面不會自己離開對話頁。
+         要真正修掉需要 per-session 的跨行程通知橋接，屬獨立需求。
+    4. **廣播 dashboard**：做——`session_status_changed` +（所有成功轉移都）刷新
+       queue/stats。走 `broadcast_localized_dashboard` → `broadcast_dashboard_event`
+       → Redis publish（不變式 #15：不可用行程本地 fan-out）。
+       非終態轉移（`waiting → in_progress`）不送 `session_status_changed`：現有
+       canonical code 只有 `events.session.ws_connected`（語意是「WS 連上了」，
+       REST 轉移時是假話），queue/stats 刷新已足以讓醫師端清單正確。
+    5. **建醫師通知**：`completed` 的 SESSION_COMPLETE 通知由
+       `update_status_static` 建（本輪補上，與 WS `_update_session_status` 同一
+       判準：僅在 `session.doctor_id` 有值時建）；
+       `aborted_red_flag` 的 RED_FLAG 通知**刻意不在此建**——REST 這條路徑沒有
+       任何 `red_flag_alerts` 上下文（是醫師/admin 手動改狀態，不是偵測器觸發），
+       憑空 fan-out 一則「偵測到紅旗」通知給全體在職醫師會製造假警報。
+       `cancelled` **刻意不建通知**：`NotificationType` 只有 red_flag /
+       session_complete / report_ready / system 四種，沒有「場次被取消」語意的
+       類型；新增列舉值要 Alembic `ALTER TYPE ... ADD VALUE` + 通知偏好欄位 +
+       i18n 字串，與 `tasks/session_timeout` 的同一格是同一個結論。
+    6. **設 `_terminated`**：**不適用**——那是 `conversation_handler` 的
+       `session_context` 行程內旗標，REST 行程沒有那份 context（見第 3 點）。
+
+    任何一步失敗都不可回滾已 commit 的狀態轉移，故全部包在 try/except 內只記
+    warning；SOAP 派送刻意獨立於廣播之外（廣播掛掉不可讓醫師端等不到報告）。
+    """
+    try:
+        await _refresh_session_state_cache(session_id, new_status)
+    except Exception as exc:  # pragma: no cover - 快取失敗非致命
+        logger.warning(
+            "REST 狀態轉移後更新 Redis 場次狀態快取失敗（非致命） | session=%s, error=%s",
+            session_id,
+            str(exc),
+        )
+
+    try:
+        from app.cache.redis_client import get_redis
+        from app.websocket.connection_manager import manager
+        from app.websocket.dashboard_handler import broadcast_queue_and_stats
+
+        code = _STATUS_CHANGED_CODES.get(new_status)
+        if code is not None:
+            await manager.broadcast_localized_dashboard(
+                msg_type="session_status_changed",
+                code=code,
+                params={},
+                severity=_STATUS_CHANGED_SEVERITIES.get(new_status, "info"),
+                extra={
+                    "sessionId": str(session_id),
+                    "status": new_status.value,
+                    "previousStatus": getattr(
+                        previous_status, "value", str(previous_status)
+                    ),
+                },
+            )
+        redis = await get_redis()
+        await broadcast_queue_and_stats(db, redis)
+    except Exception as exc:  # pragma: no cover - 推播失敗非致命
+        logger.warning(
+            "REST 狀態轉移後推播儀表板事件失敗（非致命） | session=%s, error=%s",
+            session_id,
+            str(exc),
+        )
+
+    if new_status in _SOAP_ON_TERMINAL:
+        try:
+            from app.websocket.conversation_handler import (
+                _generate_soap_report_async,
+            )
+
+            await _generate_soap_report_async(session_id=str(session_id))
+        except Exception as exc:  # pragma: no cover - helper 自身已吞例外
+            logger.error(
+                "REST 狀態轉移後 SOAP 派送失敗 | session=%s, error=%s",
+                session_id,
+                str(exc),
+                exc_info=True,
+            )
+
+
 async def _authorize_session_access(
     db: AsyncSession,
     session: Session,
@@ -455,6 +606,28 @@ class SessionService:
                 language=session.language,
             )
 
+        # EM-2（不變式 #20 第 5 件事「建醫師通知」）：WS 的
+        # `_update_session_status` 在轉 completed 且場次已指派醫師時會建一則
+        # SESSION_COMPLETE 通知，REST 這條路徑以前完全沒有 —— 同一個事實
+        # （這場問診結束了）走 REST 就沒人被通知。補齊成對稱。
+        # 未指派醫師（院內 kiosk 常態）時 no-op，與 WS 端同一判準。
+        if new_status == SessionStatus.COMPLETED and session.doctor_id is not None:
+            from app.services.notification_service import NotificationService
+
+            try:
+                await NotificationService.notify_session_complete(
+                    db,
+                    session_id=session.id,
+                    doctor_id=session.doctor_id,
+                    patient_id=session.patient_id,
+                )
+            except Exception as exc:  # pragma: no cover - 通知失敗不可擋轉移
+                logger.warning(
+                    "REST 場次完成通知建立失敗（非致命，轉移已生效） | session=%s, error=%s",
+                    session.id,
+                    str(exc),
+                )
+
         await db.flush()
         return session
 
@@ -544,6 +717,19 @@ class SessionService:
         )
 
         await db.flush()
+        # D-8：切語言把場次收成 cancelled 也是一次終態轉移，以前完全沒有任何
+        # dashboard 推播 —— 醫師端排隊清單會留著一筆早已被病患切掉的場次，直到
+        # 下一個事件才被動刷新。與 P7（`tasks/session_timeout` 的逾時 cancelled）
+        # 對齊：廣播 `session_status_changed` + 刷新 queue/stats、**不派 SOAP**。
+        # 冪等路徑（場次早已是終態、本次沒轉移）不推播，避免重複事件。
+        if can_cancel:
+            await db.commit()
+            await _after_status_transition(
+                db,
+                session_id=session.id,
+                previous_status=previous_status,
+                new_status=SessionStatus.CANCELLED,
+            )
         session.previous_status = previous_status
         return session
 
@@ -988,6 +1174,20 @@ class SessionService:
             new_status,
             reason,
             actor_user_id=getattr(current_user, "id", None),
+        )
+        # EM-2：附帶效應必須在 **commit 之後** 才做，否則
+        # (a) Celery worker 在另一個行程／連線 SELECT 場次時還讀得到 in_progress，
+        #     SOAP 會用「尚未結束」的狀態去生成；
+        # (b) `broadcast_queue_and_stats` 重算排隊會算到舊狀態，推給醫師端的清單
+        #     反而更舊。
+        # 沿用 `create_session` 的既有慣例（明確 commit → 再推播）；FastAPI 的
+        # `get_db` 之後再 commit 一次是無害的 no-op。
+        await db.commit()
+        await _after_status_transition(
+            db,
+            session_id=session_id,
+            previous_status=previous_status,
+            new_status=new_status,
         )
         # L-3：REST 路徑回傳變更前狀態（供 SessionStatusResponse.previous_status）。
         updated.previous_status = previous_status

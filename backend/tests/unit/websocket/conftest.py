@@ -40,6 +40,8 @@ class _CaptureManager:
         self.localized_calls: list[dict[str, Any]] = []
         self.dashboard_messages: list[dict[str, Any]] = []
         self.localized_dashboard_calls: list[dict[str, Any]] = []
+        self.connected: list[str] = []
+        self.disconnected: list[str] = []
         # 病患端 WS 是否仍在（drain 情境為 False；record-on-success 不看此值）
         self.send_to_session_result = True
 
@@ -70,6 +72,15 @@ class _CaptureManager:
 
     async def broadcast_dashboard(self, message: dict[str, Any]) -> None:
         self.dashboard_messages.append(message)
+
+    # ── 主迴圈 driver（run_control_action）需要的連線生命週期 ──
+    async def connect_session(
+        self, websocket: Any, session_id: str, already_accepted: bool = False
+    ) -> None:
+        self.connected.append(session_id)
+
+    async def disconnect_session(self, session_id: str) -> None:
+        self.disconnected.append(session_id)
 
     async def broadcast_dashboard_event(
         self, event_type: str, payload: dict[str, Any] | None = None
@@ -362,6 +373,11 @@ def run_text_turn(
     doctor_ids: list[Any] | None = None,
     notification_create: Any = None,
     update_status: Any = None,
+    manager: Any = None,
+    db: Any = None,
+    drain_db: Any = None,
+    drain_background: bool = False,
+    soap_spy: Any = None,
 ) -> SimpleNamespace:
     """跑一輪 _handle_text_message，回傳所有 spy / capture 供斷言。
 
@@ -376,8 +392,16 @@ def run_text_turn(
     update_status：`_update_session_status` 的替身；預設 AsyncMock 恆回 True
         （＝CAS 命中）。要驗 CAS 未命中的分支就傳 `AsyncMock(return_value=False)`
         或自訂 coroutine（本 driver 一律覆寫模組 global，外部先 monkeypatch 會被蓋掉）。
+    manager：`_CaptureManager` 的替代品（子類可在推播當下觀察 session_context，
+        用來驗「先標 `_terminated` 再送」的順序）。
+    db / drain_db：`StubDB` 的替代品（子類可在 commit 當下記錄事件序，用來驗
+        「SOAP 派送前紅旗已 commit」的順序）。
+    drain_background：True 時在 `_handle_text_message` 返回後把剩餘背景 task
+        （遲到紅旗 drain）跑完再回傳，否則 asyncio.run 會直接取消它們。
+    soap_spy：`_generate_soap_report_async` 的替身（預設 AsyncMock）。傳自訂
+        coroutine 可在派送當下記事件序，用來驗「紅旗 commit 早於 SOAP 派送」。
     """
-    cap = _CaptureManager()
+    cap = manager if manager is not None else _CaptureManager()
     monkeypatch.setattr(ch, "manager", cap)
     # 縮短紅旗 gate 同步等待（原 3.5s），讓 drain 情境測試不用真等
     monkeypatch.setattr(ch, "_RED_FLAG_WAIT_TIMEOUT", red_flag_wait_timeout)
@@ -396,8 +420,8 @@ def run_text_turn(
             "language": language,
         }
 
-    db = StubDB(doctor_ids=doctor_ids)
-    drain_db = StubDB(doctor_ids=doctor_ids)
+    db = db if db is not None else StubDB(doctor_ids=doctor_ids)
+    drain_db = drain_db if drain_db is not None else StubDB(doctor_ids=doctor_ids)
 
     # 服務層 AsyncMock spy（Mock 不實作 descriptor，staticmethod 直接可換）
     from app.services.alert_service import AlertService
@@ -419,7 +443,7 @@ def run_text_turn(
     # 模組級 helper spy（_handle_text_message 走模組 global，patch 即生效）
     update_status = update_status or AsyncMock(return_value=True)
     monkeypatch.setattr(ch, "_update_session_status", update_status)
-    soap_spy = AsyncMock(return_value=None)
+    soap_spy = soap_spy or AsyncMock(return_value=None)
     monkeypatch.setattr(ch, "_generate_soap_report_async", soap_spy)
     monkeypatch.setattr(
         ch, "_broadcast_dashboard_queue_and_stats", AsyncMock(return_value=None)
@@ -439,8 +463,8 @@ def run_text_turn(
     llm = StubLLMEngine(llm_programs if llm_programs is not None else [["好的。"]])
     det = detector or StubDetector(alerts=[])
 
-    result = asyncio.run(
-        ch._handle_text_message(
+    async def _main() -> Any:
+        outcome = await ch._handle_text_message(
             session_id=session_id,
             text=text,
             llm_engine=llm,
@@ -454,7 +478,18 @@ def run_text_turn(
             db=db,
             settings=settings,
         )
-    )
+        if drain_background:
+            current = asyncio.current_task()
+            for _ in range(200):
+                pending = [
+                    t for t in asyncio.all_tasks() if t is not current and not t.done()
+                ]
+                if not pending:
+                    break
+                await asyncio.wait(pending, timeout=0.01)
+        return outcome
+
+    result = asyncio.run(_main())
 
     return SimpleNamespace(
         result=result,
@@ -470,4 +505,159 @@ def run_text_turn(
         soap_spy=soap_spy,
         conversation_history=conversation_history,
         session_context=session_context,
+    )
+
+
+# ── 主迴圈 driver（控制指令用）────────────────────────────
+class _StubWebSocket:
+    """`conversation_websocket` 需要的最小 WebSocket 介面。
+
+    `receive_json` 依序回放 messages，放完就 raise WebSocketDisconnect（等同
+    病患端關閉連線），讓主迴圈走 finally 清理而不是永遠等下去。
+    """
+
+    def __init__(self, messages: list[dict[str, Any]]) -> None:
+        self._messages = list(messages)
+        self.query_params: dict[str, str] = {}
+        self.closed_with: list[tuple[int, str]] = []
+
+    async def receive_json(self) -> dict[str, Any]:
+        from fastapi import WebSocketDisconnect
+
+        if not self._messages:
+            raise WebSocketDisconnect(code=1000)
+        return self._messages.pop(0)
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        self.closed_with.append((code, reason))
+
+
+def run_control_action(
+    monkeypatch,
+    *,
+    messages: list[dict[str, Any]],
+    session_id: str = DEFAULT_SESSION_ID,
+    session_status: str = "in_progress",
+    update_status: Any = None,
+    session_context_seed: dict[str, Any] | None = None,
+    settings: Any = None,
+) -> SimpleNamespace:
+    """跑 `conversation_websocket` 主迴圈，回放 `messages` 後斷線。
+
+    存在理由：`control: end_session` 這條終態路徑寫在主迴圈 **裡面**（不是可
+    單獨呼叫的 helper），沒有 driver 就只能靠 AST 測試看「呼叫點長什麼樣」。
+    EM-4 要驗的是行為（`_terminated` 守衛、CAS 回傳、六件事），必須真的把主迴圈
+    跑起來。
+
+    `session_context_seed`：合併進 handler 自建的 session_context（用來預先塞
+    `_terminated`，模擬「紅旗中止已收尾後又收到 end_session」）。
+    """
+    cap = _CaptureManager()
+    monkeypatch.setattr(ch, "manager", cap)
+
+    async def _fake_auth(websocket, context=""):
+        return {"sub": "user-1", "role": "patient"}
+
+    monkeypatch.setattr(ch, "authenticate_websocket", _fake_auth)
+
+    async def _fake_validate(sid, db):
+        return {
+            "id": sid,
+            "status": session_status,
+            "chief_complaint": "血尿",
+            "chief_complaint_display": "血尿",
+            "patient_info": {"name": "測試病患"},
+            "language": "zh-TW",
+            "patient_user_id": "user-1",
+            "doctor_id": None,
+        }
+
+    monkeypatch.setattr(ch, "_validate_session", _fake_validate)
+    monkeypatch.setattr(
+        ch, "_authorize_ws_session_access", lambda *a, **kw: True
+    )
+
+    # 管線全部換成 stub（不碰 OpenAI / 檔案系統）
+    class _StubSTT:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        async def close(self) -> None:
+            return None
+
+    class _StubLLM:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def build_system_prompt(self, **kw) -> str:
+            return "sys"
+
+    monkeypatch.setattr(ch, "STTPipeline", _StubSTT)
+    monkeypatch.setattr(ch, "LLMConversationEngine", _StubLLM)
+    monkeypatch.setattr(ch, "TTSPipeline", lambda *a, **kw: StubTTS())
+    monkeypatch.setattr(ch, "RedFlagDetector", lambda *a, **kw: StubDetector())
+    monkeypatch.setattr(ch, "SupervisorEngine", lambda *a, **kw: StubSupervisor())
+
+    # 非空歷史 → 跳過開場白（開場白會打 LLM/TTS，與本 driver 無關）
+    monkeypatch.setattr(
+        ch,
+        "_load_conversation_history",
+        AsyncMock(return_value=[{"role": "assistant", "content": "您好"}]),
+    )
+    monkeypatch.setattr(ch, "_save_conversation_history", AsyncMock(return_value=None))
+
+    update_status = update_status or AsyncMock(return_value=True)
+    monkeypatch.setattr(ch, "_update_session_status", update_status)
+    soap_spy = AsyncMock(return_value=None)
+    monkeypatch.setattr(ch, "_generate_soap_report_async", soap_spy)
+    queue_stats_spy = AsyncMock(return_value=None)
+    monkeypatch.setattr(ch, "_broadcast_dashboard_queue_and_stats", queue_stats_spy)
+
+    # session_context 是 handler 內部自建的 dict literal，外面拿不到參照。
+    # 用「先送一則 text_message」把它借出來：`_handle_text_message` 換成
+    # capture-fake，記下 context（並可依 seed 預先塞 `_terminated`，模擬「紅旗
+    # 中止已收尾後病患又按了結束」）。這是唯一不改產品碼就能取得該參照的接縫。
+    captured: dict[str, Any] = {}
+
+    async def _capture_text(**kwargs: Any) -> bool:
+        ctx = kwargs["session_context"]
+        captured["ctx"] = ctx
+        if session_context_seed:
+            ctx.update(session_context_seed)
+        return False
+
+    monkeypatch.setattr(ch, "_handle_text_message", _capture_text)
+    monkeypatch.setattr(
+        ch, "enforce_llm_per_user_rate_limit", AsyncMock(return_value=None)
+    )
+
+    ws = _StubWebSocket(
+        [{"type": "text_message", "payload": {"text": "借出 context"}}] + messages
+    )
+    db = StubDB()
+    redis = FakeRedis()
+    st = settings or make_settings(
+        SESSION_IDLE_TIMEOUT_SECONDS=600,
+        SESSION_IDLE_CHECK_INTERVAL_SECONDS=600,
+    )
+
+    asyncio.run(
+        ch.conversation_websocket(
+            websocket=ws,
+            session_id=session_id,
+            db=db,
+            redis=redis,
+            settings=st,
+        )
+    )
+
+    return SimpleNamespace(
+        cap=cap,
+        ws=ws,
+        db=db,
+        redis=redis,
+        update_status=update_status,
+        soap_spy=soap_spy,
+        queue_stats_spy=queue_stats_spy,
+        session_context=captured.get("ctx", {}),
     )

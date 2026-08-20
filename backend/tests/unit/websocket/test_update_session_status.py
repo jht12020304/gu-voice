@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 import app.websocket.conversation_handler as ch
 from tests.unit.websocket.conftest import DEFAULT_SESSION_ID, FakeRedis, StubDB
 
@@ -244,3 +246,42 @@ def test_noop_self_transition_allowed_for_resume():
     ok = _run(db, FakeRedis(), "in_progress", "in_progress")
     assert ok is True
     assert len(db.executed) == 1
+
+
+# ── EM-6：allow_noop 收斂成「只放行 in_progress 自轉移」 ────
+def test_resume_in_progress_noop_is_still_allowed():
+    """resume 重連的 in_progress → in_progress 冪等補寫 started_at 必須放行。
+
+    這是 `allow_noop` 存在的唯一理由（`is_valid_transition` docstring 也只宣稱
+    這一條）；拿掉會讓斷線重連整條 UPDATE 被擋、started_at 永遠是 NULL。
+    """
+    db = StubDB(rowcount=1)
+    assert _run(db, FakeRedis(), "in_progress", "in_progress") is True
+    params = _compiled_params(db.executed[0])
+    assert params["status"] == "in_progress"
+
+
+@pytest.mark.parametrize(
+    "terminal", ["completed", "aborted_red_flag", "cancelled"]
+)
+def test_terminal_self_transition_is_rejected(terminal):
+    """終態自轉移（X→X）不得被當成合法轉移。
+
+    `VALID_TRANSITIONS` 給終態的是空 list —— 任何從終態出發的轉移都該在狀態機
+    這一關就被擋掉。以前無條件傳 `allow_noop=True`，等於 completed→completed、
+    aborted_red_flag→aborted_red_flag 全部放行進 UPDATE；實務上 CAS 的 WHERE
+    會讓它變成無害的 no-op，但那是「靠第二道防線兜住第一道的破口」，而且會白
+    寫一次 Redis 快取與稽核路徑。
+    """
+    db = StubDB(rowcount=1)
+    redis = FakeRedis()
+    assert _run(db, redis, terminal, terminal) is False
+    assert db.executed == [], "非法的終態自轉移不該送出任何 UPDATE"
+    assert redis.hset_calls == [], "非法轉移不該動 Redis 快取"
+
+
+def test_waiting_self_transition_is_rejected():
+    """waiting→waiting 同理：轉移表沒有這一條，allow_noop 不該把它變合法。"""
+    db = StubDB(rowcount=1)
+    assert _run(db, FakeRedis(), "waiting", "waiting") is False
+    assert db.executed == []
