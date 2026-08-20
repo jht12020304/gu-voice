@@ -46,6 +46,21 @@ class SOAPReport(Base):
     plan: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     raw_transcript: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 病患語言版的**病患面兩欄**（2026-08-20 產品決策）。
+    # 形狀固定為 {"language": <場次語言 BCP-47>, "summary": str,
+    #            "patient_education": str}。
+    #
+    # 為什麼要多一欄而不是改 `summary` / `plan`：不變式 #12 —— 主報告與
+    # `report.language` **一律 zh-TW**（讀者是院內醫護）。但病患面的
+    # `summary` 與 `plan.patient_education` 是**病患自己**在畫面上讀的，
+    # 對日/韓/越/英語場次而言等於拿到一份看不懂的中文摘要。
+    # 這一欄是主報告之外的附加產物：由 report_queue 在主報告 commit **之後**
+    # 以一次小 LLM 呼叫轉述，失敗就留 NULL（前端 fallback 回中文原文），
+    # 絕不影響主報告成敗。zh-TW 場次恆為 NULL（沒有轉述的必要）。
+    # 內容同樣過 `_sanitize_patient_facing_fields` 的**對應語言**規則（#11/#24）。
+    patient_facing_localized: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
     # SOAP 生成時所用語言（BCP-47）。獨立於 session.language 以便重生後仍可審計。
     # 見 docs/archive/i18n_plan.md TODO-M15：SOAP 必須 append-only，此欄位幫助區分版本。
     language: Mapped[str] = mapped_column(

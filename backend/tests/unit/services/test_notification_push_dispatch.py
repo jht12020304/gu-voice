@@ -34,15 +34,23 @@ def _run(coro):
 # ──────────────────────────────────────────────────────
 
 class _FakeResult:
-    def __init__(self, scalar: Any = None, first: Any = None) -> None:
+    def __init__(
+        self, scalar: Any = None, first: Any = None, rows: Optional[list[Any]] = None
+    ) -> None:
         self._scalar = scalar
         self._first = first
+        self._rows = rows or []
 
     def scalar_one_or_none(self) -> Any:
         return self._scalar
 
     def first(self) -> Any:
         return self._first
+
+    def scalars(self) -> Any:
+        """未指派場次的 fan-out 會走 `select(User.id)` → `.scalars().all()`。"""
+        rows = self._rows
+        return type("_S", (), {"all": staticmethod(lambda: rows)})()
 
 
 class _FakeRow:
@@ -175,7 +183,7 @@ def test_report_ready_dispatches_push(push_task):
     report_id = uuid.uuid4()
     db = _report_ready_db(doctor_id=doctor_id)
 
-    notification = _run(
+    notifications = _run(
         NotificationService.notify_report_ready(
             db,  # type: ignore[arg-type]
             session_id=session_id,
@@ -183,7 +191,8 @@ def test_report_ready_dispatches_push(push_task):
         )
     )
 
-    assert notification is not None
+    assert len(notifications) == 1, "已指派醫師時只通知他一位"
+    notification = notifications[0]
     assert len(push_task.calls) == 1
     call = push_task.calls[0]
     assert call["user_id"] == str(doctor_id)
@@ -194,9 +203,83 @@ def test_report_ready_dispatches_push(push_task):
     assert call["data"] == notification.data
 
 
-def test_report_ready_without_doctor_is_noop(push_task):
-    """場次無負責醫師 → 不建通知也不推播。"""
-    db = _FakeDB(results=[_FakeResult(first=_FakeRow(None, "王小明"))])
+# ──────────────────────────────────────────────────────
+# PUSH-007：doctor_id IS NULL → fan-out 給全體在職醫師
+# ──────────────────────────────────────────────────────
+#
+# 院內 kiosk 的場次在問診當下通常還沒指派醫師（實測 DB 內
+# sessions.doctor_id 全為 NULL）。舊版在這個分支直接 return None ——
+# 報告生成完了、一個人都不會知道。紅旗路徑
+#（conversation_handler._notify_doctors_red_flag）早就修過同一個坑。
+
+
+def _report_ready_fanout_db(
+    doctors: list[uuid.UUID],
+    *,
+    type_enabled: Any = True,
+    push_enabled: Any = True,
+) -> _FakeDB:
+    """未指派場次的 execute 序列：
+    session+patient 列（doctor_id=None）→ 在職醫師清單
+    → 每位醫師各三次（lang → 類型開關 → push 開關）。
+    """
+    results = [
+        _FakeResult(first=_FakeRow(None, "王小明")),
+        _FakeResult(rows=list(doctors)),
+    ]
+    for _ in doctors:
+        # 類型被抑制時 create() 提早 return，**不會**再查 push 通道開關——
+        # 序列要跟著少一格，否則下一位醫師會吃到錯位的結果。
+        results.extend([_FakeResult(scalar="zh-TW"), _FakeResult(scalar=type_enabled)])
+        if type_enabled:
+            results.append(_FakeResult(scalar=push_enabled))
+    return _FakeDB(results=results)
+
+
+def test_report_ready_without_doctor_fans_out_to_all_active_doctors(push_task):
+    doctors = [uuid.uuid4() for _ in range(3)]
+    session_id = uuid.uuid4()
+    db = _report_ready_fanout_db(doctors)
+
+    notifications = _run(
+        NotificationService.notify_report_ready(
+            db,  # type: ignore[arg-type]
+            session_id=session_id,
+            report_id=uuid.uuid4(),
+        )
+    )
+
+    assert len(notifications) == 3
+    assert {n.user_id for n in notifications} == set(doctors)
+    assert len(db.added) == 3
+    # 站內通知與推播一一對應（比照 red_flag fan-out）
+    assert {call["user_id"] for call in push_task.calls} == {str(d) for d in doctors}
+
+
+def test_report_ready_fanout_respects_type_preference(push_task):
+    """fan-out **不是**繞過偏好：關掉 report_ready 的醫師不會收到。
+
+    （這一點與紅旗不同——紅旗是病安關鍵、恆送；報告就緒不是。）
+    """
+    doctors = [uuid.uuid4() for _ in range(2)]
+    db = _report_ready_fanout_db(doctors, type_enabled=False)
+
+    notifications = _run(
+        NotificationService.notify_report_ready(
+            db,  # type: ignore[arg-type]
+            session_id=uuid.uuid4(),
+            report_id=uuid.uuid4(),
+        )
+    )
+
+    assert notifications == []
+    assert db.added == []
+    assert push_task.calls == [], "站內通知被抑制時不應偷發推播"
+
+
+def test_report_ready_without_doctor_and_no_active_doctors_is_noop(push_task):
+    """未指派且查無在職醫師 → 真的無人可送，安靜 no-op（不可炸）。"""
+    db = _report_ready_fanout_db([])
 
     out = _run(
         NotificationService.notify_report_ready(
@@ -205,8 +288,23 @@ def test_report_ready_without_doctor_is_noop(push_task):
             report_id=uuid.uuid4(),
         )
     )
-    assert out is None
+    assert out == []
     assert push_task.calls == []
+    assert db.added == []
+
+
+def test_report_ready_missing_session_is_noop(push_task):
+    """場次查不到（已刪除等）→ doctor_id 為 None 但也沒有 fan-out 目標。"""
+    db = _FakeDB(results=[_FakeResult(first=None), _FakeResult(rows=[])])
+
+    out = _run(
+        NotificationService.notify_report_ready(
+            db,  # type: ignore[arg-type]
+            session_id=uuid.uuid4(),
+            report_id=uuid.uuid4(),
+        )
+    )
+    assert out == []
     assert db.added == []
 
 
@@ -235,7 +333,7 @@ def test_report_ready_push_disabled_still_creates_in_app_notification(push_task)
     doctor_id = uuid.uuid4()
     db = _report_ready_db(doctor_id=doctor_id, push_enabled=False)
 
-    notification = _run(
+    notifications = _run(
         NotificationService.notify_report_ready(
             db,  # type: ignore[arg-type]
             session_id=uuid.uuid4(),
@@ -243,7 +341,7 @@ def test_report_ready_push_disabled_still_creates_in_app_notification(push_task)
         )
     )
 
-    assert notification is not None
+    assert len(notifications) == 1
     assert len(db.added) == 1
     assert push_task.calls == []
 
@@ -283,7 +381,7 @@ def test_report_ready_survives_push_dispatch_failure(monkeypatch):
 
     doctor_id = uuid.uuid4()
     db = _report_ready_db(doctor_id=doctor_id)
-    notification = _run(
+    notifications = _run(
         NotificationService.notify_report_ready(
             db,  # type: ignore[arg-type]
             session_id=uuid.uuid4(),
@@ -291,7 +389,7 @@ def test_report_ready_survives_push_dispatch_failure(monkeypatch):
         )
     )
 
-    assert notification is not None
+    assert len(notifications) == 1
     assert len(db.added) == 1
     assert len(task.calls) == 1
 
@@ -320,6 +418,81 @@ def test_suppressed_type_skips_push(push_task):
 # ──────────────────────────────────────────────────────
 # PUSH-006：create() 不得自行派推播（避免 RED_FLAG 重複推播）
 # ──────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────
+# PUSH-008：報告生成失敗也要有人知道（SO-2 通知半邊）
+# ──────────────────────────────────────────────────────
+#
+# 舊版 `_mark_report_failed` 只改一個 DB 欄位就結束：儀表板不會重抓、
+# 通知中心沒有一筆、iOS 不響。只有正在盯著那一場、而且剛好手動重整的
+# 醫師才會發現報告生不出來——實際上等於沒人知道。
+
+
+def test_report_failed_notifies_assigned_doctor(push_task):
+    doctor_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    db = _report_ready_db(doctor_id=doctor_id)
+
+    notifications = _run(
+        NotificationService.notify_report_failed(
+            db,  # type: ignore[arg-type]
+            session_id=session_id,
+            report_id=uuid.uuid4(),
+        )
+    )
+
+    assert len(notifications) == 1
+    notification = notifications[0]
+    assert notification.type is NotificationType.SYSTEM, (
+        "報告沒有就緒，用 REPORT_READY 會讓醫師點進去看到空白；"
+        "而且關掉 report_ready 的醫師會連『壞掉了』都收不到"
+    )
+    assert notification.data["session_id"] == str(session_id)
+    assert notification.data["status"] == "failed"
+    assert len(push_task.calls) == 1
+
+
+def test_report_failed_fans_out_when_unassigned(push_task):
+    doctors = [uuid.uuid4() for _ in range(2)]
+    db = _report_ready_fanout_db(doctors)
+
+    notifications = _run(
+        NotificationService.notify_report_failed(
+            db,  # type: ignore[arg-type]
+            session_id=uuid.uuid4(),
+        )
+    )
+
+    assert {n.user_id for n in notifications} == set(doctors)
+    assert {call["user_id"] for call in push_task.calls} == {str(d) for d in doctors}
+
+
+def test_report_failed_copy_is_localised_and_actionable(push_task):
+    """文案要講清楚「壞了、請重試」，不能只是一句 error code。"""
+    from app.services.notification_service import _report_failed_copy
+
+    for language in ("zh-TW", "en-US", "ja-JP", "ko-KR", "vi-VN"):
+        title, body = _report_failed_copy(language, "王小明")
+        assert title.strip(), language
+        assert "王小明" in body, language
+    # 未支援語言退回 zh-TW（與 i18n_messages 的預設一致）
+    assert _report_failed_copy("de-DE", "王小明") == _report_failed_copy("zh-TW", "王小明")
+    assert _report_failed_copy(None, "王小明") == _report_failed_copy("zh-TW", "王小明")
+
+
+def test_report_failed_without_report_id_omits_the_key(push_task):
+    """報告列根本不存在時（session_not_found 之類）不可塞出 report_id=None。"""
+    doctor_id = uuid.uuid4()
+    db = _report_ready_db(doctor_id=doctor_id)
+
+    notifications = _run(
+        NotificationService.notify_report_failed(
+            db,  # type: ignore[arg-type]
+            session_id=uuid.uuid4(),
+        )
+    )
+    assert "report_id" not in notifications[0].data
+
 
 def test_generic_create_does_not_dispatch_push(push_task):
     """RED_FLAG 的推播由 alert_service 自行派送；create() 再派會重複。"""

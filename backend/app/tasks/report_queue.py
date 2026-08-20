@@ -65,6 +65,22 @@ class _SOAPReportTask(Task):
             )
 
 
+class ReportRowNotReadyError(RuntimeError):
+    """SOAP 報告列還沒出現在 DB（SO-4）。
+
+    `_generate_soap_report_async` 的觸發器語意是「建 GENERATING row → 派 Celery」
+    （不變式 #13）。這兩件事分屬**不同交易**：API 行程 commit 報告列的時間點
+    與 Celery worker 撈到任務的時間點沒有先後保證，worker 快一步就會查不到列。
+
+    舊版在這個分支直接 `return {"reason": "report_not_found"}` ——
+    不重試、不標 FAILED，於是：OpenAI 的錢已經花掉、報告內容**整份丟棄**，
+    而報告列隨後才出現、永遠停在 GENERATING，醫師端等不到任何東西。
+
+    這是**時序**問題不是資料問題，重跑一次多半就好了，所以刻意做成
+    可重試例外（`_is_retryable` 的預設分支即為可重試）。
+    """
+
+
 def _is_retryable(exc: BaseException) -> bool:
     """判斷例外是否值得重試。
 
@@ -145,10 +161,18 @@ def generate_soap_report(self, session_id: str) -> dict:
 
 
 async def _mark_report_failed(session_id: str) -> None:
-    """獨立交易：把指定場次的 SOAPReport 標記為 FAILED 並 commit。
+    """獨立交易：把指定場次的 SOAPReport 標記為 FAILED 並 commit，
+    然後**讓人知道**（SO-2 的通知半邊）。
 
     供 on_failure 安全網使用——task body 內已有 except 路徑會處理多數情況，
     此函式為「最終失敗」時的兜底，獨立開一個 session 以免沿用已 rollback 的交易。
+
+    ── 為什麼要加廣播與通知 ──────────────────────────────
+    舊版只改一個 DB 欄位就結束。醫師端沒有任何 push：儀表板不會重抓、
+    通知中心沒有一筆、iOS 也不響。結果是**只有正在盯著那一場的醫師、
+    而且剛好手動重整**才會發現報告生不出來——實際上等於沒人知道。
+    問診已經做完、病患也已經被告知「請稍候等看診」，這時報告靜默消失
+    是最糟的失敗模式。
     """
     from app.core.database import async_session_factory
     from app.models.enums import ReportStatus
@@ -156,6 +180,89 @@ async def _mark_report_failed(session_id: str) -> None:
     async with async_session_factory() as db:
         await _update_report_status(db, session_id, ReportStatus.FAILED)
         await db.commit()
+        await _announce_report_failure(db, session_id)
+
+
+async def _announce_report_failure(db, session_id: str) -> None:
+    """FAILED 之後的可觀測性：dashboard 事件 ＋ 醫師站內通知（皆 best-effort）。
+
+    ── 為什麼沿用 `report_generated` 而不是新增 `report_failed` ──
+    不變式 #27：WS 事件的訂閱清單在 React 與 Flutter 是**手抄兩份、沒有
+    codegen**，後端加新事件而兩端沒訂閱＝靜默丟失（`resume_failed` 就是
+    這樣出事的）。查過兩端的實際訂閱與處理方式：
+
+      React  SessionListPage.tsx:96          → `handleRefresh()`，payload 不看
+             ResearchAnalyticsPage.tsx:119   → debounce 後重抓 analytics
+      Flutter sessions_list_controller.dart:9 → `reload()`，payload 明確忽略
+             notifications_controller.dart:188 → debounce 後重抓通知列表
+
+    四個訂閱點**全部**是「收到就用 REST 重抓」，沒有任何一處讀 payload 的
+    `status`。所以帶 `status="failed"` 的 `report_generated` 會讓兩端重抓，
+    而重抓拿到的報告狀態就是 `failed`（Flutter session_detail_page.dart:31
+    已經有 `generating | generated | failed` 三態渲染）——**不改前端就能看到**。
+
+    ⚠️ 記在這裡以免將來誤解：`ReportGeneratedPayload.status` 目前在兩端都是
+    死欄位。若哪天要讓前端對失敗做不同的 UI（紅色 toast 之類），改法是**讓
+    前端開始讀 `status`**，而不是新增一個兩端都沒訂的事件型別。
+    """
+    from app.models.session import Session
+    from app.models.soap_report import SOAPReport
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    report_id = ""
+    patient_name = ""
+    try:
+        row = (
+            await db.execute(
+                select(Session)
+                .options(selectinload(Session.patient))
+                .where(Session.id == session_id)
+            )
+        ).scalar_one_or_none()
+        if row is not None and row.patient is not None:
+            patient_name = getattr(row.patient, "name", "") or ""
+        report = (
+            await db.execute(
+                select(SOAPReport).where(SOAPReport.session_id == session_id)
+            )
+        ).scalar_one_or_none()
+        if report is not None:
+            report_id = str(report.id)
+    except Exception as exc:  # noqa: BLE001 — 查不到只是 payload 少幾個欄位
+        logger.warning(
+            "場次 %s 取得失敗通知所需資料時出錯（非致命）| error=%s", session_id, exc
+        )
+
+    try:
+        await _publish_report_generated(
+            report_id=report_id,
+            session_id=session_id,
+            patient_name=patient_name,
+            status="failed",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "場次 %s report_generated(failed) 推播失敗（非致命）| error=%s",
+            session_id,
+            exc,
+        )
+
+    try:
+        from app.services.notification_service import NotificationService
+
+        await NotificationService.notify_report_failed(
+            db, session_id=session_id, report_id=report_id or None
+        )
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "場次 %s 報告失敗通知建立失敗（非致命）| error=%s", session_id, exc
+        )
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def _async_generate(session_id: str) -> dict:
@@ -294,12 +401,16 @@ async def _async_generate(session_id: str) -> dict:
             ).scalar_one_or_none()
 
             if report is None:
-                logger.error("場次 %s 找不到對應的報告記錄", session_id)
-                return {
-                    "session_id": session_id,
-                    "status": "failed",
-                    "reason": "report_not_found",
-                }
+                # SO-4：可重試。報告列可能還在 API 行程的交易裡沒 commit，
+                # 直接放棄等於把已經生成好的 SOAP 內容丟掉、列永遠停在
+                # GENERATING。重試耗盡才由 `_run_task` 標 FAILED。
+                logger.warning(
+                    "場次 %s 找不到對應的報告記錄（可能尚未 commit），將重試",
+                    session_id,
+                )
+                raise ReportRowNotReadyError(
+                    f"soap_reports row for session {session_id} not found yet"
+                )
 
             report.subjective = soap_data.get("subjective")
             report.objective = soap_data.get("objective")
@@ -355,8 +466,18 @@ async def _async_generate(session_id: str) -> dict:
                     exc,
                 )
 
-            # REPORT_READY 站內通知（負責醫師）。獨立第二段交易，失敗不可
-            # 影響已 commit 的報告與任務結果。
+            # 病患語言版的病患面兩欄。獨立第三段交易，跑在主報告 commit 之後，
+            # 任何失敗都只留 NULL（前端 fallback 回中文原文），不影響主報告。
+            await _localize_patient_facing_best_effort(
+                db,
+                report=report,
+                session_language=getattr(session_obj, "language", None),
+                soap_data=soap_data,
+                settings=settings,
+            )
+
+            # REPORT_READY 站內通知（負責醫師，未指派時 fan-out 給全體在職醫師）。
+            # 獨立第二段交易，失敗不可影響已 commit 的報告與任務結果。
             try:
                 from app.services.notification_service import NotificationService
 
@@ -387,6 +508,80 @@ async def _async_generate(session_id: str) -> dict:
             logger.exception("場次 %s SOAP 報告生成失敗: %s", session_id, exc)
             await db.rollback()
             raise
+
+
+def _flatten_patient_education(value) -> str:
+    """把 `plan.patient_education` 併成單一字串（轉述層的輸入）。
+
+    LLM 吐 list 是常態、吐 str 也發生過（`_validate_and_fill` 兩種都容忍），
+    所以這裡兩種都吃。非字串項目照樣轉字串——`_sanitize_patient_facing_fields`
+    刻意保留它們（不丟資料），這裡跟著保留。
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "\n".join(str(item) for item in value if item is not None)
+    if value is None:
+        return ""
+    return str(value)
+
+
+async def _localize_patient_facing_best_effort(
+    db,
+    *,
+    report,
+    session_language,
+    soap_data: dict,
+    settings,
+) -> None:
+    """把病患面兩欄轉述成場次語言並寫入 `patient_facing_localized`。
+
+    不變式 #12 不變：主報告與 `report.language` 仍固定 zh-TW；本欄是**附加**
+    產物，只給病患自己的畫面用。
+
+    設計上的三個「絕不」：
+      - 絕不在主報告 commit 之前跑（多一次 LLM 呼叫 ＝ 多一個讓報告生不出來的理由）；
+      - 絕不讓失敗往上冒（留 NULL，前端 fallback 回中文原文）；
+      - 絕不在 rollback 後留下髒 session（失敗一律先 rollback 再返回）。
+
+    zh-TW 場次直接 no-op：報告本來就是中文，沒有轉述的必要。
+    """
+    language = (session_language or "").strip()
+    if not language or language == settings.SOAP_REPORT_LANGUAGE:
+        return
+
+    try:
+        from app.pipelines.soap_generator import SOAPGenerator
+
+        summary = soap_data.get("summary")
+        education = _flatten_patient_education(
+            (soap_data.get("plan") or {}).get("patient_education")
+            if isinstance(soap_data.get("plan"), dict)
+            else None
+        )
+        generator = SOAPGenerator(settings)
+        localized = await generator.localize_patient_facing(
+            summary=summary if isinstance(summary, str) else "",
+            patient_education=education,
+            target_language=language,
+        )
+        report.patient_facing_localized = localized
+        await db.commit()
+        logger.info(
+            "場次 %s 病患語言版摘要已寫入 | language=%s",
+            getattr(report, "session_id", None),
+            language,
+        )
+    except Exception as exc:  # noqa: BLE001 — 附加欄位失敗不可影響主報告
+        logger.warning(
+            "病患語言版摘要生成失敗（非致命，欄位留 NULL）| language=%s error=%s",
+            language,
+            exc,
+        )
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def _publish_report_generated(

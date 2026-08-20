@@ -128,6 +128,14 @@ _SOAP_SYSTEM_PROMPT = """你是資深泌尿科門診臨床文件助理，任務�
    （其他語言的等義說法同樣禁止，例如 "seek immediate medical attention"、"go to the ER"、
    "直ちに受診してください"、"응급실로 가세요"、"đi cấp cứu ngay"）。
    病患已經在醫療院所裡了，叫他離開現場既錯誤又危險。
+   **同樣禁用「指定時限」的版本**——把 `plan.urgency` 翻成白話再叫病患自己去，
+   一樣是叫他離場：「請於 24 小時內就醫」「24 小時內就診」「本週內就診」「這週內看醫生」
+   「當天就醫」「今天就醫」「三天內就醫」「請盡速聯絡您的家庭醫師」
+   （等義說法同樣禁止，例如 "see a doctor within 24 hours"、"contact your family doctor
+   within two days"、"visit a clinic this week"、"24時間以内に受診してください"、
+   "今週中に受診してください"、"24시간 이내에 진료를 받으세요"、
+   "hãy đi khám trong vòng 24 giờ"）。
+   緊急度本身要寫在 `plan.urgency` 這個**醫師面**欄位，不是翻成白話塞給病患。
 2. **正確措辭**是「請稍候等待看診」「若症狀加重，請立即告知現場醫護人員」。
    越急的情況越要寫成「立即告知現場醫護人員」，而不是叫他自己跑去急診。
 3. 仍要保留有價值的衛教內容——**要注意的警訊症狀、生活調整、檢查的目的**都照寫，
@@ -285,6 +293,41 @@ _ZH_URGENT = (
 _ZH_CARE = r"(?:就醫|就診|求診|求醫|看醫生|找醫生|診療|診治|急診|醫院|醫療院所)"
 _ZH_CLAUSE = r"[^。！？；，、\n]*?"
 
+# ── 時間窗型離場指示（SO-1，2026-08-20 稽核 6/6 放行）────────
+#
+# 稽核實測：`plan.urgency` 的四個 enum（er_now / 24h / this_week / routine）
+# 被 LLM 寫成自然語言後，**整族**穿透消毒層——「請於 24 小時內就醫」
+# 「本週內就診」「當天就醫」「請盡速聯絡您的家庭醫師」6/6 全數放行。
+# 根因有二：
+#   (1) `_ZH_URGENT` 只收「立即/盡速」這類**副詞**，完全沒有時間窗詞。
+#       「24 小時內」「本週內」「當天」在語意上就是急迫度，只是換了個詞性。
+#   (2) HARD 的祈使規則動詞表只有「前往/至/到/去…（地點）」，沒有
+#       「就醫/就診」這種**自帶地點語意**的動詞，所以「請於 24 小時內就醫」
+#       既不是 HARD（無移動動詞＋地點）也不是 SOFT（無急迫副詞）。
+#
+# ── 為什麼不直接把時間窗塞進 `_ZH_URGENT` ────────────────
+# `_ZH_URGENT` 會與**很寬**的 `_ZH_CARE`（含裸詞「急診」「醫院」）做同分句共現。
+# 把「今天」收進 `_ZH_URGENT` 會讓合規的「急診評估的結果會併入今天的病歷。」
+# 「這項檢查在本院急診就能完成」直接誤判（實測會打紅既有反例語料）。
+# 所以時間窗另立一組，且**只**與「病患自己去求醫」的動作共現——
+# `_ZH_SELF_CARE` 的每一個詞的施事者天生就是病患本人。
+_ZH_DEADLINE = (
+    r"(?:(?:24|48|72)\s*(?:小時|小时)(?:之)?內"
+    r"|二十四小時(?:之)?內|四十八小時(?:之)?內"
+    r"|[0-9一兩二三四五六七十]+\s*(?:天|日|週|周|星期|小時)(?:之)?內"
+    r"|本(?:週|周)(?:之)?內|這(?:週|周|星期)(?:之)?內|下(?:週|周)(?:之)?內"
+    r"|數(?:小時|天|日)(?:之)?內|幾(?:小時|天|日)(?:之)?內"
+    r"|當天|當日|今天|今日|今晚|明天|明日)"
+)
+# 「病患自己去求醫」的動作。**刻意不收**「回診」「複診」「看診」「掛號」——
+# 「建議一個月內回診」「請稍候等待看診」在院內候診情境完全合規，
+# 收了就會把正常的追蹤衛教誤殺。「聯絡家庭醫師」則收：那是明確叫病患
+# 去找**別的**醫療提供者，等同離場求醫。
+_ZH_SELF_CARE = (
+    r"(?:就醫|就診|求診|求醫|看醫生|看醫師|找醫生|找醫師"
+    r"|聯(?:絡|繫)(?:您的|你的)?(?:家庭|家醫科?|原|主治)?醫(?:師|生))"
+)
+
 # ── en-US ────────────────────────────────────────────────
 _EN_URGENT = (
     r"(?:immediately|right\s+away|straight\s+away|at\s+once|urgently|promptly"
@@ -293,6 +336,9 @@ _EN_URGENT = (
 _EN_CARE = (
     r"(?:seek|see|visit|go\s+to|head\s+to|contact|call|attend|present\s+to)"
     r"\s+(?:a\s+|an\s+|the\s+|your\s+)?"
+    # 修飾語（family / primary care / local…）：「contact your family doctor」
+    # 少了這一段就整條漏掉（SO-1 稽核的 24h 族群常這樣寫）。
+    r"(?:family\s+|primary\s+care\s+|local\s+|regular\s+|own\s+|urologist\s+)?"
     r"(?:doctor|physician|hospital|clinic|emergency|urgent\s+care|medical\s+care"
     r"|medical\s+attention|medical\s+help)"
 )
@@ -318,6 +364,41 @@ _VI_URGENT = r"(?:ngay\s+lập\s+tức|ngay|khẩn\s*cấp|tức\s*thì|càng\s+
 # 故一律要求搭配急迫語（SOFT）或移動動詞（HARD）才算違規。
 _VI_CARE = r"(?:đi\s+khám|khám\s+bệnh|bệnh\s*viện|cấp\s*cứu|bác\s*sĩ|phòng\s*khám)"
 
+# ── 時間窗 × 自行求醫（SO-1）：其餘四語 ──────────────────
+# 與 zh 同一個設計：時間窗**只**與「病患自己去求醫」的動作共現，
+# 不與裸名詞（hospital / 病院 / 병원 / bệnh viện）共現。
+# 反例「Your ultrasound has been booked in this hospital for later today.」
+# 同時含 `later today` 與 `hospital`——若時間窗去配 `_EN_CARE_NOUN`
+# 這句就會被誤殺（實測會打紅既有反例語料）。
+_EN_DEADLINE = (
+    r"(?:within\s+(?:the\s+next\s+)?(?:24|48|72|twenty[-\s]?four)\s*(?:hours?|hrs?)"
+    r"|within\s+(?:the\s+next\s+)?(?:a|one|two|three|four|five|\d+)\s+(?:days?|weeks?)"
+    r"|within\s+the\s+(?:day|week)|in\s+the\s+next\s+\d+\s*(?:hours?|days?)"
+    r"|later\s+today|today|tonight|tomorrow|this\s+week|by\s+the\s+end\s+of\s+the\s+week)"
+)
+_JA_DEADLINE = (
+    r"(?:(?:24|48|72)時間以内|二十四時間以内"
+    r"|[0-9一二三四五六七十]+\s*(?:日|週間|時間)以内"
+    r"|本日中|今日中|今週中|今週(?:のうち)?に|明日までに|数日以内)"
+)
+_JA_SELF_CARE = r"(?:受診|来院|外来を受け)"
+_KO_DEADLINE = (
+    r"(?:(?:24|48|72)\s*시간\s*(?:이내|안)"
+    r"|[0-9일이삼사오]+\s*(?:일|주)\s*(?:이내|안)"
+    r"|오늘\s*(?:중|안)|이번\s*주\s*(?:이내|내|안)|하루\s*(?:이내|안)|내일까지)"
+)
+_KO_SELF_CARE = r"(?:진료를?\s*받|내원|병원에\s*가|의사를?\s*만나)"
+_VI_DEADLINE = (
+    r"(?:trong\s+(?:vòng\s+)?(?:24|48|72)\s*(?:giờ|tiếng)"
+    r"|trong\s+(?:vòng\s+)?\d+\s+(?:ngày|tuần)"
+    r"|trong\s+ngày\s+hôm\s+nay|trong\s+hôm\s+nay|hôm\s+nay|ngay\s+trong\s+tuần"
+    r"|trong\s+tuần\s+này|trước\s+ngày\s+mai)"
+)
+_VI_SELF_CARE = (
+    r"(?:đi\s+khám|khám\s+bệnh|gặp\s+bác\s*sĩ|đến\s+gặp\s+bác\s*sĩ"
+    r"|liên\s*(?:hệ|lạc)\s+(?:với\s+)?bác\s*sĩ)"
+)
+
 
 def _leave_site_patterns() -> tuple[list[re.Pattern[str]], list[re.Pattern[str]], list[re.Pattern[str]]]:
     """回傳 (HARD, EXEMPT, SOFT) 三組已編譯規則。分函式只為讓上面的常數讀得完。"""
@@ -332,6 +413,20 @@ def _leave_site_patterns() -> tuple[list[re.Pattern[str]], list[re.Pattern[str]]
         ),
         re.compile(r"(?:前往|至|到|去)(?:最近|附近|鄰近|其他|別家)(?:的)?(?:急診室?|醫院|醫療院所)"),
         re.compile(r"掛急診|叫救護車|呼叫救護車|(?:撥打|撥|打)\s*(?:119|911)"),
+        # SO-1：祈使 ＋（時間窗／急迫副詞）＋「自帶地點語意的求醫動詞」。
+        # 上面那條祈使規則的動詞表只有「前往/至/到/去…（地點）」，
+        # 所以「請於 24 小時內就醫」「建議本週內就診」「請盡速聯絡您的家庭醫師」
+        # 三族全部漏掉（稽核實測 6/6）。中間留 0-10 字的插入語窗口，
+        # 「於 24 小時內」「在這週內」「結束今天的看診後」都接得住。
+        #
+        # 放 HARD（不吃施事者豁免）的理由：`_ZH_SELF_CARE` 的動詞施事者
+        # **只可能是病患本人**（「就醫」＝他自己去看病），再加上前面必須有
+        # 祈使/建議詞，語意上沒有「院方會做什麼」的解讀空間。
+        # 對照組已釘在反例語料：「醫師會在 24 小時內完成報告」沒有這些動詞。
+        re.compile(
+            r"(?:請|務必|建議|需要|需|應該|應|要|麻煩)您?[^。！？；，、\n]{0,10}?"
+            + _ZH_SELF_CARE
+        ),
         # ── en ──
         re.compile(r"(?:call|dial|phone)\s*9-?1-?1", i),
         # 動詞表刻意**不含** come / drive：「the urologist will come to the emergency
@@ -399,6 +494,10 @@ def _leave_site_patterns() -> tuple[list[re.Pattern[str]], list[re.Pattern[str]]
             r"(?<![回返在從由])(?:前往|至|到|去|赴|轉往|轉至|移駕)"
             r"(?:最近|附近|鄰近|其他|別家|大)?(?:的)?(?:急診室?|醫院|醫療院所)"
         ),
+        # SO-1：時間窗 × 病患自行求醫（雙向）。無祈使詞的陳述句
+        # 「本週內就診可降低風險」「三天內就醫複查尿液」也要接住。
+        re.compile(_ZH_DEADLINE + _ZH_CLAUSE + _ZH_SELF_CARE),
+        re.compile(_ZH_SELF_CARE + _ZH_CLAUSE + _ZH_DEADLINE),
         # ── en ──
         re.compile(_EN_URGENT + r"[^,;.\n]{0,40}?" + _EN_CARE, i),
         re.compile(_EN_CARE + r"[^,;.\n]{0,40}?" + _EN_URGENT, i),
@@ -406,17 +505,29 @@ def _leave_site_patterns() -> tuple[list[re.Pattern[str]], list[re.Pattern[str]]
         re.compile(_EN_CARE_NOUN + r"[^,;.\n]{0,60}?" + _EN_URGENT, i),
         re.compile(r"\bER\b|emergency\s+(?:room|department)", i),
         re.compile(r"(?:medical\s+attention|medical\s+care)\s+(?:is\s+)?" + _EN_URGENT, i),
+        # SO-1（en）：時間窗只配動詞型 `_EN_CARE`，不配 `_EN_CARE_NOUN`。
+        re.compile(_EN_DEADLINE + r"[^,;.\n]{0,40}?" + _EN_CARE, i),
+        re.compile(_EN_CARE + r"[^,;.\n]{0,40}?" + _EN_DEADLINE, i),
         # ── ja ──
         re.compile(_JA_URGENT + r"[^。！？、\n]*?" + _JA_CARE),
         re.compile(_JA_CARE + r"[^。！？、\n]*?" + _JA_URGENT),
         re.compile(r"救急外来|救急車"),
+        # SO-1（ja）
+        re.compile(_JA_DEADLINE + r"[^。！？、\n]*?" + _JA_SELF_CARE),
+        re.compile(_JA_SELF_CARE + r"[^。！？、\n]*?" + _JA_DEADLINE),
         # ── ko ──
         re.compile(_KO_URGENT + r"[^.!?\n]{0,20}?" + _KO_CARE),
         re.compile(_KO_CARE + r"[^.!?\n]{0,20}?" + _KO_URGENT),
         re.compile(r"응급실"),
+        # SO-1（ko）
+        re.compile(_KO_DEADLINE + r"[^.!?\n]{0,20}?" + _KO_SELF_CARE),
+        re.compile(_KO_SELF_CARE + r"[^.!?\n]{0,20}?" + _KO_DEADLINE),
         # ── vi ──
         re.compile(_VI_URGENT + r"[^,;.\n]{0,30}?" + _VI_CARE, i),
         re.compile(_VI_CARE + r"[^,;.\n]{0,30}?" + _VI_URGENT, i),
+        # SO-1（vi）
+        re.compile(_VI_DEADLINE + r"[^,;.\n]{0,30}?" + _VI_SELF_CARE, i),
+        re.compile(_VI_SELF_CARE + r"[^,;.\n]{0,30}?" + _VI_DEADLINE, i),
     ]
     return hard, exempt, soft
 
@@ -654,6 +765,18 @@ Please produce the full SOAP report based on the information above."""
                 )
             )
 
+            # ── 輸出截斷偵測（D-4）──────────────────────────
+            # `max_completion_tokens` 用完時 OpenAI 回 finish_reason="length"，
+            # JSON 會在半路斷掉。不先檢查的話 json.loads 會拋 JSONDecodeError，
+            # 被上面的 handler 轉成「格式錯誤」——**根因被蓋掉**，排查時看到的是
+            # 「LLM 不遵守 JSON schema」而不是「4096 tokens 不夠用」。
+            # 更糟的情況是 JSON 剛好斷在一個合法的位置（如剛寫完 subjective 就
+            # 沒 token 了、`}` 由 API 補上）→ 解析成功、缺一半欄位，
+            # `_validate_and_fill` 把缺的欄位補成空值，**一份殘缺報告就這樣入庫**。
+            # 這裡明確 log 根因並拋可重試例外（AIServiceUnavailableException 在
+            # `report_queue._is_retryable` 判定為可重試，重跑通常就好）。
+            self._raise_if_truncated(response, language)
+
             raw_content = response.choices[0].message.content or "{}"
             soap_report = json.loads(raw_content)
 
@@ -685,6 +808,33 @@ Please produce the full SOAP report based on the information above."""
                     filtered_codes,
                     symptom_id,
                 )
+
+            # ── 零碼保留（2026-08-20 拍板）───────────────────
+            # 白名單是**泌尿科**前綴表，但問診合法地會碰到鄰科診斷：
+            # e2e 實測 ED 場次的 `F52.21`（非器質性勃起功能障礙）整組被剝掉，
+            # `icd10_codes` 進 DB 變成空陣列——醫師端看到的不是「這碼待確認」，
+            # 而是「AI 根本沒給碼」，白白丟掉一個正確且臨床有用的編碼。
+            # 決策：validator 全剝掉且 raw 非空時**保留 raw 碼**，
+            # 但 `icd10_verified=False`（前端據此顯示「需醫師確認」）。
+            # 只在「全剝掉」時才保留：部分命中代表白名單有在正常工作，
+            # 這時把被剝掉的雜碼放回去等於讓 hallucination 過關。
+            if not filtered_codes and raw_codes:
+                preserved = [
+                    str(code).strip()
+                    for code in raw_codes
+                    if isinstance(code, (str, int, float)) and str(code).strip()
+                ]
+                if preserved:
+                    logger.warning(
+                        "ICD-10 白名單外碼保留未驗證（validator 全數剝除，"
+                        "icd10_verified=False，醫師端需自行確認）"
+                        " | raw=%s symptom=%s",
+                        preserved,
+                        symptom_id,
+                    )
+                    filtered_codes = preserved
+                    is_verified = False
+
             if not is_verified:
                 logger.info(
                     "ICD-10 not verified | symptom=%s codes=%s",
@@ -717,6 +867,11 @@ Please produce the full SOAP report based on the information above."""
                 details={"error": str(exc)},
             )
 
+        except AIServiceUnavailableException:
+            # 已經是帶明確根因（如 truncated）的例外，不要再被下面的
+            # 泛用 handler 包一層——details 裡的 reason 會被 str(exc) 洗掉。
+            raise
+
         except Exception as exc:
             logger.error(
                 "SOAP 報告生成失敗 | error=%s", str(exc), exc_info=True
@@ -725,6 +880,46 @@ Please produce the full SOAP report based on the information above."""
                 message="errors.soap_generation_unavailable",
                 details={"error": str(exc)},
             )
+
+    def _raise_if_truncated(self, response: Any, language: str | None) -> None:
+        """輸出被 `max_completion_tokens` 截斷時 log 明確根因並拋可重試例外。
+
+        為什麼要獨立一條而不是靠 JSONDecodeError：截斷後的 JSON **不一定**
+        解析失敗。斷在物件邊界時仍是合法 JSON，只是少了一半欄位——
+        `_validate_and_fill` 會把缺的補成 null/[]，於是一份「LLM 明明沒寫完」
+        的殘缺報告安靜地入庫，醫師看到的是「AI 對這場什麼都沒抓到」。
+
+        `finish_reason` 取用一律走 getattr：測試替身與 SDK 版本差異都不該
+        讓這道檢查自己變成例外來源。
+        """
+        try:
+            choice = response.choices[0]
+            finish_reason = getattr(choice, "finish_reason", None)
+        except Exception:  # noqa: BLE001 — 檢查層不可反過來變成故障點
+            return
+        if finish_reason != "length":
+            return
+
+        usage = getattr(response, "usage", None)
+        completion_tokens = getattr(usage, "completion_tokens", None)
+        logger.error(
+            "SOAP 報告輸出被截斷（finish_reason=length）——根因是 "
+            "OPENAI_MAX_TOKENS_SOAP 不足，不是 LLM 不遵守 JSON schema"
+            " | max_completion_tokens=%s completion_tokens=%s model=%s language=%s",
+            self._max_tokens,
+            completion_tokens,
+            self._model,
+            language,
+        )
+        raise AIServiceUnavailableException(
+            message="errors.soap_generation_unavailable",
+            details={
+                "error": "response truncated by max_completion_tokens",
+                "reason": "output_truncated",
+                "finish_reason": "length",
+                "max_completion_tokens": self._max_tokens,
+            },
+        )
 
     @staticmethod
     def _format_red_flags(red_flags: list[dict[str, Any]] | None) -> str:
@@ -956,6 +1151,148 @@ Please produce the full SOAP report based on the information above."""
 
         return report
 
+    # ══ 病患語言版的病患面兩欄（2026-08-20 產品決策）══════════
+    #
+    # 不變式 #12 不變：主報告與 `report.language` 一律 zh-TW（讀者是院內醫護）。
+    # 但 `summary` 與 `plan.patient_education` 會**原文**渲染在病患畫面上
+    # （不變式 #24），en/ja/ko/vi 場次的病患等於拿到看不懂的中文摘要。
+    # 這裡用一次小模型呼叫把**已消毒過的中文兩欄**轉述成場次語言，
+    # 產物寫進 `soap_reports.patient_facing_localized`（主報告之外的附加欄位）。
+    #
+    # 三條硬性約束：
+    #   1. **只轉述、不新增**：不得補任何中文原文沒有的醫囑、劑量、檢查建議。
+    #      LLM 在翻譯任務上最常見的越界就是「順手補一句衛教」。
+    #   2. 遵守 kiosk 措辭（#11）：轉述出來的字仍要過消毒層的**目標語言**規則。
+    #      這也是 `_PATIENT_FACING_CLAUSE` 五語文案真正被用到的地方——
+    #      在此之前只有 zh-TW 分支活著（報告固定中文），其餘四語是死碼。
+    #   3. 失敗不得影響主報告：呼叫端在主報告 commit 之後才呼叫，
+    #      任何例外都留 NULL（前端 fallback 回中文原文）。
+
+    _LOCALIZE_LANGUAGE_NAMES: dict[str, str] = {
+        "zh-TW": "Traditional Chinese (Taiwan)",
+        "en-US": "English (US)",
+        "ja-JP": "Japanese",
+        "ko-KR": "Korean",
+        "vi-VN": "Vietnamese",
+    }
+
+    _LOCALIZE_SYSTEM_PROMPT = """You are a medical translator for a hospital waiting-room kiosk.
+
+You will be given two short patient-facing texts written in Traditional Chinese:
+`summary` (a plain-language recap of the consultation) and `patient_education`
+(advice the patient reads on screen). Render them into {language_name}.
+
+## Hard rules
+1. TRANSLATE ONLY. Do not add, remove, merge, or "improve" any clinical content.
+   Do NOT invent medical advice, medication names, dosages, tests, follow-up
+   intervals, or warning signs that are not already in the Chinese source.
+   If the source says nothing about something, your output says nothing about it.
+2. Keep the register plain and reassuring — the reader is a patient, not a clinician.
+   Do not introduce diagnostic terminology, differential diagnoses, or ICD codes
+   that are not in the source.
+3. Setting: the patient is ALREADY inside the clinic, seated in the waiting area,
+   waiting to be called. Never tell them to leave, to go to an emergency room, to
+   see another doctor, to call an ambulance, or to seek care "within 24 hours" /
+   "this week" / "today". If the Chinese source points them at on-site staff
+   ("請立即告知現場醫護人員" / "請稍候等待看診"), keep exactly that meaning in
+   {language_name}.
+4. Output MUST be a single JSON object with exactly these two string keys:
+   {{"summary": "...", "patient_education": "..."}}
+   No markdown, no code fences, no commentary. Both values are plain text in
+   {language_name}; keep paragraph breaks with "\\n" where the source has them.
+"""
+
+    async def localize_patient_facing(
+        self,
+        *,
+        summary: str,
+        patient_education: str,
+        target_language: str,
+    ) -> dict[str, str]:
+        """把已消毒的中文病患面兩欄轉述成 `target_language`。
+
+        Args:
+            summary: 主報告的 `summary`（已過中文消毒層）
+            patient_education: 主報告的 `plan.patient_education`（已合併成單一字串）
+            target_language: 場次語言（BCP-47）
+
+        Returns:
+            `{"language": target_language, "summary": str, "patient_education": str}`
+            兩欄都已過**目標語言**的病患面措辭消毒層。
+
+        Raises:
+            ValueError: `target_language` 不在支援清單，或轉述結果為空。
+            Exception: OpenAI / JSON 解析失敗一律往上拋，由呼叫端決定留 NULL。
+        """
+        language_name = self._LOCALIZE_LANGUAGE_NAMES.get(target_language)
+        if not language_name:
+            raise ValueError(f"unsupported target language: {target_language!r}")
+
+        source = {
+            "summary": summary or "",
+            "patient_education": patient_education or "",
+        }
+        if not source["summary"].strip() and not source["patient_education"].strip():
+            raise ValueError("nothing to localize (both fields empty)")
+
+        # 小模型就夠：這是純翻譯任務，沒有臨床推理。
+        model = getattr(self._settings, "OPENAI_MODEL_SUMMARIZER", "gpt-4o-mini")
+        system_prompt = self._LOCALIZE_SYSTEM_PROMPT.format(language_name=language_name)
+
+        response = await call_with_retry(
+            lambda: self._client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": json.dumps(source, ensure_ascii=False),
+                    },
+                ],
+                temperature=0.2,
+                max_completion_tokens=1500,
+                response_format={"type": "json_object"},
+            )
+        )
+
+        # 截斷的轉述會在句子中間斷掉，直接當失敗處理（留 NULL 比留半句好）。
+        choice = response.choices[0]
+        if getattr(choice, "finish_reason", None) == "length":
+            raise ValueError("localization truncated by max_completion_tokens")
+
+        payload = json.loads(choice.message.content or "{}")
+        if not isinstance(payload, dict):
+            raise ValueError(f"localization returned {type(payload).__name__}, want dict")
+
+        out_summary = payload.get("summary")
+        out_education = payload.get("patient_education")
+        if not isinstance(out_summary, str) or not isinstance(out_education, str):
+            raise ValueError("localization returned non-string fields")
+        if not out_summary.strip() and not out_education.strip():
+            raise ValueError("localization returned empty fields")
+
+        # 出口消毒：目標語言的規則（#11/#24）。翻譯層一樣會寫出
+        # "please see a doctor within 24 hours" 這種句子——中文原文已經合規
+        # 不代表譯文合規（LLM 會「還原」它以為被和諧掉的醫囑）。
+        clean_summary, summary_hits = self._sanitize_patient_facing_text(
+            out_summary, target_language
+        )
+        clean_education, education_hits = self._sanitize_patient_facing_text(
+            out_education, target_language
+        )
+        if summary_hits or education_hits:
+            logger.warning(
+                "病患語言版措辭違規已改寫（轉述層）| language=%s banned_phrases=%s",
+                target_language,
+                sorted(set(summary_hits) | set(education_hits)),
+            )
+
+        return {
+            "language": target_language,
+            "summary": clean_summary,
+            "patient_education": clean_education,
+        }
+
     @staticmethod
     def _coerce_urgency(value: Any, *, context: str = "urgency") -> str:
         """
@@ -1008,23 +1345,51 @@ Please produce the full SOAP report based on the information above."""
 
         Returns:
             驗證並補齊後的報告字典
+
+        ── 型別守衛（D-4，2026-08-20 稽核 4/4 拋例外）─────────
+        舊版只檢查 key **在不在**，不檢查值的型別。LLM 把 `plan` 寫成
+        字串、把 `subjective` 寫成陣列（json_object 模式下仍會發生）時：
+          - `subj.get(...)` 對 list → AttributeError，整個任務炸掉；
+          - `plan["urgency"] = ...` 對 str → TypeError。
+        稽核以四種畸形輸出實測，4/4 都是裸例外冒到 Celery。更隱蔽的是
+        **型別對了一半**的情況：`summary` 吐成 list、`patient_education`
+        吐成 dict —— 不會炸，但 `_sanitize_patient_facing_fields` 只處理
+        str / list[str]，其餘型別**原封放行**，等於病患面消毒層被整個跳過
+        （禁語直達病患畫面），而且 `summary` 是 DB 的 Text 欄位，寫 list
+        進去在 asyncpg 那層才炸。
+        所以這裡一律**矯正**而不是拋例外：報告能出就要出，型別不對就
+        退回等價的空值／字串並 log warning 讓人事後查得到。
         """
-        # 確保頂層結構完整
-        if "subjective" not in report:
-            report["subjective"] = {}
-        if "objective" not in report:
-            report["objective"] = {}
-        if "assessment" not in report:
-            report["assessment"] = {}
-        if "plan" not in report:
-            report["plan"] = {}
+        # 整份不是 dict（LLM 回 `[{...}]` 或裸字串）→ 從空報告重建。
+        if not isinstance(report, dict):
+            logger.warning(
+                "SOAP 報告頂層不是 dict，改以空報告補齊 | type=%s",
+                type(report).__name__,
+            )
+            report = {}
+
+        # 確保頂層結構完整**且型別正確**（非 dict 一律以空 dict 取代）
+        for section in ("subjective", "objective", "assessment", "plan"):
+            if not isinstance(report.get(section), dict):
+                if section in report:
+                    logger.warning(
+                        "SOAP %s 區塊型別錯誤，以空 dict 取代 | type=%s",
+                        section,
+                        type(report[section]).__name__,
+                    )
+                report[section] = {}
 
         # Subjective 補齊
         subj = report["subjective"]
+        if not isinstance(subj.get("hpi"), dict):
+            if "hpi" in subj:
+                logger.warning(
+                    "SOAP subjective.hpi 型別錯誤，以空 dict 取代 | type=%s",
+                    type(subj["hpi"]).__name__,
+                )
+            subj["hpi"] = {}
         if not subj.get("chief_complaint"):
             subj["chief_complaint"] = chief_complaint
-        if "hpi" not in subj:
-            subj["hpi"] = {}
         hpi_fields = [
             "onset", "location", "duration", "characteristics",
             "severity", "aggravating_factors", "relieving_factors",
@@ -1089,6 +1454,24 @@ Please produce the full SOAP report based on the information above."""
             context="plan.urgency",
         )
 
+        # ── 病患面欄位型別矯正（D-4）────────────────────────
+        # `patient_education` 必須是 list 或 str，否則
+        # `_sanitize_patient_facing_fields` 兩個分支都不進 ＝ 消毒層被跳過。
+        # dict 展平成它的 values（LLM 常吐 {"1": "...", "2": "..."}），
+        # 其他純量包成單元素 list，資訊一個字都不丟。
+        education = plan.get("patient_education")
+        if not isinstance(education, (list, str)) and education is not None:
+            logger.warning(
+                "SOAP plan.patient_education 型別錯誤，已矯正為 list | type=%s",
+                type(education).__name__,
+            )
+            if isinstance(education, dict):
+                plan["patient_education"] = [str(v) for v in education.values()]
+            else:
+                plan["patient_education"] = [str(education)]
+        elif education is None:
+            plan["patient_education"] = []
+
         # 頂層欄位
         if "summary" not in report:
             report["summary"] = ""
@@ -1096,6 +1479,35 @@ Please produce the full SOAP report based on the information above."""
             report["icd10_codes"] = []
         if "confidence_score" not in report:
             report["confidence_score"] = 0.0
+
+        # `summary` 必須是 str：DB 是 Text 欄位（寫 list 會在 asyncpg 才炸），
+        # 且消毒層只處理 str（非 str 原封放行 ＝ 禁語直達病患畫面）。
+        summary = report.get("summary")
+        if not isinstance(summary, str):
+            logger.warning(
+                "SOAP summary 型別錯誤，已矯正為字串 | type=%s",
+                type(summary).__name__,
+            )
+            if summary is None:
+                report["summary"] = ""
+            elif isinstance(summary, (list, tuple)):
+                # 逐項轉字串再併成段落，臨床內容不因型別錯誤而遺失
+                report["summary"] = "\n".join(str(item) for item in summary)
+            elif isinstance(summary, dict):
+                report["summary"] = "\n".join(str(v) for v in summary.values())
+            else:
+                report["summary"] = str(summary)
+
+        # `icd10_codes` 必須是 list（validator 與 DB 的 ARRAY(String) 都吃 list）
+        if not isinstance(report.get("icd10_codes"), list):
+            logger.warning(
+                "SOAP icd10_codes 型別錯誤，已矯正為 list | type=%s",
+                type(report["icd10_codes"]).__name__,
+            )
+            codes = report["icd10_codes"]
+            report["icd10_codes"] = (
+                [str(codes)] if isinstance(codes, (str, int, float)) else []
+            )
 
         # 確保 confidence_score 為合法數值
         try:

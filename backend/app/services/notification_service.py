@@ -106,6 +106,14 @@ class NotificationService:
 
         受偏好設定 session_complete_enabled 抑制（回 None）。
         呼叫端負責 commit；本函式僅 flush。
+
+        ⚠️ **這一條刻意不 fan-out**（2026-08-20 一併檢視時的決定）。
+        `notify_report_ready` 對 `doctor_id IS NULL` 的場次改成通知全體在職醫師，
+        因為報告是最終產物、沒人知道就等於白做。但「問診完成」與「報告就緒」
+        在時間上只差幾十秒，兩條都 fan-out 會讓每位醫師對**同一場**收到兩則
+        通知＋兩次推播——噪音翻倍，而第二則（報告就緒）才是可以點進去看東西的
+        那一則。所以未指派場次的廣播只留 report_ready 這一條。
+        本函式的呼叫端（conversation_handler）本來就只在有 doctor_id 時呼叫。
         """
         from app.models.patient import Patient
         from app.models.user import User
@@ -152,56 +160,181 @@ class NotificationService:
         *,
         session_id: Any,
         report_id: Any,
-    ) -> Optional[Notification]:
-        """SOAP 報告生成完成 → REPORT_READY 站內通知給負責醫師。
+    ) -> list[Notification]:
+        """SOAP 報告生成完成 → REPORT_READY 站內通知。
 
-        場次無負責醫師時 no-op 回 None；受偏好 report_ready_enabled 抑制。
+        - 場次**已指派**醫師 → 只通知該醫師（維持原行為）。
+        - 場次 `doctor_id IS NULL` → **fan-out 給全體在職醫師**。
+
+        為什麼要 fan-out（2026-08-20，比照紅旗的
+        `conversation_handler._notify_doctors_red_flag`）：院內 kiosk 的場次在
+        問診當下**通常還沒指派醫師**（實測 DB 內 `sessions.doctor_id` 全為 NULL）。
+        舊版在這個分支直接 `return None`——報告生成完了，**一個人都不會知道**。
+        紅旗路徑早就修過同一個坑，report_ready 這條漏掉了。
+
+        與紅旗的差別：REPORT_READY **受** `report_ready_enabled` 偏好抑制
+        （紅旗是病安關鍵、恆送；報告就緒不是）。所以 fan-out 時每位醫師各自
+        走一次 `create()`，關掉這個類型的醫師不會收到——這是刻意的。
+
+        回傳**實際建立**的通知清單（被偏好抑制的醫師不在內）。
         呼叫端負責 commit；本函式僅 flush。
         """
-        from app.models.patient import Patient
-        from app.models.session import Session
         from app.models.user import User
         from app.utils.i18n_messages import get_message
+
+        doctor_id, patient_name = await NotificationService._resolve_session_targets(
+            db, session_id
+        )
+        targets = await NotificationService._doctor_targets(db, doctor_id, session_id)
+        if not targets:
+            return []
+
+        data = {"session_id": str(session_id), "report_id": str(report_id)}
+        created: list[Notification] = []
+        for target_id in targets:
+            # 逐位查 preferred_language：fan-out 的規模是「在職醫師數」，
+            # 通常是個位數到十幾位，N+1 在這裡不是問題，而每位醫師看到自己
+            # 語言的通知比省幾個 query 重要（notify_session_complete 同樣作法）。
+            doctor_lang = (
+                await db.execute(
+                    select(User.preferred_language).where(User.id == target_id)
+                )
+            ).scalar_one_or_none()
+            title = get_message("notifications.report_ready.title", doctor_lang)
+            body = get_message(
+                "notifications.report_ready.body",
+                doctor_lang,
+                patient_name=patient_name or "",
+            )
+            notification = await NotificationService.create(
+                db,
+                user_id=target_id,
+                type=NotificationType.REPORT_READY,
+                title=title,
+                body=body,
+                data=data,
+            )
+            # 同 notify_session_complete：站內通知成功才推播，且推播失敗不可影響
+            # 已生成的報告（呼叫端 report_queue 為獨立第二段交易）。
+            if notification is not None:
+                created.append(notification)
+                await _dispatch_push_best_effort(
+                    db=db, user_id=target_id, title=title, body=body, data=data
+                )
+        return created
+
+    @staticmethod
+    async def notify_report_failed(
+        db: AsyncSession,
+        *,
+        session_id: Any,
+        report_id: Any = None,
+    ) -> list[Notification]:
+        """SOAP 報告生成**失敗** → SYSTEM 站內通知（SO-2 的通知半邊）。
+
+        目標與 `notify_report_ready` 同一套規則：有指派醫師就通知他，
+        `doctor_id IS NULL` 就 fan-out 給全體在職醫師。
+
+        為什麼是 SYSTEM 而不是 REPORT_READY：報告**沒有**就緒，用 REPORT_READY
+        會讓醫師點進去看到一片空白；而且 `report_ready_enabled=False` 的醫師
+        會連「生成失敗」都收不到——「我不想被報告就緒打擾」不等於
+        「我不想知道報告壞了」。
+
+        呼叫端負責 commit；本函式僅 flush。
+        """
+        from app.models.user import User
+
+        doctor_id, patient_name = await NotificationService._resolve_session_targets(
+            db, session_id
+        )
+        targets = await NotificationService._doctor_targets(db, doctor_id, session_id)
+        if not targets:
+            return []
+
+        data: dict[str, Any] = {"session_id": str(session_id), "status": "failed"}
+        if report_id:
+            data["report_id"] = str(report_id)
+
+        created: list[Notification] = []
+        for target_id in targets:
+            doctor_lang = (
+                await db.execute(
+                    select(User.preferred_language).where(User.id == target_id)
+                )
+            ).scalar_one_or_none()
+            title, body = _report_failed_copy(doctor_lang, patient_name or "")
+            notification = await NotificationService.create(
+                db,
+                user_id=target_id,
+                type=NotificationType.SYSTEM,
+                title=title,
+                body=body,
+                data=data,
+            )
+            if notification is not None:
+                created.append(notification)
+                await _dispatch_push_best_effort(
+                    db=db, user_id=target_id, title=title, body=body, data=data
+                )
+        return created
+
+    @staticmethod
+    async def _resolve_session_targets(
+        db: AsyncSession, session_id: Any
+    ) -> tuple[Optional[UUID], Optional[str]]:
+        """取 (場次的 doctor_id, 病患姓名)。查不到場次時回 (None, None)。"""
+        from app.models.patient import Patient
+        from app.models.session import Session
+
+        try:
+            session_uuid = UUID(str(session_id))
+        except (ValueError, TypeError, AttributeError):
+            logger.warning("session_id 不是合法 UUID，通知略過 | %r", session_id)
+            return None, None
 
         row = (
             await db.execute(
                 select(Session.doctor_id, Patient.name)
                 .join(Patient, Patient.id == Session.patient_id, isouter=True)
-                .where(Session.id == UUID(str(session_id)))
+                .where(Session.id == session_uuid)
             )
         ).first()
-        if row is None or row.doctor_id is None:
-            return None
+        if row is None:
+            return None, None
+        return row.doctor_id, row.name
 
-        doctor_lang = (
-            await db.execute(
-                select(User.preferred_language).where(User.id == row.doctor_id)
+    @staticmethod
+    async def _doctor_targets(
+        db: AsyncSession, doctor_id: Optional[UUID], session_id: Any
+    ) -> list[UUID]:
+        """通知目標：有指派醫師就是他，否則全體在職醫師（未指派佇列 fan-out）。
+
+        與 `conversation_handler._notify_doctors_red_flag` 同一套語意，
+        查詢自帶 try/except：查不到不可讓呼叫端的第二段交易連帶炸掉。
+        """
+        from app.models.enums import UserRole
+        from app.models.user import User as _User
+
+        if doctor_id is not None:
+            return [doctor_id]
+        try:
+            result = await db.execute(
+                select(_User.id).where(
+                    _User.role == UserRole.DOCTOR,
+                    _User.is_active.is_(True),
+                )
             )
-        ).scalar_one_or_none()
-
-        title = get_message("notifications.report_ready.title", doctor_lang)
-        body = get_message(
-            "notifications.report_ready.body",
-            doctor_lang,
-            patient_name=row.name or "",
-        )
-        data = {"session_id": str(session_id), "report_id": str(report_id)}
-
-        notification = await NotificationService.create(
-            db,
-            user_id=row.doctor_id,
-            type=NotificationType.REPORT_READY,
-            title=title,
-            body=body,
-            data=data,
-        )
-        # 同 notify_session_complete：站內通知成功才推播，且推播失敗不可影響
-        # 已生成的報告（呼叫端 report_queue 為獨立第二段交易）。
-        if notification is not None:
-            await _dispatch_push_best_effort(
-                db=db, user_id=row.doctor_id, title=title, body=body, data=data
+            targets = list(result.scalars().all())
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "查詢在職醫師失敗，通知略過 | session=%s", session_id, exc_info=True
             )
-        return notification
+            return []
+        if not targets:
+            logger.warning(
+                "場次未指派醫師且查無在職醫師，通知無人可送 | session=%s", session_id
+            )
+        return targets
 
     @staticmethod
     async def list_notifications(
@@ -586,6 +719,43 @@ class NotificationService:
 
 
 # ── 輔助函式 ─────────────────────────────────────────────
+
+# 「報告生成失敗」通知文案。
+#
+# ⚠️ 這裡沒有走 `app/utils/i18n_messages.py`，是**本輪的檔案邊界限制**
+#（該檔由另一位執行者持有），不是設計選擇。將來合併時應搬成
+# `notifications.report_failed.title` / `.body` 兩個 key，並把這個 dict 刪掉。
+# 在那之前這份拷貝要與其他 notifications.* 文案的語氣保持一致。
+_REPORT_FAILED_COPY: dict[str, tuple[str, str]] = {
+    "zh-TW": ("報告生成失敗", "{patient_name} 的問診報告生成失敗，請重試。"),
+    "en-US": (
+        "Report generation failed",
+        "The consultation report for {patient_name} could not be generated. Please retry.",
+    ),
+    "ja-JP": (
+        "レポート生成に失敗しました",
+        "{patient_name} さんの問診レポートを生成できませんでした。再試行してください。",
+    ),
+    "ko-KR": (
+        "리포트 생성 실패",
+        "{patient_name} 님의 문진 리포트를 생성하지 못했습니다. 다시 시도해 주세요.",
+    ),
+    "vi-VN": (
+        "Tạo báo cáo thất bại",
+        "Không thể tạo báo cáo khám cho {patient_name}. Vui lòng thử lại.",
+    ),
+}
+_REPORT_FAILED_DEFAULT_LANG = "zh-TW"
+
+
+def _report_failed_copy(language: Optional[str], patient_name: str) -> tuple[str, str]:
+    """回傳 (title, body)；未支援語言退回 zh-TW（與 i18n_messages 的預設一致）。"""
+    title, body = _REPORT_FAILED_COPY.get(
+        language or "", _REPORT_FAILED_COPY[_REPORT_FAILED_DEFAULT_LANG]
+    )
+    return title, body.format(patient_name=patient_name).strip()
+
+
 async def _dispatch_push_best_effort(
     *,
     db: AsyncSession,

@@ -81,6 +81,27 @@ LEAVE_SITE_MARKERS: tuple[str, ...] = (
     # vi
     "đi khám ngay", "đến bệnh viện", "đi cấp cứu", "đến khoa cấp cứu",
     "gọi xe cấp cứu",
+    # ── SO-1（2026-08-20）：時間窗型離場指示 ──────────────
+    # `plan.urgency` 的四個 enum 被 LLM 翻成白話後的等價句。稽核實測 6/6 放行：
+    # 前一版的 marker 只收「急迫副詞 + 求醫動詞」，接不住「請於 24 小時內就醫」
+    # 這種把急迫度寫成**時間窗**的版本。指定時限叫病患自己去求醫，
+    # 對候診中的病患一樣是叫他離場。
+    # 片語刻意留成「時間窗尾 + 求醫動詞」的形狀（如「小時內就醫」），
+    # 才能同時吃到「24 小時內就醫」「48小時內就醫」等變體。
+    "小時內就醫", "小時內就診", "小時內求診",
+    "天內就醫", "天內就診", "天內看醫生",
+    "週內就醫", "週內就診", "周內就醫", "周內就診",
+    "當天就醫", "當天就診", "今天就醫", "今日就醫", "明天就醫",
+    "聯絡您的家庭醫師", "聯繫您的家庭醫師", "聯絡家庭醫師",
+    "see a doctor within", "see your doctor within", "visit a clinic this week",
+    "contact your family doctor within", "see a doctor today",
+    # ⚠️ 刻意**不收**裸的「今週中に」「이번 주 안에」——那是純時間詞，
+    # 「今週中は激しい運動を控え…」「이번 주 안에는 무리한 운동을 피해…」
+    # 都是合規衛教，收了會讓 oracle 與反例語料互相矛盾。
+    # 時間窗只有**接上求醫動作**才是禁語。
+    "時間以内に受診", "以内に受診",
+    "시간 이내에 진료", "주 안에 진료",
+    "đi khám trong vòng", "gặp bác sĩ trong tuần",
 )
 
 
@@ -252,6 +273,67 @@ LEAVE_SITE_CORPUS: tuple[tuple[str, str, str], ...] = (
         "vi-VN",
         "Nếu tiểu ra máu nhiều hơn, hãy đi khám ngay tại bệnh viện gần nhất.",
     ),
+
+    # ══ SO-1（2026-08-20 稽核）：時間窗型離場指示 ═══════════
+    #
+    # 判準沒有變——依然是「有沒有叫病患自行離場」——變的是 LLM 的措辭：
+    # 它把 `plan.urgency` 的 enum 直接翻成白話塞進病患面欄位。
+    # 這一族**成組**穿透了消毒層（稽核實測 6/6 放行），因為舊規則只認
+    # 「立即／盡速」這類副詞，不認「24 小時內／本週內／當天」這類時間窗。
+    # 下面按 enum 分組列出，確保四個 urgency 值的自然語言等價句都有覆蓋。
+
+    # ── urgency=er_now 的白話版（時間窗＝當天／今天）──
+    ("paraphrase", "zh-TW", "這種情況屬於急症，請當天就醫，不要拖到明天。"),
+    ("paraphrase", "zh-TW", "今天就醫對保住睪丸功能至關重要，不要等到症狀自行緩解。"),
+    # ── urgency=24h 的白話版 ──
+    ("paraphrase", "zh-TW", "請於 24 小時內就醫，讓醫師評估是否需要進一步處置。"),
+    ("paraphrase", "zh-TW", "建議在 24 小時內就診泌尿科，以免延誤治療。"),
+    ("paraphrase", "zh-TW", "若明天早上仍有血尿，請於一天內就醫檢查。"),
+    # ── urgency=this_week 的白話版 ──
+    ("paraphrase", "zh-TW", "建議本週內就診，安排尿液細胞學檢查。"),
+    # ⚠️ 無祈使詞的陳述句：不靠「請／建議」那條 HARD 規則，
+    # 只靠「時間窗 × 自行求醫」的共現組。注入式回歸驗過——把
+    # 「本週內」從 `_ZH_DEADLINE` 拿掉，只有這一句會紅。
+    ("paraphrase", "zh-TW", "本週內就診可以及早排除膀胱腫瘤的可能。"),
+    ("paraphrase", "zh-TW", "48 小時內就醫是這種疼痛的標準處理方式。"),
+    ("paraphrase", "zh-TW", "請在這週內找醫生做進一步追蹤。"),
+    ("paraphrase", "zh-TW", "建議三天內就醫複查尿液，確認血尿是否已經改善。"),
+    # ── urgency=routine 的白話版：轉介到別的醫療提供者 ──
+    ("paraphrase", "zh-TW", "請盡速聯絡您的家庭醫師安排後續追蹤。"),
+    ("paraphrase", "zh-TW", "後續請聯絡您的家庭醫師，於下週內安排尿液複檢。"),
+    (
+        "paraphrase",
+        "en-US",
+        "Please see a doctor within 24 hours if the bleeding continues.",
+    ),
+    (
+        "paraphrase",
+        "en-US",
+        "Contact your family doctor within the next two days to arrange follow-up.",
+    ),
+    (
+        "paraphrase",
+        "en-US",
+        "You should visit a clinic this week for a repeat urine test.",
+    ),
+    ("paraphrase", "ja-JP", "血尿が続く場合は、24時間以内に受診してください。"),
+    ("paraphrase", "ja-JP", "今週中に泌尿器科を受診するようにしてください。"),
+    (
+        "paraphrase",
+        "ko-KR",
+        "증상이 계속되면 24시간 이내에 진료를 받으시기 바랍니다.",
+    ),
+    ("paraphrase", "ko-KR", "이번 주 안에 비뇨의학과에서 진료를 받으세요."),
+    (
+        "paraphrase",
+        "vi-VN",
+        "Nếu tình trạng kéo dài, xin hãy đi khám trong vòng 24 giờ.",
+    ),
+    (
+        "paraphrase",
+        "vi-VN",
+        "Bạn nên gặp bác sĩ trong tuần này để kiểm tra lại nước tiểu.",
+    ),
 )
 
 
@@ -406,4 +488,48 @@ COMPLIANT_CORPUS: tuple[tuple[str, str, str], ...] = (
         "Kết quả xét nghiệm sẽ được bác sĩ giải thích trong buổi khám hôm nay.",
     ),
     ("paraphrase", "vi-VN", "Hãy uống nhiều nước và tránh vận động mạnh."),
+
+    # ══ SO-1 的反向側：時間窗**不是**禁語 ═══════════════════
+    #
+    # 與上面新增的時間窗正例一一對應。豁免判準沒有變、也不會變：
+    # **施事者是誰**。「醫師會在 24 小時內完成報告」的動作者是院方，
+    # 病患一步都不用移動；「請於 24 小時內就醫」的動作者是病患本人。
+    # 只往正例加斷言就是在替下一次擺盪鋪路（skill 測試設計第 1 點），
+    # 所以每一組時間窗都要有對照的良性句釘住界線。
+    ("minimalpair", "zh-TW", "醫師會在 24 小時內完成報告，請稍候等待看診。"),
+    ("minimalpair", "zh-TW", "現場醫護人員會在 24 小時內回覆您的檢查結果。"),
+    ("minimalpair", "zh-TW", "醫師會為您安排急診評估，本週內會有正式報告。"),
+    ("minimalpair", "zh-TW", "檢查報告預計三天內完成，屆時由主治醫師向您說明。"),
+    ("paraphrase", "zh-TW", "今天的門診由王醫師負責，護理師會協助您完成報到。"),
+    ("paraphrase", "zh-TW", "這一週內請照常服用原本的降血壓藥物。"),
+    ("paraphrase", "zh-TW", "當天的尿量與飲水量請記錄下來，供醫師參考。"),
+    (
+        "minimalpair",
+        "en-US",
+        "The doctor will review your results within 24 hours; please wait here.",
+    ),
+    (
+        "minimalpair",
+        "en-US",
+        "Our team will contact you later today with the scan results.",
+    ),
+    (
+        "paraphrase",
+        "en-US",
+        "Keep a record of how much you drink today and bring it to the consultation.",
+    ),
+    ("minimalpair", "ja-JP", "検査結果は24時間以内に担当医からご連絡いたします。"),
+    ("paraphrase", "ja-JP", "今週中は激しい運動を控え、水分をこまめに取ってください。"),
+    ("minimalpair", "ko-KR", "검사 결과는 24시간 이내에 의료진이 알려 드립니다."),
+    ("paraphrase", "ko-KR", "이번 주 안에는 무리한 운동을 피해 주세요."),
+    (
+        "minimalpair",
+        "vi-VN",
+        "Nhân viên y tế tại chỗ sẽ thông báo kết quả trong vòng 24 giờ.",
+    ),
+    (
+        "paraphrase",
+        "vi-VN",
+        "Trong tuần này, xin hãy uống nhiều nước và tránh vận động mạnh.",
+    ),
 )
