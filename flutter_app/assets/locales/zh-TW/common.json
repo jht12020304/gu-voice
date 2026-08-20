@@ -287,5 +287,11 @@
     "loadMore": "載入更多",
     "loadingMore": "載入中...",
     "allLoaded": "已顯示全部"
+  },
+  "patientUnsupported": {
+    "title": "此 App 供醫療人員使用",
+    "message": "本 App 提供醫師與醫療人員查看問診報告與通知，不提供語音問診功能。",
+    "kioskHint": "若您要進行問診，請使用現場候診區的語音問診機；如需協助，請告知現場醫護人員。",
+    "logoutAction": "登出並更換帳號"
   }
 }

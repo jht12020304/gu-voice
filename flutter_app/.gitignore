@@ -32,6 +32,8 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/.vercel/
+/.fvm/
 
 # Symbolication related
 app.*.symbols
@@ -49,3 +51,4 @@ app.*.map.json
 key.properties
 *.jks
 *.keystore
+.env*

@@ -122,18 +122,29 @@ class NotificationService:
                 await db.execute(select(Patient.name).where(Patient.id == patient_id))
             ).scalar_one_or_none()
 
-        return await NotificationService.create(
+        title = get_message("notifications.session_complete.title", doctor_lang)
+        body = get_message(
+            "notifications.session_complete.body",
+            doctor_lang,
+            patient_name=patient_name or "",
+        )
+        data = {"session_id": str(session_id)}
+
+        notification = await NotificationService.create(
             db,
             user_id=doctor_id,
             type=NotificationType.SESSION_COMPLETE,
-            title=get_message("notifications.session_complete.title", doctor_lang),
-            body=get_message(
-                "notifications.session_complete.body",
-                doctor_lang,
-                patient_name=patient_name or "",
-            ),
-            data={"session_id": str(session_id)},
+            title=title,
+            body=body,
+            data=data,
         )
+        # 站內通知建立成功才發推播（被類型偏好抑制時 create() 回 None，推播也一併略過）。
+        # 推播走 send_push_notification 的 push_enabled 通道閘控；派送失敗不可影響站內通知。
+        if notification is not None:
+            await _dispatch_push_best_effort(
+                db=db, user_id=doctor_id, title=title, body=body, data=data
+            )
+        return notification
 
     @staticmethod
     async def notify_report_ready(
@@ -168,18 +179,29 @@ class NotificationService:
             )
         ).scalar_one_or_none()
 
-        return await NotificationService.create(
+        title = get_message("notifications.report_ready.title", doctor_lang)
+        body = get_message(
+            "notifications.report_ready.body",
+            doctor_lang,
+            patient_name=row.name or "",
+        )
+        data = {"session_id": str(session_id), "report_id": str(report_id)}
+
+        notification = await NotificationService.create(
             db,
             user_id=row.doctor_id,
             type=NotificationType.REPORT_READY,
-            title=get_message("notifications.report_ready.title", doctor_lang),
-            body=get_message(
-                "notifications.report_ready.body",
-                doctor_lang,
-                patient_name=row.name or "",
-            ),
-            data={"session_id": str(session_id), "report_id": str(report_id)},
+            title=title,
+            body=body,
+            data=data,
         )
+        # 同 notify_session_complete：站內通知成功才推播，且推播失敗不可影響
+        # 已生成的報告（呼叫端 report_queue 為獨立第二段交易）。
+        if notification is not None:
+            await _dispatch_push_best_effort(
+                db=db, user_id=row.doctor_id, title=title, body=body, data=data
+            )
+        return notification
 
     @staticmethod
     async def list_notifications(
@@ -564,6 +586,40 @@ class NotificationService:
 
 
 # ── 輔助函式 ─────────────────────────────────────────────
+async def _dispatch_push_best_effort(
+    *,
+    db: AsyncSession,
+    user_id: UUID,
+    title: str,
+    body: Optional[str],
+    data: Optional[dict[str, Any]] = None,
+) -> bool:
+    """best-effort 派送推播：任何失敗都吞掉，只記 warning。
+
+    語意對齊 report_queue 的第二段交易設計 —— 推播是站內通知/報告生成之外的
+    附加動作，Celery / Redis / FCM 不可用時絕不可讓呼叫端炸掉或回滾。
+
+    刻意**不**放進通用的 `create()`：RED_FLAG 路徑已於 alert_service 自行
+    派推播，若 create() 也發會造成重複推播。
+
+    Returns:
+        True 表示已派送；False 表示被 push_enabled 偏好抑制或派送失敗。
+    """
+    try:
+        return await NotificationService.send_push_notification(
+            user_id=user_id,
+            title=title,
+            body=body or "",
+            data=data,
+            db=db,
+        )
+    except Exception:  # noqa: BLE001 — 推播失敗不可影響站內通知/報告
+        logger.warning(
+            "推播派送失敗（非致命）user=%s title=%s", user_id, title, exc_info=True
+        )
+        return False
+
+
 async def _invalidate_unread_cache(user_id: UUID) -> None:
     """清除未讀計數快取"""
     try:

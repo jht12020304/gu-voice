@@ -30,6 +30,23 @@ class AuthState {
 class AuthNotifier extends Notifier<AuthState> {
   final _api = AuthApi();
 
+  /// 登出前的 best-effort 收尾。目前唯一的使用者是 FCM token 反註冊
+  /// （features/doctor/doctor_push_watcher.dart）。
+  ///
+  /// 為什麼是「登出**前**」：反註冊要打 `DELETE /notifications/fcm-token/{token}`，
+  /// 而 `_api.logout()` 之後 access token 就作廢、TokenStore 也清了，那時再打只會 401。
+  static final List<Future<void> Function()> preLogoutHooks = [];
+
+  /// 逐一執行 hook，任何失敗都吞掉——推播收尾不得擋住登出這件事本身。
+  /// 走複本疊代，讓 hook 自己在執行中移除自己也安全。
+  static Future<void> runPreLogoutHooks() async {
+    for (final hook in List.of(preLogoutHooks)) {
+      try {
+        await hook();
+      } catch (_) {/* best-effort */}
+    }
+  }
+
   @override
   AuthState build() => const AuthState();
 
@@ -80,6 +97,7 @@ class AuthNotifier extends Notifier<AuthState> {
   }
 
   Future<void> logout() async {
+    await runPreLogoutHooks();
     await _api.logout();
     await TokenStore.instance.clear();
     state = const AuthState(booted: true);

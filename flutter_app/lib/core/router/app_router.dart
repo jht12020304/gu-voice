@@ -32,11 +32,13 @@ import '../../features/patient/patient_history_page.dart';
 import '../../features/patient/patient_home_page.dart';
 import '../../features/patient/patient_session_detail_page.dart';
 import '../../features/patient/patient_settings_page.dart';
+import '../../features/patient/patient_unsupported_page.dart';
 import '../../features/patient/select_complaint_page.dart';
 import '../../features/patient/session_complete_page.dart';
 import '../../features/patient/session_thank_you_page.dart';
 import '../../features/voice/screens/conversation_page.dart';
 import 'lng.dart';
+import 'route_guard.dart';
 
 // Re-key each routed page on the active lng. Our bare t() reads the global currentLng;
 // widgets that don't depend on GoRouterState wouldn't otherwise rebuild on an lng-only
@@ -85,23 +87,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authProvider);
       if (!auth.booted) return null;
 
-      final isPatient = auth.user?.isPatient ?? false;
-      final isAdmin = auth.user?.isAdmin ?? false;
-      final landing = isPatient ? '/$lng/patient' : '/$lng/dashboard';
-      final rest = stripLngFromPath(path); // path without the lng segment
-      final isPublic = rest == '/login' || rest.startsWith('/forgot-password') || rest.startsWith('/reset-password');
-      if (!auth.isAuthenticated && !isPublic) return '/$lng/login';
-      if (auth.isAuthenticated && rest == '/login') return landing;
-      // Route off the generic role home onto the role-specific landing.
-      if (auth.isAuthenticated && (path == '/$lng' || path == '/$lng/')) return landing;
-      // RoleGuard: patients may only reach patient/conversation routes; admin pages need admin.
-      if (auth.isAuthenticated) {
-        final isPatientArea = rest.startsWith('/patient') || rest.startsWith('/conversation');
-        final isAdminArea = rest.startsWith('/admin');
-        if (isPatient && !isPatientArea) return landing; // patient blocked from doctor/admin
-        if (isAdminArea && !isAdmin) return landing; // admin-only subtree
-      }
-      return null;
+      // 登入 / 角色 / 平台三層規則都在 route_guard.dart 的純函式裡（測試直接驗那一份）。
+      return resolveGuardRedirect(
+        path: path,
+        lng: lng,
+        rest: stripLngFromPath(path), // path without the lng segment
+        isAuthenticated: auth.isAuthenticated,
+        isPatient: auth.user?.isPatient ?? false,
+        isAdmin: auth.user?.isAdmin ?? false,
+        doctorOnlyPlatform: isDoctorOnlyPlatform,
+      );
     },
     routes: [
       GoRoute(
@@ -128,6 +123,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                 _lngKeyed(PatientSessionDetailPage(sessionId: state.pathParameters['sessionId']!)),
           ),
           GoRoute(path: 'patient/settings', builder: (context, state) => _lngKeyed(const PatientSettingsPage())),
+          // 醫師專用 App（iOS）上病患帳號的唯一落點；其他平台被 guard 導回各自 landing。
+          GoRoute(
+            path: 'patient-unsupported',
+            builder: (context, state) => _lngKeyed(const PatientUnsupportedPage()),
+          ),
           GoRoute(
             path: 'patient/session/:sessionId/complete',
             builder: (context, state) => _lngKeyed(SessionCompletePage(sessionId: state.pathParameters['sessionId']!)),

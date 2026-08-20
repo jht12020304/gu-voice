@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/config/env.dart';
 import '../../core/i18n/loc.dart';
 import '../../core/router/lng.dart';
 import '../../shared/widgets/language_bar.dart';
@@ -47,6 +48,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     }
   }
 
+  void _fillE2eCredentials() {
+    _email.text = Env.e2eEmail;
+    _password.text = Env.e2ePassword;
+    setState(() => _localError = null);
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
@@ -65,7 +72,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 Text(
                   t('common.appTitle'),
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(t('common.login.prompt'), textAlign: TextAlign.center),
@@ -74,7 +83,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   controller: _email,
                   keyboardType: TextInputType.emailAddress,
                   autofillHints: const [AutofillHints.email],
-                  decoration: InputDecoration(labelText: t('common.login.emailLabel')),
+                  decoration: InputDecoration(
+                    labelText: t('common.login.emailLabel'),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
@@ -91,7 +102,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   const SizedBox(height: 16),
                   Text(
                     error,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 24),
@@ -99,20 +112,38 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   onPressed: auth.isLoading ? null : _submit,
                   child: auth.isLoading
                       ? const SizedBox(
-                          height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : Text(t('common.login.submit')),
                 ),
+                if (Env.hasE2eCredentials) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    key: const Key('fill-e2e-credentials'),
+                    onPressed: auth.isLoading ? null : _fillE2eCredentials,
+                    icon: const Icon(Icons.science_outlined),
+                    label: const Text('測試：帶入帳密'),
+                  ),
+                ],
                 const SizedBox(height: 8),
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  TextButton(
-                    onPressed: () => context.go(prefixLngToPath('/forgot-password', currentLng)),
-                    child: Text(t('common.login.forgotPassword')),
-                  ),
-                  TextButton(
-                    onPressed: () => context.go(prefixLngToPath('/register', currentLng)),
-                    child: Text(t('auth.register.title')),
-                  ),
-                ]),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: () => context.go(
+                        prefixLngToPath('/forgot-password', currentLng),
+                      ),
+                      child: Text(t('common.login.forgotPassword')),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          context.go(prefixLngToPath('/register', currentLng)),
+                      child: Text(t('auth.register.title')),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 24),
                 const LanguageBar(),
               ],

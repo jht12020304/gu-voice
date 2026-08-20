@@ -58,6 +58,11 @@ dependencies:
   # web-only：SOAP PDF 在瀏覽器走 anchor download（見 lib/shared/pdf_download_web.dart）。
   # 桌面瀏覽器多不支援 navigator.share(files)，share_plus 那條路會直接拋。
   web: ^1.1.1
+  # iOS 醫師 App 的推播。Dart 端只在 isDoctorOnlyPlatform 才碰得到（見
+  # lib/features/doctor/services/push_backend.dart 的 conditional import）；
+  # web build 完全不匯入 Firebase 程式碼。
+  firebase_core: ^4.13.0
+  firebase_messaging: ^16.5.0
 
 dev_dependencies:
   flutter_test:

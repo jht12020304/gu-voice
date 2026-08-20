@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="GU Voice">
+  <rect width="512" height="512" rx="112" fill="#2563eb"/>
+  <path d="M256 104c-42 0-76 34-76 76v72c0 42 34 76 76 76s76-34 76-76v-72c0-42-34-76-76-76Z" fill="#fff"/>
+  <path d="M136 244a16 16 0 0 1 32 0v8c0 49 39 88 88 88s88-39 88-88v-8a16 16 0 0 1 32 0v8c0 61-45 112-104 119v25h48a16 16 0 0 1 0 32H192a16 16 0 0 1 0-32h48v-25c-59-8-104-58-104-119v-8Z" fill="#fff"/>
+</svg>

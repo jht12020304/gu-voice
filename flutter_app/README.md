@@ -2,7 +2,9 @@
 
 取代 `frontend/`（React + Vite）的 Flutter 實作，一份碼庫出 **web + iOS + Android**。**backend 完全不動**，打的是同一組 REST / WebSocket API。
 
-兩套前端目前並存：`frontend/` 仍是生產在跑的版本，這裡尚未經生產驗證。
+兩套前端目前並存：`frontend/` 仍是正式網址在跑的版本；Flutter Web 已部署到
+`https://gu-voice-flutter-preview.vercel.app` 做 staged production 驗證，尚未 promote。
+release build、78 tests、五語 deep link、CORS 與測試病患登入已過，實體麥克風／STT／TTS／VAD 仍待驗。
 
 ## ⚠️ 尚未驗證的部分（讀這份之前先看這裡）
 
@@ -69,9 +71,16 @@ xcrun simctl launch booted com.example.guVoice
 
 ⚠️ Android emulator 上 `localhost` 是模擬器自己，要用 `10.0.2.2` 才連得到宿主機。
 
+## Web 預覽與正式切換
+
+Flutter SDK 由 [`.fvmrc`](.fvmrc) 固定版本。`./tool/build_vercel_output.sh` 會執行
+analyze、test、release build，並產生 Vercel Build Output；公開版若偵測到 E2E
+帳密會直接拒絕建置。暫存正式部署、實機語音驗證、promotion 與 rollback 步驟見
+[`docs/flutter_web_cutover.md`](../docs/flutter_web_cutover.md)。
+
 ## 測試分層
 
-- `test/`（67 項，純函式 + 少量 widget）——CI 會跑（`flutter analyze` 對 info 級也 exit 1）。
+- `test/`（78 項，純函式 + 少量 widget）——CI 會跑（`flutter analyze` 對 info 級也 exit 1）。
 - `integration_test/`（**需要真 simulator，不在 CI**；`flutter test` 不帶參數只跑 `test/`，天然排除）：
   - `login_smoke_test.dart` — 登入冒煙，驗 dio／iOS Keychain 持久化／bootstrap 還原／導向
   - `kiosk_idle_logout_test.dart` — 真等逾時驗病患被登出＋token 清除
