@@ -8,7 +8,8 @@
 
 | 服務 | 網址 |
 |------|------|
-| **前端** (Vercel) | `https://project-9w0vq.vercel.app` |
+| **正式前端／React** (Vercel) | `https://gu-voice-chuns-projects-068de742.vercel.app` |
+| **Flutter Web staged preview** | `https://gu-voice-flutter-preview.vercel.app`（未通過實體語音驗證前不得 promote） |
 | **後端 API** (Railway) | `https://gu-voice-app-production.up.railway.app` |
 | **健康檢查** | `https://gu-voice-app-production.up.railway.app/api/v1/health` |
 | **Supabase 資料庫** | 專案 `gu-voice-prod`，ref `xobxnlvtilezridrekdm`（region ap-southeast-1）；DB 連線 host `aws-1-ap-southeast-1.pooler.supabase.com`、**port 5432 session-mode**。⚠️ 舊 ref `udydlelmkusyjmegtviq`／`nydhmqtogqlwhuuolzos` 已過期，真相以 Railway `DATABASE_URL` 為準，故障排除見 `supabase_connection_guide.md` §5 |
@@ -29,11 +30,23 @@
 git push origin main
 
 # 2. 後端 → Railway
-cd backend && railway up --detach --service gu-voice-app
+#    ⚠️ 不可以直接在 repo 裡跑 railway up：CLI 5.41.2 起會上傳整個 git root（在 backend/ 裡跑也一樣），
+#    Railpack 看到 monorepo 就 FAILED（2026-08-20 實測；帶路徑參數 `railway up <path>` 也會 `prefix not found`）。
+#    正確做法＝把 backend/ 的「已 commit 內容」匯出到非 git 目錄再 up：
+DEPLOY_DIR=$(mktemp -d)
+git archive HEAD:backend | tar -x -C "$DEPLOY_DIR"
+cd "$DEPLOY_DIR"
+railway link -p gu-voice-api -s gu-voice-app -e production
+railway up --detach
 curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep   # 期待 {"status":"ok",...}
 
-# 3. 前端 → Vercel（專案 gu-voice，個人 team chuns-projects-068de742）
+# 3a. 現行 React 前端 → Vercel（專案 gu-voice，個人 team chuns-projects-068de742）
 cd frontend && npm run build && vercel --prod
+#    ⚠️ 正式網址 gu-voice-chuns-projects-068de742.vercel.app 的 alias 不會隨 --prod 自動移動
+#    （會釘在舊 deployment；gu-voice.vercel.app 才會自動跟上），要手動補：
+vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.app
+
+# 3b. Flutter Web staged build/deploy 見 docs/flutter_web_cutover.md
 ```
 
 > **前端唯一活的網址＝`https://gu-voice-chuns-projects-068de742.vercel.app`**（2026-07-26 釐清＋切換）
@@ -69,8 +82,8 @@ cd frontend && npm run build && vercel --prod
 > print(json.load(urllib.request.urlopen(r))['ssoProtection'])"
 > ```
 
-- **Railway** 用 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`，Dockerfile 在 `backend/`，所以 `railway up` 要從 `backend/` 跑）。非互動 link：`railway link -p gu-voice-api -s gu-voice-app -e production`（**要在 repo 根目錄跑**）。
-- **Vercel** 專案在 team **`jht12020304y-7696s-projects`**，不是個人 team——先 `vercel switch` 切過去，否則會部署到錯的地方或找不到專案。
+- **Railway** 用 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`，Dockerfile 在 `backend/`）。⚠️ **CLI 5.41.2 起 `railway up` 一律上傳 git root，cwd 與 link 位置都救不了**（舊版文件寫「從 backend/ 跑」「link 綁目錄」皆已失效）——只能用上面的 `git archive` 匯出法。失敗徵兆：build log 出現 `Railpack could not determine how to build the app`，且舊容器仍 Active——**healthz 綠不代表新碼上線**，要看 dashboard 最新 deployment 是否 Active 且時間吻合。
+- **Vercel** 正確 team 是個人 team **`chuns-projects-068de742`**；舊 `jht12020304y-7696s-projects` 已停用，勿再切換過去。
 - 只改環境變數（不改程式碼）時**不需重新 build**：Railway 會用既有 image 觸發 redeploy（約 1 分鐘）。
 - 事故復原時用 `railway up` 而非 `railway redeploy`——後者實測不會真的換容器（見 `supabase_connection_guide.md` §5a）。
 
@@ -111,7 +124,7 @@ railway variables list
 railway variables set 變數名稱='新的值'
 
 # 例如更新 CORS
-railway variables set CORS_ORIGINS='["https://project-9w0vq.vercel.app","http://localhost:3000"]'
+railway variable set CORS_ORIGINS='["https://gu-voice-chuns-projects-068de742.vercel.app","https://gu-voice-flutter-preview.vercel.app","http://localhost:5175"]'
 ```
 
 ### 重要環境變數說明
@@ -229,7 +242,7 @@ DELETE FROM users WHERE email = 'test_probe_delete@gu-voice.com';
 
 修復：
 ```bash
-railway variables --set 'CORS_ORIGINS=["https://project-9w0vq.vercel.app","https://gu-voice-jht12020304y-7696s-projects.vercel.app","https://gu-voice-chuns-projects-068de742.vercel.app","http://localhost:5175"]'
+railway variable set 'CORS_ORIGINS=["https://gu-voice-chuns-projects-068de742.vercel.app","https://gu-voice-flutter-preview.vercel.app","http://localhost:5175"]'
 ```
 
 ---

@@ -24,16 +24,29 @@ Landing code on `main` is step one of two. The deploy is a separate, deliberate 
 # 1. code onto main (PR merge, or push)
 git push origin main
 
-# 2. backend -> Railway (Dockerfile lives in backend/, so cwd matters)
-cd backend && railway up --detach --service gu-voice-app
+# 2. backend -> Railway
+#    Railway CLI 5.41.2+ uploads the whole git root no matter the cwd or where you linked
+#    (verified 2026-08-20; running inside backend/ still fails, and `railway up <path>` errors
+#    with `prefix not found`). Export committed backend/ contents to a non-git dir first:
+DEPLOY_DIR=$(mktemp -d)
+git archive HEAD:backend | tar -x -C "$DEPLOY_DIR"
+cd "$DEPLOY_DIR"
+railway link -p gu-voice-api -s gu-voice-app -e production
+railway up --detach
 curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep
 
-# 3. frontend -> Vercel (project lives in team `jht12020304y-7696s-projects`, not the personal team)
-vercel switch          # pick `jht12020304y-7696s-projects`
+# 3. React frontend -> Vercel (project lives in personal team `chuns-projects-068de742`)
 cd frontend && npm run build && vercel --prod
+#    The production alias gu-voice-chuns-projects-068de742.vercel.app does NOT follow --prod
+#    automatically (it stays pinned to the old deployment; only gu-voice.vercel.app follows).
+vercel alias set <new-deployment-url> gu-voice-chuns-projects-068de742.vercel.app
 ```
 
-Non-interactive Railway link (must run from the repo root): `railway link -p gu-voice-api -s gu-voice-app -e production`.
+Flutter Web uses the same Vercel project but stays on the fixed staged alias
+`https://gu-voice-flutter-preview.vercel.app` until real microphone/STT/TTS/VAD
+validation passes. Build and promotion details are in `docs/flutter_web_cutover.md`.
+
+Non-interactive Railway link: `railway link -p gu-voice-api -s gu-voice-app -e production` — run it inside the exported deploy dir as shown above. (Older guidance about running it from the repo root or from `backend/` predates CLI 5.41.2 and no longer changes what gets uploaded.)
 
 During incident recovery use `railway up`, not `railway redeploy` — the latter was measured not to
 actually replace the container.

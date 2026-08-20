@@ -3,7 +3,7 @@
 > 依據 [`system_issues_and_risks.md`](archive/system_issues_and_risks.md) 整理的可執行待辦事項。
 > 完成一項就把 `[ ]` 改成 `[x]`，並在後面加上完成日期與 commit hash。
 >
-> 最後更新：2026-07-26。P0–P2、§E E1–E9、§F F1–F7 全部完成並部署生產。
+> 最後更新：2026-08-17。P0–P2、§E E1–E9、§F F1–F7 全部完成並部署生產。
 > 本輪變動：
 > - 部署不變式更正——**merge 到 main 不會上線**，要手動 `railway up` / `vercel --prod`（見 deployment_guide.md 一、）
 > - #2 假記載更正（celery worker/beat service 不存在，改跑在主 API 容器內）
@@ -591,20 +591,23 @@ flutter test integration_test/patient_text_flow_test.dart -d <udid> \
   **「陳舊 completed 被重播」整類 bug 測不到**
 - 2 隻存活突變未被釘住：第三道 epoch 守衛、`clearQueue` 的 chain reset
 
-### [ ] V4. 🟡 Flutter Web 語音未決策（HIGH risk）
+### [ ] V4. 🟡 Flutter Web 語音已進 staged production，待實體麥克風驗證（HIGH risk）
 
-麥克風原始 PCM 需手寫 AudioWorklet JS interop。已定 native-first；
-**「web 可用」目前只對非語音頁成立**。要不要做 web 語音、還是降級／停用，是開工前的決定。
+2026-08-17 已部署固定預覽 `https://gu-voice-flutter-preview.vercel.app`，並驗過 release build、
+78 tests、五語 deep link、Railway CORS 與測試病患登入。**尚未用真人麥克風驗 STT/TTS/VAD**，
+所以只能說非語音頁與登入可用；未完成 `docs/flutter_web_cutover.md` 的 voice checklist 前不得 promote。
 
 ### [ ] V5. 🟡 Android 完全沒碰
 
 本輪只跑 iOS simulator。release 簽章缺 keystore 會刻意失敗（G37 的設計），
 **連 release 包都出不來**，更沒在 Android 裝置上跑過。Android emulator 連本機後端要用 `10.0.2.2`。
 
-### [ ] V6. 🟢 沒有部署管道
+### [x] V6. Flutter Web staged deployment 管道 — 2026-08-17
 
-Flutter 不在任何地方跑著；改它不需要 `railway up`／`vercel --prod`。
-上線前要決定：沿用現有 Vercel 專案（web）還是另建？iOS/Android 走 TestFlight／內部測試？
+沿用 Vercel `chuns-projects-068de742/gu-voice`，FVM 固定 Flutter 3.41.3；
+`flutter_app/tool/build_vercel_output.sh` 會 analyze、test、CSP release build 並產生 Build Output API。
+固定 staged alias 為 `https://gu-voice-flutter-preview.vercel.app`，正式 React alias 尚未切換；
+rollback deployment 已記錄。iOS TestFlight／Android 內部測試管道仍未建立，另案追蹤。
 
 ### [ ] E10. 🟢 紅旗譯名待母語臨床者最終覆核（AI 稽核標 medium/uncertain 的 8 筆）
 
