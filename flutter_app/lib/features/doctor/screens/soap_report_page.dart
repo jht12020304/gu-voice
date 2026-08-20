@@ -12,6 +12,16 @@ import '../../../shared/pdf_share.dart';
 
 enum _RedFlagState { redFlag, loadFailed, clear }
 
+/// 「重新產生報告」按鈕的閘門。與 `canGenerateSoapReport`（場次詳情頁的**首次**產生）
+/// 分開：那條在 `generated` 時刻意不給按鈕（避免誤觸覆蓋），這條是醫師在報告頁上對著
+/// 一份已產生／已失敗的報告主動要求重跑。
+///
+/// `generating` 一律不可按——重複派 Celery 任務會讓兩份結果互相覆蓋，而且後端會先把現有
+/// 內容清空重置，中途再派一次等於把還沒寫回的那份也丟掉。UI 上是 disabled 而不是隱藏：
+/// 按鈕消失跟「沒反應」在醫師眼裡無法區分。
+bool canRegenerateSoapReport(String? reportStatus) =>
+    reportStatus == 'generated' || reportStatus == 'failed';
+
 // Port of SOAPReportPage.tsx (v1). Correctness-critical parts kept faithfully:
 //  - the amber session-load TRI-STATE (a red-flag session whose Session failed to load
 //    must NOT render as "no red flag")
@@ -37,6 +47,7 @@ class _SoapReportPageState extends State<SoapReportPage> {
   bool _loading = true;
   bool _error = false;
   bool _exporting = false;
+  bool _regenerating = false;
 
   @override
   void initState() {
@@ -101,6 +112,43 @@ class _SoapReportPageState extends State<SoapReportPage> {
 
   void _toast(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
+  Future<void> _regenerate() async {
+    final r = _report;
+    // 第二道防線：閘門在 UI 已判過一次，這裡再判一次（dialog 開著時狀態可能已變）。
+    if (r == null || _regenerating || !canRegenerateSoapReport(r.status)) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(t('soap.regenerate.title')),
+        content: Text(t('soap.regenerate.description')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(t('soap.regenerate.cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(t('soap.regenerate.confirm')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _regenerating = true);
+    try {
+      // 後端會把現有 row 重置為 generating 並回傳它——直接吃回傳值，按鈕隨即因狀態
+      // 變成 generating 而 disabled，不需要另外樂觀更新。
+      final updated = await _reportsApi.generateReport(widget.sessionId);
+      if (!mounted) return;
+      setState(() { _report = updated; _regenerating = false; });
+      _toast(t('soap.regenerate.success'));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _regenerating = false);
+      _toast(t('soap.regenerate.error'));
+    }
+  }
+
   Future<void> _review(String action) async {
     final r = _report;
     if (r == null || r.status != 'generated') return; // second line of defense
@@ -146,6 +194,15 @@ class _SoapReportPageState extends State<SoapReportPage> {
                 : const Icon(Icons.picture_as_pdf),
             tooltip: t('soap.export.button'),
             onPressed: r.status == 'generated' ? _exportPdf : null,
+          ),
+          // failed 的報告在這頁是唯一的重跑入口（場次詳情頁的產生按鈕只在還沒有報告或
+          // 產生失敗時出現，且醫師通常是從通知直接進到這頁）。
+          IconButton(
+            icon: _regenerating
+                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.refresh),
+            tooltip: t(_regenerating ? 'soap.regenerate.loading' : 'soap.regenerate.button'),
+            onPressed: (_regenerating || !canRegenerateSoapReport(r.status)) ? null : _regenerate,
           ),
         ],
       ),

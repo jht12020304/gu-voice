@@ -48,6 +48,9 @@
     "durationLabel": "對話時長",
     "durationEmpty": "-"
   },
+  "patientFacing": {
+    "notice": "問診已完成，詳細報告將由醫師向您說明。請在原診間外稍候等看診。"
+  },
   "doctor": {
     "list": {
       "title": "問診場次",

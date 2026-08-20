@@ -7,6 +7,7 @@ import '../../data/api/sessions_api.dart';
 import '../../data/models/session.dart';
 import '../../data/models/soap_report.dart';
 import '../../shared/format.dart';
+import 'patient_facing_summary.dart';
 
 // Port of PatientSessionDetailPage.tsx — patient-friendly read-only view: summary + advice
 // derived from the SOAP report (no S/O/A/P detail, no transcript, no ICD-10/confidence).
@@ -62,28 +63,34 @@ class _PatientSessionDetailPageState extends State<PatientSessionDetailPage> {
     final tk = Theme.of(context).extension<AppTokens>()!;
     final theme = Theme.of(context);
 
-    // 病患衛教（SOAP plan.patientEducation）——本頁唯一允許呈現給病患的「建議」。
-    //
-    // 兩件事：
-    // 1. 空值防禦。型別是 List<String>，但來源是 LLM 產出 + 後端出口過濾，執行期
+    // 病患摘要與衛教（SOAP summary + plan.patientEducation）——本頁唯一允許呈現給病患
+    // 的「建議」。三件事：
+    // 1. 語言。報告本體是中文病歷；非中文場次只有在後端備妥 patient_facing_localized
+    //    且語言相符時才顯示在地化內容，否則退回通用訊息（見 patient_facing_summary.dart）。
+    //    退回中文原文＝把讀不懂的病歷丟給病患。
+    // 2. 空值防禦。型別是 List<String>，但來源是 LLM 產出 + 後端出口過濾，執行期
     //    可能是 null / 空陣列 / 含空字串的陣列（soap_report.dart 的 `edu is List ?
-    //    edu.cast<String>()` 對非字串元素還會在**取值時**才丟 TypeError）。這裡把
-    //    整段包在 try 內並濾掉空白項，任何非預期形狀都退回 adviceEmpty，不炸畫面。
-    // 2. **不可**退回 r.reviewNotes——那是醫師的審閱備註（醫師向自由文字），
+    //    edu.cast<String>()` 對非字串元素還會在**取值時**才丟 TypeError）。resolve 內
+    //    把整段包在 try 內並濾掉空白項，任何非預期形狀都退回 adviceEmpty，不炸畫面。
+    // 3. **不可**退回 r.reviewNotes——那是醫師的審閱備註（醫師向自由文字），
     //    退回去等於把醫師內部註記顯示給病患。後端這輪對 patientEducation 加了出口
     //    過濾，過濾後常態就是空陣列，舊寫法會讓這個洩漏從邊角情境變成常態。
     //    與 React PatientSessionDetailPage.tsx 一致。
-    List<String> education;
-    try {
-      education = r == null
-          ? const []
-          : r.patientEducation.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-    } catch (_) {
-      education = const [];
-    }
-    final advice = education.isEmpty
+    final view = resolvePatientFacingSummary(
+      sessionLanguage: s.language,
+      reportSummary: r?.summary,
+      reportEducation: r?.patientEducation,
+      localized: r?.patientFacingLocalized,
+    );
+    final advice = view.education.isEmpty
         ? t('session.patientDetail.adviceEmpty')
-        : education.map((e) => '・$e').join('\n');
+        : view.education.map((e) => '・$e').join('\n');
+    // `??` 只擋 null；後端出口過濾把 summary 換成空字串時會渲染成空白區塊，故 resolve
+    // 已把空字串正規化成 null（React 那份的 `||` 本來就有這個行為）。
+    final summary = view.summary ??
+        (view.useGenericNotice
+            ? t('session.patientFacing.notice')
+            : t('session.patientDetail.summaryEmpty'));
 
     return Scaffold(
       appBar: AppBar(title: Text(t('session.patientDetail.title'))),
@@ -117,12 +124,7 @@ class _PatientSessionDetailPageState extends State<PatientSessionDetailPage> {
             ]),
           ),
           const SizedBox(height: 20),
-          // `??` 只擋 null；後端出口過濾把 summary 換成空字串時會渲染成空白區塊，
-          // 故改用 trim 後判斷（React 那份的 `||` 本來就有這個行為）。
-          _section(context, t('session.patientDetail.summaryHeading'),
-              (r?.summary ?? '').trim().isEmpty
-                  ? t('session.patientDetail.summaryEmpty')
-                  : r!.summary!.trim()),
+          _section(context, t('session.patientDetail.summaryHeading'), summary),
           const SizedBox(height: 16),
           _section(context, t('session.patientDetail.adviceHeading'), advice),
           const SizedBox(height: 16),
