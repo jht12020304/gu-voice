@@ -70,7 +70,9 @@
     "audioTooLong": "Thời gian ghi âm quá dài, đã tự động kết thúc",
     "micPermission": "Vui lòng cho phép quyền micro trong cài đặt trình duyệt và tải lại trang",
     "micNotFound": "Không tìm thấy micro, vui lòng kiểm tra kết nối micro",
-    "micGeneric": "Lỗi micro: {{message}}"
+    "micGeneric": "Lỗi micro: {{message}}",
+    "endSessionOffline": "Mất kết nối nên lệnh kết thúc buổi hỏi bệnh chưa được gửi đi. Vui lòng đợi kết nối lại rồi bấm “Kết thúc hỏi bệnh” một lần nữa.",
+    "endSessionTimeout": "Chưa nhận được xác nhận kết thúc. Vui lòng bấm “Kết thúc hỏi bệnh” thêm một lần; nếu vẫn không có phản hồi, xin báo nhân viên y tế tại chỗ."
   },
   "mockMessages": {
     "systemStart": "Bắt đầu phiên khám — Lý do khám: {{complaint}}"
@@ -78,5 +80,6 @@
   "connection": {
     "reconnecting": "Mất kết nối, đang kết nối lại…",
     "retry": "Thử lại"
-  }
+  },
+  "endSessionPending": "Đang kết thúc…"
 }

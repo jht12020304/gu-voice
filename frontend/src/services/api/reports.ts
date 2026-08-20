@@ -31,9 +31,19 @@ export async function getReportBySession(sessionId: string): Promise<SOAPReport>
   return await getReport(data.data[0].id);
 }
 
-/** 產生報告（觸發 AI 生成） */
+/**
+ * 產生／重新產生報告（觸發 AI 生成）。
+ *
+ * SO-2：後端 `POST /sessions/{id}/reports/generate` 的 body 是 `ReportGenerateRequest`，
+ * 舊寫法完全不帶 body。此處明確帶 `{ regenerate: true }`——本函式的兩個呼叫點
+ * （SOAPReportPage 的「重新產生」與 reportStore.generateReport）語意都是「就這個場次
+ * 重跑一次 SOAP，覆蓋既有報告」，是否已存在報告由後端依 path param 判定。
+ * 送出時會經 request 攔截器轉成 snake_case（`{"regenerate": true}`）。
+ */
 export async function generateReport(sessionId: string): Promise<SOAPReport> {
-  const { data } = await apiClient.post<SOAPReport>(`/sessions/${sessionId}/reports/generate`);
+  const { data } = await apiClient.post<SOAPReport>(`/sessions/${sessionId}/reports/generate`, {
+    regenerate: true,
+  });
   return data;
 }
 

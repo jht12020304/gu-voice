@@ -82,7 +82,8 @@
       "optional": "선택",
       "hint": "직계 가족 중 유전성 질환이 있으신가요? 모르시면 건너뛸 수 있습니다.",
       "conditionPlaceholder": "질환명 (예: 당뇨병)",
-      "add": "가족력 추가"
+      "add": "가족력 추가",
+      "noneLabel": "가족력 없음"
     },
     "summary": {
       "title": "제출할 정보 확인",

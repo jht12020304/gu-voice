@@ -66,10 +66,22 @@
     "awaitingReview": "等待醫師審閱"
   },
   "highlights": {
-    "positive": { "title": "重要陽性", "empty": "目前沒有整理出明確的陽性症狀。" },
-    "negative": { "title": "重要陰性", "empty": "目前沒有整理出明確的陰性症狀。" },
-    "riskFactors": { "title": "風險因子", "empty": "目前沒有明顯風險因子。" },
-    "impression": { "title": "初步判斷", "empty": "目前沒有整理出明確判斷。" }
+    "positive": {
+      "title": "重要陽性",
+      "empty": "目前沒有整理出明確的陽性症狀。"
+    },
+    "negative": {
+      "title": "重要陰性",
+      "empty": "目前沒有整理出明確的陰性症狀。"
+    },
+    "riskFactors": {
+      "title": "風險因子",
+      "empty": "目前沒有明顯風險因子。"
+    },
+    "impression": {
+      "title": "初步判斷",
+      "empty": "目前沒有整理出明確判斷。"
+    }
   },
   "diagnosis": {
     "title": "診斷索引",
@@ -235,6 +247,7 @@
     "cancel": "取消",
     "confirm": "確認重新產生",
     "success": "報告已重新產生",
-    "error": "報告重新產生失敗，請稍後再試"
+    "error": "報告重新產生失敗，請稍後再試",
+    "disabledGenerating": "報告產生中，請待完成後再重新產生"
   }
 }

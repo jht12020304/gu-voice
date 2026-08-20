@@ -82,7 +82,8 @@
       "optional": "Tùy chọn",
       "hint": "Người thân trực hệ có mắc bệnh di truyền không? Nếu không rõ có thể bỏ qua.",
       "conditionPlaceholder": "Bệnh (VD: tiểu đường)",
-      "add": "Thêm tiền sử gia đình"
+      "add": "Thêm tiền sử gia đình",
+      "noneLabel": "Không có tiền sử gia đình"
     },
     "summary": {
       "title": "Xác nhận thông tin gửi đi",

@@ -123,5 +123,8 @@
       "abortedRedFlag": "Dừng do cờ đỏ",
       "cancelled": "Đã hủy"
     }
+  },
+  "patientFacing": {
+    "notice": "Buổi hỏi bệnh đã hoàn tất. Bác sĩ sẽ giải thích chi tiết báo cáo cho bạn. Vui lòng chờ trước phòng khám đến lượt."
   }
 }

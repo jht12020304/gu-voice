@@ -70,7 +70,9 @@
     "audioTooLong": "Recording too long, automatically stopped",
     "micPermission": "Please allow microphone permission in your browser settings, then reload the page",
     "micNotFound": "No microphone device found, please check your microphone is connected",
-    "micGeneric": "Microphone error: {{message}}"
+    "micGeneric": "Microphone error: {{message}}",
+    "endSessionOffline": "You are offline, so the request to end the consultation was not sent. Please wait for the connection to return, then tap \"End consultation\" again.",
+    "endSessionTimeout": "We have not received confirmation yet. Please tap \"End consultation\" again; if nothing happens, let the staff here know."
   },
   "mockMessages": {
     "systemStart": "Consultation started — Chief complaint: {{complaint}}"
@@ -78,5 +80,6 @@
   "connection": {
     "reconnecting": "Connection lost, reconnecting…",
     "retry": "Retry"
-  }
+  },
+  "endSessionPending": "Ending…"
 }

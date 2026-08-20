@@ -235,6 +235,7 @@
     "cancel": "Cancel",
     "confirm": "Confirm Regenerate",
     "success": "Report regenerated",
-    "error": "Failed to regenerate report. Please try again later."
+    "error": "Failed to regenerate report. Please try again later.",
+    "disabledGenerating": "Report is being generated — please wait until it finishes before regenerating"
   }
 }

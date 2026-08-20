@@ -123,5 +123,8 @@
       "abortedRedFlag": "紅旗中止",
       "cancelled": "已取消"
     }
+  },
+  "patientFacing": {
+    "notice": "問診已完成，詳細報告將由醫師向您說明。請在原診間外稍候等看診。"
   }
 }

@@ -66,10 +66,22 @@
     "awaitingReview": "医師の審査待ち"
   },
   "highlights": {
-    "positive": { "title": "重要な陽性所見", "empty": "明確な陽性症状は整理されていません。" },
-    "negative": { "title": "重要な陰性所見", "empty": "明確な陰性症状は整理されていません。" },
-    "riskFactors": { "title": "リスク因子", "empty": "明らかなリスク因子はありません。" },
-    "impression": { "title": "初期所見", "empty": "明確な所見は整理されていません。" }
+    "positive": {
+      "title": "重要な陽性所見",
+      "empty": "明確な陽性症状は整理されていません。"
+    },
+    "negative": {
+      "title": "重要な陰性所見",
+      "empty": "明確な陰性症状は整理されていません。"
+    },
+    "riskFactors": {
+      "title": "リスク因子",
+      "empty": "明らかなリスク因子はありません。"
+    },
+    "impression": {
+      "title": "初期所見",
+      "empty": "明確な所見は整理されていません。"
+    }
   },
   "diagnosis": {
     "title": "診断コード",
@@ -235,6 +247,7 @@
     "cancel": "キャンセル",
     "confirm": "再生成を確認",
     "success": "レポートを再生成しました",
-    "error": "レポートの再生成に失敗しました。後でもう一度お試しください。"
+    "error": "レポートの再生成に失敗しました。後でもう一度お試しください。",
+    "disabledGenerating": "レポートを生成中です。完了してから再生成してください"
   }
 }

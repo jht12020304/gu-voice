@@ -404,11 +404,20 @@ export default function SOAPReportPage() {
                 </>
               )}
             </button>
+            {/* SO-2：「重新產生」在 generated 與 failed 都必須可用——failed 是最需要
+                重跑的狀態，舊版只靠 isRegenerating 把關，實務上沒擋住任何東西，但真正
+                該擋的 generating（Celery 還在跑，再送一次只會疊出第二個工作）反而放行。
+                以 report.status 為準：generating 期間 disabled，其餘可按。 */}
             <button
               type="button"
               className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => setShowRegenerateModal(true)}
-              disabled={isRegenerating}
+              disabled={isRegenerating || report.status === 'generating'}
+              title={
+                report.status === 'generating'
+                  ? t('soap:regenerate.disabledGenerating', '報告產生中，請待完成後再重新產生')
+                  : undefined
+              }
             >
               {isRegenerating ? (
                 <>

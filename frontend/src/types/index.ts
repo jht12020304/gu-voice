@@ -94,6 +94,12 @@ export interface SessionIntake {
   currentMedications: SessionIntakeMedicationItem[];
   noPastMedicalHistory: boolean;
   medicalHistory: SessionIntakeMedicalHistoryItem[];
+  /**
+   * 病患**明確表示**沒有家族病史（對應後端 `SessionIntake.no_family_history`）。
+   * 與其他三個 no_* 旗標同語意的第三態旗標：`false` 只代表「還沒表態」，
+   * 不得從 `familyHistory` 為空推斷成 `true`——§3b 靠這個差別決定泌尿癌家族史要不要問。
+   */
+  noFamilyHistory: boolean;
   familyHistory: SessionIntakeFamilyHistoryItem[];
 }
 
@@ -152,6 +158,23 @@ export interface Conversation {
   createdAt: string;
 }
 
+/**
+ * 病患面在地化欄位（後端 `soap_reports.patient_facing_localized`，nullable JSONB）。
+ *
+ * SOAP 報告本體固定 zh-TW（不變式 #12，讀者是院內醫護），但 `summary` 與
+ * `plan.patientEducation` 這兩個欄位會渲染給病患看（不變式 #24）。非中文場次的病患
+ * 看不懂中文報告，後端因此另存一份依**場次語言**產生的病患面文字在這個欄位。
+ *
+ * `language` 是這份翻譯實際使用的語言：與場次語言不符時**不得**顯示（例如場次語言中途
+ * 被改過、或報告是舊語言時期生成的），呼叫端應退回通用訊息，見 `resolvePatientFacing`。
+ */
+export interface PatientFacingLocalized {
+  /** 這份在地化文字的語言（BCP-47，例：`en-US`） */
+  language: string;
+  summary?: string | null;
+  patientEducation?: string[] | null;
+}
+
 /** SOAP 報告 */
 export interface SOAPReport {
   id: string;
@@ -164,6 +187,8 @@ export interface SOAPReport {
   plan?: SOAPPlan;
   rawTranscript?: string;
   summary?: string;
+  /** 病患面在地化文字（非中文場次專用；zh-TW 場次為 null，直接用 `summary`） */
+  patientFacingLocalized?: PatientFacingLocalized | null;
   icd10Codes?: string[];
   /** ICD-10 是否通過後端泌尿科白名單 + symptom↔code 驗證（icd10_verified） */
   icd10Verified?: boolean;

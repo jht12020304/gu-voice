@@ -165,6 +165,11 @@ export default function MedicalInfoPage() {
   const [history, setHistory] = useState<MedicalHistoryItem[]>([]);
   const [noHistory, setNoHistory] = useState(false);
   const [familyHistory, setFamilyHistory] = useState<FamilyHistoryItem[]>([]);
+  // 與其他三個 no_* 旗標同語意：**只有病患明確勾選才是 true**。
+  // 絕不可從 familyHistory.length === 0 推斷「沒有家族史」——「沒填」與「表明沒有」是
+  // 不同的兩態，§3b gating 靠這個差別決定泌尿癌家族史要不要問（不變式 #23，Flutter 端
+  // 剛修掉的 IN-1 就是把空清單當成否認）。
+  const [noFamilyHistory, setNoFamilyHistory] = useState(false);
 
   const stepIndex = steps.findIndex((s) => s.key === currentStep);
 
@@ -281,12 +286,17 @@ export default function MedicalInfoPage() {
                   yearsAgo: t(`medicalInfo.yearsAgo.${item.yearsAgo}`),
                   stillHas: item.stillHas,
                 })),
-          familyHistory: familyHistory
-            .filter((item) => item.condition.trim())
-            .map((item) => ({
-              relation: t(`medicalInfo.relations.${item.relation}`),
-              condition: item.condition.trim(),
-            })),
+          // 只有勾選框被明確勾起來才送 true（後端 SessionIntake.no_family_history 預設
+          // False＝「還沒問」）。空清單不代表否認，見 state 宣告處的註解。
+          noFamilyHistory,
+          familyHistory: noFamilyHistory
+            ? []
+            : familyHistory
+                .filter((item) => item.condition.trim())
+                .map((item) => ({
+                  relation: t(`medicalInfo.relations.${item.relation}`),
+                  condition: item.condition.trim(),
+                })),
         },
       });
       navigate(`/conversation/${session.id}`);
@@ -676,29 +686,46 @@ export default function MedicalInfoPage() {
             )}
           </div>
 
-          {/* 家族史（可摺疊） */}
+          {/* 家族史（可摺疊）
+              勾選框放在標題列、與過敏／用藥／病史三段同構——摺疊面板收起時仍看得到、
+              點得到，否則「沒展開過的人」永遠送不出這個旗標。標題列不能整條是 <button>
+              （checkbox 巢狀在 button 內是無效 HTML 且點擊會連動摺疊），故拆成「摺疊
+              按鈕 + 獨立 label」兩個並排元素。 */}
           <div className="rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
-            <button
-              type="button"
-              disabled={isCreating}
-              className="flex w-full items-center justify-between px-5 py-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={() => setFamilyOpen((v) => !v)}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-body font-semibold text-ink-heading dark:text-white">{t('medicalInfo.family.title')}</span>
-                <span className="rounded-pill bg-surface-tertiary px-2 py-0.5 text-tiny text-ink-placeholder dark:bg-dark-surface dark:text-white/30">
-                  {t('medicalInfo.family.optional')}
-                </span>
-              </div>
-              <svg
-                className={`h-4 w-4 text-ink-placeholder transition-transform duration-200 ${familyOpen ? 'rotate-180' : ''}`}
-                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            <div className="flex items-center justify-between gap-3 px-5 py-4">
+              <button
+                type="button"
+                disabled={isCreating}
+                aria-expanded={familyOpen}
+                className="flex flex-1 items-center justify-between gap-2 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => setFamilyOpen((v) => !v)}
               >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-body font-semibold text-ink-heading dark:text-white">{t('medicalInfo.family.title')}</span>
+                  <span className="rounded-pill bg-surface-tertiary px-2 py-0.5 text-tiny text-ink-placeholder dark:bg-dark-surface dark:text-white/30">
+                    {t('medicalInfo.family.optional')}
+                  </span>
+                </div>
+                <svg
+                  className={`h-4 w-4 text-ink-placeholder transition-transform duration-200 ${familyOpen ? 'rotate-180' : ''}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              <label className={`flex shrink-0 items-center gap-2 ${isCreating ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                <input
+                  type="checkbox"
+                  checked={noFamilyHistory}
+                  disabled={isCreating}
+                  onChange={(e) => { setNoFamilyHistory(e.target.checked); if (e.target.checked) setFamilyHistory([]); }}
+                  className="h-4 w-4 rounded border-edge text-primary-600 focus:ring-primary-500"
+                />
+                <span className="text-small text-ink-secondary dark:text-white/60">{t('medicalInfo.family.noneLabel')}</span>
+              </label>
+            </div>
 
-            <div className={`transition-all duration-200 ease-in-out overflow-hidden ${familyOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+            <div className={`transition-all duration-200 ease-in-out overflow-hidden ${familyOpen && !noFamilyHistory ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
               <div className="border-t border-edge/60 px-5 py-4 dark:border-dark-border">
                 <p className="mb-3 text-small text-ink-muted dark:text-white/40">
                   {t('medicalInfo.family.hint')}

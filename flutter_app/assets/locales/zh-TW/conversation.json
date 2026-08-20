@@ -70,7 +70,9 @@
     "audioTooLong": "錄音時間過長，已自動結束",
     "micPermission": "請在瀏覽器設定允許麥克風權限，然後重新載入頁面",
     "micNotFound": "找不到麥克風裝置，請確認已連接麥克風",
-    "micGeneric": "麥克風發生錯誤：{{message}}"
+    "micGeneric": "麥克風發生錯誤：{{message}}",
+    "endSessionOffline": "連線中斷，結束問診的指令尚未送出。請待重新連線後再按一次「結束問診」。",
+    "endSessionTimeout": "尚未收到結束確認，請再按一次「結束問診」；若仍無反應，請告知現場醫護。"
   },
   "mockMessages": {
     "systemStart": "問診開始 — 主訴: {{complaint}}"
@@ -78,5 +80,6 @@
   "connection": {
     "reconnecting": "連線中斷，重新連線中…",
     "retry": "重試"
-  }
+  },
+  "endSessionPending": "結束中…"
 }
