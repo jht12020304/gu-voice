@@ -34,6 +34,12 @@ cd "$DEPLOY_DIR"
 railway link -p gu-voice-api -s gu-voice-app -e production
 railway up --detach
 curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep
+#    A green healthz does NOT prove the new code is serving: it stays green while the previous
+#    container is still up. Probe the OpenAPI schema for something this release added instead:
+curl -s https://gu-voice-app-production.up.railway.app/openapi.json | grep -c '<field added by this release>'
+#    Stuck in DEPLOYING? Check the new container's log for "Application startup complete"
+#    (present = our code is fine), then status.railway.com for a platform incident.
+#    During an incident do NOT re-run `railway up` — it only queues another stuck deployment.
 
 # 3. React frontend -> Vercel (project lives in personal team `chuns-projects-068de742`)
 cd frontend && npm run build && vercel --prod

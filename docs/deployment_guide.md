@@ -39,6 +39,11 @@ cd "$DEPLOY_DIR"
 railway link -p gu-voice-api -s gu-voice-app -e production
 railway up --detach
 curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep   # 期待 {"status":"ok",...}
+#    ⚠️ healthz 綠**不代表新碼上線**（舊容器還活著時它照樣綠）。要證明流量已切到新版，
+#    打 openapi 找這次新增的欄位／端點：
+curl -s https://gu-voice-app-production.up.railway.app/openapi.json | grep -c '<本次新增的欄位名>'
+#    部署卡在 DEPLOYING 時：先看新容器 log 有沒有「Application startup complete」（有＝碼沒問題），
+#    再查 status.railway.com 是否有平台事故——事故期間不要重送 railway up。
 
 # 3a. 現行 React 前端 → Vercel（專案 gu-voice，個人 team chuns-projects-068de742）
 cd frontend && npm run build && vercel --prod
