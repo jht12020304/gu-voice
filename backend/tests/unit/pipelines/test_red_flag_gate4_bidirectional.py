@@ -149,10 +149,31 @@ def test_cross_clause_is_opt_in_and_only_for_cross_symptom_flags():
     兩句都是教科書級尿滯留。它的 acuity_terms 夠具體（nothing comes out /
     not a drop / completely blocked / cannot pass…），跨子句誤配面有限。
     要再加新的例外，必須同樣附上「實測漏報句 + 為什麼 acuity 夠具體」。
+
+    ⚠️ `gross_hematuria_heavy` 是 2026-08-21 RF-5 加入的例外（P0 漏報，6fc51e3 回歸）。
+    RF-3 把裸「血塊／血の塊／혈전／blood clots」移進共現組之後，本紅旗只剩「同一
+    子句」一條路，而病患講大量血尿的自然語序是**同一句話、跨子句**（尿液詞在逗號
+    前、血塊詞在逗號後）。五語 15 句實測**逗號拿掉就命中** ＝ 純粹是子句邊界造成
+    的漏報，不是詞表缺口；其中兩句是 severity 被降級成 gross_hematuria(high)。
+    ⚠️ 語料**刻意不抄在這裡**：`test_red_flag_audit_2026_08.py` 有一條結構性測試
+    （`test_corpus_is_independent_of_personas_and_existing_tests`）在比對本檔全文，
+    抄過來會讓那條測試判定「語料與既有來源重複」。逐句與逐筆承重清單見該檔的
+    `RF5_CROSS_CLAUSE_MUST_FIRE` / `RF5_HEMATURIA_CROSS_CLAUSE_LOAD_BEARING`。
+    為什麼 acuity 夠具體：RF-3 之後本組 acuity_terms 的**每一條都自帶血語意**
+    （血塊／都是血／血のかたまり／핏덩／blood clot／máu cục…），沒有任何裸量詞，
+    所以本紅旗唯一危險的誤報面（頻尿主訴「我最近小便次數很多，一天十幾次」）
+    是靠「量詞必須帶血」關掉的——那條性質與子句邊界**正交**，放寬邊界不會鬆動它。
+    `testicular_pain_severe` 仍**不得**開：那組是「同一個部位 × 該部位的嚴重度」，
+    跨子句會把「我眼睛突然很痛，睪丸沒事」配起來（下方對照組守著）。
     """
     from app.pipelines.prompts.shared import URO_RED_FLAGS
 
-    allowed = {"urosepsis", "cauda_equina_suspected", "urinary_retention"}
+    allowed = {
+        "urosepsis",
+        "cauda_equina_suspected",
+        "urinary_retention",
+        "gross_hematuria_heavy",
+    }
     for flag in URO_RED_FLAGS:
         for group in flag.get("trigger_cooccurrence") or []:
             if group.get("cross_clause"):

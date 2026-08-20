@@ -373,7 +373,19 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
             ],
             "en-US": [
                 "heavy bleeding",
-                "blood clots",
+                # ⚠️ 2026-08-21 RF-5：**移除**裸 "blood clots"。
+                # RF-3 拿掉了「血塊／血の塊／혈전」，**英文版卻原封不動留著**（實測
+                # "i have blood clots in my leg" → gross_hematuria_heavy(critical)
+                # ＝下肢 DVT 被中止問診，與「다리에 혈전이 생겼대요」同型的誤報
+                # 只在英文活了下來）。RF-3 的臨床拍板針對的是「血塊這個臨床實體要
+                # 伴隨泌尿軸才算本紅旗」這個**概念**，本來就該五語一起適用
+                # ＝實作漏掉一語，不是臨床上有意保留。
+                # 為什麼不會漏報（#22 的舉證）：共現組 acuity_terms 原本就有
+                # "blood clot" / "clots" / "clotting"，只要與 site 側的
+                # urine/pee/toilet/bladder… 落在同一或**相鄰**子句仍是 critical。
+                # 實測「i went to pee this morning, and there were blood clots」
+                # 「there were blood clots in my urine」命中不變。
+                # 另外 "clot in urine" 自帶泌尿軸，保留。
                 "lots of blood",
                 "clot in urine",
             ],
@@ -419,6 +431,56 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
         "trigger_cooccurrence": [
             {
                 "id": "urine_x_heavy_blood",
+                # ⚠️ 2026-08-21 RF-5（P0 漏報，6fc51e3 的回歸）：本組補上 `cross_clause`。
+                # 缺陷：RF-3 把裸「血塊／血の塊／혈전」移進本組之後，本紅旗只剩「同一
+                # 子句」這一條路可以命中。但病患講大量血尿時最自然的語序是**同一句話、
+                # 跨子句**——尿液詞落在前半句、血塊詞落在後半句：
+                #   「我今天小便，然後有很多血塊」          → 零紅旗（實測）
+                #   「剛剛上廁所小便，裡面都是血塊」        → 零紅旗
+                #   「小便有血，還有一坨一坨的血塊」        → 只剩 gross_hematuria(high)＝降級
+                #   「おしっこをしたら、血の塊がたくさん出ました」→ 零紅旗
+                #   「소변을 봤는데, 피떡이 많이 나왔어요」  → 零紅旗
+                #   「i passed some urine, then i saw a lot of blood」→ 零紅旗
+                #   「sáng nay tôi đi tiểu, rồi thấy nhiều máu cục」→ 零紅旗
+                # 五語 15/15 把逗號拿掉就命中 ＝ **純粹是子句邊界**造成的漏報，
+                # 不是詞表缺口。大量血尿併血塊是 clot retention 的典型表現，漏掉
+                # 不可逆（#22）。
+                #
+                # 為什麼不會把 RF-3／RF-4 修掉的誤報放回來（#22 舉證）：
+                # `cross_clause` **只放寬兩個軸可以落在哪裡，不減少任何一個軸**——
+                # 它走的是 `_pairing_scope_ok` 既有的分支（僅**相鄰**子句、中間不得夾
+                # 完整子句，距離仍受 24 語素當量上限約束）。而 6fc51e3 修掉的每一筆
+                # 誤報都是**單軸**的：「我腳上有一塊血塊瘀青」「足に血の塊ができました」
+                #「다리에 혈전이 생겼대요」「blood clots in my leg」整句沒有任何尿液詞，
+                # 子句邊界放不放寬都配不出第二個軸 → 結構上不可能回來。
+                # 同理，本組唯一真正危險的誤報面（頻尿主訴「我最近小便次數很多」）是靠
+                # 「acuity 的每一條都自帶血語意」關掉的，那條性質與子句邊界正交。
+                # 本組與 urosepsis / urinary_retention / cauda_equina 三組同一形狀：
+                # 兩個軸是**兩個不同的觀察**（排尿這件事 × 尿裡有血塊），病患本來就會
+                # 講成相鄰兩句。`testicular_pain_severe` 的 site_x_acuity **刻意不開**
+                # ——那組是「同一個部位 × 那個部位的嚴重度」，跨子句就會把
+                #「我眼睛突然很痛，睪丸沒事」配起來。
+                #
+                # 換來的殘餘誤報（記在案、不是漏看）：「我上個月腳上有血塊，今天想問
+                # 小便的問題」＝兩個不同臨床事件剛好講在**相鄰**子句 → 會命中。形狀與
+                # urosepsis 早就記載的殘餘（「上週發燒」＋「今天頻尿」）同型，依偏誤報
+                # 政策接受。
+                # ⚠️ 2026-08-21 敵意複驗訂正殘餘的**範圍**：本註解前一版寫「中間只要夾
+                # 一個完整子句就不配對」——**那是假的**。`middles` 非空時會落到
+                # `_pairing_scope_ok` 既有的**插入語分支**，中間子句只要 ≤14 語素當量
+                # **且**自帶當前發作證據（時間錨點）就照配，最多 2 個：
+                #   「我上個月腳上有血塊，前陣子去看了骨科，今天想問小便」→ 零（無錨點）
+                #   「我上個月腳上有血塊，**昨天**去看了骨科，今天想問小便」→ critical
+                # 真人敘事充滿時間詞，所以實際範圍比原文所述寬。不收緊的理由：那條插入語
+                # 分支是 2026-07-27 第四輪 Gate 為**真急症**放寬的（「我今天小便，剛剛看了
+                # 一下，有很多血塊」「我的睪丸，就是剛剛在停車場的時候，忽然痛到冒冷汗」
+                # 走的是同一條），收緊等於用可逆的誤報換不可逆的漏報。
+                # 邊界（三個條件）與真實殘餘、以及「這兩件事共用同一條分支」都由
+                # test_red_flag_audit_2026_08.py 的 `test_rf5_residual_is_bounded_by_the_parenthetical_rule`
+                # ／`test_rf5_time_anchored_middle_clause_still_pairs_which_is_the_real_residual`
+                # ／`test_rf5_parenthetical_branch_is_load_bearing_for_real_emergencies`
+                # 三條釘住（要改需臨床重新拍板）。
+                "cross_clause": True,
                 "site_terms": [
                     # zh-TW
                     "尿", "小便", "馬桶", "尿液",
@@ -872,6 +934,16 @@ URO_RED_FLAGS: list[dict[str, Any]] = [
                     "urine", "urinate", "urinated", "urinating", "urination",
                     "urinary", "pee", "peed", "peeing", "dysuria", "flank",
                     "kidney", "kidneys", "bladder", "catheter",
+                    # ⚠️ 2026-08-21 RF-5：RF-3 拿掉裸 "high fever" 之後，才暴露出
+                    # 英文泌尿詞表**沒有 "pass water" 這一族**（實測
+                    # "i have had a high fever since yesterday, and it burns when i
+                    # pass water" → 6fc51e3 之前靠裸 trigger 命中，之後歸零）。
+                    # RF-3 當時的舉證只用 "…every time i pass urine" 一句確認過，
+                    # 漏掉了英式說法最常用的 pass water。
+                    # 聯集誤配檢查（#25）：空白分隔的英文兩字片語，結構上不會出現在
+                    # 其他四語的句子裡；泌尿以外的語義（讓水通過濾芯之類）不會出現在
+                    # 問診語境，而且還必須另外與發燒詞共現才會命中。
+                    "pass water", "passing water", "passed water",
                     # vi-VN
                     "tiểu", "nước tiểu", "bàng quang", "thận", "hông",
                 ],
@@ -1650,16 +1722,52 @@ SINGLE_QUESTION_RULE = """【每輪輸出的硬性限制】
 #   - 不動標點、括號、頓號（intake 的「、」是 patient_context 的分隔符,拆筆判定靠它）
 #   - 不做關鍵字黑名單（「忽略以上指示」這種句子留在**單行的病患敘述**裡不構成區段,
 #     而黑名單只會誤刪臨床詞）
+#
+# ⚠️ 2026-08-21 敵意複驗（P1，注入實測重現）：上面第 1、3 兩條各有一個缺口,合起來
+#    讓「行首偽標題」在 SOAP **與**對話兩條 prompt 都做得出來,而且與真標題**逐字相同**:
+#      a. 黑名單漏掉 U+2066–U+2069（LRI/RLI/FSI/PDI,BiDi **isolate**）——U+202A–U+202E
+#         那組 embedding/override 在 Unicode 6.3 起已被 isolate 取代,現代輸入法/複製貼上
+#         產出的是後者。`"⁦## Consultation Transcript"` 原樣通過 → 渲染後行首是
+#         一個不可見字元 + `## X`,LLM 讀到的仍是一個標題。同族的 U+034F(CGJ)、
+#         U+17B4/U+17B5（高棉固有母音）、U+180E 也都是「零寬度但不是空白」,一併補上。
+#      b. 第 3 條原本是 `^[#＃]+[ \t　]*` 的**單次** `.sub()`,錨在 `^` 只替換一次:
+#         `"# ## Consultation Transcript"` 剝一次剩 `"## Consultation Transcript"`,
+#         仍以 `##` 起頭。改成把 `#`／`＃`／空白放進**同一個字元類**,一次貪婪比對就
+#         等同「反覆剝到不再以它們開頭」（`_leading_marks_stripped` 有 fixpoint 斷言）。
+#    取捨（`#1 顆` 這類合法臨床寫法）:剝除只吃**開頭連續**的 `#`／空白,遇到第一個
+#    其他字元就停,所以 `"#1 顆"` → `"1 顆"`、`"#2 顆,早晚各一次"` → `"2 顆,早晚各一次"`
+#    ——只掉一個 `#` 記號,劑量與單位原樣留著,不會「整段被吃掉」。這與修復前的單次
+#    剝除**行為相同**（單次剝除同樣會吃掉那個 `#`）,亦即本次改動沒有新增任何臨床損失;
+#    反過來若為了保住 `#1` 而改成「只在 `#` 後接空白時才剝」,`"#Consultation Transcript"`
+#    這種無空白變體就會原樣進 prompt——那是**新增**的注入面,方向不對。
 _PROMPT_UNSAFE_CHARS = re.compile(
     "["
     "\\x00-\\x1f\\x7f-\\x9f"  # C0 控制字元（含 \\t\\n\\r）、DEL、C1
+    "\\u034f"  # CGJ（零寬,category Mn,不會被 str.split() 當空白吃掉）
+    "\\u17b4\\u17b5"  # 高棉固有母音 AQ/AA（零寬）
+    "\\u180e"  # 蒙古母音分隔符
     "\\u200b-\\u200f"  # 零寬空白／連字／非連字、LRM、RLM
     "\\u2028\\u2029"  # 行分隔符／段分隔符（Unicode 換行）
-    "\\u202a-\\u202e"  # BiDi 嵌入／覆寫
+    "\\u202a-\\u202e"  # BiDi 嵌入／覆寫（已棄用,保留）
     "\\u2060-\\u2064\\ufeff"  # word joiner／不可見運算子／BOM
+    "\\u2066-\\u2069"  # BiDi isolate LRI/RLI/FSI/PDI（U+202A–E 的現代取代品）
     "]"
 )
-_LEADING_HEADING_MARKS = re.compile(r"^[#＃]+[ \t　]*")
+# `#`／`＃`／空白同屬一個字元類 ＝ 一次貪婪比對就剝到「不再以它們開頭」為止。
+_LEADING_HEADING_MARKS = re.compile(r"^[#＃\s]+")
+
+
+def _leading_marks_stripped(text: str) -> str:
+    """剝掉開頭的 `#`／`＃`／空白,並斷言結果已是 fixpoint。
+
+    斷言而不是迴圈:字元類已含全部三種起頭字元,貪婪比對必定一次到底。留下這個
+    後置條件是為了讓「有人把字元類改窄」當場炸掉,而不是靜默退回單次剝除（P1 的根因）。
+    """
+    stripped = _LEADING_HEADING_MARKS.sub("", text)
+    assert not _LEADING_HEADING_MARKS.match(stripped), (
+        f"行首標記剝除未達 fixpoint（P1 回歸）：{stripped!r}"
+    )
+    return stripped
 
 
 def sanitize_for_prompt(value: Any, max_chars: int | None = None) -> str:
@@ -1675,7 +1783,7 @@ def sanitize_for_prompt(value: Any, max_chars: int | None = None) -> str:
     text = _PROMPT_UNSAFE_CHARS.sub(" ", text)
     # split() 同時處理 \n \r \t \v \f 與全形空白,並順帶 strip。
     text = " ".join(text.split())
-    text = _LEADING_HEADING_MARKS.sub("", text).strip()
+    text = _leading_marks_stripped(text).strip()
     if max_chars is not None and len(text) > max_chars:
         text = text[:max_chars].rstrip()
     return text
