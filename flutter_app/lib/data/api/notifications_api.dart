@@ -5,7 +5,10 @@ typedef NotifPage = ({List<AppNotification> data, String? nextCursor, bool hasMo
 
 // Port of frontend/src/services/api/notifications.ts (list/mark-read/unread-count).
 class NotificationsApi {
-  final _dio = ApiClient.instance.dio;
+  // Lazy on purpose (same reason as SessionsApi): `ApiClient.instance.dio` is only
+  // initialised by `main()`, so an eager field initializer makes this class
+  // unconstructible in plain `flutter test` — and unsubclassable by fakes.
+  late final _dio = ApiClient.instance.dio;
 
   Future<NotifPage> list({String? cursor, int limit = 20, String? type, bool? isRead}) async {
     final res = await _dio.get('/notifications', queryParameters: {
