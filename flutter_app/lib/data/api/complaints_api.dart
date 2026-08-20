@@ -5,7 +5,10 @@ import 'dio_client.dart';
 // Accept-Language header (which the Dio interceptor sets from the URL lng). Patient token
 // is auto-scoped to active + default rows. Refetch on language change.
 class ComplaintsApi {
-  final _dio = ApiClient.instance.dio;
+  // Lazy on purpose (same reason as SessionsApi): `ApiClient.instance.dio` needs platform
+  // channels, so an eager field initializer makes this class unconstructible in plain
+  // `flutter test` — and therefore unsubclassable by a fake.
+  late final _dio = ApiClient.instance.dio;
 
   Future<List<Complaint>> getComplaints({bool activeOnly = true}) async {
     final res = await _dio.get('/complaints', queryParameters: {'limit': 100, if (activeOnly) 'isActive': true});

@@ -27,6 +27,7 @@ import '../../features/doctor/screens/session_detail_page.dart';
 import '../../features/doctor/screens/session_list_page.dart';
 import '../../features/doctor/screens/soap_report_page.dart';
 import '../../features/home/role_home_page.dart';
+import '../../features/patient/intake_route.dart';
 import '../../features/patient/medical_info_page.dart';
 import '../../features/patient/patient_history_page.dart';
 import '../../features/patient/patient_home_page.dart';
@@ -114,7 +115,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: 'patient/start', builder: (context, state) => _lngKeyed(const SelectComplaintPage())),
           GoRoute(
             path: 'patient/medical-info',
-            builder: (context, state) => _lngKeyed(MedicalInfoPage(args: (state.extra as Map?) ?? const {})),
+            // Args come from the URL, never `state.extra`: `extra` is in-memory only, so a
+            // browser refresh or a shared deep link rebuilt this page with a null
+            // complaintId and POST /sessions 422'd (see intake_route.dart).
+            builder: (context, state) =>
+                _lngKeyed(MedicalInfoPage(args: medicalInfoArgsFromUri(state.uri))),
           ),
           GoRoute(path: 'patient/history', builder: (context, state) => _lngKeyed(const PatientHistoryPage())),
           GoRoute(

@@ -80,6 +80,7 @@
     "family": {
       "title": "Tiền sử gia đình",
       "optional": "Tùy chọn",
+      "noneLabel": "Không có tiền sử gia đình",
       "hint": "Người thân trực hệ có mắc bệnh di truyền không? Nếu không rõ có thể bỏ qua.",
       "conditionPlaceholder": "Bệnh (VD: tiểu đường)",
       "add": "Thêm tiền sử gia đình"

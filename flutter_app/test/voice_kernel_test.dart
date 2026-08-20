@@ -5,7 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gu_voice/features/voice/services/audio_stream_service.dart';
 import 'package:gu_voice/features/voice/services/pcm_ring_buffer.dart';
 import 'package:gu_voice/features/voice/services/wav_encoder.dart';
+import 'package:gu_voice/core/i18n/loc.dart';
+import 'package:gu_voice/core/i18n/locales_loader.dart';
 import 'package:gu_voice/core/router/lng.dart';
+import 'package:gu_voice/features/patient/intake_payload.dart';
 import 'package:gu_voice/features/voice/state/conversation_controller.dart';
 import 'package:gu_voice/features/voice/state/vad_logic.dart';
 
@@ -205,29 +208,55 @@ void _routerQueryPreservation() {
 }
 
 void _intakeFamilyHistory() {
-  // Mirrors the payload projection in medical_info_page._submit(). Family history used to
-  // be hardcoded `[]`, so a prostate-cancer family history could never reach the doctor
-  // and "never asked" was indistinguishable from "patient denied it" (TODO G13).
-  List<Map<String, String>> project(List<(String relation, String condition)> rows) => [
-        for (final r in rows)
-          if (r.$2.trim().isNotEmpty) {'relation': r.$1, 'condition': r.$2.trim()},
-      ];
+  // Family history used to be hardcoded `[]`, so a prostate-cancer family history could
+  // never reach the doctor and "never asked" was indistinguishable from "patient denied
+  // it" (TODO G13).
+  //
+  // This group used to re-implement the projection locally — and that local copy pinned
+  // the WRONG behaviour: it asserted the raw key (`{'relation': 'father'}`) was what went
+  // on the wire, so the zh-TW report reading `father：膀胱癌` was "expected" (D-3). It now
+  // calls the real builder, and the expected strings come from the locale files rather
+  // than from the implementation.
+  List<dynamic> project(List<(String relation, String condition)> rows, {String lng = 'zh-TW'}) =>
+      buildIntakePayload(
+        noAllergies: false,
+        allergies: const [],
+        noMedications: false,
+        medications: const [],
+        noHistory: false,
+        histories: const [],
+        noFamilyHistory: false,
+        families: [for (final r in rows) FamilyEntry(relationKey: r.$1, condition: r.$2)],
+        lng: lng,
+      )['familyHistory'] as List<dynamic>;
 
   group('G13: family history payload', () {
-    test('rows reach the backend in {relation, condition} shape', () {
+    setUpAll(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      await Locales.loadAll();
+    });
+
+    test('rows reach the backend in {relation, condition} shape, relation LOCALIZED', () {
       expect(
         project([('father', 'Prostate cancer'), ('mother', '糖尿病')]),
         [
-          {'relation': 'father', 'condition': 'Prostate cancer'},
-          {'relation': 'mother', 'condition': '糖尿病'},
+          {'relation': t('intake.medicalInfo.relations.father', lng: 'zh-TW'), 'condition': 'Prostate cancer'},
+          {'relation': t('intake.medicalInfo.relations.mother', lng: 'zh-TW'), 'condition': '糖尿病'},
         ],
       );
+    });
+
+    test('the raw enum key never goes on the wire', () {
+      for (final lng in supportedLanguages) {
+        expect(project([('father', '膀胱癌')], lng: lng).single['relation'], isNot('father'),
+            reason: '$lng：送 key 會讓 prompt/SOAP 出現 father：膀胱癌');
+      }
     });
 
     test('blank and whitespace-only rows are dropped, not sent as empty strings', () {
       // Backend requires condition min_length=1 — sending "" would 422 the whole session.
       expect(project([('father', ''), ('sister', '   '), ('brother', 'BPH')]), [
-        {'relation': 'brother', 'condition': 'BPH'},
+        {'relation': t('intake.medicalInfo.relations.brother', lng: 'zh-TW'), 'condition': 'BPH'},
       ]);
     });
 

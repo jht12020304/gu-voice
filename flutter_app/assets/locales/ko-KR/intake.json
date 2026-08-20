@@ -80,6 +80,7 @@
     "family": {
       "title": "가족력",
       "optional": "선택",
+      "noneLabel": "가족력 없음",
       "hint": "직계 가족 중 유전성 질환이 있으신가요? 모르시면 건너뛸 수 있습니다.",
       "conditionPlaceholder": "질환명 (예: 당뇨병)",
       "add": "가족력 추가"
