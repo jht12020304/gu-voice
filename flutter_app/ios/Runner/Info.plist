@@ -57,6 +57,12 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- FCM 推播：讓 App 在背景收得到 content-available 的靜默推播。
+	     使用者可見的橫幅不需要它，但少了它背景資料推播會被系統丟掉。 -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
