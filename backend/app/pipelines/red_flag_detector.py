@@ -421,6 +421,76 @@ def _is_ascii_word_char(ch: str) -> bool:
     return ch.isascii() and (ch.isalnum() or ch == "_")
 
 
+# ── 詞義假朋友：關鍵字落在一個語意完全不同的複合詞裡 ──────────────
+# ⚠️ 與本檔下方的 `_CUE_FALSE_FRIENDS`／`_PRE_CUE_FALSE_FRIENDS` 是**兩件不同的事**：
+# 那組是「否定線索的假朋友」（讓否定守衛**少**抑制，方向是 fail-open）；這組是
+# 「關鍵字本身的假朋友」（讓關鍵字**不算命中**，方向是收斂），兩者不共用表也不互相
+# 影響。命名前綴 `_TERM_` 對應「詞義」，`_CUE_` 對應「否定線索」。
+# 這**不是抑制守衛**（#22）而是**語意修正**（與 R22 的裸「熱」同一類）：被排除的字面
+# 在那個位置根本不是該關鍵字的意思,不是「有這個症狀但我們選擇不報」。
+#
+# 缺陷（2026-08-21 敵意複驗，五語實測）：越南文 `tiểu` 一詞多義——泌尿義是「排尿」,
+# 但它同時是漢越詞「小」的常用構詞成分,而越南文以**音節分寫**,複合詞中間有空白:
+#     tiểu đường ＝ 糖尿病        tiểu cầu ＝ 血小板       tiểu phẫu ＝ 小手術
+#     tiểu sử   ＝ 病史/生平      tiểu học ＝ 小學         tiểu não ＝ 小腦
+# 於是**詞邊界救不了**（`tiểu` 在 `tiểu đường` 裡兩側都是合法詞界）,實測:
+#     「tôi bị tiểu đường, và chân tôi có cục máu đông」（糖尿病＋下肢 DVT）
+#     「mẹ tôi bị tiểu đường, và bà ấy có cục máu đông」（家族史＝別人的病）
+#     「bác sĩ hỏi tiểu sử bệnh, tôi có cục máu đông ở chân」
+#   → 全部命中 `gross_hematuria_heavy`(critical) ＝ 中止問診,並把「大量血尿」寫進
+#     SOAP 紅旗區塊。糖尿病是泌尿科 intake 的**第一常見共病**,這不是邊緣情況。
+#
+# 為什麼不改成只收 `đi tiểu`／`nước tiểu`／`tiểu buốt`／`tiểu ra` 這些明確片語
+# （#22 的漏報舉證）：實測「khi tiểu tôi thấy nhiều máu cục」「tôi tiểu ra máu cục
+# rất nhiều」這類**動詞裸用**的語序靠的就是裸 `tiểu`,改收片語會直接開出漏報;
+# 排除法只拿掉「`tiểu` 在該處不是排尿」的那些位置,泌尿義的每一種語序原樣保留。
+#
+# 收錄判準（要能說出「為什麼它不會漏報」）：只收**contiguous 且語意上與泌尿無關**的
+# 漢越複合詞。刻意**不收** `tiểu đêm`(夜尿)／`tiểu tiện`／`tiểu buốt`／`tiểu rắt`／
+# `tiểu són`——那些是泌尿義。已知殘餘：病患把兩個子句黏在一起打（「bí tiểu sử dụng
+# thuốc gì」）時 `tiểu` 會被 `tiểu sử` 遮住,但 `bí tiểu` 這個關鍵字本身跨過遮罩起點、
+# 不受影響,retention 仍命中（有測試釘住）。
+#
+# ⚠️⚠️ **這張表是開放式列舉,不是完備集合**（2026-08-21 敵意複驗第二輪釘死）：
+# 漢越詞「小」的構詞能力沒有上限,未列進來的「小」義複合詞**仍然會供給泌尿軸**,
+# 只要相鄰子句有血塊/發燒詞就配成 critical。已知仍在外面的尾巴（實測會誤報,
+# 但都不是問診情境的高頻詞）：`tiểu thương`(小商販)／`tiểu bang`(州)／`tiểu thư`(小姐)
+# ／`tiểu đội`(小隊)／`tiểu ban`(小組)…。所以**收到誤中止回報時的第一個假設應該是
+# 「又一個沒收錄的『小』義複合詞」,而不是「這條路已經封死了」**。
+# 收錄順序依「在泌尿科問診裡真的講得出來」排：intake 共病 → 臨床報告用詞 → 日常詞。
+_TERM_FALSE_FRIENDS: tuple[str, ...] = (
+    "tiểu đường",  # 糖尿病（泌尿科 intake 最常見共病）
+    "tiểu cầu",  # 血小板（「giảm tiểu cầu」＝血小板低下,常與出血同句）
+    "tiểu phẫu",  # 小手術
+    "tiểu sử",  # 病史／生平（「tiểu sử bệnh」＝病史）
+    "tiểu học",  # 小學
+    "tiểu não",  # 小腦
+    # ↓ 2026-08-21 複驗第二輪補：前四條是**臨床報告用詞**,病患轉述影像／病理報告時
+    #   會逐字唸出來（「動脈瘤ở tiểu động mạch」「tổn thương ở tiểu thùy」）,
+    #   而報告內容常與出血／發燒同句 → 誤中止機率高於日常詞。
+    "tiểu động mạch",  # 細動脈（arteriole）
+    "tiểu tĩnh mạch",  # 小靜脈（venule）
+    "tiểu khung",  # 小骨盆腔（pelvis minor；骨盆影像報告高頻）
+    "tiểu thùy",  # 小葉（lobule；病理報告高頻）
+    "tiểu thuyết",  # 小說（日常閒聊,複驗實測誤報 critical）
+)
+
+
+def _shadowed_by_term_false_friend(text_lower: str, start: int, end: int) -> bool:
+    """[start, end) 這個關鍵字出現位置是否**整個**落在某個詞義假朋友裡面。
+
+    只在關鍵字已通過詞邊界檢查後才呼叫（命中很稀疏,常態路徑不付成本）。
+    要求**完全包含**：`nước tiểu` 這種比假朋友長、或起點在假朋友之前的關鍵字不受影響。
+    """
+    for friend in _TERM_FALSE_FRIENDS:
+        i = text_lower.find(friend)
+        while i != -1:
+            if i <= start and end <= i + len(friend):
+                return True
+            i = text_lower.find(friend, i + 1)
+    return False
+
+
 def _iter_keyword_occurrences(
     keyword_lower: str, text_lower: str, both_edges: bool = False
 ):
@@ -449,7 +519,11 @@ def _iter_keyword_occurrences(
             or end == end_of_text
             or not _is_ascii_word_char(text_lower[end])
         )
-        if leading_ok and trailing_ok:
+        if (
+            leading_ok
+            and trailing_ok
+            and not _shadowed_by_term_false_friend(text_lower, idx, end)
+        ):
             yield idx
         idx = text_lower.find(keyword_lower, idx + 1)
 
@@ -1287,15 +1361,31 @@ def _pairing_scope_ok(
 ) -> bool:
     """site 與 acuity 是否在同一配對範圍內（同一子句，或只隔著時間插入語）。
 
-    `cross_clause=True`（由共現組自行宣告）額外允許**相鄰子句**配對。
-    只給**跨症狀組合**型紅旗開（urosepsis＝泌尿症狀＋全身性感染徵象、
-    cauda_equina＝膀胱功能障礙＋神經學缺損）：那兩個紅旗的兩個維度是**兩個不同的
-    症狀**，病患本來就會講成兩句話——
-      「我發燒到三十九度，而且小便的時候很痛」
-      「腰痛得很厲害，兩隻腳越來越沒力，昨天開始尿失禁」
-    ——實測有標點版全漏、去掉標點才命中（2026-07-27 第四輪 Gate 雙向探針）。
-    site×acuity 型紅旗（睪丸扭轉／尿滯留／血尿）的兩個維度描述的是**同一個症狀**，
-    本來就該落在同一子句，所以維持不開，「我眼睛突然很痛，睪丸沒事」照樣擋掉。
+    `cross_clause=True`（由共現組自行宣告）額外允許**相鄰子句**（`middles` 為空）
+    配對。中間夾了完整子句時**不會**因為 `cross_clause` 而放行——那一路仍然要過下方
+    的插入語條件（≤14 語素當量 ＋ 自帶當前發作證據，最多 2 段）。
+
+    ⚠️ **「哪些組開了」的權威是 `prompts/shared.py` 共現組定義裡的 `cross_clause`
+    這個 key 本身，不是這段 docstring**——這裡只記判準，實際開關要去查資料。
+    2026-08-21 現況（會變）：`urinary_x_systemic_infection`(urosepsis)／
+    `bladder_dysfunction_x_neuro_deficit`(cauda_equina)／`void_x_obstruction`
+    (urinary_retention，2026-07-27 為英文語序開的)／`urine_x_heavy_blood`
+    (gross_hematuria_heavy，2026-08-21 RF-5 開的) **四組開**；
+    `site_x_acuity`(testicular_pain_severe) 與 `urine_x_blood_present`
+    (gross_hematuria high) **沒開**。
+
+    判準是「**這兩個軸是不是兩個不同的觀察**」，不是紅旗的臨床分類名稱：
+      - 兩個不同的觀察 → 病患本來就會講成相鄰兩句，開。
+          「我發燒到三十九度，而且小便的時候很痛」（全身感染 ＋ 泌尿症狀）
+          「腰痛得很厲害，兩隻腳越來越沒力，昨天開始尿失禁」（神經缺損 ＋ 膀胱功能）
+          「我今天小便，然後有很多血塊」（排尿這件事 ＋ 尿裡有血塊）
+        ——實測有標點版全漏、去掉標點才命中（前兩句 2026-07-27 第四輪 Gate 雙向探針，
+        第三句是 2026-08-21 RF-5 的 P0 漏報）。
+      - **同一個部位 × 那個部位的嚴重度** → 不開：跨子句會把「我眼睛突然很痛，
+        睪丸沒事」配起來。`site_x_acuity` 是唯一純粹這一型的組。
+    ⚠️ 本段**前一版**寫的是「site×acuity 型紅旗（睪丸扭轉／尿滯留／血尿）維持不開」
+    ——那個敘述在寫下時就已經與資料互斥（`void_x_obstruction` 早於它三週就開了），
+    別再拿紅旗屬於哪一類去推它開沒開。
     """
     lo_end, hi_start = (s1, a0) if a0 >= s1 else (a1, s0)
     between = text_lower[lo_end:hi_start]

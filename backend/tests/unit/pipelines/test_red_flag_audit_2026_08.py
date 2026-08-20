@@ -403,6 +403,18 @@ def test_rf2_negative_table_covers_every_language():
 # 而且要有**反向**的 MUST_FIRE 把「真的臨床情境仍命中」釘住。
 
 REMOVED_LITERAL_JUSTIFICATION: dict[str, str] = {
+    # ── RF-5（2026-08-21）：RF-3 漏掉的英語版 ──
+    "blood clots（gross_hematuria_heavy.triggers_by_lang['en-US']）": (
+        "RF-3 的臨床拍板是對『血塊這個臨床實體必須伴隨泌尿軸』這個**概念**下的，"
+        "但實作只落到 zh/ja/ko 三語，英語的裸 `blood clots` 原封不動留著 → "
+        "『i have blood clots in my leg』仍判 gross_hematuria_heavy(critical) 中止問診，"
+        "與已修掉的『다리에 혈전이 생겼대요』（下肢 DVT）完全同型。這是實作漏一語，"
+        "不是新的臨床決定。為什麼不會造成漏報：共現組 acuity_terms 裡原本就有 "
+        "`blood clot` / `clots` / `clotting`，只要同一或相鄰子句有尿液詞就命中；"
+        "實測『i went to pee this morning, and there were blood clots』"
+        "『there were blood clots in my urine』都仍命中 critical。"
+        "自帶泌尿軸的 `clot in urine` 保留不動。"
+    ),
     # ── RF-3：不要求泌尿軸的裸 critical trigger ──
     "血塊 / 血の塊 / 혈전（gross_hematuria_heavy.triggers）": (
         "三者原封不動留在 urine_x_heavy_blood 共現組的 acuity_terms 裡，"
@@ -484,9 +496,13 @@ KEPT_LITERALS: dict[str, str] = {
         "但**不在本輪臨床拍板的清單內**。收窄 critical 是臨床決定不是工程決定，"
         "依 #22 不擅自動；下一輪要動請帶臨床覆核。"
     ),
-    "整個都是血 / 一大堆血（gross_hematuria_heavy.triggers）": (
-        "同樣沒有泌尿軸（『我手上整個都是血』會誤報），但不在本輪拍板清單內。"
-        "兩者都在共現組 acuity（都是血／一大堆血）裡，若日後拍板可比照 RF-3 移除。"
+    "整個都是血 / 一大堆血 / heavy bleeding / lots of blood"
+    "（gross_hematuria_heavy.triggers）": (
+        "同樣沒有泌尿軸（『我手上整個都是血』『heavy bleeding from the cut』會誤報），"
+        "但不在本輪拍板清單內。四者都在共現組 acuity（都是血／一大堆血／"
+        "lots of blood）裡，若日後拍板可比照 RF-3／RF-5 移除。"
+        "⚠️ 2026-08-21 RF-5 只動了 `blood clots`——它是已拍板字面『血塊』的英語版，"
+        "屬於補齊實作漏洞；量詞型的這四條是**另一個**臨床問題，依 #22 不擅自擴大。"
     ),
     "かたまり / 덩어리（gross_hematuria_heavy 共現組 acuity）": (
         "與被移除的裸『塊』同一族，但字面長度 ≥3 個音節/字母，"
@@ -543,6 +559,7 @@ RF3_BARE_TRIGGERS_REMOVED: tuple[tuple[str, str], ...] = (
     (HEMATURIA_HEAVY, "血塊"),
     (HEMATURIA_HEAVY, "血の塊"),
     (HEMATURIA_HEAVY, "혈전"),
+    (HEMATURIA_HEAVY, "blood clots"),  # RF-5：RF-3 漏掉的第四語
     (UROSEPSIS, "高燒"),
     (UROSEPSIS, "高熱"),
     (UROSEPSIS, "고열"),
@@ -611,6 +628,16 @@ RF34_MUST_NOT_FIRE: list[tuple[str, str, str]] = [
     ("zh-TW", "我腳上有一塊血塊瘀青", "外傷造成的瘀血塊，與泌尿完全無關"),
     ("ja-JP", "足に血の塊ができました", "下腿の血腫、泌尿器と無関係"),
     ("ko-KR", "다리에 혈전이 생겼대요", "下肢深部靜脈血栓＝別的疾病"),
+    ("en-US", "i have blood clots in my leg",
+     "[RF-5] 下肢深部靜脈血栓的英語版——RF-3 漏掉的第四語"),
+    ("en-US", "my son had a high fever last night",
+     "[RF-5] 兒子的發燒，第三人稱且句中無任何泌尿描述"),
+    ("ja-JP", "体温は平熱でした",
+     "[RF-5] 病患報的是**平熱**（正常體溫），句中無泌尿詞"),
+    ("ja-JP", "おしっこを我慢できない",
+     "[RF-5] 尿意切迫＝急性尿滯留的臨床反義（#25 的最惡性誤配）"),
+    ("zh-TW", "大便不通，下腹脹",
+     "[RF-5] 便祕造成的下腹脹，跨子句也不得配成急性尿滯留"),
     ("zh-TW", "我上個月因為流感發高燒", "流感造成的發燒，句中無任何泌尿描述"),
     ("en-US", "i had a high fever last week from the flu", "流感造成的發燒，句中無任何泌尿描述"),
     ("vi-VN", "tuần trước tôi bị sốt cao vì cúm", "流感造成的發燒，句中無任何泌尿描述"),
@@ -726,6 +753,619 @@ def test_normal_body_temperature_degrees_are_not_fever_terms():
     normal = ("三十六度", "三十七度", "36度", "37度", "36도", "37도")
     offenders = [t for t in acuities if t in normal]
     assert offenders == [], f"平熱域度數進了發燒軸：{offenders}"
+
+
+# ══════════════════════════════════════════════════════════════
+# §3b RF-5：同一句話、**跨子句**的 site × acuity 共現（P0 漏報）
+# ══════════════════════════════════════════════════════════════
+# 2026-08-21。RF-3/RF-4 把裸字面移進共現組之後，這些 canonical 只剩「同一子句」
+# 一條路。但病患的自然語序是**同一句話、跨子句**：一個軸在前半句、另一個軸在
+# 逗號後面（「我今天小便，然後有很多血塊」）。實測 5 語 15/15 把逗號拿掉就命中
+# ＝ 純粹是子句邊界造成的漏報，不是詞表缺口。
+#
+# 修法：`gross_hematuria_heavy.urine_x_heavy_blood` 補上 `cross_clause: True`
+# （urosepsis / urinary_retention / cauda_equina 三組本來就有）。走的是
+# `_pairing_scope_ok` 既有分支：只允許**相鄰**子句（中間不得夾完整子句），
+# 距離仍受 `_COOCCURRENCE_WINDOW_UNITS`（24 語素當量）約束。
+#
+# 為什麼不會把 RF-3/RF-4 修掉的誤報放回來（#22 舉證，見下方
+# `test_rf5_widening_cannot_resurrect_single_axis_false_positives`
+# 把這個論證變成**可執行的斷言**而不是註解）：
+#   放寬子句邊界只改「兩個軸可以落在哪裡」，**不減少任何一個軸**。
+#   6fc51e3 修掉的每一筆誤報都是**單軸**的——腳上的血塊沒有尿液詞、流感高燒沒有
+#   泌尿詞、量體溫是度量名詞、我慢できない是臨床反義、下腹脹沒有尿語——
+#   子句邊界放不放寬，第二個軸都配不出來。
+
+RF5_CROSS_CLAUSE_MUST_FIRE: list[tuple[str, str, str, str]] = [
+    # ── zh-TW：血塊（RF-3 移除的字面）──
+    (
+        HEMATURIA_HEAVY, "zh-TW", "我今天小便，然後有很多血塊",
+        "[稽核實證] 逗號＋『然後』把尿與血塊切成兩個子句——clot retention 典型主訴",
+    ),
+    (
+        HEMATURIA_HEAVY, "zh-TW", "小便有血，還有一坨一坨的血塊",
+        "[稽核實證] 修前只剩 gross_hematuria(high)＝severity 被降級",
+    ),
+    (
+        HEMATURIA_HEAVY, "zh-TW", "我這兩天血尿，而且有血塊",
+        "[稽核實證] 逗號＋『而且』；血尿併血塊本身就是 heavy 的臨床判準",
+    ),
+    (
+        HEMATURIA_HEAVY, "zh-TW", "剛剛上廁所小便，裡面都是血塊",
+        "逗號直接接續，沒有連接詞——連接詞白名單接不住這一型",
+    ),
+    # ── ja-JP ──
+    (
+        HEMATURIA_HEAVY, "ja-JP", "おしっこをしたら、血の塊がたくさん出ました",
+        "読点で切れた「〜したら」条件節。尿と血の塊が別子句",
+    ),
+    (
+        HEMATURIA_HEAVY, "ja-JP", "尿をしましたが、血の塊が混じっていました",
+        "逆接「が」＋読点。尿が前子句、血の塊が後子句",
+    ),
+    (
+        HEMATURIA_HEAVY, "ja-JP", "今朝トイレに行って、血のかたまりがいくつも出ました",
+        "て形＋読点。トイレ（site）と血のかたまり（acuity）が別子句",
+    ),
+    # ── ko-KR ──
+    (
+        HEMATURIA_HEAVY, "ko-KR", "소변을 봤는데, 피떡이 많이 나왔어요",
+        "연결어미 ~는데 ＋ 쉼표로 소변과 피떡이 갈라진 형태",
+    ),
+    (
+        HEMATURIA_HEAVY, "ko-KR", "오늘 오줌을 눴어요, 그리고 핏덩어리가 나왔어요",
+        "쉼표 ＋ 접속사 그리고. 오줌과 핏덩어리가 다른 절",
+    ),
+    (
+        HEMATURIA_HEAVY, "ko-KR", "소변을 보러 갔는데, 덩어리진 피가 나왔습니다",
+        "~는데 ＋ 쉼표. 덩어리와 피를 분けて言う自然な語序",
+    ),
+    # ── en-US ──
+    (
+        HEMATURIA_HEAVY, "en-US", "i went to pee this morning, and there were blood clots",
+        "[RF-5] comma + and；裸 blood clots 移除後只能靠跨子句共現接住",
+    ),
+    (
+        HEMATURIA_HEAVY, "en-US", "i passed some urine, then i saw a lot of blood",
+        "comma + then；urine 與 lot of blood 分屬兩個子句",
+    ),
+    (
+        HEMATURIA_HEAVY, "en-US", "i urinated a little while ago, and it was full of blood",
+        "comma + and；urinated 與 full of blood 分屬兩個子句",
+    ),
+    # ── vi-VN ──
+    (
+        HEMATURIA_HEAVY, "vi-VN", "sáng nay tôi đi tiểu, rồi thấy nhiều máu cục",
+        "dấu phẩy + rồi；tiểu ở mệnh đề trước, máu cục ở mệnh đề sau",
+    ),
+    (
+        HEMATURIA_HEAVY, "vi-VN", "tôi vừa đi tiểu xong, và có cục máu đông",
+        "dấu phẩy + và；cục máu đông tách khỏi mệnh đề có tiểu",
+    ),
+    (
+        HEMATURIA_HEAVY, "vi-VN", "tôi đi tiểu, nước tiểu ra rất nhiều máu",
+        "dấu phẩy nối hai mệnh đề cùng một câu",
+    ),
+    # ── 其餘被移除字面的跨子句形（本來就由既有 cross_clause 接住，
+    #     列進來是為了防止有人把那三組的 cross_clause 一併關掉）──
+    (
+        UROSEPSIS, "zh-TW", "我從昨天就開始發高燒，然後小便的時候會刺痛",
+        "高燒（RF-3 移除）跨子句配泌尿詞",
+    ),
+    (
+        UROSEPSIS, "ja-JP", "高熱が出ています、それから排尿のときに痛みます",
+        "高熱（RF-3 移除）が読点越しに排尿と共現",
+    ),
+    (
+        UROSEPSIS, "ko-KR", "고열이 있고요, 배뇨할 때 통증이 있습니다",
+        "고열（RF-3 移除）이 쉼표 건너 배뇨와 공기",
+    ),
+    (
+        UROSEPSIS, "vi-VN", "tôi bị sốt cao, rồi tiểu rất buốt",
+        "sốt cao（RF-3 移除）qua dấu phẩy vẫn ghép với tiểu buốt",
+    ),
+    (
+        UROSEPSIS, "en-US",
+        "i have had a high fever since yesterday, and it burns when i pass water",
+        "[RF-5] high fever（RF-3 移除）＋ pass water——RF-3 只用一句 en 驗過，"
+        "漏了英式最常用的泌尿詞，移除後這句零紅旗（實測）",
+    ),
+    (
+        UROSEPSIS, "zh-TW", "我今天有點意識不清，而且小便很混濁",
+        "意識不清（RF-3 移除）跨子句配泌尿詞",
+    ),
+    (
+        UROSEPSIS, "zh-TW", "我量體溫三十九度，然後小便的時候很痛",
+        "體溫（RF-4 移除）改收的發熱域度數，跨子句仍要命中",
+    ),
+    (
+        UROSEPSIS, "ko-KR", "오슬오슬 춥고 오한이 나는데, 소변이 뿌옇습니다",
+        "떨리（RF-4 移除）改收的오슬오슬/오한，跨子句仍要命中",
+    ),
+    (
+        RETENTION, "ja-JP", "何度も試しました、でも小便ができません",
+        "できない系（RF-4 移除）改收的相鄰片語，跨子句仍要命中",
+    ),
+    (
+        RETENTION, "ja-JP", "昨日の夜から全然おしっこが出ません、下腹が張って痛いです",
+        "下腹（RF-4 移除）之後靠おしっこ這一足場，跨子句仍要命中",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "canonical_id,language,text,why",
+    RF5_CROSS_CLAUSE_MUST_FIRE,
+    ids=[f"{cid}-{lg}-{i}" for i, (cid, lg, _t, _w) in enumerate(
+        RF5_CROSS_CLAUSE_MUST_FIRE)],
+)
+def test_same_sentence_cross_clause_cooccurrence_fires(
+    detector, canonical_id, language, text, why
+):
+    """同一句話、跨子句的兩軸共現必須命中 critical（RF-5）。"""
+    assert canonical_id in [
+        cid for cid, _kw in _critical_hits(detector, text, language)
+    ], (
+        f"RF-5 回歸：跨子句共現漏報（{why}）\n"
+        f"  {language} {text!r}\n  本輪命中：{_critical_hits(detector, text, language)}"
+    )
+
+
+def test_rf5_covers_every_language_with_at_least_three_wordings():
+    """五語各 ≥3 種跨子句講法——少一語就代表那一語的跨子句路徑沒被量過。"""
+    for lang in LANGUAGES:
+        n = sum(1 for _c, lg, _t, _w in RF5_CROSS_CLAUSE_MUST_FIRE if lg == lang)
+        assert n >= 3, f"{lang} 只有 {n} 筆 RF-5 跨子句正例（要求 ≥3）"
+
+
+# ── 反方向：放寬子句邊界不得把 6fc51e3 修掉的誤報放回來 ──────────
+
+RF5_CROSS_CLAUSE_MUST_NOT_FIRE: list[tuple[str, str, str]] = [
+    # 單軸：整句沒有第二個軸，跨子句也配不出來（RF-5 論證的核心）
+    ("zh-TW", "我腳上有一塊瘀青，裡面好像有血塊",
+     "兩個子句講的都是腳，全句零泌尿詞——放寬邊界也不該命中"),
+    ("ja-JP", "足をぶつけました、血の塊ができています",
+     "打撲と血腫、二つの子句とも泌尿器と無関係"),
+    ("ko-KR", "다리가 부었는데, 혈전이 생겼다고 합니다",
+     "~는데 로 이어진 두 절 모두 하지 정맥 이야기"),
+    ("en-US", "i bumped my leg, and now there are blood clots under the skin",
+     "comma + and，兩個子句都在講腿部血腫"),
+    ("vi-VN", "chân tôi bị bầm, và có cục máu đông ở đó",
+     "hai mệnh đề đều nói về chân, không có từ tiết niệu nào"),
+    ("vi-VN", "tôi đi tiểu nhiều lần trong ngày, và ban đêm cũng vậy",
+     "頻尿主訴的越南語版；量詞不帶血就不得配成大量血尿"),
+    # 血塊型的唯一危險誤報面：量詞不帶血（頻尿主訴），跨子句也不得命中
+    ("zh-TW", "我最近小便次數很多，一天要跑十幾次廁所",
+     "頻尿是門診第一大主訴；acuity 必須自帶血語意，量詞不算"),
+    ("en-US", "i have been peeing a lot lately, and it happens all night",
+     "頻尿主訴的英語版，跨子句也不得配成大量血尿"),
+    ("ja-JP", "おしっこの回数が多いです、夜も何回も起きます",
+     "頻尿の訴え。読点越しでも血語がないので命中してはいけない"),
+    # 明確否認：跨子句放寬不得繞過否定守衛
+    ("zh-TW", "我小便看起來正常，沒有血塊也沒有血",
+     "病患明確否認血塊，兩個軸都在但後子句是否認"),
+    ("en-US", "my urine looks clear, and there are no blood clots at all",
+     "明確否認的英語版"),
+    ("ko-KR", "소변은 깨끗한데, 피떡 같은 건 전혀 없어요",
+     "~는데 로 이어진 명확한 부인"),
+    # RF-4 的反義／度量名詞：跨子句也不得復活
+    ("ja-JP", "尿意はありますが、我慢できないほどではありません",
+     "尿意切迫の否定形。できない系は acuity から外れているので命中しない"),
+    ("en-US", "the nurse checked my temperature, and then asked about my urine",
+     "度量名詞＋泌尿詞跨子句——temperature 已不在 acuity"),
+    ("zh-TW", "我大便解不出來，下腹很脹",
+     "便祕的兩子句形；下腹已不是 site，解不出配不到泌尿詞"),
+]
+
+
+@pytest.mark.parametrize(
+    "language,text,why",
+    RF5_CROSS_CLAUSE_MUST_NOT_FIRE,
+    ids=[f"{lg}-{i}" for i, (lg, _t, _w) in enumerate(
+        RF5_CROSS_CLAUSE_MUST_NOT_FIRE)],
+)
+def test_cross_clause_widening_does_not_over_trigger(detector, language, text, why):
+    """RF-5 的放寬最危險的失敗方向：把單軸誤報跨子句配起來。"""
+    hits = _critical_hits(detector, text, language)
+    assert hits == [], (
+        f"RF-5 擺盪成 over-trigger（{why}）：{language} {text!r}\n  命中：{hits}"
+    )
+
+
+def test_rf5_negative_table_covers_every_language():
+    """雙向對稱的結構性保證（RF-5 段）。"""
+    for lang in LANGUAGES:
+        n = sum(1 for lg, _t, _w in RF5_CROSS_CLAUSE_MUST_NOT_FIRE if lg == lang)
+        assert n >= 2, f"{lang} 只有 {n} 筆 RF-5 反例（要求 ≥2）"
+
+
+def test_rf5_residual_over_trigger_is_recorded_not_hidden(detector):
+    """RF-5 換來的**新誤報面**，寫成正向斷言而不是藏在註解裡。
+
+    放寬子句邊界之後，「兩個不同臨床事件剛好講在相鄰子句」會配起來：
+    病患先講腳上的瘀血塊、下一個子句才轉到小便。這是 RF-5 的代價，不是缺陷——
+    依 2026-07-27 臨床拍板（#22 偏誤報：誤中止＝護理師走一趟，可逆；
+    漏報＝clot retention 病患繼續坐著等，不可逆）取這一側。
+    形狀與 urosepsis 早就記載的殘餘（「上週發燒」＋「今天頻尿」）同型。
+
+    ⚠️ 要把它改成不觸發需要**新的臨床拍板**。工程上唯一的修法是加抑制守衛，
+    而距離與標點都分不出「兩個事件」與「同一件事講成兩句」——後者正是
+    RF5_CROSS_CLAUSE_MUST_FIRE 那 16 句。有人加守衛擋掉它時，這條會當場變紅。
+    """
+    for language, text in (
+        ("zh-TW", "我上個月腳上有血塊，今天想問小便的問題"),
+        ("en-US", "i have blood clots in my leg, and i also want to ask about my urine"),
+    ):
+        assert HEMATURIA_HEAVY in [
+            cid for cid, _kw in _critical_hits(detector, text, language)
+        ], (
+            f"殘餘誤報被擋掉了（{language} {text!r}）——若是刻意的，"
+            "請先證明它不會把 RF5_CROSS_CLAUSE_MUST_FIRE 的真急症一起擋掉。"
+        )
+
+
+def test_rf5_residual_is_bounded_by_the_parenthetical_rule(detector):
+    """對照組：界定上面那個殘餘的**範圍**，證明放寬不是「整句話串起來」。
+
+    ⚠️ 2026-08-21 敵意複驗訂正：本測試的前一版 docstring 寫「中間只要夾了**一個
+    完整子句**就不配對」——**那句話是假的**，而且它選的三句填充語剛好都沒有時間錨點，
+    所以測試通過測到的不是它宣稱的那件事。真正的邊界是 `_pairing_scope_ok` 的
+    **插入語分支**（`middles` 非空時走這裡，`cross_clause` 只是多開了 `middles` 為空
+    的那條捷徑）：中間夾的每一個完整子句都必須
+
+        ① `_span_units(p) <= _PARENTHETICAL_MAX_UNITS`（14 語素當量）**且**
+        ② `_has_current_episode_evidence(p)`（時間錨點或急性伴隨症狀），
+        ③ 且完整子句最多 `_PARENTHETICAL_MAX_SEGMENTS`（2）個。
+
+    三個條件任一不成立才不配對。下面每一筆各壞掉其中一個條件（`why` 註明是哪個），
+    含時間錨點的那一型另見
+    `test_rf5_time_anchored_middle_clause_still_pairs_which_is_the_real_residual`。
+    """
+    bounded = [
+        (
+            "我上個月腳上有血塊，前陣子去看了骨科，今天想問小便的問題",
+            "壞條件②：『前陣子』不是當前發作證據（_has_current_episode_evidence=False）",
+        ),
+        (
+            "我腳上有血塊，骨科說是撞到的沒關係，那個已經好了，今天想問小便",
+            "壞條件②：兩個填充子句都沒有時間錨點",
+        ),
+        (
+            "我腳上有一塊血塊瘀青，那是撞到桌角造成的已經在消了，今天主要是想問排尿的問題",
+            "壞條件②＋距離：填充子句無錨點，且兩軸相距超過 24 語素當量",
+        ),
+        (
+            "我上個月腳上有血塊，昨天早上很早就去看了骨科而且等很久，今天想問小便的問題",
+            "壞條件①：填充子句含時間錨點但 17 語素當量 > 14",
+        ),
+        (
+            "我上個月腳上有血塊，昨天去看骨科，今天早上又去拿藥，剛剛才回來，等一下想問小便",
+            "壞條件③：中間夾了 3 個完整子句 > 2（每一個都自帶時間錨點）",
+        ),
+        (
+            "我上個月腳上有血塊，昨天去看了骨科，醫生說沒事要我多休息不要亂動，今天想問小便的問題",
+            "壞條件②：兩個填充子句中的第二個沒有當前發作證據——要求的是『每一個都要有』",
+        ),
+    ]
+    for text, why in bounded:
+        assert _critical_hits(detector, text, "zh-TW") == [], (
+            f"相鄰子句的放寬外溢（{why}）：{text!r}"
+        )
+
+
+def test_rf5_time_anchored_middle_clause_still_pairs_which_is_the_real_residual(
+    detector,
+):
+    """把上一條訂正出來的**真實殘餘**寫成正向斷言，而不是留在錯誤的 docstring 裡。
+
+    中間子句只要**短且自帶時間錨點**就照配——真人敘事充滿時間詞，所以殘餘的範圍
+    比前一版文件所述寬。五語同型（複驗實測 zh/en/ko 三語，這裡各留一筆）。
+
+    ⚠️ 為什麼**不**收緊實作（#22 的漏報舉證，這是本輪的判斷）：
+    插入語分支不是 RF-5 加的，它是 2026-07-27 第四輪 Gate 為了**真急症**放寬的——
+    `test_rf5_parenthetical_branch_is_load_bearing_for_real_emergencies` 那兩句
+    （clot retention 與 torsion）走的就是同一條分支。要擋掉本測試的三句，只能拿掉
+    「短＋時間錨點的插入語仍算同一件事」這條規則，而那會同時切掉那兩句真急症 ＝
+    用一個可逆的誤報換一個不可逆的漏報，方向錯。
+
+    要改成不觸發需要**新的臨床拍板**（與 `test_rf5_residual_over_trigger_is_recorded_not_hidden`
+    同一個決策）。有人加守衛擋掉它時，這條會當場變紅。
+    """
+    for language, text, why in (
+        (
+            "zh-TW",
+            "我上個月腳上有血塊，昨天去看了骨科，今天想問小便的問題",
+            "[複驗實證] 中間子句『昨天去看了骨科』＝7 語素當量＋時間錨點",
+        ),
+        (
+            "zh-TW",
+            "我上個月腳上有血塊，剛剛去看了骨科，今天想問小便的問題",
+            "[複驗實證] 同型，錨點換成『剛剛』",
+        ),
+        (
+            "en-US",
+            "i peed today, i fell down this morning, my leg has a blood clot",
+            "[複驗實證] 英語同型：this morning 是錨點",
+        ),
+        (
+            "ko-KR",
+            "소변을 봤어요, 어제 넘어졌어요, 다리에 혈전이 있어요",
+            "[複驗實證] 韓語同型：어제 是錨點",
+        ),
+    ):
+        assert HEMATURIA_HEAVY in [
+            cid for cid, _kw in _critical_hits(detector, text, language)
+        ], (
+            f"真實殘餘被擋掉了（{why}）：{language} {text!r}——若是刻意的，"
+            "請先證明它不會把下一條的真急症一起擋掉。"
+        )
+
+
+def test_rf5_parenthetical_branch_is_load_bearing_for_real_emergencies(detector):
+    """承重釘：上一條的殘餘與這兩句真急症**共用同一條插入語分支**。
+
+    有人為了擋掉殘餘而收緊 `_PARENTHETICAL_*` 或關掉插入語分支時，這條會同時變紅，
+    讓「這是一個取捨不是一個 bug」在測試層面看得見。
+    """
+    for language, text, why in (
+        (
+            "zh-TW",
+            "我今天小便，剛剛看了一下，有很多血塊",
+            "clot retention：插入語『剛剛看了一下』把尿與血塊隔開，語意上是同一件事",
+        ),
+        (
+            "zh-TW",
+            "我的睪丸，就是剛剛在停車場的時候，忽然痛到冒冷汗",
+            "torsion：2026-07-27 第四輪 Gate 放寬到 14 語素當量的原始理由句",
+        ),
+    ):
+        assert _critical_hits(detector, text, language), (
+            f"插入語分支被收緊 → 真急症漏報（{why}）：{text!r}"
+        )
+
+
+def test_rf5_widening_cannot_resurrect_single_axis_false_positives(detector):
+    """把 #22 的舉證變成可執行的斷言，而不是註解裡的一句話。
+
+    論證：`cross_clause` 只放寬「兩個軸可以落在哪裡」，不減少任何一個軸；
+    6fc51e3 修掉的誤報全部是**單軸**的，所以結構上不可能因為放寬邊界而回來。
+    這裡把論證的前提（單軸）與結論（不命中）**兩件事都測**：
+      前提——把該紅旗的另一個軸整組拿掉之後，那些句子本來就不會命中；
+      結論——現行詞表下它們仍然不命中。
+    前提若不成立（句子其實兩軸都有），這筆語料對本論證沒有承重，測試會明講。
+    """
+    single_axis = [
+        (HEMATURIA_HEAVY, "site_terms", "zh-TW", "我腳上有一塊血塊瘀青"),
+        (HEMATURIA_HEAVY, "site_terms", "ja-JP", "足に血の塊ができました"),
+        (HEMATURIA_HEAVY, "site_terms", "ko-KR", "다리에 혈전이 생겼대요"),
+        (HEMATURIA_HEAVY, "site_terms", "en-US", "i have blood clots in my leg"),
+        (UROSEPSIS, "site_terms", "zh-TW", "我上個月因為流感發高燒"),
+        (UROSEPSIS, "site_terms", "en-US", "my son had a high fever last night"),
+        (UROSEPSIS, "site_terms", "vi-VN", "tuần trước tôi bị sốt cao vì cúm"),
+        (UROSEPSIS, "site_terms", "ja-JP", "去年インフルエンザで高熱が出ました"),
+        (UROSEPSIS, "site_terms", "ko-KR", "작년에 독감으로 고열이 났었어요"),
+        # ⚠️ 「体温は平熱でした」缺的是 **site** 軸不是 acuity——它其實會命中
+        # acuity 的「熱で」（平熱**でした**，見 KEPT_LITERALS 的已知殘餘誤報），
+        # 安全性來自整句沒有任何泌尿詞。標錯軸的話這筆就變成空跑。
+        (UROSEPSIS, "site_terms", "ja-JP", "体温は平熱でした"),
+        (RETENTION, "acuity_terms", "ja-JP", "おしっこを我慢できない"),
+        (RETENTION, "site_terms", "zh-TW", "大便不通，下腹脹"),
+    ]
+    for canonical_id, missing_axis, language, text in single_axis:
+        group = _groups(canonical_id)[0]
+        present_axis = (
+            "acuity_terms" if missing_axis == "site_terms" else "site_terms"
+        )
+        # 前提：這句話在**另一個軸**上確實找不到任何詞（＝真的是單軸）
+        hits_on_missing = [
+            t for t in group[missing_axis] if t.lower() in text.lower()
+        ]
+        assert hits_on_missing == [], (
+            f"這筆語料其實兩軸都有（{missing_axis} 命中 {hits_on_missing}），"
+            f"對『放寬邊界不會放回單軸誤報』這個論證沒有承重：{text!r}"
+        )
+        assert group[present_axis], present_axis
+        # 結論：現行詞表下不得命中 critical
+        assert _critical_hits(detector, text, language) == [], (
+            f"單軸誤報回來了：{language} {text!r}"
+        )
+
+
+# ══════════════════════════════════════════════════════════════
+# §3c RF-6：越南文 `tiểu` 的詞義假朋友（2026-08-21 敵意複驗）
+# ══════════════════════════════════════════════════════════════
+# 缺陷：`tiểu` 的泌尿義是「排尿」，但它同時是漢越詞「小」的構詞成分，而越南文以
+# **音節分寫**（複合詞中間有空白）→ `tiểu đường`(糖尿病)／`tiểu cầu`(血小板)／
+# `tiểu sử`(病史)／`tiểu học`(小學) 裡的 `tiểu` 兩側都是合法詞界，**詞邊界救不了**。
+# RF-5 打開 `cross_clause` 之後，只要相鄰子句出現任何血塊詞就配成 critical：
+#   「tôi bị tiểu đường, và chân tôi có cục máu đông」→ gross_hematuria_heavy(critical)
+# 糖尿病是泌尿科 intake 的第一常見共病，這不是邊緣情況；而且它會把「大量血尿」寫進
+# SOAP 紅旗區塊 ＝ 病歷裡出現病患從未主訴的臨床發現。
+#
+# 修法是 `red_flag_detector._TERM_FALSE_FRIENDS`（詞義假朋友排除），**不是**把
+# site_terms 的裸 `tiểu` 換成 `đi tiểu`／`nước tiểu`／`tiểu buốt`／`tiểu ra` 片語——
+# 下面 `RF6_VI_URINARY_MUST_STILL_FIRE` 的「khi tiểu…」「tôi tiểu ra…」正是**動詞裸用**
+# 的語序，改收片語會直接開出漏報（#22）。
+
+RF6_VI_FALSE_FRIEND_MUST_NOT_FIRE: list[tuple[str, str]] = [
+    (
+        "tôi bị tiểu đường, và chân tôi có cục máu đông",
+        "[複驗實證] 糖尿病＋下肢 DVT：兩個子句都與泌尿無關",
+    ),
+    (
+        "tôi bị tiểu đường và cao huyết áp, và tôi có máu đông ở chân",
+        "[複驗實證] intake 併發症標準答句（糖尿病＋高血壓）",
+    ),
+    (
+        "mẹ tôi bị tiểu đường, và bà ấy có cục máu đông",
+        "[複驗實證] 家族史＝別人的病，卻被判成本人 critical",
+    ),
+    (
+        "bác sĩ hỏi tiểu sử bệnh, tôi có cục máu đông ở chân",
+        "tiểu sử＝病史；問診情境的高頻字",
+    ),
+    (
+        "tôi vừa làm tiểu phẫu, sau đó chảy rất nhiều máu",
+        "tiểu phẫu＝小手術；術後出血不是血尿",
+    ),
+    (
+        "con tôi đang học tiểu học, cháu bị chảy nhiều máu ở chân",
+        "tiểu học＝小學",
+    ),
+    (
+        "tôi bị giảm tiểu cầu, và tôi có cục máu đông ở chân",
+        "tiểu cầu＝血小板；血小板低下與出血/血栓同句是臨床常態",
+    ),
+    # ↓ 2026-08-21 複驗第二輪補收的五條（前四條是病患轉述影像／病理報告時的用詞）
+    (
+        "bác sĩ nói tôi có phình tiểu động mạch, và chân tôi có cục máu đông",
+        "tiểu động mạch＝細動脈；報告用詞與下肢血栓同句是常態",
+    ),
+    (
+        "kết quả siêu âm thấy giãn tiểu tĩnh mạch, chân tôi có cục máu đông",
+        "tiểu tĩnh mạch＝小靜脈",
+    ),
+    (
+        "phim chụp có tổn thương ở tiểu khung, tôi bị sốt cao mấy hôm nay",
+        "tiểu khung＝小骨盆腔；骨盆影像報告高頻詞",
+    ),
+    (
+        "sinh thiết thấy viêm ở tiểu thùy, tôi vẫn còn sốt cao",
+        "tiểu thùy＝小葉；病理報告高頻詞",
+    ),
+    (
+        "tôi đang đọc tiểu thuyết thì thấy chảy rất nhiều máu ở mũi",
+        "tiểu thuyết＝小說；複驗實測誤報 critical 的日常詞",
+    ),
+]
+
+# 開放尾巴：**沒有**收進 `_TERM_FALSE_FRIENDS`、實測仍會誤報的「小」義複合詞。
+# 這不是待辦清單而是**規格**——漢越詞「小」的構詞沒有上限，這張排除表結構上不可能
+# 完備。釘住它是為了讓「收到 vi 誤中止回報」的下一個人第一個假設就對：
+# 先查是不是又一個沒收錄的複合詞，而不是以為這條路已經封死。
+RF6_VI_KNOWN_OPEN_TAIL: tuple[str, ...] = (
+    "tiểu thương",  # 小商販
+    "tiểu bang",  # 州
+    "tiểu thư",  # 小姐
+)
+
+RF6_VI_URINARY_MUST_STILL_FIRE: list[tuple[str, str, str]] = [
+    (
+        HEMATURIA_HEAVY, "khi tiểu tôi thấy nhiều máu cục",
+        "動詞裸用（khi tiểu）：改收片語就會漏掉這一型",
+    ),
+    (
+        HEMATURIA_HEAVY, "tôi tiểu ra máu cục rất nhiều",
+        "動詞裸用（tiểu ra）",
+    ),
+    (
+        HEMATURIA_HEAVY, "nước tiểu của tôi toàn máu cục",
+        "名詞用法（nước tiểu）",
+    ),
+    (
+        HEMATURIA_HEAVY, "tôi bị tiểu đường, và khi đi tiểu ra rất nhiều máu cục",
+        "★ 同一句同時有假朋友與真泌尿義——排除只吃假朋友那一處",
+    ),
+    (
+        HEMATURIA_HEAVY, "tôi bị giảm tiểu cầu và đi tiểu ra nhiều máu cục",
+        "★ 血小板低下＋真血尿：假朋友不得把後半句一起吃掉",
+    ),
+    (
+        UROSEPSIS, "tôi bị tiểu đường và tiểu buốt, sốt cao",
+        "★ 糖尿病＋排尿灼痛＋高燒＝真 urosepsis（糖尿病本身就是危險因子）",
+    ),
+    (
+        RETENTION, "tôi bị bí tiểu sử dụng thuốc gì được không",
+        "已知殘餘的對照：`tiểu sử` 遮住裸 tiểu，但 `bí tiểu` 跨過遮罩起點仍命中",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "text,why",
+    RF6_VI_FALSE_FRIEND_MUST_NOT_FIRE,
+    ids=[f"ff-{i}" for i, _ in enumerate(RF6_VI_FALSE_FRIEND_MUST_NOT_FIRE)],
+)
+def test_rf6_vi_term_false_friends_do_not_fire_the_urinary_axis(detector, text, why):
+    """`tiểu` 落在漢越複合詞裡時不是「排尿」，不得配出泌尿軸 critical。"""
+    hits = _critical_hits(detector, text, "vi-VN")
+    assert hits == [], f"詞義假朋友誤報（{why}）：{text!r}\n  命中：{hits}"
+
+
+@pytest.mark.parametrize(
+    "canonical_id,text,why",
+    RF6_VI_URINARY_MUST_STILL_FIRE,
+    ids=[f"real-{i}" for i, _ in enumerate(RF6_VI_URINARY_MUST_STILL_FIRE)],
+)
+def test_rf6_vi_real_urinary_wordings_still_fire(detector, canonical_id, text, why):
+    """反方向：排除表不得吃掉任何一種泌尿義的語序（#22 的漏報舉證）。"""
+    hits = _critical_hits(detector, text, "vi-VN")
+    assert canonical_id in [cid for cid, _kw in hits], (
+        f"詞義假朋友排除開出漏報（{why}）：{text!r}\n  命中：{hits}"
+    )
+
+
+def test_rf6_false_friend_table_only_contains_non_urinary_compounds(detector):
+    """把收錄判準變成可執行的斷言：泌尿義的 `tiểu` 複合詞不得被收進排除表。
+
+    `tiểu đêm`(夜尿)／`tiểu tiện`／`tiểu buốt`／`tiểu rắt`／`tiểu són`／`tiểu ra`
+    任何一條被加進去，都是**直接把泌尿主訴關掉**。
+    """
+    urinary_compounds = (
+        "tiểu đêm", "tiểu tiện", "tiểu buốt", "tiểu rắt", "tiểu són",
+        "tiểu ra", "tiểu máu", "tiểu khó", "tiểu nhiều", "tiểu dắt",
+    )
+    for friend in rfd_module._TERM_FALSE_FRIENDS:
+        assert friend not in urinary_compounds, (
+            f"排除表收進了泌尿義的複合詞 {friend!r} → 那是漏報不是語意修正"
+        )
+        assert " " in friend, (
+            f"排除表只收空白分隔的複合詞（單音節會把整個詞義關掉）：{friend!r}"
+        )
+
+
+@pytest.mark.parametrize("compound", RF6_VI_KNOWN_OPEN_TAIL)
+def test_rf6_false_friend_table_is_an_open_ended_list_not_a_closed_set(
+    detector, compound
+):
+    """把「這張表列不完」釘成可執行的事實，而不是只寫在註解裡。
+
+    這些「小」義複合詞**沒有**收進 `_TERM_FALSE_FRIENDS`，所以裸 `tiểu` 照樣供給
+    泌尿軸、相鄰子句有血塊詞就配成 critical。這條測試斷言那件事**還在發生**——
+    它紅掉代表有人把某一條收進表裡了，那是好事，請把它從 `RF6_VI_KNOWN_OPEN_TAIL`
+    移到 `RF6_VI_FALSE_FRIEND_MUST_NOT_FIRE`，並確認碼內註解那句「開放式列舉」還在。
+
+    為什麼要留下這種「斷言誤報仍存在」的測試（沿用 `test_known_residual_…` 的慣例）：
+    否則下一個收到 vi 誤中止回報的人，會因為看到一張表就以為這條路已經封死，
+    去別的地方找根因。
+    """
+    text = f"tôi có {compound}, và chân tôi có cục máu đông"
+    assert _critical_hits(detector, text, "vi-VN"), (
+        f"{compound!r} 已經不再誤報了——請把它從 RF6_VI_KNOWN_OPEN_TAIL 移進 "
+        "RF6_VI_FALSE_FRIEND_MUST_NOT_FIRE（並保留「開放式列舉」那段註解）"
+    )
+    assert compound not in rfd_module._TERM_FALSE_FRIENDS, (
+        f"{compound!r} 同時出現在排除表與開放尾巴清單，兩者必須互斥"
+    )
+
+
+def test_rf6_injection_removing_the_false_friend_table_turns_red(detector, monkeypatch):
+    """注入式回歸：把排除表清空 → 上面的誤報必須整批回來。
+
+    沒有這條，`RF6_VI_FALSE_FRIEND_MUST_NOT_FIRE` 可能因為別的原因剛好是綠的。
+    """
+    monkeypatch.setattr(rfd_module, "_TERM_FALSE_FRIENDS", ())
+    resurrected = [
+        text
+        for text, _why in RF6_VI_FALSE_FRIEND_MUST_NOT_FIRE
+        if _critical_hits(detector, text, "vi-VN")
+    ]
+    assert len(resurrected) == len(RF6_VI_FALSE_FRIEND_MUST_NOT_FIRE), (
+        "清空排除表之後只有 "
+        f"{len(resurrected)}/{len(RF6_VI_FALSE_FRIEND_MUST_NOT_FIRE)} 筆誤報回來 → "
+        "其餘語料對本修復沒有承重（它們是靠別的機制不命中的），請換語料。\n"
+        f"  承重的：{resurrected}"
+    )
 
 
 # ══════════════════════════════════════════════════════════════
@@ -979,6 +1619,10 @@ def _all_corpus_texts() -> list[str]:
         + [t for _l, t in RF2_REAL_DENIAL_MUST_NOT_FIRE]
         + [t for _l, t, _w in RF34_MUST_NOT_FIRE]
         + [t for _c, _l, t, _w in RF34_MUST_FIRE]
+        + [t for _c, _l, t, _w in RF5_CROSS_CLAUSE_MUST_FIRE]
+        + [t for _l, t, _w in RF5_CROSS_CLAUSE_MUST_NOT_FIRE]
+        + [t for t, _w in RF6_VI_FALSE_FRIEND_MUST_NOT_FIRE]
+        + [t for _c, t, _w in RF6_VI_URINARY_MUST_STILL_FIRE]
     )
 
 
@@ -1032,6 +1676,10 @@ def test_every_case_carries_a_human_clinical_annotation():
         + [(t, w) for _c, _l, t, w in RF2_HISTORY_DENIAL_MUST_FIRE]
         + [(t, w) for _l, t, w in RF34_MUST_NOT_FIRE]
         + [(t, w) for _c, _l, t, w in RF34_MUST_FIRE]
+        + [(t, w) for _c, _l, t, w in RF5_CROSS_CLAUSE_MUST_FIRE]
+        + [(t, w) for _l, t, w in RF5_CROSS_CLAUSE_MUST_NOT_FIRE]
+        + list(RF6_VI_FALSE_FRIEND_MUST_NOT_FIRE)
+        + [(t, w) for _c, t, w in RF6_VI_URINARY_MUST_STILL_FIRE]
     )
     for text, why in annotated:
         assert why and len(why) >= 6, f"缺臨床標註：{text!r}"
@@ -1129,6 +1777,7 @@ RF3_INJECTION_EXPECTED: dict[str, tuple[str, ...]] = {
     "血塊": ("我腳上有一塊血塊瘀青",),
     "血の塊": ("足に血の塊ができました",),
     "혈전": ("다리에 혈전이 생겼대요",),
+    "blood clots": ("i have blood clots in my leg",),
     "高燒": ("我上個月因為流感發高燒",),
     "high fever": ("i had a high fever last week from the flu",),
     "sốt cao": ("tuần trước tôi bị sốt cao vì cúm",),
@@ -1236,6 +1885,125 @@ def test_injection_rf4_restoring_a_short_literal_turns_red(
         )
     finally:
         group[key] = original
+
+
+# RF-5 注入的**逐筆預期**：把 `cross_clause` 從 gross_hematuria_heavy 的共現組
+# 拿掉之後必須轉紅的語料。沒列進來的那一筆（vi「tôi đi tiểu, nước tiểu ra rất
+# nhiều máu」）兩個軸都落在**後一個**子句裡，本來就不需要跨子句配對——列出來
+# 而不是寫「大部分會轉紅」，否則等於沒有斷言。
+RF5_HEMATURIA_CROSS_CLAUSE_LOAD_BEARING: tuple[str, ...] = (
+    "我今天小便，然後有很多血塊",
+    "小便有血，還有一坨一坨的血塊",
+    "我這兩天血尿，而且有血塊",
+    "剛剛上廁所小便，裡面都是血塊",
+    "おしっこをしたら、血の塊がたくさん出ました",
+    "尿をしましたが、血の塊が混じっていました",
+    "今朝トイレに行って、血のかたまりがいくつも出ました",
+    "소변을 봤는데, 피떡이 많이 나왔어요",
+    "오늘 오줌을 눴어요, 그리고 핏덩어리가 나왔어요",
+    "소변을 보러 갔는데, 덩어리진 피가 나왔습니다",
+    "i went to pee this morning, and there were blood clots",
+    "i passed some urine, then i saw a lot of blood",
+    "i urinated a little while ago, and it was full of blood",
+    "sáng nay tôi đi tiểu, rồi thấy nhiều máu cục",
+    "tôi vừa đi tiểu xong, và có cục máu đông",
+)
+
+
+def test_injection_rf5_removing_cross_clause_turns_red(detector):
+    """RF-5 注入：把 gross_hematuria_heavy 的 `cross_clause` 拿掉 → 逐筆轉紅。"""
+    known = {t for _c, _l, t, _w in RF5_CROSS_CLAUSE_MUST_FIRE}
+    assert set(RF5_HEMATURIA_CROSS_CLAUSE_LOAD_BEARING) <= known, "承重清單與語料表漂移了"
+    group = _groups(HEMATURIA_HEAVY)[0]
+    original = group.get("cross_clause")
+    try:
+        group.pop("cross_clause", None)
+        still_green = [
+            text
+            for cid, lang, text, _why in RF5_CROSS_CLAUSE_MUST_FIRE
+            if text in RF5_HEMATURIA_CROSS_CLAUSE_LOAD_BEARING
+            and cid in [c for c, _kw in _critical_hits(detector, text, lang)]
+        ]
+    finally:
+        if original is not None:
+            group["cross_clause"] = original
+    assert still_green == [], (
+        "拿掉 cross_clause 之後這些語料仍然命中 → 它們對 RF-5 沒有承重，"
+        f"請從承重清單移除或換語料：{still_green}"
+    )
+    langs = {
+        lg
+        for _c, lg, t, _w in RF5_CROSS_CLAUSE_MUST_FIRE
+        if t in RF5_HEMATURIA_CROSS_CLAUSE_LOAD_BEARING
+    }
+    assert langs == set(LANGUAGES), f"承重語言只有 {langs}（RF-5 是五語通病）"
+
+
+# 其餘三組（urosepsis / urinary_retention / cauda_equina）的 cross_clause 是
+# 2026-07-27 就有的，本輪不得被順手關掉——這幾筆語料靠的就是它。
+RF5_OTHER_GROUPS_CROSS_CLAUSE_LOAD_BEARING: tuple[str, ...] = (
+    "我從昨天就開始發高燒，然後小便的時候會刺痛",
+    "高熱が出ています、それから排尿のときに痛みます",
+    "고열이 있고요, 배뇨할 때 통증이 있습니다",
+    "tôi bị sốt cao, rồi tiểu rất buốt",
+    "i have had a high fever since yesterday, and it burns when i pass water",
+    "我今天有點意識不清，而且小便很混濁",
+    "我量體溫三十九度，然後小便的時候很痛",
+)
+
+
+def test_injection_rf5_removing_cross_clause_from_the_other_groups_turns_red(detector):
+    """注入：把既有三組的 `cross_clause` 一併關掉 → 被移除字面的跨子句形轉紅。
+
+    RF-3 的無漏報論證（「高燒/高熱/고열/high fever/sốt cao/意識不清 都在
+    acuity_terms 裡，只是多要求同一或**相鄰**子句有泌尿詞」）整個掛在
+    `cross_clause` 上。這條注入把那個依賴變成可觀測的。
+    """
+    known = {t for _c, _l, t, _w in RF5_CROSS_CLAUSE_MUST_FIRE}
+    assert set(RF5_OTHER_GROUPS_CROSS_CLAUSE_LOAD_BEARING) <= known, "承重清單漂移了"
+    touched: list[dict[str, Any]] = []
+    try:
+        for canonical_id in (UROSEPSIS, RETENTION, CAUDA):
+            for group in _groups(canonical_id):
+                if group.pop("cross_clause", None) is not None:
+                    touched.append(group)
+        still_green = [
+            text
+            for cid, lang, text, _why in RF5_CROSS_CLAUSE_MUST_FIRE
+            if text in RF5_OTHER_GROUPS_CROSS_CLAUSE_LOAD_BEARING
+            and cid in [c for c, _kw in _critical_hits(detector, text, lang)]
+        ]
+    finally:
+        for group in touched:
+            group["cross_clause"] = True
+    assert still_green == [], (
+        f"這些語料不是被既有 cross_clause 保護的，承重清單要更新：{still_green}"
+    )
+
+
+def test_injection_rf5_removing_pass_water_turns_red(detector):
+    """RF-5 注入：把 `pass water` 從 urosepsis 的 site_terms 拿掉 → 該句轉紅。
+
+    這一條在意的不是字面本身，而是 RF-3 的舉證方法：當時只用一句英文
+    （"…every time i pass urine"）就宣告「英文由 acuity 的 fever 涵蓋」，
+    於是英式最常用的泌尿詞整個沒被量到，移除裸 `high fever` 之後那句零紅旗。
+    """
+    text = "i have had a high fever since yesterday, and it burns when i pass water"
+    assert (text, "en-US") in {
+        (t, lg) for _c, lg, t, _w in RF5_CROSS_CLAUSE_MUST_FIRE
+    }, "語料表漂移了"
+    group = _groups(UROSEPSIS)[0]
+    original = list(group["site_terms"])
+    try:
+        group["site_terms"] = [
+            t for t in original if not t.startswith(("pass water", "passing water",
+                                                     "passed water"))
+        ]
+        assert UROSEPSIS not in [
+            c for c, _kw in _critical_hits(detector, text, "en-US")
+        ], "拿掉 pass water 之後仍命中 → 這筆語料不是被它保護的"
+    finally:
+        group["site_terms"] = original
 
 
 def test_injection_d6_regex_bypassing_the_guard_turns_red(monkeypatch):

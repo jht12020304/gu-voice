@@ -3,8 +3,9 @@
 > 依據 [`system_issues_and_risks.md`](archive/system_issues_and_risks.md) 整理的可執行待辦事項。
 > 完成一項就把 `[ ]` 改成 `[x]`，並在後面加上完成日期與 commit hash。
 >
-> 最後更新：2026-08-17。P0–P2、§E E1–E9、§F F1–F7 全部完成並部署生產。
-> 本輪變動：
+> 最後更新：2026-08-21。最新一輪是 **2026-08-20 LLM 管線稽核修復戰役**（見本節末與 §S）。
+>
+> **2026-08-17**：P0–P2、§E E1–E9、§F F1–F7 全部完成並部署生產。本輪變動：
 > - 部署不變式更正——**merge 到 main 不會上線**，要手動 `railway up` / `vercel --prod`（見 deployment_guide.md 一、）
 > - #2 假記載更正（celery worker/beat service 不存在，改跑在主 API 容器內）
 > - Flutter 遷移使 P3 的 #22／#24／#32 作廢、#23／#27 縮成單行工程項
@@ -25,7 +26,14 @@
 > 未結案：**§V 五條 Flutter 未驗證項**（V1 是紅字——語音仍未跑過；V2 已於 2026-07-27 用文字代替語音驗畢）、
 > E10（等母語臨床覆核）、F8／G35a（等臨床拍板）、E12（投機 schema，無消費端，不做）、
 > H3（dashboard 其餘硬寫中文標籤）、H5（replay 未 await，推測性未驗證）、
-> **§R 四條**（R18 斷言過嚴／R19 第 1 輪重問／R20 收尾後多一輪／R21 政策接受的誤報）。
+> **§R 四條**（R18 斷言過嚴／R19 第 1 輪重問／R20 收尾後多一輪／R21 政策接受的誤報）、
+> **§S 十二條**（S1／S2 待臨床拍板的紅旗字面／S3 通知文案搬 i18n／S4 e2e 掃不到病患語言版摘要／
+> S5 `additional_notes` 收下未用／S6 兩份終態清單無跳閘器／**S7 紅旗跨子句漏報**（碼內編號 RF-5，同一缺陷）／
+> **S8 SOAP prompt 未消毒**／**S9 `is_dont_know` 含數詞固定語誤判**／**S10 `sanitize_for_prompt` 行首 `#` 只剝一次**／
+> S11 終態 AST 跳閘器的形狀覆蓋面（**不是 HEAD 上可重現的缺陷**，見 §S 的 S11 開頭那個框）／
+> **S12 越南文 `tiểu` 假朋友誤中止**——
+> S7／S8／S9／S10／S12 都是 2026-08-21 文件校訂輪發現的真缺陷、**在 `6ecf10a` HEAD 上逐句可重現**，
+> 其中 **S7／S8／S10／S12 修復中（工作區有未 commit 改動，別當成已修）、S9 尚無人認領**）。
 >
 > **2026-08-18 文字先行測試掃蕩（P0–P5，分支 `fix/text-sweep-2026-08-18`）**：以文字代替語音把
 > 兩端全流程再走一遍，發現並修掉 14 項。一行式索引（詳情見各 commit message）：
@@ -40,6 +48,64 @@
 > **未含**：P6 真麥克風／STT/TTS/VAD 人工驗證仍未做（§V1／§V4 不變）；
 > `refresh`／`logout`／`reset` 三條路徑的 503 語意一致性列管未收；
 > `ink_sparkle` 著色器在測試環境的問題另案。
+>
+> **2026-08-20 LLM 管線稽核修復戰役（PR #55 `b7323ca`，9 commits，見 §S）**
+>
+> - **稽核**：以 `.claude/skills/voice-pipeline-invariants/SKILL.md` 的不變式為基準（**當時 27 條，
+>   本輪之後已擴到 37 條**——照這個指標點過去看到的是 37），
+>   四路靜態稽核 ＋ 真 OpenAI e2e 六場，**只讀不修**先產出缺陷表。抓到兩條 P0 **漏報**
+>   （RF-1 否定幻覺後過濾誤刪規則層共現組命中；RF-2 critical 否定回看無語意邊界，
+>   五語「否認一串病史＋逗號＋真急症」全滅）與一條 Flutter Web promote blocker
+>   （IN-1 `no_*` 由空清單推斷＝捏造病歷）。
+> - **修復**：逐項修完並逐項驗收，9 個 commit。索引：`8e30bd3` e2e 工具可攜性／
+>   `931b9b7` Flutter intake（IN-1／D-3／D-10／D-5）／`116282d` 結束機制（EM-1 abort
+>   fall-through、EM-4 `end_session` 守衛、EM-5 先標後送、REST 六件事、SO-3 drain 順序）／
+>   `6fc51e3` 紅旗偵測（RF-1／RF-2 漏報 ＋ RF-3／RF-4 誤報字面逐條舉證收窄）／
+>   `7e28d11` Flutter 病患端顯示／`2daa82c` React 對稱（EM-3 結束不搶先導頁）／
+>   `c6938c8` SOAP 報告鏈（SO-1 時間窗消毒、SO-2 regenerate／FAILED、`patient_facing_localized`）／
+>   `24d3083` 對話層（IN-2 §3b 五語詞庫、IN-3 來源標籤三態、D-2 配額、D-1 入口消毒、D-8）／
+>   `fb403d6` e2e `t5` 斷言改版。
+> - **總驗收**：backend unit **4602 passed / 4604 collected**（稽核前 `67cdf30` 是
+>   3954 collected → **collected +650**；**passed 的差是 +648**，兩種跑法都一樣，
+>   見 §S 的總驗收段；注入式回歸依**七個** commit message 自報合計
+>   **82 組**，其中 backend 四個 commit 佔 52 組；`fb403d6` 另自報 10 組**離線注入驗證**，
+>   類別不同、未計入）、
+>   flutter 217 tests ＋ `analyze` 零 issue、React type-check／lint／build／11 tests、
+>   `check_translations.py` OK、真 OpenAI e2e 六情境（torsion×2／dontknow／intake_wiring／
+>   ed_zh／hematuria_3b_en）全 PASS ＋ ruleprobe 36 ＋ preflight 10。
+>   ⚠️ 六場留存結果的 `backend_head` 都是 `24d3083`，即**第 9 個 commit `fb403d6`（t5 斷言
+>   改版）之前**；且 `intake_wiring_zh` 在同一個 head 上留有一份 FAIL
+>   （`results/intake_wiring_zh.24d3083_run1_i5fail.json`），**同日稍後重跑才 PASS**
+>   （FAIL 那場 `started_at 14:52:54Z / finished_at 14:55:49Z`、PASS 那場
+>   `started_at 15:04:43Z / finished_at 15:08:13Z`——先前寫「13 分鐘後」不對應任何一種讀法）。
+>   ⚠️ **`results/` 裡 grep `i5fail` 會撈到兩份，別把它們讀成同一件事**：另一份
+>   `intake_wiring_zh.run1_i5fail.json`（檔名沒有 head 前綴）是**稽核前基線 `67cdf30`**
+>   上的 FAIL（08-20 12:58→13:02），那是修復前的預期結果、不是本輪的飄動證據；
+>   本輪的飄動只由帶 head 前綴的那份 `24d3083` 佐證。**留檔請一律把 head 寫進檔名。**
+> - **部署現況（2026-08-21 實測，✅ 已完成）**：後端與 React 前端**都已上線新碼**。
+>   - 後端 deployment `09b58ea3` **SUCCESS**，新碼確認在服務流量：
+>     `https://gu-voice-app-production.up.railway.app/openapi.json` 的
+>     `SOAPReportResponse` 與 `SOAPReportDetailResponse` **都有 `patient_facing_localized`**、
+>     `GenerateReportRequest` **沒有 `required` 欄位**（＝body 全可選，舊碼是 `["session_id"]`）；
+>     12/12 openapi 探針通過。migration 已套用生產 DB、celery 與 Firebase 正常。
+>   - React 前端 alias 已切，bundle hash 與 `--prod` deployment 一致；生產
+>     `locales/en-US/session.json` 有本輪新增的 `patientFacing`。
+>   - 過程曾因 **Railway 平台事故（上游 GCP，事故編號 `VVL3A03V`）卡約 50 分鐘**未切流量，
+>     期間依 runbook **未重送 `railway up`**——重送只會排進同一個壞掉的佇列。
+>   - 先前記載的「醫師端『重新產生報告』仍回 422」已隨後端上線解除。
+>   ⚠️ **`healthz` 綠不代表新碼上線**（舊容器一樣回綠），要打 `/openapi.json` 找新欄位——
+>   這條與「grep -c 退出碼會讓沒命中被判成命中」已寫進部署手冊（PR #56 `6ecf10a`）。
+> - **本輪新增／變更的不變式**已同步進 `voice-pipeline-invariants` skill 與 CLAUDE.md 鐵律，
+>   TODO 這一份記的是**未結案的部分**（§S）。
+> - ⚠️ **2026-08-21 文件校訂輪又發現五個真缺陷（S7–S10、S12，全部未結案，且全部在 `6ecf10a` HEAD 上逐句可重現）**：
+>   S7 紅旗跨子句漏報（`我今天小便，然後有很多血塊` → 零紅旗，是 `6fc51e3` 的回歸）、
+>   S8 `soap_generator.py` 的 SOAP prompt 完全沒過 `sanitize_for_prompt`（D-1 只覆蓋對話路徑）、
+>   S9 `is_dont_know` 對含數詞的固定語誤判（真拒答 → AI 換句話重問）、
+>   S10 `sanitize_for_prompt` 的行首 `#` 只剝一次（`'# ## X'` → `'## X'`，消毒層自己漏）、
+>   S12 越南文 `tiểu` 是「排尿」與「小／次要」的假朋友（`tiểu đường`＝糖尿病 → urosepsis critical）。
+>   **S7／S8／S10／S12 有執行者正在修（工作區未 commit），S9 尚無人認領——一律不得記成已修。**
+>   S11 記的是另一件事——終態 AST 跳閘器的**形狀覆蓋面**（HEAD 上根本沒有那支掃描器，
+>   所以那不是可複驗的缺陷；它與本輪同一個 commit 落地，該條記的是能力清單與刻意不做的部分）。
 
 ---
 
@@ -597,6 +663,10 @@ flutter test integration_test/patient_text_flow_test.dart -d <udid> \
 78 tests、五語 deep link、Railway CORS 與測試病患登入。**尚未用真人麥克風驗 STT/TTS/VAD**，
 所以只能說非語音頁與登入可用；未完成 `docs/flutter_web_cutover.md` 的 voice checklist 前不得 promote。
 
+⚠️ **2026-08-20 更新**：稽核找到的 IN-1（intake `no_*` 由空清單推斷＝捏造病歷）被列為
+Flutter Web promote blocker，已於 `931b9b7` 修掉（見 §S）。**但 promote 前提完全不變**——
+V4 擋的是實體麥克風驗證，那條仍未做（見 V1 與檔頭未竟事項），不要因為少一個 blocker 就 promote。
+
 ### [ ] V7. 🟡 iOS 醫師端（報告/通知/APNs 推播）— 2026-08-20 拍板新方向
 
 **平台分工拍板：Web＝病患語音問診（kiosk），iOS＝醫師端查看報告與通知，不做語音問診。**
@@ -690,6 +760,20 @@ mutation test（拿掉轉折詞 → 7 failed）；backend unit 1041 passed；
 list 分隔符切斷）實測都會製造新的 critical 誤報（「沒有高燒、寒顫」變命中 → 誤 abort），
 方向需要臨床決定。`RED_FLAG_NEGATION_GUARD` kill-switch 已備（預設開）。
 
+⚠️ **2026-08-20 更新（`6fc51e3` RF-2／RF-3）**：本條當時擋下「list 分隔符切斷」的兩個理由
+依碼面判讀都已不適用——(a) RF-2 採用的切斷**加了語意條件**：只有分隔符之後那段已含
+**時間錨點**（`_CURRENT_EPISODE_TIME_ANCHORS`）才切，而「沒有高燒、寒顫」分隔符後沒有時間錨點，
+不觸發（`backend/app/pipelines/red_flag_detector.py:891-957` 的 `_clause_before`，(b) 的 `break`
+在 `:936-937`）；(b) RF-3 已把 `高燒／高熱／고열` 從 urosepsis 的裸 trigger 降進共現組
+（`backend/app/pipelines/prompts/shared.py` 的 `urinary_x_systemic_infection` 共現組
+`acuity_terms`——**不是** urosepsis 定義開頭那段舉證註解），那個字面本身不再單軸判 critical。
+
+✅ **「不會痛，尿不出來」已實跑複驗（2026-08-21）：仍回 `[]`，仍被抑制。**
+所以 E11 未結案的前提成立（先前記的「未實跑複驗」可以劃掉）。
+同批實測佐證：`_has_time_anchor("寒顫")` = False；`_rule_based_detect("沒有高燒、寒顫")`
+與 `"我沒有高燒、寒顫"` 皆 `[]`；`我上個月因為流感發高燒` → `[]`、
+`我發高燒而且小便會痛` → urosepsis critical。E11 這條臨床拍板仍未結案。
+
 ### [ ] E12. `red_flag_rules.keywords` 缺 `keywords_by_lang` 欄位（從 E10 拆出的工程項）
 
 - DB 欄位仍是扁平 ARRAY，多語靠塞同一陣列。若日後要讓管理者從 admin 精細管理各語言關鍵字才需加欄位
@@ -768,6 +852,21 @@ autoDispose 那項刻意驗過會紅——把 `.autoDispose` 拿掉即 `-1`，�
 - **i18n 零新增**：`medicalInfo.family.*` 與 8 個 `medicalInfo.relations.*` 早就在 5 語系
   翻譯檔裡（React 版已用），只是 Flutter 沒接
 - 空白列必須過濾：後端 `condition` 是 `min_length=1`，送空字串會 422 掉整個建場次請求
+
+⚠️ **2026-08-20 補記（`931b9b7` D-3／D-10 ＋ `2daa82c`）**：本條當時只把硬寫 `[]` 修成送真值，
+**第三態仍缺**——後端 `app/pipelines/patient_context.py:115-119` 的 `no_family_history` 分支
+因為**兩份前端都送不出這個旗標**而是死碼，所以「病患表明沒有家族史」與「還沒填」在後端仍然
+同形。Flutter（D-10）與 React 各自補上「無家族病史」勾選框後才活化
+（`flutter_app/lib/features/patient/medical_info_page.dart`、
+`frontend/src/screens/patient/MedicalInfoPage.tsx:172`／`:291`／`:719`）。
+同批 D-3 把 relation 改送在地化字串（zh 場次不再出現 `father：膀胱癌`，
+`intake_payload.dart:113` 的 `'relation': tr('intake.medicalInfo.relations.${f.relationKey}')`，
+所屬 familyHistory block 是 `:108-116`；`:96-101` 是 **medicalHistory** 的 entry，不是這裡；
+React 本來就送 `t()`，見 `MedicalInfoPage.tsx:297`）。
+投影邏輯抽成純函式 `flutter_app/lib/features/patient/intake_payload.dart`，
+形狀由 `flutter_app/test/intake_payload_test.dart` 直接斷言——e2e 送裸 JSON 看不到前端偽造，
+那是唯一的防線。**新增 intake 三態欄位時，後端 schema、`patient_context` 分支、兩份前端 UI
+要一起做**，否則後端看起來有支援、實際永遠收不到。
 
 ### [x] G11. kiosk 閒置自動登出 — 2026-07-26 修復（PR #40）
 
@@ -1026,6 +1125,23 @@ Celery 那份有 `.value` 所以是乾淨的 `male`。同一份資料兩條路�
 
 ※ 病患直接關瀏覽器 → 60 分鐘後 cancelled、同樣無 SOAP：**未完成場次要不要出報告是產品決策**，刻意不動。
 
+⚠️ **2026-08-20 補記（`116282d` EM-2／SO-3）**：同一類缺陷在 **REST 路徑**又出現一次——
+`PUT /sessions/{id}/status` 的終態轉移六件事只做了一件。已補完：
+`session_service._after_status_transition`（`backend/app/services/session_service.py:124-229`）
+逐格實作、**做不到的格子逐格在 docstring 寫下理由**（送病患端 WS 與設行程內 `_terminated`
+是跨行程限制，不是漏做），`completed` 補建 SESSION_COMPLETE 醫師通知（`_after_status_transition` 內；理由註解 `:609-613`、
+`if new_status == SessionStatus.COMPLETED and session.doctor_id is not None` 在 `:614`，
+區塊結束在 `:629`——`:631` 已經是 `await db.flush()`，先前記的 `~:633` 多框了四行），`end_for_language_switch` 的 cancelled 補 dashboard 廣播
+（註解 `:720-724`、`if can_cancel` `:725-732`，D-8——**該處註解逐字寫「不派 SOAP」**，
+cancelled 不在 `_SOAP_ON_TERMINAL` 裡）。
+SOAP 觸發器共用 WS 那一支（不變式 #13），可產報告的場次終態改成
+`{completed, aborted_red_flag}`——**紅旗中止是最需要報告的一類**。
+真正的升級是：新增 `backend/tests/unit/test_terminal_path_six_things_matrix.py`，
+AST 掃 `conversation_handler`／`session_service`／`tasks.session_timeout` 三個模組裡所有
+「把場次寫成終態」的呼叫點，與 `TERMINAL_PATHS` 註冊表比對，**新增 fan-out 點沒登記就直接紅**
+（`test_registry_covers_every_terminal_fanout_site`），「刻意不做」的格子刪掉程式碼註解錨點也會紅
+（`test_skipped_cells_are_documented_in_code`）。這條鐵律從此不再靠人肉記憶執行。
+
 ### [x] R4. 🟡 Celery 重試設定是假的 — `ae2b95e`
 
 宣告 `max_retries=2 / default_retry_delay=30`，但 task body 從不呼叫 `self.retry()`、
@@ -1175,6 +1291,31 @@ ja 探針改為「発熱」並補上「裸『熱』不得回到本軸」的反�
 
 ### 未結案
 
+> ⚠️ **2026-08-20 稽核輪的影響（R18／R19／R20／R21 四條都**不**據此結案）**：IN-3 把 supervisor
+> 的來源標籤改成三態（本次 intake「（intake 已提供）」受「不得重述」限制／`patients` 表
+> fallback 標「（病歷記載，過往）」且明文不套用該條款，`backend/app/pipelines/supervisor.py`），
+> D-8 窄化了 `is_dont_know`（標記詞 ∧ 同句無「數值＋量詞」才算拒答）並修掉 guidance 讀取端
+> 硬寫 `gu:` 前綴——**R18／R19** 的前提**可能**已改變（R20／R21 本輪完全沒碰）。
+> 本輪 commit message 未宣稱解掉其中任何一條。
+>
+> **逐探針比對其實留了**（先前記載「沒有留下」是錯的）：`scripts/e2e_realopenai/results/`
+> 裡 `intake_wiring_zh.json` 的 `analysis.i5_no_reask_intake_fields` 有完整 `gated_fields`／
+> 逐欄 `reask_hits`／`persona_confirmed_reasks`／`restatements_excluded`；`dontknow_zh.json`
+> 有 8 筆 `guidance_timeline`（turn 0 為 `guidance: null`）逐輪 `next_focus`，加上
+> `b2_next_focus_not_refused_fields` 的逐欄 violations 與 `a_/a2_/a3_` 的 `paraphrase_reask_hits`。
+>
+> ⚠️ **但真正該記的是：`i5` 在現行碼上仍會飄。** `results/intake_wiring_zh.24d3083_run1_i5fail.json`
+> 是**同一個 head `24d3083` 上的 i5 FAIL**（第 9 輪 AI 問「請問您以前有沒有得過尿路結石、
+> 膀胱發炎，或做過泌尿科相關治療？」，病患第 10 輪回「這些我剛剛在表單上都填過了」），
+> 同日稍後重跑才 PASS（FAIL 那場 `started_at 14:52:54Z / finished_at 14:55:49Z`、
+> PASS 那場 `started_at 15:04:43Z / finished_at 15:08:13Z`；**寫兩個時間戳不寫「幾分鐘後」**
+> ——start→start 11m49s、finish→start 8m54s、finish→finish 12m24s，沒有一種讀法是 13 分鐘）。
+> ⚠️ `results/` 裡另有一份 `intake_wiring_zh.run1_i5fail.json`（**無 head 前綴**），它是
+> **稽核前基線 `67cdf30`** 上的 FAIL（08-20 12:58→13:02）＝修復前的預期結果，
+> **不是本條的證據**。grep `i5fail` 會同時撈到兩份，別混用。
+> 所以 R18 的前提**不是**乾淨地「已改變」——它是不穩定的。
+> 要結案必須重跑 `intake_wiring_zh` ＋ `dontknow_zh` **多次**並逐探針比對，不是看場次總判。
+
 ### [ ] R18. 🟢 `i5_no_reask_intake_fields` 斷言過嚴
 
 AI 問「您以前有沒有得過膀胱炎、腎結石，或做過泌尿科方面的手術？」被判成重問 intake，
@@ -1259,3 +1400,444 @@ AI    Sorry, I had trouble processing your last reply. Could you…?    ← 是�
 
 **注入式回歸測試**在這四輪抓到 6 個問題（把修復故意改壞，確認有測試會紅；沒紅就是
 那個修復沒有測試保護）。這招值得變成常規 Gate 步驟。
+
+---
+
+## S — LLM 管線稽核與全數修復（2026-08-20，PR #55 `b7323ca`／9 commits）
+
+> 方法：以 `.claude/skills/voice-pipeline-invariants/SKILL.md` 的不變式為基準
+> （**稽核當時 27 條，本輪之後已擴到 37 條**），
+> 四路靜態稽核 ＋ 真 OpenAI e2e 六場**只讀不修**先產出缺陷表，再逐項修復、逐項驗收。
+>
+> §R 的教訓又應驗一次：**「跑得完」不等於「是對的」**。本輪兩條 P0 都是**漏報**
+> （紅旗該響沒響），而且都是既有測試**結構上看不到**的形狀——e2e 送裸 JSON 繞過前端 payload
+> 組裝（IN-1 的偽造 `no_*` 從未被 e2e 照到）、紅旗 `MUST_FIRE` 語料沒有「否認前綴 ＋ 真症狀」
+> 這個形狀、沒有任何測試在看「終態 × 六件事」矩陣、消毒語料缺 `urgency` enum 的時間窗族、
+> §3b 涵蓋詞庫零 ja/ko/vi 語料。**測試盲區本身就是缺陷**，本輪新增的 650 條（collected 差；
+> passed 差是 648，見下方總驗收）多半在補這幾面。
+
+### 已修（索引；行為變更的條文已進 skill 與 CLAUDE.md 鐵律，細節見各 commit message）
+
+| commit | 範圍 |
+|---|---|
+| `8e30bd3` | e2e 工具可攜性：路徑推導、`E2E_PORT`、HS256 測試密鑰、`ps` 解析加 `LC_ALL=C`（中文 locale 下 `verified` 恆 null ＝假性 FAIL）、`ed_zh` 回合上限 12→18 |
+| `931b9b7` | Flutter intake：**IN-1**（`no_*` 只能來自明確勾選）、D-3 relation 在地化、D-10 `no_family_history` 勾選框、D-5 主訴路由改 URL query 參數 |
+| `116282d` | 結束機制：**EM-1** abort 收尾缺 `return` 的降級路徑、EM-4 `end_session` 終態守衛三件套、EM-5「先標 `_terminated` 再送」、REST 六件事、SO-3 硬上限 drain 等 late alert 持久化完成才派 SOAP |
+| `6fc51e3` | 紅旗偵測：**RF-1／RF-2 兩條 P0 漏報**、RF-3／RF-4 誤報字面逐條舉證收窄（**RF-3 從 `triggers` 移除裸 trigger、降進共現組**，這個 commit 移了 9 條，2026-08-21 RF-5 補上漏網的第 10 條 `blood clots`；**RF-4 從共現組的 `acuity_terms`／`site_terms` 直接刪除 12 條短字面、另補長字面替代**——兩張不同的表，**條數以 `RF3_BARE_TRIGGERS_REMOVED`／`RF4_SHORT_LITERALS_REMOVED` 兩個常數為準，別引這裡的數字**）。⚠️ 這個 commit 開出了 S7 的跨子句漏報 |
+| `7e28d11` | Flutter 病患端顯示：下架未確認 ICD-10／信心分數、`patientFacingLocalized` 三態 resolver、regenerate 修通 |
+| `2daa82c` | React 對稱：**EM-3** 結束問診不搶先導頁（導頁由後端終態事件驅動）、病患端顯示、`no_family_history`、regenerate body |
+| `c6938c8` | SOAP 報告鏈：**SO-1** 時間窗×自行求醫消毒規則、SO-2 regenerate／FAILED 可恢復、`soap_reports.patient_facing_localized` 病患語言摘要、D-4 型別矯正、SO-5 PDF 欄位化 |
+| `24d3083` | 對話層：**IN-2** §3b 涵蓋詞庫補齊五語、IN-3 來源標籤三態、D-2 配額吃過濾後的 must-ask 數、**D-1** 病患自由輸入雙層消毒、D-8（`is_dont_know` 窄化＋guidance key prefix＋壓縮歷史摘要真的進得了 LLM） |
+| `fb403d6` | e2e `t5` 斷言改版：錨定「終止後零 LLM」的實質，不把其中一種合格樣態寫死成唯一樣態 |
+
+**總驗收**：backend unit **4602 passed / 4604 collected**（稽核前 `67cdf30` 是
+**3954 collected**）。**passed 的差是 +648，不是 +650；+650 只對 collected 成立**
+（4604−3954）。⚠️ 先前那句「+648 是拿 4602 **passed** 減 3954 **collected**、單位不一致」
+**撤回**——+648 其實正是正確的 passed 差，那次「訂正」把單位錯換成了環境錯。
+真正的陷阱是**跑法不同**：`tests/unit/pipelines/test_red_flag_cooccurrence_coverage.py` 有
+兩條測試（`test_corpus_is_not_copied_from_real_transcripts`／逐字稿 critical 巡檢）在
+**沒有 `scripts/e2e_realopenai/results/*.json` 的 clone 上會 `pytest.skip`**，
+所以同一份碼有兩種數字：**有 results → 3954 → 4602 passed；沒有 results → 3952 → 4600 passed**，
+**兩種算法的 passed 差都是 648**。「3952 → 4602」是把沒有 results 的舊數字對上有 results 的新數字，
+條件不一致。引用這組數字時**一定要連跑法條件一起寫**。
+注入式回歸依**七個** commit message 自報合計 **82 組**
+（`931b9b7`=7、`116282d`=11、`6fc51e3`=8、`7e28d11`=11、`2daa82c`=12、`c6938c8`=24、
+`24d3083`=9；只算四個 backend commit 是 52——**先前記的「54 組」不對應任何子集**）。
+⚠️ **是七個不是九個**：`8e30bd3` 的 commit message 完全沒有注入字樣；`fb403d6` 自報的是
+「**10 組離線注入驗證可抓違規**」——那是 e2e `t5` 判準改版的離線驗證，與 unit 層的
+「注入式回歸（把修復改壞看測試會不會紅）」不是同一個類別，**刻意不計入 82**。
+
+其餘驗收：flutter 217 tests ＋ `analyze` 零 issue、React type-check／lint／build／11 tests、
+`check_translations.py` OK、真 OpenAI e2e 六情境全 PASS ＋ ruleprobe 36 ＋ preflight 10
+（⚠️ 六場的 `backend_head` 皆為 `24d3083`，在第 9 個 commit `fb403d6` 之前）。
+
+**五項拍板（已落地）**：① 紅旗誤報字面逐條舉證後收窄（保留清單 `KEPT_LITERALS` 見 S1／S2）
+② ICD-10 白名單全剝時保留 raw 碼並標 `icd10_verified=false` ③ 病患端下架未確認 ICD-10 與
+信心分數，非中文場次另生場次語言摘要（新欄位 `soap_reports.patient_facing_localized`，
+migration `20260820_1000`；**主報告與 `report.language` 仍固定 zh-TW，不變式 #12 不變**）
+④ `report_ready`／`report_failed` 對 `doctor_id` NULL 場次 fan-out 全院在職醫師
+⑤ e2e `t5` 斷言錨定實質而非樣態。
+
+**順帶查證（不是本輪改的，但確認過，避免下次重查）**：React 端 intake 的三件事都已與
+Flutter 對稱——**四個** `no_*` 都只來自明確勾選框 state、無空清單推斷
+（`frontend/src/screens/patient/MedicalInfoPage.tsx:259` `noKnownAllergies: noAllergies`／
+`:270` `noCurrentMedications: noMedications`／`:279` `noPastMedicalHistory: noHistory`／
+`:291` `noFamilyHistory`；勾選框 state 在 `:172`）、
+family relation 送在地化字串（`:297`）、主訴→基本資料**本來就走 URL query 參數**
+（`SelectComplaintPage.tsx:239` → `MedicalInfoPage.tsx:137-141`，重整／深連結不會 422）。
+D-5 那條只需 Flutter 端補，React 無事可做。
+
+### 未結案
+
+### [ ] S1. 🟡 待臨床拍板：`寒顫／chills／悪寒／오한／ớn lạnh` 是否從裸 trigger 降進共現組
+
+現況：這一族**一個詞就判 urosepsis critical**（`backend/app/pipelines/prompts/shared.py` 的
+`urosepsis`（`urinary_x_systemic_infection`）定義，`"寒顫"` 在 `triggers` 與
+`triggers_by_lang["zh-TW"]` 兩處），與本輪拍板移除的 `高燒／高熱／고열` 同屬「單軸即 critical」
+——但**不在本輪臨床覆核清單內**，依不變式 #22（收窄的舉證責任在提出方、且要逐字面）
+不擅自動它。保留理由已就地寫在該定義上方的 RF-3 註解區塊，保留清單常數在
+`backend/tests/unit/pipelines/test_red_flag_audit_2026_08.py` 的 `KEPT_LITERALS`。
+**要改需重新臨床拍板**，不是工程可以自行決定的（同 R21）。
+（本條刻意不寫行號：`shared.py` 這一區在 2026-08-21 的 S7 修復中正在變動。）
+
+⚠️ **四語意識改變詞不在 `KEPT_LITERALS` 裡，去那裡找會找不到。** `KEPT_LITERALS`
+（`test_red_flag_audit_2026_08.py:481-502`）**只有 4 個 key**：`寒顫/chills/悪寒/오한/ớn lạnh`、
+`整個都是血/一大堆血`、`かたまり/덩어리`、`平熱`。四語意識改變詞（`altered consciousness`／
+`意識がもうろう`／`의식이 흐려짐`／`rối loạn ý thức`）寫在
+**`REMOVED_LITERAL_JUSTIFICATION["意識不清（urosepsis.triggers）"]`** 的 ⚠️ 段
+（`test_red_flag_audit_2026_08.py:423-430`）——本輪移除的是中文的「意識不清」，那段 ⚠️ 是在
+警告「別順手把其餘四語一起收掉」。那四個是**共現組接不住**的字面（不在 `acuity_terms`），
+移除會造成真漏報，**不在本條的討論範圍**。
+（`backend/app/pipelines/prompts/shared.py` 裡 `urosepsis` 定義上方那段 RF-3 註解的
+「⚠️ 保留的字面與理由見 …KEPT_LITERALS」段落有同一個混淆，兩處都該改。
+**本條刻意不寫行號**——見 S1 開頭的同一個理由。）
+
+### [ ] S2. 🟡 待臨床拍板：`整個都是血`／`一大堆血` 兩個字面
+
+`gross_hematuria_heavy` 的 `triggers` 現有四個字面（`shared.py` 的 `gross_hematuria_heavy` 定義）。`大量血尿`／`血尿很多`
+自帶「血尿」＝已含泌尿軸；這兩個沒有——字面上「整個都是血」可以是任何部位的出血。
+本輪未經臨床覆核，依 #22 保留並記進 `KEPT_LITERALS`。
+
+對照：同一條紅旗的 `血塊／血の塊／혈전` 已在本輪降進 `trigger_cooccurrence.urine_x_heavy_blood`
+（多要求**同句**有尿液詞——`urine_x_heavy_blood` 這一組在 `6ecf10a` HEAD 上**沒有宣告
+`cross_clause`**，預設 False，**這一點請直接讀 `shared.py` 的組定義**、別去引
+`_pairing_scope_ok` 的 docstring，理由見 S7 那個框；`gross_hematuria_heavy` 定義上方那段
+RF-3 舉證註解寫成「同一/**相鄰子句**」是錯的，與該組當時的實際行為互斥），
+舉證與實測句寫在同一段 RF-3 註解裡
+（**本條與 S1 同樣刻意不寫行號**：`shared.py` 這幾區在 S7／S8 修復中正在位移）——移除的動機正是
+「腳上有一塊血塊瘀青」「다리에 혈전이 생겼대요」（下肢 DVT，是**別的**急症）被判成血尿 critical。
+⚠️ **這個「相鄰子句」的誤述低估了降級後的漏報面，實際已開出 S7**，見下。
+
+### [ ] S3. 🟢 `_REPORT_FAILED_COPY` 應搬進 `app/utils/i18n_messages.py`
+
+`backend/app/services/notification_service.py:729-747` 是一份五語硬寫拷貝。碼內已有 ⚠️ 註記
+（`:723-728`）寫明這是**本輪的檔案邊界限制**（該檔由另一位執行者持有）**不是設計選擇**。
+修法：改成 `notifications.report_failed.title` / `.body` 兩個 key，刪掉該 dict 與
+`_REPORT_FAILED_DEFAULT_LANG`。搬之前確認文案語氣與其他 `notifications.*` 一致。
+
+### [ ] S4. 🟡 e2e driver 沒撈 `patient_facing_localized`，措辭鐵律掃不到病患實際看到的那份文字
+
+`scripts/e2e_realopenai/driver.py:1376-1380` 的 `soap_select` 取的是
+`id, status, review_status, generated_at, subjective, objective, assessment, plan, summary`
+（＋條件式的 `language, icd10_codes, icd10_verified, review_notes`，`if c in soap_cols`），
+**沒有 `patient_facing_localized`**（全 `scripts/e2e_realopenai/` grep 零出現），
+`_patient_facing_texts`（`:2908`）因此**永遠掃不到病患語言版的兩欄**。
+
+後果：**非 zh-TW 場次的病患實際讀到的那份文字，沒有任何 e2e 措辭鐵律覆蓋**。消毒層確實有
+目標語言規則，但只有 unit test 撐著——§R-lessons 第 5 條（oracle 不能是實作自己）講的正是
+這個風險面。修法：`soap_select` 加欄 ＋ `_patient_facing_texts` 加一個 source，
+並照該函式既有的多態設計，**來源缺席時記為缺席、不得當成「掃過了」**（第 6 條）。
+
+### [ ] S5. 🟢 `generate_report(additional_notes=...)` 收下但完全未使用
+
+`backend/app/routers/reports.py:121`／`:126` 把 body 的 `additional_notes` 傳進
+`report_service.generate_report`，但 `backend/app/services/report_service.py:430` 只在簽名接住，
+**函式體零引用**（全檔 grep 只有簽名那一處）。醫師在 UI 填的補充說明被**靜默丟棄**。
+
+二選一：接進 regenerate 的 prompt／revision reason，或從 `backend/app/schemas/report.py:80`
+移除欄位（移除是 API 破壞性變更，要先確認沒有 client 在送）。
+
+### [ ] S6. 🟢 `REPORT_ELIGIBLE_SESSION_STATUSES` 與 `_SOAP_ON_TERMINAL` 是兩份清單，沒有測試釘住一致
+
+- `backend/app/services/report_service.py:56-61`＝REST 直接產報告的閘門
+- `backend/app/services/session_service.py:101-103`＝終態轉移後自動派 SOAP 的集合
+- `cancelled` 的政策還散在第三處（`backend/app/tasks/session_timeout.py`）
+
+目前三處一致（`{completed, aborted_red_flag}`，`cancelled` 不派），碼內也註明「要改政策請三處
+一起改」（`session_service.py:98-100`）——但那是**註解不是跳閘器**。現有測試
+（`backend/tests/unit/services/test_report_generate_regenerate.py:146-151`）只斷言前者的成員，
+沒有任何測試斷言兩集合相等。
+
+修法：加一條結構測試斷言兩者相等（若日後刻意分歧，就在測試裡逐項寫下理由），
+或把三處收斂成同一個常數。這與 §S 的 `test_terminal_path_six_things_matrix.py` 同型——
+**靠人肉記憶執行的一致性規則遲早會漂移，要有跳閘器**。
+
+### [ ] S7. 🔴 紅旗跨子句漏報：`血塊` 降進共現組開出的回歸（2026-08-21 發現，**修復中**）
+
+> ⚠️ **編號對照：本條在 `shared.py` 的碼內註解裡叫 `RF-5`。** 同一個缺陷、兩個編號
+> （文件沿用 §S 序號、碼內沿用 RF-n 序號）。看到 RF-5 就是本條，別當成第七條紅旗缺陷。
+
+`6fc51e3`（RF-3）把裸 `血塊／血の塊／혈전` 從 `gross_hematuria_heavy.triggers` 移進
+`trigger_cooccurrence.urine_x_heavy_blood` 的 `acuity_terms`。但該共現組
+（`backend/app/pipelines/prompts/shared.py` 的 `gross_hematuria_heavy` 定義內，
+**刻意不寫行號：本檔修復中正在位移**）
+**沒有宣告 `cross_clause`**（預設 False）。
+
+> ⚠️ **判斷「哪些共現組開了 `cross_clause`」要去讀共現組資料本身**（`shared.py` 組定義裡
+> 有沒有那個 key），**不要引 `red_flag_detector._pairing_scope_ok` 的 docstring**。那段
+> docstring 曾把判準寫成「site×acuity 型紅旗（睪丸扭轉／尿滯留／血尿）維持不開」，但
+> `urinary_retention` 的 `void_x_obstruction` **早在 2026-07-27 就是 `cross_clause: True`**
+> （為英文語序「normally i pee fine, but…」開的，`shared.py` 有理由註解）——那句話在寫下時
+> 就已經與資料互斥。實際判準是「**這兩個軸是不是兩個不同的觀察**」，不是紅旗的臨床分類名。
+> （該 docstring 已在 RF-5 同輪訂正成「權威是資料，這裡只記判準」。）
+
+實測（2026-08-21，規則層，`6ecf10a` HEAD）：
+
+| 輸入 | 規則層 |
+|---|---|
+| `尿裡有血塊` / `我剛去上廁所，馬桶裡有血塊` / `小便有很多血塊` | `gross_hematuria_heavy(critical)` ✅ |
+| **`我今天小便，然後有很多血塊`** | **`[]` ← 零紅旗** |
+| **`小便的時候，血塊一直出來`** | **`[]` ← 零紅旗** |
+| `我發燒到三十九度，而且小便的時候很痛` | `urosepsis(critical)`（該組才是 `cross_clause=True`） |
+
+**這兩句是真人講大量血尿最自然的語序，降級前會命中、降級後不會**——正是不變式 #22
+要求的「為什麼它不會漏報」沒守住的一面。RF-3 在 `shared.py` 的舉證註解寫的是
+「多要求同一/**相鄰子句**裡有尿液詞」，那句話本身就與實作互斥，S2 也照抄了它。
+
+修法方向（**不是直接放寬**，那會走回 §R 的老路）：要嘛替 `urine_x_heavy_blood` 開
+`cross_clause` 並補雙向語料證明不開出新誤報，要嘛把「血塊」的真人語序做成長字面替代
+（如 `小便…血塊` 的跨子句 pattern）。無論哪條，**MUST_FIRE 要收上表那兩句**，
+且 `shared.py` 的 RF-3 舉證註解與 S2 的「相鄰子句」誤述要一併修掉。
+
+**狀態**：已有執行者在修（工作區有未 commit 的 `shared.py` / `test_red_flag_audit_2026_08.py`
+改動）。**commit ＋ 紅旗 e2e（`torsion_critical_zh` ＋ `hematuria_3b_en`）驗收之前不結案。**
+
+**教訓（併入 §R-lessons 第 1 條的射程）**：把裸 trigger 降進共現組是「多要求一個臨床軸」，
+但共現組同時還隱含「同一子句」這個**沒寫在舉證裡的第二個條件**。降級的舉證只測了同句
+（「尿裡有血塊」三語），**沒測跨子句**，所以整個漏報面沒被看見。
+**降級／收窄的實測句必須涵蓋跨子句語序。**
+
+### [ ] S8. 🔴 `soap_generator.py` 的 SOAP prompt 完全沒過 `sanitize_for_prompt`（2026-08-21 發現，**修復中**）
+
+D-1（`24d3083`）只覆蓋了**對話路徑**。在 `6ecf10a` HEAD 上，全 backend grep
+`sanitize_for_prompt` 只命中 `app/pipelines/supervisor.py`、`app/pipelines/llm_conversation.py`、
+`app/pipelines/prompts/shared.py`、`app/schemas/session.py`——
+**`app/pipelines/soap_generator.py` 不在其中**。
+
+`soap_generator.generate()` 把 `name` / `medical_history` / `medications` /
+`allergies` / `family_history` 直接 f-string 進 `## Patient Basic Information` 區塊：
+
+```python
+patient_parts.append(f"Past medical history: {patient_info['medical_history']}")
+...
+user_message = f"""## Patient Basic Information
+{patient_text}
+
+## Chief Complaint
+...
+```
+
+而 `patient_context.build_patient_info`（`app/pipelines/patient_context.py:131-136`）對其中
+**三欄**在 intake 空白時會 fallback 到 **`patients` 表舊資料**——正是 CLAUDE.md 自己列為
+「組裝層那道要涵蓋」的那條路徑（schema validator 管不到）。偽區段注入已實測重現：
+病患欄位值渲染成真正的 `## Consultation Transcript` 區段標題，
+**該 prompt 的 line-initial `##` 從 3 個變 4 個**——乾淨基線本來就有三個區段標題
+（`## Patient Basic Information` / `## Chief Complaint` / `## Consultation Transcript`，
+`soap_generator.generate()` 的 `user_message` f-string）；換個講法，
+`## Consultation Transcript` 這一行從 1 個變 2 個。
+（先前記的「從 2 個變 3 個」是把基線數錯了一個，注入本身可重現。）
+
+⚠️ **fallback 是三欄不是四欄。** `medical_history` / `medications` / `allergies` 三欄
+才寫成 `intake_summary[...] or format_jsonb_list(getattr(patient, ...))`（`:131-136`）；
+`family_history` 是光桿的 `intake_summary["family_history"]`（`:137`），**沒有 fallback**
+——因為 `backend/app/models/patient.py` 根本**沒有 `family_history` 欄位**
+（只有 `medical_history` / `allergies` / `current_medications`，`:38-40`）。
+`patient_context.py` 那段「上面四個扁平欄位…會在 intake 空白時 fallback 到 patients 表」的
+碼內註解本身就是錯的，工作區 `soap_generator.py` 新加的 D-1b 註解 **(b)** 又照抄了一次，
+**這兩處要與 S8 的修復同輪改掉**（本條不改碼，只列管）。
+
+**這條 prompt 攻擊面最大、含 PHI 最多，卻是唯一沒被覆蓋的一條。** 附帶問題：CLAUDE.md 原本
+把規則寫成「插進 LLM **system** prompt 前」，而這段是 user message，照字面讀規則不覆蓋它——
+規則的字面把最危險的那條排除在外（CLAUDE.md 已於 2026-08-21 改成「system 或 user」）。
+
+修法：`generate()` 的五個欄位（含 `chief_complaint`）過 `sanitize_for_prompt`，
+並把 `soap_generator` 加進**區段結構 oracle** 的覆蓋範圍——現有的
+`test_prompt_injection_sanitization.py` 與 `tests/unit/schemas/test_session_intake_sanitization.py`
+**都不涵蓋它**。
+
+**狀態**：已有執行者在修（工作區有未 commit 的 `soap_generator.py` 改動與一支新的
+`backend/tests/unit/pipelines/test_soap_prompt_injection_sanitization.py`）。
+**commit ＋ 驗收之前不結案。**
+
+**教訓**：CLAUDE.md 原本把規則寫成「插進 LLM **system** prompt 前一律過消毒」，而
+`soap_generator` 這段是 **user message**——照字面讀，規則**不覆蓋攻擊面最大的那條 prompt**。
+規則的字面範圍要涵蓋所有進 LLM 的文字，不能只綁 system（CLAUDE.md 已於 2026-08-21 改成
+「system 或 user」）。同理，「一律」這種全稱敘述若沒有跳閘器守住，會在下一個新增的
+prompt 組裝點自動變成假敘述——這正是本輪三份文件校訂要處理的通病。
+
+### [ ] S9. 🟡 `is_dont_know` 對含數詞的固定語誤判 → AI 換句話重問已拒答的欄位（2026-08-21 發現，**尚無人認領**）
+
+`24d3083`（D-8）把 `is_dont_know` 窄化成「標記詞 ∧ 同句沒有『數值＋量詞』」，用意是別把
+「我不確定，大概三天前吧」這種**帶保留的有效回答**判成拒答。但窄化的另一邊沒有語料守住：
+**含數詞的固定語／成語會讓真拒答被判成有回答**。實測（`6ecf10a` HEAD，
+`backend/app/pipelines/next_focus_guard.py` 的 `is_dont_know`）：
+
+| 輸入 | `is_dont_know` |
+|---|---|
+| **`我不知道，反正一天比一天嚴重`** | **`False`** ← 真拒答被漏掉 |
+| **`我不知道，一天到晚都在痛`** | **`False`** |
+| **`記不得了，反正一天到晚跑廁所`** | **`False`** |
+| `不知道幾天` / `don't know how many days` | `True` ✅（疑問數詞先被挖除，這一邊是對的） |
+
+根因：「一天」符合 `_NUMERAL + _UNIT`，但成語裡的「一天」不是**可記錄的值**。
+
+**後果是「重問」不是「不問」——先前文件把因果寫反了，訂正如下。** `is_dont_know` 全庫
+只有一個消費端：`declined_fields_from_history`（同檔）。回 `False` ＝ 該欄**不進** declined
+集合，於是：
+
+1. `llm_conversation` 組 system prompt 時呼叫的 `build_dont_know_ban(declined_fields_from_history(history), language)`
+   拿到**空集合** → **本輪不下「不得換句話重問」的硬性禁令**；
+2. `effective_next_focus` 看到 `declined` 為空就**原封不動回傳那份 `next_focus`**，而它是在
+   拒答**之前**算的、仍指著同一欄 → supervisor 指導繼續把 AI 推向該欄。
+
+兩條合起來＝**AI 會換句話重問病患剛剛拒答的那一欄**（正是 R19 那個失效面，也是這整層
+四層防線存在的理由）。「該欄不會再問」是相反的敘述，別再寫。
+
+修法方向：不是放寬也不是收緊單一條件，而是把「數值＋量詞」的白名單再窄化成**可記錄的值**
+（時間點／時長／次數／0–10 分），把固定語／成語的「一/半 + 量詞」形（一天到晚、一天比一天、
+三天兩頭、一次又一次）排除。**動這條窄化時，上表三句要進 `MUST_FIRE`、
+`不知道幾天`／`don't know how many days` 要留在 `MUST_FIRE`、
+「我不確定，大概三天前吧」要留在 `MUST_NOT_FIRE`**——雙向對稱（§R-lessons 第 2 條）。
+語料檔：`backend/tests/unit/pipelines/test_dont_know_concrete_value_guard.py`
+（`MUST_FIRE` / `MUST_NOT_FIRE`）與 `test_next_focus_reask_guard.py`（`MUST_REPLACE` / `MUST_KEEP`）。
+改動視同改管線，要跑 `dontknow_zh` e2e（不變式 #17 的保護區）。
+
+⚠️ 這條**先前只活在 skill #8 的 ⚠️ 與缺口表裡，TODO 完全沒有對應條目**，而 TODO 檔頭又把
+未結案寫成「§S 八條」——「尚無人認領」的缺陷不進待辦清單，下一輪一定漏。本輪補進來。
+
+### [ ] S10. 🔴 `sanitize_for_prompt` 的行首 `#` 只剝一次，`'# ## X'` 剝完還是 `'## X'`（2026-08-21 發現，**修復中**）
+
+`backend/app/pipelines/prompts/shared.py` 的 `sanitize_for_prompt` 末段用
+`_LEADING_HEADING_MARKS`（`re.compile(r"^[#＃]+[ \t　]*")`）剝行首標題符號。它是 `^` 錨定的
+**單次** sub：第一段 `#` 連同其後的空白被吃掉之後，**後面的 `##` 就遞補到行首**。
+實測（`6ecf10a` HEAD，真函式）：
+
+| 輸入 | 輸出 |
+|---|---|
+| `'## Consultation Transcript'` | `'Consultation Transcript'` ✅ |
+| **`'# ## Consultation Transcript'`** | **`'## Consultation Transcript'`** ← 仍是合法的區段標題 |
+| **`'#\t## Consultation Transcript'`** | **`'## Consultation Transcript'`** |
+| **`'＃ ## Consultation Transcript'`** | **`'## Consultation Transcript'`**（全形 `＃` 同型） |
+| `'#  ##  Chief Complaint'` | `'## Chief Complaint'` |
+
+**這是消毒層自己的缺口，不是 S8 的一部分。** S8 把 `soap_generator` 接上
+`sanitize_for_prompt` 之後，這個形狀照樣穿得過去——兩條要一起修才真的關上偽區段注入，
+而且**對話 prompt（`llm_conversation` / `supervisor`，D-1 已覆蓋的那些）現在就已經露著**。
+
+修法：剝除跑到**固定點**（`while` 到不再變化，或改成 `^(?:[#＃]+[ \t　]*)+`），
+並在 `test_prompt_injection_sanitization.py` 的區段結構 oracle 補上「多段前綴」語料
+（`'# ## X'`、`'#\t## X'`、`'＃ ＃＃ X'`、`'#   #   ## X'`）。⚠️ 現有兩份消毒測試
+**沒有任何一條是「剝一次不夠」的案例**——這正是 §R-lessons 第 5 條講的「oracle 只認得
+實作想得到的形狀」。
+
+**狀態**：已有執行者在修。**commit ＋ 驗收之前不結案。**
+
+### [ ] S11. 🟡 終態 AST 跳閘器的形狀覆蓋面（2026-08-21，**與本輪同一個 commit 落地**）
+
+> ⚠️ **本條不是「HEAD 上可重現的缺陷」，別照 S7／S8／S10／S12 的格式讀。** `6ecf10a`
+> HEAD 上**根本沒有 `_terminal_writes` 這支函式**（當時的掃描器只有 `_terminal_fanout_sites`
+> 的三種寫死形狀），所以「掃描器漏 tuple」這件事**沒有任何已 commit 的版本可以複驗**——
+> 它只在開發中的原型裡存在過。之所以還留一條，是因為**形狀覆蓋面本身是個長期議題**，
+> 值得記下判準與刻意不做的部分。
+
+`backend/tests/unit/test_terminal_path_six_things_matrix.py` 的掃描器在本輪重寫成
+`_terminal_writes`，認得的形狀是一張**清單**：
+
+- 直接對 `.status` 賦值，含 **tuple／list 多重指派**
+  （`session.status, session.completed_at = SessionStatus.COMPLETED, now`）、
+  巢狀 tuple、starred 解包、鏈式指派、`AnnAssign`
+- `.values(status=…)` 與 **`.values({"status": …})` 位置引數 dict**
+- **`setattr(obj, "status", …)`**（屬性名是變數時保守當終態）
+- 低階狀態寫入 helper 呼叫（keyword／positional／指向字面值的常數變數都吃）
+- 狀態值靜態解析不出來 → `<unresolved>` → 一律要求登記（保守側）
+
+**每一型都由 `_BLIND_SPOT_INJECTIONS` 釘住**（目前 10 型）：把該寫法真的接進產品碼副本
+再交給掃描器掃，`test_tripwire_trips_on_each_known_blind_spot` 斷言「掃得到 ＋ 判定為未
+登記」，`test_blind_spot_injections_are_red_under_the_old_shape_only_scanner` 反向證明
+舊的三形狀掃描器對它們全盲。tuple 多重指派是其中一型——原型在開發中確實漏過它
+（① 分支只認 `ast.Attribute` 的 assign target），注入測試就是為了不讓它再漏回去。
+
+⚠️ **刻意不認**的兩類（判斷寫在該檔的設計原則段，要改請連同理由一起改）：
+
+- `.values(**payload)`（`kw.arg is None`）：`conversation_handler._update_session_status`
+  自己就是這樣寫的，認了會讓**寫入 helper 本身**變成一個 `<unresolved>` 站點＝每天一個
+  假警報。「噪音會讓下一個人把跳閘器關掉」比漏一種形狀更危險（不變式 #31）。
+- `session.__dict__[…]`／`vars(session)[…]`／`object.__setattr__`／把 helper 綁到別名
+  再呼叫／`db.execute(text("UPDATE …"))` 裸 SQL：這些是**刻意規避**，不是有人會不小心
+  寫出來的慣用法。跳閘器防的是手滑，不是防內鬼。
+
+**還沒做**：掃描器只讀 `conversation_handler.py`／`session_service.py`／`session_timeout.py`
+三個檔，「第四個模組開始寫終態」沒有任何守衛（今天沒有這種模組——唯一外部呼叫
+`app/routers/sessions.py:140` 走 `session_service.update_status`，但這個範圍限制本身是裸的）。
+
+**最後一道防線仍然是人**：新增終態路徑先在 `TERMINAL_PATHS` 補一列，再讓它綠。
+
+### [ ] S12. 🔴 越南文 `tiểu` 是假朋友：`tiểu đường`（糖尿病）× 發燒 → urosepsis critical 誤中止（2026-08-21 發現，**修復中**）
+
+四個共現組的 vi `site_terms` 都收了裸 `tiểu`（`void_x_obstruction`／`urine_x_heavy_blood`／
+`urinary_x_systemic_infection`／`urine_x_blood_present`，`backend/app/pipelines/prompts/shared.py`）。
+但越南文的 `tiểu` 同時是「排尿」與「小／次要」：`tiểu đường`＝**糖尿病**、
+`tiểu phẫu`＝小手術、`tiểu sử`＝簡歷、`tiểu học`＝小學。實測（規則層，`6ecf10a` HEAD）：
+
+| 輸入（vi-VN） | 規則層 | `trigger_keywords` |
+|---|---|---|
+| **`tôi bị tiểu đường và hôm qua tôi bị sốt`**（我有糖尿病，昨天發燒） | **`urosepsis(critical)`** ← 誤中止 | `['tiểu', 'sốt']` |
+| **`mẹ tôi bị tiểu đường, tôi hơi sốt`**（我**媽**有糖尿病，我有點發燒） | **`urosepsis(critical)`** | `['tiểu', 'sốt']` |
+| **`tôi vừa làm tiểu phẫu và bị sốt nhẹ`**（剛做完小手術，有點低燒） | **`urosepsis(critical)`** | `['tiểu', 'sốt']` |
+| **`bác sĩ hỏi tiểu sử bệnh, tôi đang sốt`**（醫師問**病史**，我正在發燒） | **`urosepsis(critical)`** | `['tiểu', 'sốt']` |
+| `tôi sốt và tiểu buốt`（發燒＋排尿灼痛） | `urosepsis(critical)` ✅ 真陽性 | `['tiểu', 'sốt']` |
+| `tôi bị tiểu đường type 2 đã mười năm`（只講糖尿病、沒有發燒詞） | `[]` ✅ | — |
+
+⚠️ **上表刻意用 `sốt` 當急性詞**：`sốt` 只在共現組的 `acuity_terms` 裡，所以命中**一定**經過
+`tiểu` 這個 site 軸，`trigger_keywords` 也逐筆證實了。**別拿 `ớn lạnh` 造反例**——
+`tôi hơi ớn lạnh` 單獨一句就命中 critical（`ớn lạnh` 是 S1 那族**刻意保留**的單軸裸 trigger），
+那是 S1 的議題，與 `tiểu` 無關，混在一起會讓本條的舉證失效。
+
+**這不能用「政策接受的誤報」（#22／R21）帶過。** 糖尿病是 §3b 的必問風險因子——
+`backend/app/pipelines/llm_conversation.py` 的 `_DIABETES_TERMS` 自己就收了 `tiểu đường`
+（`:391`）——所以越南語病患**照著問診流程回答自己的病史**就會撞上它。這與 R22
+（`熱` 讓「排尿灼熱」一講出主訴就被中止）是同一型的結構性誤報，只是換成 vi。
+
+修法方向（照 #22 的舉證責任）：**不是刪掉 `tiểu`**（那會丟掉最主要的越南文排尿詞、開出漏報），
+而是逐字面收窄成不會撞上多義的形——例如改收 `đi tiểu`／`tiểu buốt`／`tiểu rắt`／`tiểu ra máu`／
+`nước tiểu`／`buồn tiểu` 等複合形，或保留裸 `tiểu` 但排除 `tiểu đường`／`tiểu phẫu`／`tiểu sử`／
+`tiểu học` 這幾個已知非泌尿義的後接詞。無論走哪條，**MUST_FIRE 要留住上表最後兩列的真陽性**、
+**MUST_NOT_FIRE 要收上表前四列**，四個共現組一起改。
+
+**教訓（併入不變式 #25 的射程）**：#25 原本只要求「新字面在**其他四語**的常見句子裡不是高頻
+子字串」。`tiểu` 過得了那一關（它在 zh/ja/ko/en 句子裡不出現），卻在**自己的語言裡**是多義詞根。
+**短字面的檢查要多一道：在它自己的語言裡是不是多義／有無臨床上高頻的非目標義。**
+
+**狀態**：已有執行者在修，走的是上述第二條路（保留裸 `tiểu`、改用位置排除法——
+`red_flag_detector` 新增 `_TERM_FALSE_FRIENDS` 常數與一支「關鍵字出現位置是否整個落在
+假朋友複合詞內」的判定，收 intake 共病與臨床報告用詞（`tiểu đường`／`tiểu cầu`／`tiểu phẫu`／
+`tiểu sử`／`tiểu học`／`tiểu não`／`tiểu động mạch`／`tiểu tĩnh mạch`／`tiểu khung`／`tiểu thùy`）
+加上日常詞 `tiểu thuyết`，刻意不收 `tiểu đêm`／`tiểu tiện`／`tiểu buốt`／`tiểu rắt`／`tiểu són`
+這些泌尿義）。**詞表以常數本身為準，別引這裡的列舉。**
+
+⚠️ **這條修法結構上不可能「修完」**：漢越詞「小」的構詞沒有上限，排除表是**開放式列舉**，
+未收錄的「小」義複合詞仍會供給泌尿軸（已知仍在外面：`tiểu thương`／`tiểu bang`／`tiểu thư`…，
+釘在 `test_red_flag_audit_2026_08.py` 的 `RF6_VI_KNOWN_OPEN_TAIL` 與
+`test_rf6_false_friend_table_is_an_open_ended_list_not_a_closed_set`——那條測試**斷言誤報仍會
+發生**，收進表裡就會紅，逼人同步更新）。**所以下次收到 vi 誤中止回報，第一個假設應該是
+「又一個沒收錄的複合詞」，而不是「這條路已經封死了」。**
+
+工作區未 commit，**別當成已修**。**commit ＋ 紅旗 e2e 驗收之前不結案。**
+
+### [ ] S13. 🟠 `chief_complaint_text` 可繞過 §3b 必問安全 gate（2026-08-21 e2e 發現，**既有行為、非本輪造成**）
+
+`conversation_handler` 組 `session_context["chief_complaint"]` 時取的是
+`chief_complaint_text or 主訴顯示名`，而 §3b 的必問風險因子是拿**這個字串**去
+`get_critical_risk_factors_for_complaint()` 做關鍵字比對（`backend/app/pipelines/prompts/shared.py`
+的 `CRITICAL_RISK_FACTORS.complaint_keywords`）。於是自由文字一旦不含主訴語彙，K 就是 0：
+
+| `chief_complaint` 實際值 | `get_critical_risk_factors_for_complaint` | §3b 必問題數 |
+|---|---|---|
+| `勃起功能障礙`（選定主訴的顯示名） | 1 組 | 3 題（心血管／糖尿病／吸菸） |
+| `Consultation Transcript`（自由文字） | **0 組** | **0 題** |
+
+也就是說 **`chiefComplaintId=<高風險主訴>` ＋ 任意 `chiefComplaintText` 的請求可以把 §3b
+安全 gate 整個關掉**，而 FK 明明指著高風險主訴。2026-08-21 的 `injection_pseudosection_zh`
+e2e 場次是實證：同一個 ED persona，帶自由文字時 9 輪就收尾且三個風險因子一題都沒問，
+對照 `ed_zh` 是 15 輪問滿。
+
+**生產可觸及面窄但不是零**：兩份前端送的是 `complaintText || complaintName`，自由文字只在
+選「其他」sentinel 時才會是病患自填；但 API 直呼不受此限，且「其他」主訴本來就拿不到 §3b
+（那是既有設計，不是本條）。
+
+修法方向（未定案）：§3b gating 改吃**選定主訴的 canonical 名稱**（有 FK 時），自由文字只在
+sentinel 情境下當唯一來源；或取兩者聯集。任一改法都動到 §3b 配額，依 skill 修改流程要跑
+`ed_3b_zh` / `hematuria_3b_en`。
+
+⚠️ 驗 §3b 時**一律用 `ed_3b_zh` / `hematuria_3b_en`**，別用帶自由文字的情境——否則 K=0
+會讓「AI 沒問風險因子」看起來像 prompt 問題。已寫進 `scripts/e2e_realopenai/README.md`。

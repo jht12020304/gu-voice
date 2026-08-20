@@ -15,6 +15,7 @@ from app.core.exceptions import AIServiceUnavailableException
 from app.core.openai_client import call_with_retry, get_openai_client
 from app.models.enums import URGENCY_VALUES, Urgency
 from app.pipelines.icd10_validator import validate_icd10_codes
+from app.pipelines.prompts.shared import sanitize_for_prompt
 from app.utils.i18n_messages import get_message
 from app.utils.language_detect import matches_expected_language
 
@@ -644,7 +645,10 @@ class SOAPGenerator:
         lines: list[str] = []
         for entry in transcript:
             role = entry.get("role", "unknown")
-            content = entry.get("content", "")
+            # D-1b：逐字稿的每一筆是**一行**（`Patient: …`）。病患打字訊息走同一條
+            # 路徑進來，值裡的換行會把一筆撐成好幾行，行首 `##` 就是新的區段標題。
+            # 消毒只摺疊空白、不刪內容，語音轉寫與打字內容都原樣保留在同一行。
+            content = sanitize_for_prompt(entry.get("content", ""))
             timestamp = entry.get("timestamp", "")
 
             # 角色名稱使用中性英文 code，避免被 LLM 當成「輸出語言線索」照抄中文
@@ -700,9 +704,23 @@ class SOAPGenerator:
         """
         # 組合病患資訊（使用中性英文 label + 原始 enum 值，
         # 避免日/韓/越場次被 LLM 照抄中文欄位名）。
+        #
+        # D-1b（2026-08-21）：**每一個病患來源值插進 user_message 前都要過
+        # `sanitize_for_prompt`**。這段以前是全碼庫唯一漏掉入口消毒的 prompt 組裝點
+        # ——2026-08-20 的 D-1 只補了對話 prompt（llm_conversation / supervisor）與
+        # schema 入口，SOAP 這條沒補。它同時是攻擊面最大的一條：
+        #   (a) user_message 一樣用 markdown 標題（`## Patient Basic Information` /
+        #       `## Chief Complaint` / `## Consultation Transcript`）分區，多行值 +
+        #       行首 `##` 渲染後與真正的區段標題**字面上無法區分**＝偽區段注入；
+        #   (b) `patient_context.build_patient_info` 對這四欄在本次 intake 空白時會
+        #       fallback 到 **`patients` 表舊資料**——那些值不經過本次 session 的
+        #       schema validator，schema 那一層完全接不到，只有這一層擋得住。
+        # 臨床數值（`38度`、`50%`、`PSA 4.5`、`1/2 顆`）原樣保留：sanitize 只做
+        # 控制字元移除 + 換行摺疊 + 行首 `#` 剝除，不碰數字與標點。
+        # age / gender 是內部碼（int / enum value）不是自由文字，不需消毒。
         patient_parts: list[str] = []
-        if patient_info.get("name"):
-            patient_parts.append(f"Name: {patient_info['name']}")
+        if name := sanitize_for_prompt(patient_info.get("name")):
+            patient_parts.append(f"Name: {name}")
         # age 必須用 `is not None`：patient_context.calculate_age 對「今年出生且生日
         # 已過」的病患回 int 0，truthy 判斷會讓整行年齡從 SOAP prompt 消失。
         # 其餘欄位的值都是非空字串或 None，truthy 判斷是對的。
@@ -710,16 +728,19 @@ class SOAPGenerator:
             patient_parts.append(f"Age: {patient_info['age']}")
         if patient_info.get("gender"):
             patient_parts.append(f"Gender: {patient_info['gender']}")
-        if patient_info.get("medical_history"):
-            patient_parts.append(f"Past medical history: {patient_info['medical_history']}")
-        if patient_info.get("medications"):
-            patient_parts.append(f"Current medications: {patient_info['medications']}")
-        if patient_info.get("allergies"):
-            patient_parts.append(f"Allergies: {patient_info['allergies']}")
-        if patient_info.get("family_history"):
-            patient_parts.append(f"Family history: {patient_info['family_history']}")
+        if value := sanitize_for_prompt(patient_info.get("medical_history")):
+            patient_parts.append(f"Past medical history: {value}")
+        if value := sanitize_for_prompt(patient_info.get("medications")):
+            patient_parts.append(f"Current medications: {value}")
+        if value := sanitize_for_prompt(patient_info.get("allergies")):
+            patient_parts.append(f"Allergies: {value}")
+        if value := sanitize_for_prompt(patient_info.get("family_history")):
+            patient_parts.append(f"Family history: {value}")
 
         patient_text = "\n".join(patient_parts) if patient_parts else "(not provided)"
+        # 主訴自填文字（「其他」主訴 200 字自由輸入）落在 `## Chief Complaint` 的
+        # 下一行**行首**，是偽區段注入最直接的插值點。
+        chief_complaint_text = sanitize_for_prompt(chief_complaint)
         transcript_text = self._format_transcript(transcript)
         red_flag_text = self._format_red_flags(red_flags)
 
@@ -728,7 +749,7 @@ class SOAPGenerator:
 {patient_text}
 
 ## Chief Complaint
-{chief_complaint}
+{chief_complaint_text}
 {red_flag_text}
 ## Consultation Transcript
 {transcript_text}
@@ -930,11 +951,21 @@ Please produce the full SOAP report based on the information above."""
         for rf in red_flags:
             sev = rf.get("severity")
             sev = (sev.value if hasattr(sev, "value") else str(sev or "")).lower()
-            cid = rf.get("canonical_id") or rf.get("name") or "red_flag"
-            reason = rf.get("trigger_reason") or rf.get("description") or ""
+            # D-1b：紅旗區塊是 `- [sev] cid: reason` 的條列。語意層對不在內建目錄裡
+            # 的紅旗是拿 LLM 自創的 `raw_title` 當 canonical_id、`trigger_reason` 也
+            # 是引述病患原話的 LLM 生成文字——都不是受控字面，多行值會撐開條列並在
+            # 行首長出 `##`。消毒摺疊成單行，臨床內容不變。
+            cid = sanitize_for_prompt(
+                rf.get("canonical_id") or rf.get("name") or "red_flag"
+            )
+            reason = sanitize_for_prompt(
+                rf.get("trigger_reason") or rf.get("description") or ""
+            )
             actions = rf.get("suggested_actions") or []
             if isinstance(actions, list):
-                actions = "; ".join(str(a) for a in actions)
+                actions = "; ".join(sanitize_for_prompt(a) for a in actions)
+            else:
+                actions = sanitize_for_prompt(actions)
             lines.append(f"- [{sev}] {cid}: {reason} (suggested: {actions})")
         body = "\n".join(lines)
         return (
