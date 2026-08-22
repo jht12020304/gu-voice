@@ -77,7 +77,18 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
     final groups = _grouped(visible);
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('dashboard.sidebar.nav.redFlagAlerts'))),
+      appBar: AppBar(
+        title: Text(t('dashboard.sidebar.nav.redFlagAlerts')),
+        actions: [
+          // 一鍵確認：U1 全院視野後歷史未確認警示整批浮出（生產 128 筆），
+          // 逐筆確認不現實。無未確認時不顯示。
+          if (st.unacknowledgedCount > 0)
+            TextButton(
+              onPressed: () => _confirmAcknowledgeAll(context),
+              child: Text(t('dashboard.alertList.acknowledgeAll')),
+            ),
+        ],
+      ),
       body: Column(
         children: [
           Padding(
@@ -92,6 +103,22 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmAcknowledgeAll(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t('dashboard.alertList.acknowledgeAll')),
+        content: Text(t('dashboard.alertList.acknowledgeAllConfirm')),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(t('common.cancel'))),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(t('dashboard.alert.acknowledge'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await ref.read(alertsProvider.notifier).acknowledgeAll();
   }
 
   Widget _filterTabs(String filter) {

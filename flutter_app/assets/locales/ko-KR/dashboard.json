@@ -93,7 +93,9 @@
       "completed": "완료",
       "abortedRedFlag": "레드플래그로 중단",
       "cancelled": "취소됨"
-    }
+    },
+    "acknowledgeAll": "모두 확인 처리",
+    "acknowledgeAllConfirm": "미확인 레드플래그 경보를 모두 확인 처리하시겠습니까? 이 작업은 되돌릴 수 없습니다."
   },
   "transcript": {
     "title": "문진 대화 전사본",

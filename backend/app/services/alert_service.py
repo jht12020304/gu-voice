@@ -224,6 +224,30 @@ class AlertService:
         }
 
     @staticmethod
+    async def acknowledge_all(
+        db: AsyncSession,
+        user_id: UUID,
+        notes: Optional[str] = None,
+    ) -> int:
+        """一鍵確認所有未確認警示（2026-08-23，U 系列後續）。
+
+        動機：醫師視野改全院（U1）後，歷史未確認警示會整批浮出（生產實測 128 筆
+        測試遺留），逐筆確認不現實；tab 徽章與全域 toast 都吃未確認數，需要一個
+        收斂出口。語意同單筆 acknowledge（記 acknowledged_by/at），但**不逐筆
+        發 WS 廣播**——一次 128 則 red_flag_acknowledged 是事件風暴，客戶端在
+        呼叫後自行 refetch 收斂。回傳實際確認筆數。
+        """
+        now = utc_now()
+        stmt = (
+            update(RedFlagAlert)
+            .where(RedFlagAlert.acknowledged_by.is_(None))
+            .values(acknowledged_by=user_id, acknowledged_at=now, acknowledge_notes=notes)
+        )
+        result = await db.execute(stmt)
+        await db.commit()
+        return int(result.rowcount or 0)
+
+    @staticmethod
     async def get_unacknowledged_count(
         db: AsyncSession,
         current_user: Any = None,

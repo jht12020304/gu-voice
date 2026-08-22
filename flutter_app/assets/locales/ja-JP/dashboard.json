@@ -93,7 +93,9 @@
       "completed": "完了",
       "abortedRedFlag": "レッドフラグにより中断",
       "cancelled": "キャンセル済み"
-    }
+    },
+    "acknowledgeAll": "すべて確認済みにする",
+    "acknowledgeAllConfirm": "未確認の赤旗アラートをすべて確認済みにしますか？この操作は取り消せません。"
   },
   "transcript": {
     "title": "問診会話の逐語記録",

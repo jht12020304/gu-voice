@@ -39,10 +39,14 @@ class DoctorAlertWatcher extends ConsumerWidget {
 
     // `watch` (not `read`) so the controller is constructed and kept alive for the whole
     // authenticated session, which is what keeps the dashboard WS connected.
-    ref.watch(alertsProvider.select((s) => s.unacknowledgedCount));
+    ref.watch(alertsProvider.select((s) => s.newAlertSeq));
 
-    ref.listen(alertsProvider.select((s) => s.unacknowledgedCount), (prev, next) {
-      // Only announce growth. Acknowledging alerts lowers the count and must stay quiet.
+    // 2026-08-23：改鎖 newAlertSeq（只在真的收到 new_red_flag WS 事件時遞增），
+    // 不再鎖 unacknowledgedCount——計數會因「登入首載 0→N（U1 全院視野後 N 很大）」
+    // 與「樂觀扣減後被 stats_updated 真值收斂回彈」而上下擺動，鎖它等於在每個
+    // 畫面誤鳴「偵測到 N 筆新的紅旗警示」（使用者實測回報：查看完按不掉、
+    // 到處都在跳）。序號單調遞增，收斂/首載永遠安靜。
+    ref.listen(alertsProvider.select((s) => s.newAlertSeq), (prev, next) {
       if (prev == null || next <= prev) return;
       final messenger = ScaffoldMessenger.maybeOf(context);
       if (messenger == null) return;
