@@ -24,6 +24,22 @@ class SoapReport {
   // modeling dozens of nested classes.
   final Map raw;
 
+  // ── 場次上下文（後端 2026-08-22 起隨 GET /reports 一起回）────────────────
+  // 這四個欄位屬於 Session。醫師端報告列表每一列都要顯示它們，過去是拿到報告後
+  // 再對每一列打一次 `GET /sessions/{id}` 補齊（一頁 20 列 ＝ 20 個額外請求，
+  // 而且清單先畫出 20 行 UUID 再逐筆重排）。
+  //
+  // **可能是 null，而且必須容忍**：TestFlight 上的 App 打的是生產後端，兩邊不會
+  // 同時更新。後端還沒帶這幾欄時，report_list_page 會自動退回舊的逐列補值路徑。
+  final String? patientName;
+  final String? chiefComplaintText;
+  final String? sessionStatus;
+  final bool? sessionRedFlag;
+
+  /// 後端是否已經帶了場次上下文。用 `patientName` 以外的欄位判斷：沒有名字的病患
+  /// 是合法資料，用它當旗標會讓那些場次永遠走退路。
+  bool get hasSessionContext => sessionStatus != null;
+
   const SoapReport({
     required this.id,
     required this.sessionId,
@@ -36,8 +52,14 @@ class SoapReport {
     this.patientEducation = const [],
     this.reviewNotes,
     this.patientFacingLocalized,
+    this.patientName,
+    this.chiefComplaintText,
+    this.sessionStatus,
+    this.sessionRedFlag,
     this.raw = const {},
   });
+
+  static String? _str(dynamic v) => v is String ? v : null;
 
   factory SoapReport.fromJson(Map json) {
     final codes = json['icd10Codes'];
@@ -56,6 +78,12 @@ class SoapReport {
       patientFacingLocalized: PatientFacingLocalized.tryParse(
         json['patientFacingLocalized'] ?? json['patient_facing_localized'],
       ),
+      // 防禦性取值，與這個檔案其他欄位同一套作風：型別不合就當沒有。這幾欄是
+      // 一頁 20 列的清單資料，一列的形狀怪掉不該讓整頁變成錯誤畫面。
+      patientName: _str(json['patientName']),
+      chiefComplaintText: _str(json['chiefComplaintText']),
+      sessionStatus: _str(json['sessionStatus']),
+      sessionRedFlag: json['sessionRedFlag'] is bool ? json['sessionRedFlag'] as bool : null,
       raw: json,
     );
   }

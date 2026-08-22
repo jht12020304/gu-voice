@@ -10,7 +10,12 @@ import '../../../data/models/session.dart';
 import '../../../data/models/soap_report.dart';
 import '../../../shared/pdf_share.dart';
 
-enum _RedFlagState { redFlag, loadFailed, clear }
+// `unknown` is the window before the Session has come back. It must be its own case:
+// collapsing it into `clear` renders a red-flag session as "no red flag" for as long as
+// that request takes, which is the exact failure the amber `loadFailed` state was
+// introduced to prevent. (This hole predates the parallel load below — the page already
+// painted before `getSession` resolved — but parallelising widens it, so it is fixed here.)
+enum _RedFlagState { redFlag, loadFailed, clear, unknown }
 
 /// 「重新產生報告」按鈕的閘門。與 `canGenerateSoapReport`（場次詳情頁的**首次**產生）
 /// 分開：那條在 `generated` 時刻意不給按鈕（避免誤觸覆蓋），這條是醫師在報告頁上對著
@@ -44,6 +49,8 @@ class _SoapReportPageState extends State<SoapReportPage> {
   bool _turnsFailed = false;
   Session? _session;
   bool _sessionLoadFailed = false;
+  bool _sessionLoading = true;
+  bool _turnsLoading = true;
   bool _loading = true;
   bool _error = false;
   bool _exporting = false;
@@ -55,34 +62,53 @@ class _SoapReportPageState extends State<SoapReportPage> {
     Future.microtask(_load);
   }
 
+  /// Three independent fetches, started together.
+  ///
+  /// They used to run in series — report (itself two trips: list-by-session, then fetch
+  /// by id), then the transcript, then the Session — and nothing was painted until the
+  /// first two had both finished. That is four sequential round trips to Railway before
+  /// the doctor's main screen shows anything but a line of grey text; at a 250-400 ms
+  /// RTT it is most of a second, and on cellular considerably more.
+  ///
+  /// Only the report gates the render now. The transcript belongs to the second tab and
+  /// the Session only feeds the red-flag banner, so neither has any business holding the
+  /// first paint — as long as each has an honest "not back yet" state, which is what
+  /// `_turnsLoading` and `_sessionLoading` are for.
   Future<void> _load() async {
-    // Report gates the render.
+    final sessions = SessionsApi();
+
+    // Transcript for the second tab. Failure is non-fatal: the report is the point of
+    // this page, so a transcript fetch error must not blank it out.
+    final turns = sessions.getConversations(widget.sessionId).then((v) {
+      if (mounted) setState(() { _turns = v; _turnsLoading = false; });
+    }).catchError((_) {
+      if (mounted) setState(() { _turnsFailed = true; _turnsLoading = false; });
+    });
+
+    // Session's failure drives the amber tri-state, NOT "no flag".
+    final session = sessions.getSession(widget.sessionId).then((v) {
+      if (mounted) setState(() { _session = v; _sessionLoadFailed = false; _sessionLoading = false; });
+    }).catchError((_) {
+      if (mounted) setState(() { _session = null; _sessionLoadFailed = true; _sessionLoading = false; });
+    });
+
     try {
       final r = await _reportsApi.getReportBySession(widget.sessionId);
-      // Transcript for the second tab. Failure is non-fatal: the report is the point of
-      // this page, so a transcript fetch error must not blank it out.
-      try {
-        _turns = await SessionsApi().getConversations(widget.sessionId);
-      } catch (_) {
-        _turnsFailed = true;
-      }
-      if (!mounted) return;
-      setState(() { _report = r; _loading = false; _error = r == null; });
+      if (mounted) setState(() { _report = r; _loading = false; _error = r == null; });
     } catch (_) {
       if (mounted) setState(() { _error = true; _loading = false; });
     }
-    // Session loads independently — its failure drives the amber tri-state, NOT "no flag".
-    try {
-      final s = await SessionsApi().getSession(widget.sessionId);
-      if (mounted) setState(() { _session = s; _sessionLoadFailed = false; });
-    } catch (_) {
-      if (mounted) setState(() { _session = null; _sessionLoadFailed = true; });
-    }
+
+    // Awaited only so callers (and tests) can wait for the screen to be fully settled;
+    // both have already applied their own results above. Neither can throw — `catchError`
+    // consumed it — so this cannot mask a failure.
+    await Future.wait([turns, session]);
   }
 
   _RedFlagState get _redFlagState {
     if (_session?.redFlag == true) return _RedFlagState.redFlag;
     if (_sessionLoadFailed) return _RedFlagState.loadFailed;
+    if (_sessionLoading) return _RedFlagState.unknown;
     return _RedFlagState.clear;
   }
 
@@ -232,6 +258,13 @@ class _SoapReportPageState extends State<SoapReportPage> {
     if (_turnsFailed) {
       return Center(child: Text(t('session.doctor.detail.loadError')));
     }
+    // The transcript no longer blocks the first paint, so the tab can be opened while it
+    // is still in flight. Without this case the empty-state text claims the consultation
+    // had no turns, which for a doctor reading a report is a factual statement about the
+    // patient, not a loading artefact.
+    if (_turnsLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (_turns.isEmpty) {
       return Center(child: Text(t('session.doctor.detail.conversationsEmpty')));
     }
@@ -322,6 +355,11 @@ class _SoapReportPageState extends State<SoapReportPage> {
       case _RedFlagState.loadFailed:
         return _banner(tk.alertHigh, tk.alertHighBg, t('soap.redFlag.loadFailedTitle'),
             t('soap.redFlag.loadFailedDescription'));
+      case _RedFlagState.unknown:
+        // Neutral and explicitly provisional — never `SizedBox.shrink()`, which is what
+        // "this session has no red flag" looks like. Same box height as the two real
+        // banners so resolving it does not shove the report down the page.
+        return _banner(tk.inkMuted, tk.chatBg, t('common.loading'), '');
       case _RedFlagState.clear:
         return const SizedBox.shrink();
     }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/i18n/loc.dart';
+import '../../core/i18n/locales_loader.dart';
 import '../../core/router/lng.dart';
 import '../../data/api/sessions_api.dart';
 
@@ -37,6 +38,13 @@ Future<void> switchLanguage(BuildContext context, String lng) async {
 
   final sessionId = conversationSessionIdInPath(uri.path);
   if (sessionId == null) {
+    // Boot loads only the active language plus its fallback chain; the rest are warmed
+    // in the background after the first frame. On a fast tap the target may not be
+    // resident yet, and the new page would render the zh-TW fallback and then visibly
+    // re-render. Already-loaded is a no-op, so the normal case costs nothing.
+    // Placed immediately before the navigation, not at the top: an await in front of
+    // the `showDialog(context: ...)` below would use a BuildContext across an async gap.
+    await Locales.ensure(lng);
     router.go(target);
     return;
   }
@@ -50,6 +58,9 @@ Future<void> switchLanguage(BuildContext context, String lng) async {
   if (outcome == null) return; // 使用者取消，語言不動
 
   if (outcome) {
+    // Same reason as the branch above — and here the snackbar below also renders with
+    // `lng:` forced to the target, so its strings have to be resident too.
+    await Locales.ensure(lng);
     // 場次剛被後端轉成 cancelled，所以**不能**回同一條 `conversation/:id`——那條路由
     // `_lngKeyed` 會重建 ConversationPage，`_init` 又對一場 cancelled 場次呼叫 start()
     // （WS 授權失敗 / 錯誤橫幅）。導回該語言的病患首頁，病患可直接用新語言重開一場，

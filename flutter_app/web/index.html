@@ -32,16 +32,59 @@
 
   <title>GU Voice｜泌尿科 AI 問診助手</title>
   <link rel="manifest" href="manifest.json">
+
+  <!--
+    Boot overlay. Everything Flutter draws — including the in-app BootGate splash — is
+    Dart code inside main.dart.js, so none of it can appear until ~4 MB of JS has been
+    downloaded, parsed and compiled and CanvasKit has initialised. Until 2026-08-22 the
+    body was the stock template: a bare script tag and nothing else, so that entire
+    window (seconds, on clinic hardware) was a blank white page, indistinguishable from
+    a broken link to the patient standing at the kiosk.
+
+    Inline styles only, never an inline script: the deployed CSP is
+    `style-src 'self' 'unsafe-inline'` but `script-src 'self' 'wasm-unsafe-eval'`, so an
+    inline script would be blocked in production while working fine in local testing.
+    The removal lives in flutter_bootstrap.js, which is same-origin.
+
+    The spinner starts invisible and fades in at 400ms, so a warm load never flashes one.
+  -->
+  <style>
+    :root { --boot-bg: #F8F9FC; --boot-fg: #2563EB; --boot-dim: #94A3B8; }
+    @media (prefers-color-scheme: dark) {
+      :root { --boot-bg: #0F1117; --boot-fg: #60A5FA; --boot-dim: #475569; }
+    }
+    html, body { margin: 0; padding: 0; height: 100%; background: var(--boot-bg); }
+    #boot {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 24px;
+      background: var(--boot-bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      transition: opacity .25s ease-out;
+    }
+    #boot.done { opacity: 0; pointer-events: none; }
+    #boot .name {
+      font-size: 20px; font-weight: 700; letter-spacing: .04em; color: var(--boot-fg);
+    }
+    #boot .spin {
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 2px solid var(--boot-dim); border-top-color: var(--boot-fg);
+      opacity: 0;
+      animation: boot-spin .8s linear infinite, boot-fade .2s ease-in .4s forwards;
+    }
+    @keyframes boot-spin { to { transform: rotate(360deg); } }
+    @keyframes boot-fade { to { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) {
+      #boot .spin { animation: boot-fade .2s ease-in .4s forwards; }
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
-
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <!-- Removed by flutter_bootstrap.js once the first Flutter frame has painted. -->
+  <div id="boot">
+    <div class="name">GU VOICE</div>
+    <div class="spin"></div>
+  </div>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
