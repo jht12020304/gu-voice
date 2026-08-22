@@ -9,6 +9,7 @@ import '../../../data/api/patients_api.dart';
 import '../../../data/models/patient.dart';
 import '../../../shared/format.dart';
 import '../../../shared/widgets/ui_kit.dart';
+import '../../../shared/widgets/dashboard_back_button.dart';
 
 // Port of PatientListPage.tsx: month-scoped, cursor-paginated, date-grouped patient list
 // with debounced search + infinite scroll. ponytail: responsive table/card split reduced
@@ -125,7 +126,8 @@ class _PatientListPageState extends State<PatientListPage> {
   Widget build(BuildContext context) {
     final groups = _groups;
     return Scaffold(
-      appBar: AppBar(title: Text(t('common.patientList.title'))),
+      appBar: AppBar(
+        leading: const DashboardBackButton(),title: Text(t('common.patientList.title'))),
       body: Column(
         children: [
           // ── 月份＋統計：步進器是卡片標題列，月份只在這裡出現 ──

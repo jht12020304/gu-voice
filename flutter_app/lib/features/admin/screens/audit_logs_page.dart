@@ -6,6 +6,7 @@ import '../../../core/i18n/loc.dart';
 import '../../../data/api/admin_api.dart';
 import '../../../shared/format.dart';
 import '../../../shared/widgets/ui_kit.dart';
+import '../../../shared/widgets/dashboard_back_button.dart';
 
 // Port of frontend/src/screens/admin/AuditLogsPage.tsx.
 // Cursor-paginated audit log list with an optional server-side `action` filter and
@@ -98,6 +99,7 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: const DashboardBackButton(),
         title: Text(t('admin.audit.title')),
         actions: [
           IconButton(
