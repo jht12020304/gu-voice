@@ -80,7 +80,21 @@ TOKEN=$(railway variables --service gu-voice-app --kv | sed -n 's/^METRICS_TOKEN
 
 沒設 token 的正式環境 = 四支端點全部 404（fail closed，不是放行）。
 
-## 3. 步驟 A：搬 `gu-voice-app`（無停機）
+## 3. 步驟 A：搬 `gu-voice-app`（無停機）— ✅ 2026-08-22 已完成
+
+> **實際結果**（deployment `fd780d67`，main `175e704`）：
+>
+> | | 搬遷前 | 搬遷後 |
+> |---|---|---|
+> | `/api/v1/health`（不碰 DB／Redis） | 0.32 s | **0.222 s** |
+> | `/api/v1/healthz/deep`（1 DB + 1 Redis） | **1.85 s，且 20/38 回 500** | **0.413 s，10/10 全 200** |
+> | 扣掉網路後的伺服器端工作 | 1.55 s | **0.19 s** |
+>
+> 0.413 − 0.222 = **0.19 s，幾乎剛好是一次跨太平洋的 Redis 來回**。
+> 也就是說 Postgres 那一段已經變成本地（~5–20 ms），**剩下的全部是 Redis 還在加州**。
+> 順帶證實：Railway 私有網路確實跨區可用（`healthz/deep` 的 `checks.redis` 是 `ok`）。
+
+
 
 `backend/railway.toml` 已經改好，內容是：
 
@@ -126,7 +140,24 @@ numReplicas = 1
 
 5. 跑 §5 的驗收。
 
-## 4. 步驟 B：搬 Redis（**有停機，挑離峰**）
+## 4. 步驟 B：搬 Redis（**有停機，挑離峰**）— ⬜ 還沒做
+
+> ⚠️ **2026-08-22 實查：`redis-volume` 已用 1077 MB / 50 GB。**
+> Railway 官方說法是「改區域不停機，**除非掛了 volume**」，而 volume 搬遷的時間
+> 依大小而定。1 GB 跨太平洋不是點一下就好——**這是一個要排的維護窗口，不是順手做的事**。
+>
+> 停機期間會發生什麼（都是 fail-open，不會噴 500，所以更要挑時間）：
+> JWT 黑名單檢查 fail-open（**已撤銷的 token 會被接受**）、限流失效、
+> Celery broker 斷線、dashboard WS pub/sub 斷線。
+>
+> 值不值得：搬完會把每個已登入請求再省下約 170 ms（0.41 s → 約 0.25 s，而 0.22 s
+> 是台灣↔新加坡的網路地板，再快不了）。**先問這 170 ms 值不值那個窗口。**
+>
+> 順帶一提，1 GB 對一個只存限流計數與 token 登記簿的 Redis 來說偏大——
+> Celery 的 `result_expires` 有設 86400，所以不是 key 沒過期，比較可能是 AOF
+> 檔沒被 rewrite。搬之前可以先看要不要清，順便讓遷移快一點。
+
+
 
 Railway 官方說法：改區域本身不停機，**除非該 service 掛了 volume**——那就要連 volume
 一起搬，過程會停機，時間依 volume 大小而定。
