@@ -631,6 +631,23 @@ assert_remote_url "API_BASE" "${api_base}" "https"
 assert_remote_url "WS_BASE"  "${ws_base}"  "wss"
 printf '    API_BASE = %s\n    WS_BASE  = %s\n' "${api_base}" "${ws_base}"
 
+# 測試期登入輔助（值與撤銷條件的權威：docs/ios_release_settings.md §8.6）。
+# 由環境變數傳入、逐項可選；一項都沒設＝正式版行為（整段在編譯期是死碼）。
+# 值不印到畫面（密碼），只印「帶了哪幾個 define」讓第 5 關前的人工檢查看得到。
+extra_defines=()
+for e2e_var in E2E_EMAIL E2E_PASSWORD E2E_DOCTOR_EMAIL E2E_DOCTOR_PASSWORD E2E_AUTO_LOGIN; do
+  if [[ -n "${!e2e_var:-}" ]]; then
+    extra_defines+=(--dart-define="${e2e_var}=${!e2e_var}")
+  fi
+done
+if (( ${#extra_defines[@]} > 0 )); then
+  printf '    ⚠ 測試期 dart-define：'
+  for d in "${extra_defines[@]}"; do printf '%s ' "${d%%=*}"; done
+  printf '（僅限 TestFlight 內測；生產有真病歷前停用，見 §8.6）\n'
+else
+  printf '    測試期 dart-define：無（正式版行為）\n'
+fi
+
 # --- 4. 靜態檢查與測試 ------------------------------------------------------
 
 step "4/6 analyze 與 test"
@@ -664,7 +681,10 @@ rm -rf "${ipa_dir}"
   --build-number="${build_number}" \
   --export-options-plist="${export_options}" \
   --dart-define="API_BASE=${api_base}" \
-  --dart-define="WS_BASE=${ws_base}"
+  --dart-define="WS_BASE=${ws_base}" \
+  ${extra_defines[@]+"${extra_defines[@]}"}
+  # ↑ bash 3.2 + set -u 下空陣列的 "${arr[@]}" 會報 unbound variable，
+  #   ${arr[@]+...} 是標準的安全展開寫法（正式版不帶任何 E2E define 時走空陣列）。
 
 # --- 6. 產物驗證 ------------------------------------------------------------
 #
