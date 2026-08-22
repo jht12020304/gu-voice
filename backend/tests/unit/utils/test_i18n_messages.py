@@ -135,3 +135,21 @@ def test_every_key_has_every_active_locale(key: str):
             f"ACTIVE_LANGUAGES={settings.ACTIVE_LANGUAGES}"
         )
         assert entry[locale], f"i18n key {key!r} 的 {locale} 翻譯為空"
+
+
+def test_initial_greeting_contains_ai_and_purpose_disclosure():
+    """衛福部生成式 AI 指引（2026-05-29 函頒）：與民眾互動須主動揭露 AI 身分並告知用途。
+
+    開場白的「AI」字樣＝身分揭露、「記錄/recorded/記録/기록/ghi lại」＝資料用途
+    揭露（對話會記錄並整理給醫師）。任何一語缺任一標記＝合規揭露被刪，擋下。
+    """
+    markers = {
+        "zh-TW": ("AI", "記錄"),
+        "en-US": ("AI", "recorded"),
+        "ja-JP": ("AI", "記録"),
+        "ko-KR": ("AI", "기록"),
+        "vi-VN": ("AI", "ghi lại"),
+    }
+    for lang, (ai_mark, record_mark) in markers.items():
+        msg = get_message("ws.initial_greeting", lang, chief_complaint="x")
+        assert ai_mark in msg and record_mark in msg, f"{lang} 缺揭露標記"

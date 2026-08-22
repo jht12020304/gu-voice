@@ -192,3 +192,22 @@ def sampling_kwargs(model: str, *, effort: str | None, temperature: float) -> di
         return {"reasoning_effort": effort or "none"}
     return {"temperature": temperature}
 
+
+def cache_kwargs(session_id: str | None) -> dict:
+    """回傳 prompt caching 路由參數（2026-08-22，接在每輪熱路徑上）。
+
+    問診每一輪都重送「session 專屬 system prompt + 累積對話」，但所有場次的
+    system prompt **開頭**是同一段靜態模板——OpenAI 預設以 prompt 前綴 hash 路由
+    快取，全部場次會擠到同一批快取分片。`prompt_cache_key` 讓路由改按場次分散，
+    提升並發下的 cache 命中率（Luna cached input 為原價 1/10；2026-08-22 實測
+    gpt-5.6-luna 第二呼叫 2474/2497 tokens 命中）。
+
+    SDK 1.58.1 沒有型別化的 prompt_cache_key 參數，經 extra_body 傳遞（實測可用）。
+    session_id 缺失時回空 dict（照常自動快取，只是不帶路由 key）。
+    ⚠️ 只該用在「同一前綴會重複出現」的呼叫（對話/supervisor/紅旗語意層每輪），
+    一次性呼叫（SOAP、summarizer）加了沒意義。
+    """
+    if not session_id or session_id == "unknown":
+        return {}
+    return {"extra_body": {"prompt_cache_key": f"sess-{session_id}"}}
+

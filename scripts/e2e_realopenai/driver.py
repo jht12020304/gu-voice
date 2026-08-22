@@ -4456,6 +4456,10 @@ SOAP_NOT_PROVIDED_TERMS = [
 SOAP_NO_ALLERGY_TERMS = [
     "無已知", "無藥物過敏", "無過敏", "沒有過敏", "沒有已知", "否認過敏", "無過敏史",
     "nkda", "no known allerg", "denies allerg", "no allerg",
+    # 2026-08-22 不變式 #34 三態規則的規定措辭：表單勾「無」→ SOAP 寫
+    # 「病患於表單勾選無」（比「無已知過敏」多了來源歸屬，是更精確的正確行為）。
+    # 當天晚間 intake_wiring_zh 的 i7 allergies fail 就是清單沒收這個新措辭的假性 fail。
+    "勾選無",
 ]
 # 整格值就等於這些字（strip 後精確比對）＝明確填「無」。
 # ⚠️ 刻意**不收** "none" / "no" / "-"：那三個同時是「欄位序列化成空值」的樣態
@@ -4569,12 +4573,33 @@ def _scan_intake_reasks(transcript: list[dict]) -> tuple[dict, dict]:
     return hits, restated
 
 
-def _scan_intake_reask_by_persona(transcript: list[dict]) -> list[dict]:
+def _interrogative_part(text: str) -> str:
+    """取出 AI 回合裡的**問句本身**（R18）。
+
+    AI 回合常是「複述表單內容 ＋ 新問題」的複合訊息（實測：先唸一遍高血壓／
+    aspirin／家族膀胱癌，再問『過去是否曾有腎結石、泌尿道感染或泌尿科手術？』）。
+    對整段做主題比對會被複述前綴污染——複述不是重問（另有 INTAKE_RESTATE_MARKERS
+    排除層），只有問句觸及 intake 主題才算。取所有以 ？/? 結尾的句子；
+    整段連一個問句都沒有時退回整段（保守，不放寬）。
+    """
+    sentences = re.split(r"(?<=[。！!？?\n])", text)
+    questions = [s for s in sentences if s.rstrip().endswith(("？", "?"))]
+    return " ".join(questions) if questions else text
+
+
+def _scan_intake_reask_by_persona(transcript: list[dict]) -> tuple[list[dict], list[dict]]:
     """語意層偵測：病患回「這些我剛剛在表單上都填過了」＝上一則 AI 在重問 intake。
 
     不依賴關鍵字寫法，補足字面比對漏接（阿司匹靈 vs 阿斯匹靈）的破口。
+
+    R18（2026-08-22 結案）：主題比對只吃 AI 回合的**問句部分**，且問句比對不到
+    任何 intake 主題時**不計入 fail**——那代表 AI 問的是 intake 沒涵蓋的新主題
+    （表單的高血壓不蘊含「沒有泌尿道疾病」，`SessionIntake` 也沒有手術史欄位，
+    AI 非問不可），病患模擬器的抱怨是被複述前綴誤導。這類案例整筆收進第二個
+    回傳值供人工複核，不靜默丟棄。
     """
     hits: list[dict] = []
+    unmatched: list[dict] = []
     for i, e in enumerate(transcript):
         if e.get("role") != "patient":
             continue
@@ -4588,21 +4613,21 @@ def _scan_intake_reask_by_persona(transcript: list[dict]) -> list[dict]:
         if prev_ai is None:
             continue
         ai_text = (prev_ai.get("content") or "")
-        ai_low = ai_text.lower()
+        ai_question_low = _interrogative_part(ai_text).lower()
         fields = [
             f
             for f, pats in INTAKE_REASK_PATTERNS.items()
-            if any(_reask_pattern_match(p, ai_low) for p in pats)
-        ] or ["unclassified"]
-        hits.append(
-            {
-                "after_patient_turn": e.get("patient_turn"),
-                "fields": fields,
-                "ai_question": ai_text,
-                "patient_reply": content,
-            }
-        )
-    return hits
+            if any(_reask_pattern_match(p, ai_question_low) for p in pats)
+        ]
+        record = {
+            "after_patient_turn": e.get("patient_turn"),
+            "fields": fields or ["unmatched_by_question_topic"],
+            "ai_question": ai_text,
+            "ai_interrogative_part": _interrogative_part(ai_text),
+            "patient_reply": content,
+        }
+        (hits if fields else unmatched).append(record)
+    return hits, unmatched
 
 
 def _intake_probe_facts(probe: dict) -> dict:
@@ -4722,7 +4747,7 @@ def analyze_intake_wiring(result: dict, db_state: dict) -> dict:
     # 把已知失敗降級成註記；現已納入。
     transcript = result.get("transcript", [])
     reasks, restates = _scan_intake_reasks(transcript)
-    persona_hits = _scan_intake_reask_by_persona(transcript)
+    persona_hits, persona_unmatched = _scan_intake_reask_by_persona(transcript)
     gated_fields = ("history", "medications", "allergies", "family_history")
     gated_hits = [h for f in gated_fields for h in reasks[f]]
 
@@ -4833,8 +4858,11 @@ def analyze_intake_wiring(result: dict, db_state: dict) -> dict:
             len(gated_hits) == 0 and len(persona_hits) == 0,
             gated_fields=list(gated_fields),
             reask_hits={f: reasks[f] for f in gated_fields},
-            # 語意層：病患回「表單上都填過了」＝上一則 AI 確實在重問
+            # 語意層：病患回「表單上都填過了」且 AI **問句**觸及 intake 主題＝真重問
             persona_confirmed_reasks=persona_hits,
+            # R18：病患抱怨但 AI 問句不含任何 intake 主題（新主題提問被複述前綴
+            # 誤導）→ 不計 fail，留檔供人工複核
+            persona_complaints_unmatched_by_question=persona_unmatched,
             # 複述/確認 intake 內容不算重問，單獨列出供人工複核
             restatements_excluded={f: restates[f] for f in gated_fields},
         ),

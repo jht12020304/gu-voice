@@ -355,8 +355,32 @@ API 值＝關 CoT（0 reasoning token）。相容性判斷集中在
 `temperature=`，一換模型整條 400——**新增 LLM 呼叫點一律用 helper**。
 另外兩個實測事實：`"minimal"` effort 在 5.6 已拿掉（400）；SOAP 不開 CoT 是刻意的
 （reasoning token 與 JSON 本體共用 `max_completion_tokens` 額度，會撞 D-4 截斷偵測）。
-**STT 刻意留 whisper-1**：`stt_pipeline` 依賴 verbose_json segments 做靜音幻覺兜底與
-`stt_confidence`，`gpt-transcribe` 不回那些欄位——換 STT 模型前要先重做兜底。
+**STT 已換 gpt-transcribe（2026-08-22 晚間；先前「刻意留 whisper-1」的前提已依規定重做）**：
+- 兜底重做：`stt_confidence` 改由 `include[]=logprobs` 的 token logprobs 估算（經
+  `extra_body` 傳遞，SDK 1.58.1 實測可用）；靜音／雜訊 gpt-transcribe 本身回空字串
+  （2 秒雜訊實測 whisper-1 吐「字幕由Amara.org社区提供」、gpt-transcribe 回空），
+  片語黑名單保留為第二層。
+- ⚠️ **gpt-transcribe 中文輸出一律簡體**（prompt 給滿繁體語境也逼不回來，實測）——
+  zh 場次由 OpenCC `s2tw` 確定性轉台灣繁體（`to_taiwan_traditional`，轉換在幻覺
+  片語比對**之前**）。這條轉換不得移除，否則病患畫面與 SOAP 全變簡體。
+- keyword hints：`build_stt_keyword_hint` 只收「病患自己表單寫過的詞」＋極小固定
+  科別詞，**不放通用症狀詞庫**（偏置會在音訊模糊時誘發假陽性）；自由文字先過
+  `sanitize_for_prompt`。
+- 回退：`OPENAI_STT_MODEL=whisper-1` 一個 env 切回（verbose_json segments 兜底
+  路徑完整保留，`test_stt_gpt_transcribe.py` 兩個世代的請求形狀都有釘）。
+- 順帶修掉的既有缺陷：`_normalize_for_match` 原本只剝頭尾標點，whisper 實際輸出
+  「Amara.org」帶內部句點 → 黑名單那幾條**從來沒真正命中過**；現改為只保留
+  字母數字（CJK 屬 alnum），兩側同函式、全等語意不變。
+
+**開場白的合規揭露不得刪（2026-08-22 加）**：`ws.initial_greeting` 五語都含
+「AI 身分＋對話會記錄整理給醫師」兩個標記——衛福部生成式 AI 指引（2026-05-29
+函頒）的明文義務，`test_initial_greeting_contains_ai_and_purpose_disclosure` 釘住。
+
+**prompt caching 路由（2026-08-22 加）**：對話／supervisor／紅旗語意層三個每輪
+呼叫點帶 `cache_kwargs(session_id)`（`prompt_cache_key` 經 extra_body；實測第二
+呼叫 2474/2497 tokens 命中）。**別**把它加到 SOAP／summarizer（一次性呼叫沒意義），
+也別為了快取去動 format_messages 的「三明治」結構（dont-know ban／收尾指示前置是
+行為修復，優先於快取）。
 
 **#34 SOAP prompt 的「表單資料的使用規則」段落不得刪（2026-08-22 加）。**
 資料面（R1）只保證 intake 進了 user_message；這一段才是**指令面**：表單的既往史／

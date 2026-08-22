@@ -1625,7 +1625,7 @@ ja 探針改為「発熱」並補上「裸『熱』不得回到本軸」的反�
 > 所以 R18 的前提**不是**乾淨地「已改變」——它是不穩定的。
 > 要結案必須重跑 `intake_wiring_zh` ＋ `dontknow_zh` **多次**並逐探針比對，不是看場次總判。
 
-### [ ] R18. 🟢 `i5_no_reask_intake_fields` 斷言過嚴
+### [x] R18. 🟢 `i5_no_reask_intake_fields` 斷言過嚴（2026-08-22 晚間結案）
 
 AI 問「您以前有沒有得過膀胱炎、腎結石，或做過泌尿科方面的手術？」被判成重問 intake，
 但 intake 的 `medical_history` 只有高血壓＋第二型糖尿病——**高血壓不蘊含「沒有泌尿道疾病」**，
@@ -1634,6 +1634,15 @@ AI 問「您以前有沒有得過膀胱炎、腎結石，或做過泌尿科方�
 對照：用藥欄有 aspirin 時問「有沒有在吃抗凝血劑」**才是**真重問（R10 已修）。
 修法：收斂成「AI 問的主題被 intake 條目**實際涵蓋**時才算重問」——那是提升精確度不是放水。
 **不要直接放寬讓它變綠**，那正是 §R 這四輪一直在抓的失敗模式。
+
+**結案（依上面拍板的修法實作，不是放寬）**：persona 語意層的主題比對改吃 AI 回合的
+**問句部分**（`_interrogative_part`：取 ？/? 結尾句；無問句退回整段＝保守），複述前綴
+（「病患表單自填有高血壓…」）不再污染比對；問句比對不到任何 intake 主題的病患抱怨
+**不計 fail**、整筆收進 `persona_complaints_unmatched_by_question` 供人工複核（不靜默丟）。
+真重問（問句本身含 過敏／家族／現行服藥語境／intake 具體條目異寫）仍照舊計入。
+驗證：2026-08-22 晚間 `intake_wiring_zh` 真跑（i5 原 fail 樣態重現：turn 10 複述表單後
+問腎結石/UTI/手術）→ 修後 reanalyze i5 pass、overall PASS；`torsion_critical_zh`
+reanalyze 無副作用。
 
 ### [ ] R19. 🟡 第 1 輪無 supervisor guidance 時換句話重問
 
@@ -2162,3 +2171,43 @@ sentinel 情境下當唯一來源；或取兩者聯集。任一改法都動到 �
 
 ⚠️ 驗 §3b 時**一律用 `ed_3b_zh` / `hematuria_3b_en`**，別用帶自由文字的情境——否則 K=0
 會讓「AI 沒問風險因子」看起來像 prompt 問題。已寫進 `scripts/e2e_realopenai/README.md`。
+
+## T — 問診品質升級批次（2026-08-22 晚間，研究掃描 → 五批修改 → 逐批驗收）
+
+> 起點是同日的 2026 情報掃描（44 條 findings，artifact「2026 問診品質情報」）。
+> 五批全部改在後端——**app 端零改動，測試者手上的 build 202608221816 部署後直接受益**。
+
+- [x] **T1. TTS 釘 `gpt-4o-mini-tts-2025-12-15` 快照**（官方 WER ≈ -35%）。
+  驗收：真 API nova×mp3×speed0.9 → 200、mp3 正常。
+- [x] **T2. STT 換代 whisper-1 → `gpt-transcribe`**（幻聽是主因；換代前依 skill 要求重做兜底）：
+  - `stt_confidence` 改 `include[]=logprobs`（extra_body，SDK 1.58.1 不用升）；
+  - **中文輸出一律簡體** → OpenCC `s2tw` 確定性轉繁（轉換在幻覺比對前）；
+  - `build_stt_keyword_hint`：主訴＋表單用藥/過敏/病史/家族史 → STT prompt
+    （只收病患自己寫過的詞防偏置假陽性；過 `sanitize_for_prompt`）；
+  - 順修既有缺陷：`_normalize_for_match` 只剝頭尾標點 → Amara 黑名單**從未命中過**
+    （改只留 alnum）；
+  - 新增**語速護欄**：>25 字/秒 ∧ ≥10 秒 → 當幻覺丟棄（實測 169s 重複語句音檔
+    讓 gpt-transcribe 解碼重複迴圈吐 13,991 字）；
+  - 回退：`OPENAI_STT_MODEL=whisper-1` 單一 env（舊路徑含 segments 兜底完整保留）。
+  驗收：`test_stt_gpt_transcribe.py` 全綠＋真 API 三音檔（語音→全繁體＋可邁丁 hint 拉正
+  ＋confidence 0.9918；靜音/雜訊→空字串，whisper-1 同雜訊檔吐「字幕由Amara.org社区提供」）。
+- [x] **T3. 紅旗非典型急症迴歸評測 `scripts/red_flag_eval.py`**（真 OpenAI、免 DB——
+  W1 fallback 內建 catalogue）。動機：Nature Medicine 2026-02 實測 ChatGPT Health 對
+  「危險不明顯」急症過半 under-triage。10 案例（典型 3／非典型 4／陰性 2／
+  政策接受誤報 1）**10/10 PASS**：蛋蛋俗語扭轉、跨輪累積 urosepsis、年長者輕描淡寫全抓到。
+- [x] **T4. 開場白補合規揭露**（衛福部生成式 AI 指引 2026-05-29 函頒）：五語
+  `ws.initial_greeting` 加「對話會記錄、整理成摘要供醫師看診參考」；
+  `test_initial_greeting_contains_ai_and_purpose_disclosure` 釘住不得刪。
+- [x] **T5. prompt caching 路由 `cache_kwargs(session_id)`**：對話／supervisor／紅旗
+  語意層三個每輪呼叫點帶 `prompt_cache_key`（extra_body）。實測第二呼叫
+  2474/2497 tokens 命中；Luna cached input 為原價 1/10。
+- [x] **（取消）supervisor checklist 重構**——盤點後確認現行設計**已是** EPAG 建議的
+  checklist/slot 制（HPI 十欄單一來源＋missing_hpi 合法 id＋§3b 同級必問＋一致性檢查），
+  無需重構。
+- [x] **總驗收**：後端 pytest 4819 passed；e2e-real-openai `torsion_critical_zh` PASS
+  （新揭露句上線、rule_hit、abort+SOAP 正常）＋ `intake_wiring_zh` PASS
+  （i7 假性 fail＝driver 白名單沒收 #34 新措辭「病患於表單勾選無」，已補；
+  i5＝R18 既有工單，依拍板修法結案，見 R18）。
+- [ ] **T6. 真麥克風下驗 gpt-transcribe**：§V1 仍未清——kiosk iPad 首次真麥克風驗證時，
+  一併確認新 STT 對真實台灣腔（尤其年長者）的表現；如有問題 `OPENAI_STT_MODEL=whisper-1`
+  即時回退。研究掃描指出年長男性錯誤率可達年輕語料數倍（WildElder），評估要分齡。

@@ -53,3 +53,24 @@ class TestKwargs:
     def test_traditional_model_gets_temperature_never_effort(self):
         kw = sampling_kwargs("gpt-4o", effort="medium", temperature=0.3)
         assert kw == {"temperature": 0.3}
+
+
+# ── cache_kwargs（2026-08-22 prompt caching 路由） ─────────
+
+
+def test_cache_kwargs_builds_extra_body_with_session_key():
+    from app.core.openai_client import cache_kwargs
+
+    assert cache_kwargs("abc-123") == {
+        "extra_body": {"prompt_cache_key": "sess-abc-123"}
+    }
+
+
+def test_cache_kwargs_empty_for_missing_or_unknown_session():
+    from app.core.openai_client import cache_kwargs
+
+    assert cache_kwargs(None) == {}
+    assert cache_kwargs("") == {}
+    # generate_response 的 session_id 預設佔位字串——所有場次共用 "sess-unknown"
+    # 反而把不同前綴路由到同一分片，寧可不帶 key
+    assert cache_kwargs("unknown") == {}

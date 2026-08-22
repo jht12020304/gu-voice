@@ -23,7 +23,12 @@ from redis.asyncio import Redis
 
 from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
-from app.core.openai_client import call_with_retry, get_openai_client, sampling_kwargs
+from app.core.openai_client import (
+    cache_kwargs,
+    call_with_retry,
+    get_openai_client,
+    sampling_kwargs,
+)
 from app.pipelines.llm_conversation import (
     render_critical_risk_factor_items_with_intake,
     session_intake_fields,
@@ -331,6 +336,8 @@ class SupervisorEngine:
                     effort=self._reasoning_effort,
                     temperature=self._temperature,
                 ),
+                # 每輪重送同一 session 前綴 → 按場次路由快取（openai_client.cache_kwargs）
+                **cache_kwargs(session_id),
             }
             response = await call_with_retry(
                 lambda: self._client.chat.completions.create(**create_kwargs)
