@@ -7,6 +7,7 @@ import '../../../core/router/lng.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/models/alert.dart';
 import '../../../shared/format.dart';
+import '../../../shared/widgets/ui_kit.dart';
 import '../state/alerts_controller.dart';
 
 const _severityRank = {'critical': 0, 'high': 1, 'medium': 2};
@@ -117,22 +118,19 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
   }
 
   Widget _body(BuildContext context, AlertsState st, List<MapEntry<String, List<RedFlagAlert>>> groups) {
-    if (st.isLoading && st.alerts.isEmpty) return const Center(child: CircularProgressIndicator());
+    if (st.isLoading && st.alerts.isEmpty) return const SkeletonList();
     if (st.error != null && st.alerts.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(st.error!),
-          const SizedBox(height: 8),
-          FilledButton(onPressed: ref.read(alertsProvider.notifier).fetchAlerts, child: Text(t('common.retry'))),
-        ]),
+      return ErrorState(
+        message: st.error!,
+        retryLabel: t('common.retry'),
+        onRetry: ref.read(alertsProvider.notifier).fetchAlerts,
       );
     }
     if (groups.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(t('dashboard.alertList.emptyTitle'), style: Theme.of(context).textTheme.titleMedium),
-          Text(t('dashboard.alertList.emptyMessage')),
-        ]),
+      return EmptyState(
+        icon: Icons.flag_outlined,
+        title: t('dashboard.alertList.emptyTitle'),
+        message: t('dashboard.alertList.emptyMessage'),
       );
     }
     return ListView(
@@ -140,13 +138,10 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
       padding: const EdgeInsets.all(16),
       children: [
         for (final g in groups) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text('${g.key}  ·  ${t('dashboard.alertList.groupCount', args: {'count': g.value.length})}',
-                style: Theme.of(context).textTheme.labelMedium),
-          ),
+          GroupHeader('${g.key}  ·  ${t('dashboard.alertList.groupCount', args: {'count': g.value.length})}'),
           for (final a in g.value) _card(context, a),
         ],
+        // 分頁尾端小 spinner：非首次載入，保留轉圈（不佔整區）。
         if (st.isLoading) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
         if (!st.hasMore) Center(child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded')))),
       ],
@@ -168,15 +163,13 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
           padding: const EdgeInsets.all(14),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(color: sevColor.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(9999)),
-                child: Text(a.severity.toUpperCase(), style: TextStyle(color: sevColor, fontSize: 11, fontWeight: FontWeight.w700)),
-              ),
+              PillTag(a.severity.toUpperCase(), color: sevColor),
               const SizedBox(width: 8),
               Expanded(child: Text(a.title, style: const TextStyle(fontWeight: FontWeight.w600))),
-              Text(a.acknowledged ? t('dashboard.alert.acknowledged') : t('dashboard.alert.pending'),
-                  style: TextStyle(fontSize: 12, color: a.acknowledged ? tk.statusCompleted : tk.alertHigh)),
+              PillTag(
+                a.acknowledged ? t('dashboard.alert.acknowledged') : t('dashboard.alert.pending'),
+                color: a.acknowledged ? tk.statusCompleted : tk.alertHigh,
+              ),
             ]),
             if (a.triggerReason.isNotEmpty) ...[
               const SizedBox(height: 6),

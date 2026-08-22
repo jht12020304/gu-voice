@@ -3,14 +3,18 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/i18n/loc.dart';
 import '../../../core/router/lng.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/patients_api.dart';
 import '../../../data/models/patient.dart';
 import '../../../data/models/session.dart';
 import '../../../shared/format.dart';
 import '../../../shared/widgets/status_badge.dart';
+import '../../../shared/widgets/ui_kit.dart';
 
 // Port of PatientDetailPage.tsx — parallel load of patient + sessions, history chips,
-// delete-confirm modal.
+// delete-confirm modal. Visual pass (2026-08-22, design-taste-frontend): section
+// titles moved out of their cards into GroupHeader (對齊 settings/patient-list 的寫法），
+// history 標籤換成 PillTag，載入/錯誤/無場次換成骨架與有 icon 的狀態元件。
 class PatientDetailPage extends StatefulWidget {
   const PatientDetailPage({super.key, required this.patientId});
   final String patientId;
@@ -79,9 +83,26 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return Scaffold(appBar: AppBar(), body: Center(child: Text(t('common.doctor.patient.loading'))));
-    if (_error) return Scaffold(appBar: AppBar(), body: Center(child: Text(t('common.doctor.patient.loadError'))));
-    if (_patient == null) return Scaffold(appBar: AppBar(), body: Center(child: Text(t('common.doctor.patient.notFound'))));
+    if (_loading) return Scaffold(appBar: AppBar(), body: const SkeletonList());
+    if (_error) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: ErrorState(
+          message: t('common.doctor.patient.loadError'),
+          retryLabel: t('common.retry'),
+          onRetry: _load,
+        ),
+      );
+    }
+    if (_patient == null) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: EmptyState(
+          icon: Icons.person_off_outlined,
+          title: t('common.doctor.patient.notFound'),
+        ),
+      );
+    }
     final p = _patient!;
     final theme = Theme.of(context);
 
@@ -129,25 +150,24 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
               ]),
             ),
           ),
-          const SizedBox(height: 12),
+          GroupHeader(t('common.doctor.patient.historyTitle')),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(t('common.doctor.patient.historyTitle'), style: theme.textTheme.titleSmall),
-                const SizedBox(height: 8),
                 _chips(t('common.doctor.patient.allergies'), p.allergens),
                 _chips(t('common.doctor.patient.currentMedications'), p.medications),
                 _chips(t('common.doctor.patient.medicalHistory'), p.conditions),
               ]),
             ),
           ),
-          const SizedBox(height: 12),
-          Text('${t('common.doctor.patient.recentSessions')} · ${t('common.doctor.patient.sessionCount', args: {'count': _sessions.length})}',
-              style: theme.textTheme.titleSmall),
-          const SizedBox(height: 8),
+          GroupHeader('${t('common.doctor.patient.recentSessions')} · ${t('common.doctor.patient.sessionCount', args: {'count': _sessions.length})}'),
           if (_sessions.isEmpty)
-            Text(t('common.doctor.patient.noSessions'))
+            EmptyState(
+              icon: Icons.forum_outlined,
+              title: t('common.doctor.patient.noSessions'),
+              message: t('common.doctor.patient.noSessionsHint'),
+            )
           else
             for (final s in _sessions) _sessionRow(context, s),
         ],
@@ -155,24 +175,36 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
     );
   }
 
-  Widget _info(String label, String value) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-          Text(value),
-        ]),
-      );
+  // 標籤在左（inkSecondary）、值靠右（inkHeading 加粗），對齊 doctor_settings_page
+  // 的 row() 寫法——這裡是同一種「小型資訊列」，不必再各自發明樣式。
+  Widget _info(String label, String value) {
+    final tk = Theme.of(context).extension<AppTokens>()!;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(label, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: tk.inkSecondary)),
+        Text(value,
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w600, color: tk.inkHeading)),
+      ]),
+    );
+  }
 
-  Widget _chips(String label, List<String> items) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 4),
-          items.isEmpty
-              ? Text(t('common.doctor.patient.notRecorded'))
-              : Wrap(spacing: 6, runSpacing: 6, children: [for (final i in items) Chip(label: Text(i), visualDensity: VisualDensity.compact)]),
-        ]),
-      );
+  Widget _chips(String label, List<String> items) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 4),
+        items.isEmpty
+            ? Text(t('common.doctor.patient.notRecorded'))
+            : Wrap(spacing: 6, runSpacing: 6, children: [for (final i in items) PillTag(i, color: primary)]),
+      ]),
+    );
+  }
 
   Widget _sessionRow(BuildContext context, Session s) => Card(
         margin: const EdgeInsets.symmetric(vertical: 4),

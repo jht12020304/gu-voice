@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/i18n/loc.dart';
 import '../../../data/api/admin_api.dart';
 import '../../../shared/format.dart';
+import '../../../shared/widgets/ui_kit.dart';
 
 // Port of frontend/src/screens/admin/AuditLogsPage.tsx.
 // Cursor-paginated audit log list with an optional server-side `action` filter and
@@ -126,22 +127,19 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
   }
 
   Widget _body(BuildContext context) {
-    if (_loading && _logs.isEmpty) return const Center(child: CircularProgressIndicator());
+    if (_loading && _logs.isEmpty) return const SkeletonList();
     if (_error != null && _logs.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-          const SizedBox(height: 8),
-          TextButton(onPressed: () => _fetch(reset: true), child: Text(t('common.retry'))),
-        ]),
+      return ErrorState(
+        message: _error!,
+        retryLabel: t('common.retry'),
+        onRetry: () => _fetch(reset: true),
       );
     }
     if (_logs.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(t('admin.audit.emptyTitle'), style: Theme.of(context).textTheme.titleMedium),
-          Text(t('admin.audit.emptyMessage')),
-        ]),
+      return EmptyState(
+        icon: Icons.receipt_long_outlined,
+        title: t('admin.audit.emptyTitle'),
+        message: t('admin.audit.emptyMessage'),
       );
     }
     return RefreshIndicator(
@@ -150,7 +148,7 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
         controller: _scroll,
         padding: const EdgeInsets.all(16),
         children: [
-          for (final log in _logs) _card(context, log),
+          ..._groupedRows(context),
           if (_loading && _logs.isNotEmpty)
             const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
           if (!_hasMore)
@@ -158,6 +156,23 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
         ],
       ),
     );
+  }
+
+  // 依日期插入分組標頭，連續同日只顯示一次。日期解析不出來就不分組
+  // （併入前一組、不強塞佔位字面），沿用既有清單的順序，不重新排序。
+  List<Widget> _groupedRows(BuildContext context) {
+    final rows = <Widget>[];
+    String? lastKey;
+    for (final log in _logs) {
+      final createdAt = _read(log, ['createdAt', 'created_at']);
+      final key = (createdAt != null && createdAt.length >= 10) ? createdAt.substring(0, 10) : null;
+      if (key != null && key != lastKey) {
+        rows.add(GroupHeader(key));
+        lastKey = key;
+      }
+      rows.add(_card(context, log));
+    }
+    return rows;
   }
 
   Widget _card(BuildContext context, Map log) {
@@ -184,13 +199,8 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Expanded(
-              child: Text(action,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.primary,
-                  )),
-            ),
+            Flexible(child: PillTag(action, color: theme.colorScheme.primary)),
+            const Spacer(),
             Text(formatDateTime(createdAt), style: theme.textTheme.bodySmall),
           ]),
           if (meta.isNotEmpty) ...[

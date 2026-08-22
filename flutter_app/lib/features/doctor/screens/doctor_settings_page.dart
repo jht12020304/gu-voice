@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/config/env.dart';
 import '../../../core/i18n/loc.dart';
 import '../../../shared/widgets/language_bar.dart';
+import '../../../shared/widgets/ui_kit.dart';
 import '../../auth/auth_notifier.dart';
 import '../../voice/state/settings_notifier.dart';
 
@@ -26,17 +27,15 @@ class DoctorSettingsPage extends ConsumerWidget {
     final notifier = ref.read(settingsProvider.notifier);
     final text = Theme.of(context).textTheme;
 
-    Widget section(String title, List<Widget> children) => Card(
+    // section 標題移到卡外用 GroupHeader（對齊儀表板「管理區」寫法），
+    // 卡內只留內容——兩形系統：容器=8（Card 預設）、這裡沒有標籤故不涉及 pill。
+    Widget section(List<Widget> children) => Card(
           margin: const EdgeInsets.only(bottom: 16),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: text.titleMedium),
-                const SizedBox(height: 12),
-                ...children,
-              ],
+              children: children,
             ),
           ),
         );
@@ -65,14 +64,16 @@ class DoctorSettingsPage extends ConsumerWidget {
         children: [
           Text(t('common.doctor.settings.subtitle'), style: text.bodySmall),
           const SizedBox(height: 16),
-          section(t('common.doctor.settings.accountInfo'), [
+          GroupHeader(t('common.doctor.settings.accountInfo')),
+          section([
             row(t('common.doctor.settings.name'), user?.name),
             row(t('common.doctor.settings.email'), user?.email),
             row(t('common.doctor.settings.role'), user?.role),
             row(t('common.doctor.settings.department'), user?.department),
             row(t('common.doctor.settings.phone'), user?.phone),
           ]),
-          section(t('common.doctor.settings.appearance'), [
+          GroupHeader(t('common.doctor.settings.appearance')),
+          section([
             Text(t('common.doctor.settings.themeHint'), style: text.bodySmall),
             const SizedBox(height: 8),
             SegmentedButton<ThemeMode>(
@@ -101,7 +102,8 @@ class DoctorSettingsPage extends ConsumerWidget {
             // new lng. Doctors previously only had zh/en chips on the patient page.
             const LanguageBar(),
           ]),
-          section(t('common.doctor.settings.notifications'), [
+          GroupHeader(t('common.doctor.settings.notifications')),
+          section([
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(t('common.doctor.settings.soundAlerts')),
@@ -110,7 +112,8 @@ class DoctorSettingsPage extends ConsumerWidget {
               onChanged: (_) => notifier.toggleSoundAlerts(),
             ),
           ]),
-          section(t('common.doctor.settings.systemInfo'), [
+          GroupHeader(t('common.doctor.settings.systemInfo')),
+          section([
             row(t('common.doctor.settings.apiEndpoint'), Env.apiBase),
           ]),
         ],

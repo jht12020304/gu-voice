@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/i18n/loc.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/admin_api.dart';
+import '../../../shared/widgets/ui_kit.dart';
 
 // Port of frontend/src/screens/admin/SystemHealthPage.tsx.
 // getSystemHealth() returns a Map whose shapes vary (a field may be a plain
@@ -74,8 +75,10 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
     return low == 'error' || low == 'down' || low == 'unhealthy' || low == 'disconnected' || low == 'fail' || low == 'failed' || low == 'false' || low == 'offline';
   }
 
+  // ok 對應 statusCompleted 而非 alertSuccess：與 alert_list_page 的
+  // acknowledged 用同一顆語意綠，全站「正常/已完成」共用一種綠色語彙。
   Color _statusColor(String s, AppTokens tk) {
-    if (_isOk(s)) return tk.alertSuccess;
+    if (_isOk(s)) return tk.statusCompleted;
     if (_isBad(s)) return tk.alertCritical;
     return tk.alertMedium; // unknown / degraded -> amber
   }
@@ -99,21 +102,13 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
 
   Widget _body(BuildContext context) {
     if (_loading && _health.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 12),
-          Text(t('admin.systemHealth.loading')),
-        ]),
-      );
+      return const SkeletonList();
     }
     if (_error != null && _health.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(_error!, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          FilledButton.tonal(onPressed: _load, child: Text(t('admin.systemHealth.refresh'))),
-        ]),
+      return ErrorState(
+        message: _error!,
+        retryLabel: t('admin.systemHealth.refresh'),
+        onRetry: _load,
       );
     }
 
@@ -132,58 +127,24 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
         children: [
           Text(t('admin.systemHealth.subtitle'), style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 16),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              _statusCard(context, tk, Icons.dns, t('admin.systemHealth.metrics.apiStatus'), status, colored: true),
-              _statusCard(context, tk, Icons.storage, t('admin.systemHealth.metrics.database'), database, colored: true),
-              _statusCard(context, tk, Icons.memory, t('admin.systemHealth.metrics.redis'), redis, colored: true),
-              _statusCard(context, tk, Icons.auto_awesome, t('admin.systemHealth.metrics.openai'), openai, colored: true),
-              _statusCard(context, tk, Icons.public, t('admin.systemHealth.metrics.version'), version, colored: false),
-            ],
+          _ServiceStatusGroup(tk: tk, rows: [
+            _ServiceRow(Icons.dns, t('admin.systemHealth.metrics.apiStatus'), status, _statusColor(status, tk)),
+            _ServiceRow(Icons.storage, t('admin.systemHealth.metrics.database'), database, _statusColor(database, tk)),
+            _ServiceRow(Icons.memory, t('admin.systemHealth.metrics.redis'), redis, _statusColor(redis, tk)),
+            _ServiceRow(Icons.auto_awesome, t('admin.systemHealth.metrics.openai'), openai, _statusColor(openai, tk)),
+          ]),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: StatCell(label: t('admin.systemHealth.metrics.version'), value: version),
+            ),
           ),
           const SizedBox(height: 24),
           _eventsCard(context, tk, status, timestamp),
           const SizedBox(height: 16),
           _dependencyCard(context, tk, openai: openai, database: database, redis: redis),
         ],
-      ),
-    );
-  }
-
-  Widget _statusCard(BuildContext context, AppTokens tk, IconData icon, String label, String value, {required bool colored}) {
-    final color = colored ? _statusColor(value, tk) : Theme.of(context).colorScheme.onSurface;
-    return SizedBox(
-      width: 260,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(children: [
-                Icon(icon, size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
-                const SizedBox(width: 8),
-                Expanded(child: Text(label, style: Theme.of(context).textTheme.labelMedium)),
-              ]),
-              const SizedBox(height: 12),
-              Row(children: [
-                if (colored) ...[
-                  Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-                  const SizedBox(width: 8),
-                ],
-                Expanded(
-                  child: Text(
-                    value,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700, color: color),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ]),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -259,7 +220,7 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
       children: [
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Text(label, style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-          Text(value, style: Theme.of(context).textTheme.bodySmall),
+          PillTag(value, color: color),
         ]),
         const SizedBox(height: 6),
         ClipRRect(
@@ -272,6 +233,49 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ServiceRow {
+  const _ServiceRow(this.icon, this.label, this.value, this.color);
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+}
+
+// 服務狀態群組：一張卡、多列、hairline 分隔（分隔線縮排對齊文字起點，
+// 對齊 dashboard_page 的 _NavGroup 寫法）。
+class _ServiceStatusGroup extends StatelessWidget {
+  const _ServiceStatusGroup({required this.tk, required this.rows});
+
+  final AppTokens tk;
+  final List<_ServiceRow> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Column(children: [
+        for (var i = 0; i < rows.length; i++) ...[
+          if (i > 0) Divider(height: 1, thickness: 1, indent: 64, color: tk.edge),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(children: [
+              IconTile(rows[i].icon, color: rows[i].color),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(rows[i].label,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyLarge
+                        ?.copyWith(color: tk.inkBody, fontWeight: FontWeight.w500)),
+              ),
+              PillTag(rows[i].value, color: rows[i].color),
+            ]),
+          ),
+        ],
+      ]),
     );
   }
 }

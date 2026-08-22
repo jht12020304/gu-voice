@@ -7,6 +7,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/reports_api.dart';
 import '../../../data/api/sessions_api.dart';
 import '../../../data/models/soap_report.dart';
+import '../../../shared/widgets/ui_kit.dart';
 
 class _Meta {
   final String patientName;
@@ -183,7 +184,7 @@ class _ReportListPageState extends State<ReportListPage> {
     return Scaffold(
       appBar: AppBar(title: Text(t('dashboard.sidebar.nav.soapReports'))),
       body: _loading && _reports.isEmpty
-          ? const Center(child: CircularProgressIndicator())
+          ? const SkeletonList()
           : ListView(
               controller: _scroll,
               padding: const EdgeInsets.all(16),
@@ -197,17 +198,14 @@ class _ReportListPageState extends State<ReportListPage> {
                 ),
                 const SizedBox(height: 8),
                 if (filtered.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Center(child: Text(t('dashboard.reportList.emptyTitle'))),
+                  EmptyState(
+                    icon: Icons.description_outlined,
+                    title: t('dashboard.reportList.emptyTitle'),
+                    message: t('dashboard.reportList.emptyMessage'),
                   )
                 else
                   for (final g in _grouped(filtered)) ...[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Text('${g.key}  ·  ${t('dashboard.reportList.groupCount', args: {'count': g.value.length})}',
-                          style: Theme.of(context).textTheme.labelMedium),
-                    ),
+                    GroupHeader('${g.key}  ·  ${t('dashboard.reportList.groupCount', args: {'count': g.value.length})}'),
                     for (final r in g.value) _row(context, r),
                   ],
                 if (_loading && _reports.isNotEmpty) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
@@ -310,19 +308,10 @@ class _ReportListPageState extends State<ReportListPage> {
             Row(children: [
               Expanded(child: Text(m?.patientName ?? r.sessionId, style: const TextStyle(fontWeight: FontWeight.w600))),
               if (m?.redFlag ?? false) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(color: tk.alertCriticalBg, borderRadius: BorderRadius.circular(9999)),
-                  child: Text(t('dashboard.reportList.redFlagBadge'),
-                      style: TextStyle(color: tk.alertCritical, fontSize: 11, fontWeight: FontWeight.w600)),
-                ),
+                PillTag(t('dashboard.reportList.redFlagBadge'), color: tk.alertCritical),
                 const SizedBox(width: 6),
               ],
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(color: badgeColor.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(9999)),
-                child: Text(badgeLabel, style: TextStyle(color: badgeColor, fontSize: 12, fontWeight: FontWeight.w600)),
-              ),
+              PillTag(badgeLabel, color: badgeColor),
             ]),
             if (m != null) Text(t('dashboard.reportList.chiefComplaintLabel', args: {'value': m.complaint}), style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 4),

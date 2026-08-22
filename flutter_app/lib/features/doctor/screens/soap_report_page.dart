@@ -9,6 +9,7 @@ import '../../../data/api/sessions_api.dart';
 import '../../../data/models/session.dart';
 import '../../../data/models/soap_report.dart';
 import '../../../shared/pdf_share.dart';
+import '../../../shared/widgets/ui_kit.dart';
 
 // `unknown` is the window before the Session has come back. It must be its own case:
 // collapsing it into `clear` renders a red-flag session as "no red flag" for as long as
@@ -194,9 +195,12 @@ class _SoapReportPageState extends State<SoapReportPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return Scaffold(appBar: AppBar(), body: Center(child: Text(t('soap.page.loadingReport'))));
+    if (_loading) return Scaffold(appBar: AppBar(), body: const SkeletonList());
     if (_error || _report == null) {
-      return Scaffold(appBar: AppBar(), body: Center(child: Text(t('soap.page.notGenerated'))));
+      return Scaffold(
+        appBar: AppBar(),
+        body: EmptyState(icon: Icons.description_outlined, title: t('soap.page.notGenerated')),
+      );
     }
     final r = _report!;
     final isReviewed = r.reviewStatus != 'pending';
@@ -239,7 +243,7 @@ class _SoapReportPageState extends State<SoapReportPage> {
             _metaHeader(context),
             _badges(context, r),
             _redFlagCard(context),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             _summaryCard(context, r),
             _icd10Card(context, r),
             ..._soapSections(context, r),
@@ -256,17 +260,17 @@ class _SoapReportPageState extends State<SoapReportPage> {
 
   Widget _transcriptTab(BuildContext context) {
     if (_turnsFailed) {
-      return Center(child: Text(t('session.doctor.detail.loadError')));
+      return EmptyState(icon: Icons.error_outline, title: t('session.doctor.detail.loadError'));
     }
     // The transcript no longer blocks the first paint, so the tab can be opened while it
     // is still in flight. Without this case the empty-state text claims the consultation
     // had no turns, which for a doctor reading a report is a factual statement about the
     // patient, not a loading artefact.
     if (_turnsLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const SkeletonList();
     }
     if (_turns.isEmpty) {
-      return Center(child: Text(t('session.doctor.detail.conversationsEmpty')));
+      return EmptyState(icon: Icons.forum_outlined, title: t('session.doctor.detail.conversationsEmpty'));
     }
     return ListView.builder(
       padding: const EdgeInsets.all(16),
@@ -323,11 +327,6 @@ class _SoapReportPageState extends State<SoapReportPage> {
 
   Widget _badges(BuildContext context, SoapReport r) {
     final tk = Theme.of(context).extension<AppTokens>()!;
-    Widget pill(String label, Color c) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(color: c.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(9999)),
-          child: Text(label, style: TextStyle(color: c, fontSize: 12, fontWeight: FontWeight.w600)),
-        );
     final (statusLabel, statusColor) = switch (r.status) {
       'generated' => (t('soap.reportStatus.generated'), tk.statusCompleted),
       'generating' => (t('soap.reportStatus.generating'), tk.alertMedium),
@@ -339,10 +338,10 @@ class _SoapReportPageState extends State<SoapReportPage> {
       _ => (t('soap.reviewStatus.pending'), tk.alertMedium),
     };
     return Wrap(spacing: 8, runSpacing: 8, children: [
-      pill(statusLabel, statusColor),
-      pill(reviewLabel, reviewColor),
+      PillTag(statusLabel, color: statusColor),
+      PillTag(reviewLabel, color: reviewColor),
       if (r.aiConfidenceScore != null)
-        pill(t('session.complete.aiConfidence', args: {'percent': (r.aiConfidenceScore! * 100).round()}), tk.statusInProgress),
+        PillTag(t('session.complete.aiConfidence', args: {'percent': (r.aiConfidenceScore! * 100).round()}), color: tk.statusInProgress),
     ]);
   }
 

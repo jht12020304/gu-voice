@@ -20,7 +20,10 @@ from app.services.audit_log_service import AuditLogService
 router = APIRouter(
     prefix="/api/v1/audit-logs",
     tags=["稽核日誌"],
-    dependencies=[Depends(require_role("admin"))],
+    # 醫師＝管理員（2026-08-22 拍板）：admin 四頁對醫師開放。當時只改了
+    # admin.py 的 router，漏掉這支獨立 router——iOS 稽核日誌頁對醫師 403 的根因
+    # 之一（另一半是 Flutter 打錯路徑，admin_api.dart 同輪修正）。
+    dependencies=[Depends(require_role("admin", "doctor"))],
 )
 
 audit_log_service = AuditLogService()
