@@ -7,6 +7,7 @@ import '../../../core/i18n/loc.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/admin_api.dart';
 import '../../../data/models/user.dart';
+import '../../../shared/widgets/ui_kit.dart';
 
 // Port of frontend/src/screens/admin/UserManagementPage.tsx: admin user list with
 // search + role/active filter + cursor infinite scroll, create/edit dialog, and a
@@ -285,13 +286,12 @@ class _UserManagementPageState extends State<UserManagementPage> {
   }
 
   Widget _body(BuildContext context) {
-    if (_loading && _users.isEmpty) return const Center(child: CircularProgressIndicator());
+    if (_loading && _users.isEmpty) return const SkeletonList();
     if (_users.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(t('admin.users.emptyTitle'), style: Theme.of(context).textTheme.titleMedium),
-          Text(t('admin.users.emptyMessage')),
-        ]),
+      return EmptyState(
+        icon: Icons.people_outline,
+        title: t('admin.users.emptyTitle'),
+        message: t('admin.users.emptyMessage'),
       );
     }
     return ListView(
@@ -313,8 +313,6 @@ class _UserManagementPageState extends State<UserManagementPage> {
 
   Widget _row(BuildContext context, User u) {
     final tk = Theme.of(context).extension<AppTokens>()!;
-    final statusColor = u.isActive ? tk.alertSuccess : tk.statusCancelled;
-    final statusBg = u.isActive ? tk.alertSuccessBg : tk.statusCancelled.withValues(alpha: 0.12);
     final toggling = _togglingId == u.id;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -329,11 +327,10 @@ class _UserManagementPageState extends State<UserManagementPage> {
               Text(u.email, style: Theme.of(context).textTheme.bodySmall, overflow: TextOverflow.ellipsis),
               const SizedBox(height: 4),
               Wrap(spacing: 6, children: [
-                _pill(_roleLabel(u.role), tk.statusWaiting.withValues(alpha: 0.12), tk.inkSecondary),
-                _pill(
+                PillTag(_roleLabel(u.role), color: Theme.of(context).colorScheme.primary),
+                PillTag(
                   u.isActive ? t('admin.users.statusActive') : t('admin.users.statusInactive'),
-                  statusBg,
-                  statusColor,
+                  color: u.isActive ? tk.statusCompleted : tk.statusCancelled,
                 ),
               ]),
             ]),
@@ -366,12 +363,6 @@ class _UserManagementPageState extends State<UserManagementPage> {
       ),
     );
   }
-
-  Widget _pill(String text, Color bg, Color fg) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
-        child: Text(text, style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w500)),
-      );
 
   String _roleLabel(String role) => switch (role) {
         'patient' => t('admin.users.role.patient'),

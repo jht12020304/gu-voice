@@ -8,6 +8,7 @@ import '../../../core/router/lng.dart';
 import '../../../data/api/patients_api.dart';
 import '../../../data/models/patient.dart';
 import '../../../shared/format.dart';
+import '../../../shared/widgets/ui_kit.dart';
 
 // Port of PatientListPage.tsx: month-scoped, cursor-paginated, date-grouped patient list
 // with debounced search + infinite scroll. ponytail: responsive table/card split reduced
@@ -100,6 +101,16 @@ class _PatientListPageState extends State<PatientListPage> {
     _fetch(reset: true);
   }
 
+  /// 月份標籤走與儀表板同一支 monthFormat key（"2026-08" → 「2026 年 8 月」），
+  /// 兩頁的 MonthStatsCard 標題格式才一致；統計格 label 也吃同一份格式化結果。
+  String get _monthLabel {
+    final parts = _month.split('-');
+    final year = int.tryParse(parts[0]);
+    final month = parts.length == 2 ? int.tryParse(parts[1]) : null;
+    if (year == null || month == null) return _month;
+    return t('common.doctor.dashboard.monthFormat', args: {'year': year, 'month': month});
+  }
+
   List<MapEntry<String, List<Patient>>> get _groups {
     final groups = <String, List<Patient>>{};
     for (final p in _patients) {
@@ -117,14 +128,28 @@ class _PatientListPageState extends State<PatientListPage> {
       appBar: AppBar(title: Text(t('common.patientList.title'))),
       body: Column(
         children: [
-          _monthNav(context),
+          // ── 月份＋統計：步進器是卡片標題列，月份只在這裡出現 ──
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(children: [
-              Expanded(child: _metric(context, '$_totalCount', t('common.patientList.newPatientsInMonth', args: {'month': _month}))),
-              const SizedBox(width: 8),
-              Expanded(child: _metric(context, '${groups.length}', t('common.patientList.dateGroups'))),
-            ]),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: MonthStatsCard(
+              monthLabel: _monthLabel,
+              prevTooltip: t('common.patientList.previousMonth'),
+              nextTooltip: t('common.patientList.nextMonth'),
+              onPrev: _loading ? null : () => _shiftMonth(-1),
+              onNext: _loading ? null : () => _shiftMonth(1),
+              cells: [
+                StatCell(
+                  label: t('common.patientList.newPatientsInMonth', args: {'month': _monthLabel}),
+                  value: '$_totalCount',
+                  loading: _loading,
+                ),
+                StatCell(
+                  label: t('common.patientList.dateGroups'),
+                  value: '${groups.length}',
+                  loading: _loading,
+                ),
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -139,53 +164,21 @@ class _PatientListPageState extends State<PatientListPage> {
     );
   }
 
-  Widget _monthNav(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        IconButton(
-          icon: const Icon(Icons.chevron_left),
-          tooltip: t('common.patientList.previousMonth'),
-          onPressed: _loading ? null : () => _shiftMonth(-1),
-        ),
-        Text(_month, style: Theme.of(context).textTheme.titleMedium),
-        IconButton(
-          icon: const Icon(Icons.chevron_right),
-          tooltip: t('common.patientList.nextMonth'),
-          onPressed: _loading ? null : () => _shiftMonth(1),
-        ),
-      ]),
-    );
-  }
-
-  Widget _metric(BuildContext context, String value, String label) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(children: [
-            Text(value, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-            Text(label, style: Theme.of(context).textTheme.bodySmall, textAlign: TextAlign.center),
-          ]),
-        ),
-      );
-
   Widget _body(BuildContext context, List<MapEntry<String, List<Patient>>> groups) {
-    if (_loading && _patients.isEmpty) return const Center(child: CircularProgressIndicator());
+    if (_loading && _patients.isEmpty) return const SkeletonList();
     if (_patients.isEmpty) {
-      return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text(t('common.patientList.emptyTitle', args: {'month': _month}), style: Theme.of(context).textTheme.titleMedium),
-        Text(t(_search.isEmpty ? 'common.patientList.emptyMonthMessage' : 'common.patientList.emptySearchMessage')),
-      ]));
+      return EmptyState(
+        icon: Icons.person_search_outlined,
+        title: t('common.patientList.emptyTitle', args: {'month': _monthLabel}),
+        message: t(_search.isEmpty ? 'common.patientList.emptyMonthMessage' : 'common.patientList.emptySearchMessage'),
+      );
     }
     return ListView(
       controller: _scroll,
       padding: const EdgeInsets.all(16),
       children: [
         for (final g in groups) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text('${g.key}  ·  ${t('common.patientList.patientCount', args: {'count': g.value.length})}',
-                style: Theme.of(context).textTheme.labelMedium),
-          ),
+          GroupHeader('${g.key}  ·  ${t('common.patientList.patientCount', args: {'count': g.value.length})}'),
           for (final p in g.value) _row(context, p),
         ],
         if (_loading && _patients.isNotEmpty) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),

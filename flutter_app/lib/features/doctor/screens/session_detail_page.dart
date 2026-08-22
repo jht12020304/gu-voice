@@ -11,6 +11,7 @@ import '../../../data/models/session.dart';
 import '../../../data/models/soap_report.dart';
 import '../../../shared/format.dart';
 import '../../../shared/widgets/status_badge.dart';
+import '../../../shared/widgets/ui_kit.dart';
 import '../../auth/auth_notifier.dart';
 
 // Port of SessionDetailPage.tsx — status-gated actions (assign / complete / cancel /
@@ -159,9 +160,16 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return Scaffold(appBar: AppBar(), body: Center(child: Text(t('session.doctor.detail.loading'))));
+    if (_loading) return Scaffold(appBar: AppBar(), body: const SkeletonList());
     if (_error != null || _session == null) {
-      return Scaffold(appBar: AppBar(), body: Center(child: Text(_error ?? t('session.doctor.detail.notFound'))));
+      return Scaffold(
+        appBar: AppBar(),
+        body: ErrorState(
+          message: _error ?? t('session.doctor.detail.notFound'),
+          retryLabel: t('common.retry'),
+          onRetry: () => _load(),
+        ),
+      );
     }
     final s = _session!;
     final user = ref.watch(authProvider).user;
@@ -187,7 +195,7 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
             Card(
               color: tk.alertCriticalBg,
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(t('session.doctor.detail.redFlagTitle'),
                       style: TextStyle(color: tk.alertCritical, fontWeight: FontWeight.w700)),
@@ -251,11 +259,12 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
               ]),
             ),
           ),
-          const SizedBox(height: 12),
-          Text(t('session.doctor.detail.conversationsTitle'), style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
+          GroupHeader(t('session.doctor.detail.conversationsTitle')),
           if (_turns.isEmpty)
-            Text(t('session.doctor.detail.conversationsEmpty'))
+            EmptyState(
+              icon: Icons.chat_bubble_outline,
+              title: t('session.doctor.detail.conversationsEmpty'),
+            )
           else
             for (final c in _turns) _bubble(context, c),
         ],
@@ -297,6 +306,7 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
         decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(16)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(roleLabel, style: Theme.of(context).textTheme.labelSmall),
+          const SizedBox(height: 2),
           Text(c.contentText),
         ]),
       ),

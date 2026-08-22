@@ -5,6 +5,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/alerts_api.dart';
 import '../../../data/models/alert.dart';
 import '../../../shared/format.dart';
+import '../../../shared/widgets/ui_kit.dart';
 
 // Port of AlertDetailPage.tsx. Uses the alerts API directly with partial-response MERGE on
 // acknowledge (never replace the whole alert). llmAnalysis renders string-or-object.
@@ -77,9 +78,22 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return Scaffold(appBar: AppBar(), body: Center(child: Text(t('dashboard.alert.detail.loading'))));
+    // 三態都掛同一個標題，骨架/錯誤/內容切換時 AppBar 不跳動。
+    if (_loading) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('dashboard.alert.detail.title'))),
+        body: _loadingSkeleton(),
+      );
+    }
     if (_error || _alert == null) {
-      return Scaffold(appBar: AppBar(), body: Center(child: Text(t('dashboard.alert.detail.notFound'))));
+      return Scaffold(
+        appBar: AppBar(title: Text(t('dashboard.alert.detail.title'))),
+        body: ErrorState(
+          message: t('dashboard.alert.detail.notFound'),
+          retryLabel: t('common.retry'),
+          onRetry: _load,
+        ),
+      );
     }
     final a = _alert!;
     final tk = Theme.of(context).extension<AppTokens>()!;
@@ -101,12 +115,13 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
                   Expanded(child: Text(a.title, style: TextStyle(color: sevColor, fontWeight: FontWeight.w700, fontSize: 18))),
-                  Text(a.severity.toUpperCase(), style: TextStyle(color: sevColor, fontWeight: FontWeight.w700)),
+                  const SizedBox(width: 8),
+                  PillTag(a.severity.toUpperCase(), color: sevColor),
                 ]),
                 if (a.acknowledged)
                   Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(t('dashboard.alert.detail.acknowledgedBadge'), style: TextStyle(color: tk.statusCompleted)),
+                    padding: const EdgeInsets.only(top: 8),
+                    child: PillTag(t('dashboard.alert.detail.acknowledgedBadge'), color: tk.statusCompleted),
                   ),
                 const SizedBox(height: 8),
                 Text(a.triggerReason, style: TextStyle(color: sevColor)),
@@ -121,22 +136,23 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
           const SizedBox(height: 12),
           _section(context, t('dashboard.alert.detail.triggerKeywords'),
               a.triggerKeywords.isEmpty
-                  ? Text(t('dashboard.alert.detail.noKeywords'))
+                  ? Text(t('dashboard.alert.detail.noKeywords'), style: TextStyle(color: tk.inkMuted))
                   : Wrap(spacing: 6, runSpacing: 6, children: [for (final k in a.triggerKeywords) Chip(label: Text('「$k」'))])),
           _section(context, t('dashboard.alert.detail.llmAnalysis'),
               a.llmAnalysisText.isEmpty
-                  ? Text(t('dashboard.alert.detail.noLlmAnalysis'))
+                  ? Text(t('dashboard.alert.detail.noLlmAnalysis'), style: TextStyle(color: tk.inkMuted))
                   : Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(6)),
+                      decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(8)),
                       child: Text(a.llmAnalysisText, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
                     )),
           _section(context, t('dashboard.alert.detail.suggestedActions'),
               a.suggestedActions.isEmpty
-                  ? Text(t('dashboard.alert.detail.noSuggestedActions'))
+                  ? Text(t('dashboard.alert.detail.noSuggestedActions'), style: TextStyle(color: tk.inkMuted))
                   : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      for (var i = 0; i < a.suggestedActions.length; i++) Text('${i + 1}. ${a.suggestedActions[i]}'),
+                      for (var i = 0; i < a.suggestedActions.length; i++)
+                        _SuggestedActionRow(index: i + 1, text: a.suggestedActions[i]),
                     ])),
           const SizedBox(height: 8),
           if (a.acknowledged) _acknowledgedBox(context, a, tk) else _ackForm(context),
@@ -201,6 +217,54 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
         Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
         body,
+      ]),
+    );
+  }
+
+  // 區塊骨架：外形貼近下方真實版面（橫幅卡＋三個區段），避免載入完成時整頁跳動。
+  Widget _loadingSkeleton() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: const [
+        SkeletonBox(width: double.infinity, height: 116, radius: 8),
+        SizedBox(height: 20),
+        SkeletonBox(width: 96, height: 14),
+        SizedBox(height: 8),
+        SkeletonBox(width: double.infinity, height: 32, radius: 8),
+        SizedBox(height: 20),
+        SkeletonBox(width: 96, height: 14),
+        SizedBox(height: 8),
+        SkeletonBox(width: double.infinity, height: 64, radius: 8),
+        SizedBox(height: 20),
+        SkeletonBox(width: double.infinity, height: 140, radius: 8),
+      ],
+    );
+  }
+}
+
+// 建議行動的單列：編號圓點沿用 IconTile 同款 12% 底色語言，只是圖示換成序號。
+class _SuggestedActionRow extends StatelessWidget {
+  const _SuggestedActionRow({required this.index, required this.text});
+
+  final int index;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final tk = Theme.of(context).extension<AppTokens>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          width: 20,
+          height: 20,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: primary.withValues(alpha: 0.12), shape: BoxShape.circle),
+          child: Text('$index', style: TextStyle(color: primary, fontSize: 11, fontWeight: FontWeight.w700)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: Text(text, style: TextStyle(color: tk.inkBody))),
       ]),
     );
   }

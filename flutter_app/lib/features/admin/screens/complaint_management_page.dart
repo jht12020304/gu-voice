@@ -4,6 +4,7 @@ import '../../../core/i18n/loc.dart';
 import '../../../core/router/lng.dart';
 import '../../../data/api/complaints_api.dart';
 import '../../../data/models/session.dart';
+import '../../../shared/widgets/ui_kit.dart';
 
 // Port of ComplaintManagementPage.tsx: chief-complaint template admin.
 // Loads all templates (activeOnly:false), client-side search, create/edit dialog
@@ -156,24 +157,21 @@ class _ComplaintManagementPageState extends State<ComplaintManagementPage> {
 
   Widget _body(BuildContext context) {
     if (_loading && _complaints.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const SkeletonList();
     }
     if (_error != null && _complaints.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-          const SizedBox(height: 8),
-          FilledButton(onPressed: _load, child: Text(t('common.retry'))),
-        ]),
+      return ErrorState(
+        message: _error!,
+        retryLabel: t('common.retry'),
+        onRetry: _load,
       );
     }
     final rows = _filtered;
     if (rows.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(t('admin.complaints.emptyTitle'), style: Theme.of(context).textTheme.titleMedium),
-          Text(t('admin.complaints.emptyMessage')),
-        ]),
+      return EmptyState(
+        icon: Icons.list_alt_outlined,
+        title: t('admin.complaints.emptyTitle'),
+        message: t('admin.complaints.emptyMessage'),
       );
     }
     return RefreshIndicator(
@@ -197,18 +195,7 @@ class _ComplaintManagementPageState extends State<ComplaintManagementPage> {
             if (c.nameEn != null && c.nameEn!.isNotEmpty) Text(c.nameEn!),
             const SizedBox(height: 4),
             Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.label_outline, size: 12),
-                  const SizedBox(width: 4),
-                  Text(c.category, style: Theme.of(context).textTheme.labelSmall),
-                ]),
-              ),
+              PillTag(c.category, color: Theme.of(context).colorScheme.primary),
               Text('#${c.displayOrder}', style: Theme.of(context).textTheme.labelSmall),
             ]),
             if (c.description != null && c.description!.isNotEmpty) ...[

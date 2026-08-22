@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/loc.dart';
 import '../../../shared/png_share.dart';
+import '../../../shared/widgets/ui_kit.dart';
 import '../../../data/api/research_api.dart';
 import '../../../data/models/research_analytics.dart';
 import '../research/charts.dart' show researchPalette;
@@ -84,8 +85,22 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return Scaffold(appBar: AppBar(title: Text(t('research.page.title'))), body: Center(child: Text(t('research.page.loading'))));
-    if (_error || _data == null) return Scaffold(appBar: AppBar(title: Text(t('research.page.title'))), body: Center(child: Text(t('research.page.error'))));
+    if (_loading) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('research.page.title'))),
+        body: const SkeletonList(),
+      );
+    }
+    if (_error || _data == null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(t('research.page.title'))),
+        body: ErrorState(
+          message: t('research.page.error'),
+          retryLabel: t('common.retry'),
+          onRetry: () => _fetch(),
+        ),
+      );
+    }
     final d = _data!;
 
     return Scaffold(
@@ -326,10 +341,7 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
           child: Card(
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(tile.$1, style: Theme.of(context).textTheme.bodySmall),
-                Text(tile.$2, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700).merge(_tnum)),
-              ]),
+              child: StatCell(label: tile.$1, value: tile.$2, compact: true),
             ),
           ),
         ),
@@ -343,14 +355,12 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
       if (d.ageYears.mean != null)
         Text('${t('research.demographics.ageMeanSd')}: '
             '${d.ageYears.mean!.toStringAsFixed(1)} ± ${(d.ageYears.sd ?? 0).toStringAsFixed(1)}', style: _tnum),
-      const SizedBox(height: 8),
-      Text(t('research.demographics.ageBands')),
+      GroupHeader(t('research.demographics.ageBands')),
       StackedShareBar(items: [for (var i = 0; i < d.ageBandDistribution.length; i++) (label: d.ageBandDistribution[i].key, count: d.ageBandDistribution[i].count, color: c(i))]),
       const SizedBox(height: 8),
       StackedShareBar(items: [for (var i = 0; i < d.genderDistribution.length; i++) (label: _genderLabel(d.genderDistribution[i].key), count: d.genderDistribution[i].count, color: c(i))]),
-      const SizedBox(height: 8),
-      Text(t('research.demographics.caseMix')),
-      Wrap(spacing: 6, runSpacing: 6, children: [for (final b in d.chiefComplaintDistribution.take(8)) Chip(label: Text('${b.key} · ${b.count}'), visualDensity: VisualDensity.compact)]),
+      GroupHeader(t('research.demographics.caseMix')),
+      Wrap(spacing: 6, runSpacing: 6, children: [for (final b in d.chiefComplaintDistribution.take(8)) PillTag('${b.key} · ${b.count}', color: Theme.of(context).colorScheme.primary)]),
     ]));
   }
 
@@ -361,7 +371,9 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
       };
 
   Widget _weeklyTrend(BuildContext context, ResearchAnalytics d) {
-    if (d.weeklyTrend.isEmpty) return Text(t('research.page.empty'));
+    if (d.weeklyTrend.isEmpty) {
+      return EmptyState(icon: Icons.show_chart_outlined, title: t('research.page.empty'));
+    }
     final items = d.weeklyTrend;
     final maxY = items.fold<int>(1, (m, w) => [m, w.sessions, w.completed].reduce((a, b) => a > b ? a : b));
     return SizedBox(
@@ -405,7 +417,9 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
       );
 
   Widget _boxplots(BuildContext context, ResearchAnalytics d) {
-    if (d.durationSeconds.n == 0) return Text(t('research.page.empty'));
+    if (d.durationSeconds.n == 0) {
+      return EmptyState(icon: Icons.equalizer_outlined, title: t('research.page.empty'));
+    }
     return Column(children: [
       _boxRow(context, t('research.efficiency.duration'), d.durationSeconds, tf: (v) => v / 60, unit: 'min'),
       _boxRow(context, t('research.efficiency.turns'), d.patientTurns),
@@ -422,7 +436,9 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
       );
 
   Widget _hpiRows(BuildContext context, ResearchAnalytics d) {
-    if (d.reportsAnalyzed == 0) return Text(t('research.page.empty'));
+    if (d.reportsAnalyzed == 0) {
+      return EmptyState(icon: Icons.checklist_outlined, title: t('research.page.empty'));
+    }
     return Column(children: [
       for (final f in d.hpiFieldFillRates)
         _propRow(context, t('research.hpi.fields.${f.field}'), Proportion(numerator: f.filled, denominator: f.total, value: f.rate)),
@@ -455,8 +471,7 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
       // Median (IQR) latency tiles (Figure 4).
       Text('${t('research.safety.timeToFirstAlert')}: ${_iqr(d.timeToFirstAlertSeconds, tf: (v) => v / 60)} · '
           '${t('research.safety.ackLatency')}: ${_iqr(d.ackLatencySeconds, tf: (v) => v / 60)}', style: _tnum),
-      const SizedBox(height: 8),
-      Text(t('research.safety.severityTitle')),
+      GroupHeader(t('research.safety.severityTitle')),
       StackedShareBar(items: [
         for (final b in d.severityDistribution)
           (label: _labelOr('research.safety.severity.${b.key}', b.key), count: b.count, color: _severityColor(b.key)),
@@ -467,13 +482,12 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
   Widget _urgencyLayer(BuildContext context, ResearchAnalytics d) {
     Color c(int i) => researchPalette[i % researchPalette.length];
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(t('research.safety.urgencyTitle')),
+      GroupHeader(t('research.safety.urgencyTitle')),
       StackedShareBar(items: [
         for (final b in d.urgencyDistribution)
           (label: _labelOr('research.safety.urgency.${b.key}', b.key), count: b.count, color: _urgencyColor(b.key)),
       ]),
-      const SizedBox(height: 8),
-      Text(t('research.safety.layerTitle')),
+      GroupHeader(t('research.safety.layerTitle')),
       StackedShareBar(items: [
         for (var i = 0; i < d.layerDistribution.length; i++)
           (label: _labelOr('research.safety.layer.${d.layerDistribution[i].key}', d.layerDistribution[i].key),
@@ -483,7 +497,9 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
   }
 
   Widget _stt(BuildContext context, ResearchAnalytics d) {
-    if (d.turnsWithConfidence == 0) return Text(t('research.page.empty'));
+    if (d.turnsWithConfidence == 0) {
+      return EmptyState(icon: Icons.graphic_eq_outlined, title: t('research.page.empty'));
+    }
     final buckets = d.sttHistogram;
     final maxC = buckets.fold<int>(1, (m, b) => b.count > m ? b.count : m);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -513,7 +529,7 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
   Widget _documentation(BuildContext context, ResearchAnalytics d) {
     Color c(int i) => researchPalette[i % researchPalette.length];
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(t('research.documentation.outcomesTitle')),
+      GroupHeader(t('research.documentation.outcomesTitle')),
       StackedShareBar(items: [for (var i = 0; i < d.reviewOutcomes.length; i++) (label: _outcomeLabel(d.reviewOutcomes[i].key), count: d.reviewOutcomes[i].count, color: i == 0 ? const Color(0xFF16A34A) : c(i))]),
       const SizedBox(height: 8),
       _propRow(context, t('research.documentation.agreement'), d.physicianAgreement),
@@ -529,7 +545,9 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
       };
 
   Widget _forest(BuildContext context, ResearchAnalytics d) {
-    if (d.byLanguage.isEmpty) return Text(t('research.page.empty'));
+    if (d.byLanguage.isEmpty) {
+      return EmptyState(icon: Icons.scatter_plot_outlined, title: t('research.page.empty'));
+    }
     return ForestPlotChart(
       rows: [for (final l in d.byLanguage) (label: '${l.language} (n=${l.sessions})', prop: l.redFlagRate)],
       overall: d.alertSession.value,

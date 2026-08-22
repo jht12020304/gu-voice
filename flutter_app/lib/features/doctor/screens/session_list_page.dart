@@ -8,6 +8,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../data/models/session.dart';
 import '../../../shared/format.dart';
 import '../../../shared/widgets/status_badge.dart';
+import '../../../shared/widgets/ui_kit.dart';
 import '../state/sessions_list_controller.dart';
 
 // Port of SessionListPage.tsx — WS-driven reload, client-side status filter + search.
@@ -84,24 +85,20 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
 
   Widget _body(BuildContext context, SessionsListState st, List<Session> visible) {
     if (st.isLoading && st.sessions.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const SkeletonList();
     }
     if (st.hasError && st.sessions.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(t('session.doctor.detail.loadError')),
-          const SizedBox(height: 8),
-          FilledButton(onPressed: () => ref.read(sessionsListProvider.notifier).reload(), child: Text(t('common.retry'))),
-        ]),
+      return ErrorState(
+        message: t('session.doctor.detail.loadError'),
+        retryLabel: t('common.retry'),
+        onRetry: () => ref.read(sessionsListProvider.notifier).reload(),
       );
     }
     if (visible.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(t('session.doctor.list.emptyTitle'), style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 4),
-          Text(t('session.doctor.list.emptyMessage')),
-        ]),
+      return EmptyState(
+        icon: Icons.forum_outlined,
+        title: t('session.doctor.list.emptyTitle'),
+        message: t('session.doctor.list.emptyMessage'),
       );
     }
     return ListView(
@@ -125,12 +122,7 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
           Flexible(child: Text(s.chiefComplaintText ?? t('session.doctor.list.chiefComplaintEmpty'))),
           if (s.redFlag) ...[
             const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(color: tk.alertCriticalBg, borderRadius: BorderRadius.circular(4)),
-              child: Text(t('session.doctor.list.redFlagBadge'),
-                  style: TextStyle(color: tk.alertCritical, fontSize: 11)),
-            ),
+            PillTag(t('session.doctor.list.redFlagBadge'), color: tk.alertCritical),
           ],
         ]),
         subtitle: Text('$name · ${s.durationSeconds != null ? '${durationMinutes(s.durationSeconds)} min' : formatDateTime(s.createdAt)}'),

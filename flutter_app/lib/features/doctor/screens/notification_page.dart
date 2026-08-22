@@ -9,6 +9,7 @@ import '../../../core/router/lng.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/models/notification.dart';
 import '../../../shared/format.dart';
+import '../../../shared/widgets/ui_kit.dart';
 import '../state/notifications_controller.dart';
 
 class NotificationPage extends ConsumerStatefulWidget {
@@ -78,7 +79,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
 
   Widget _body(BuildContext context, NotifState st) {
     if (st.isLoading && st.notifications.isEmpty && !_refreshing) {
-      return const Center(child: CircularProgressIndicator());
+      return const SkeletonList();
     }
 
     // Error BEFORE empty, and this order is the whole point. route_guard.dart makes this
@@ -90,26 +91,20 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
     // day. Mirrors alert_list_page's error branch.
     if (st.error != null && st.notifications.isEmpty) {
       return _pullable(
-        child: Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(st.error!),
-            const SizedBox(height: 8),
-            FilledButton(
-              onPressed: () => ref.read(notificationsProvider.notifier).fetch(),
-              child: Text(t('common.retry')),
-            ),
-          ]),
+        child: ErrorState(
+          message: st.error!,
+          retryLabel: t('common.retry'),
+          onRetry: () => ref.read(notificationsProvider.notifier).fetch(),
         ),
       );
     }
 
     if (st.notifications.isEmpty) {
       return _pullable(
-        child: Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(t('dashboard.notifications.emptyTitle'), style: Theme.of(context).textTheme.titleMedium),
-            Text(t('dashboard.notifications.emptyMessage')),
-          ]),
+        child: EmptyState(
+          icon: Icons.notifications_none_outlined,
+          title: t('dashboard.notifications.emptyTitle'),
+          message: t('dashboard.notifications.emptyMessage'),
         ),
       );
     }
@@ -179,11 +174,8 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
             Flexible(child: Text(n.title, style: const TextStyle(fontWeight: FontWeight.w600))),
             if (!n.isRead) ...[
               const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(color: tk.alertCriticalBg, borderRadius: BorderRadius.circular(4)),
-                child: Text(t('dashboard.notifications.unreadBadge'), style: TextStyle(color: tk.alertCritical, fontSize: 11)),
-              ),
+              // 未讀≠急症：badge 改用 statusInProgress（藍），紅色留給紅旗（語意修正）。
+              PillTag(t('dashboard.notifications.unreadBadge'), color: tk.statusInProgress),
             ],
           ]),
           subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

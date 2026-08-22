@@ -62,7 +62,10 @@ class AdminApi {
   }
 
   Future<({List<Map> data, String? nextCursor, bool hasMore})> getAuditLogs({String? cursor, int limit = 30, String? action}) async {
-    final res = await _dio.get('/admin/audit-logs', queryParameters: {'cursor': ?cursor, 'limit': limit, 'action': ?action});
+    // ⚠️ 後端稽核日誌是獨立 router（app/routers/audit_logs.py），路徑是
+    // /audit-logs 而非 /admin/*——React 端 AUDIT_BASE 同此。曾寫成
+    // /admin/audit-logs 404 了一輪（2026-08-22 巡頁截圖抓到）。
+    final res = await _dio.get('/audit-logs', queryParameters: {'cursor': ?cursor, 'limit': limit, 'action': ?action});
     final data = res.data as Map;
     final list = (data['data'] as List? ?? const []).cast<Map>();
     final p = (data['pagination'] as Map?) ?? const {};

@@ -6,6 +6,7 @@ import '../../../core/i18n/loc.dart';
 import '../../../core/router/lng.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/dashboard_api.dart';
+import '../../../shared/widgets/ui_kit.dart';
 import '../../auth/auth_notifier.dart';
 import '../research/charts.dart';
 
@@ -107,57 +108,26 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           const SizedBox(height: 16),
 
           // ── 月份＋統計：步進器是卡片標題列，月份只在這裡出現 ──
-          Card(
-            child: Column(children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
-                child: Row(children: [
-                  Expanded(
-                    child: Text(_monthLabel,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w600, color: tk.inkHeading)),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.chevron_left),
-                    color: tk.inkSecondary,
-                    tooltip: t('common.doctor.dashboard.prevMonth'),
-                    onPressed: _loading ? null : () => _shiftMonth(-1),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.chevron_right),
-                    color: tk.inkSecondary,
-                    tooltip: t('common.doctor.dashboard.nextMonth'),
-                    onPressed: _loading ? null : () => _shiftMonth(1),
-                  ),
-                ]),
+          MonthStatsCard(
+            monthLabel: _monthLabel,
+            prevTooltip: t('common.doctor.dashboard.prevMonth'),
+            nextTooltip: t('common.doctor.dashboard.nextMonth'),
+            onPrev: _loading ? null : () => _shiftMonth(-1),
+            onNext: _loading ? null : () => _shiftMonth(1),
+            cells: [
+              StatCell(
+                label: t('common.doctor.dashboard.totalSessions'),
+                value: '${s?.totalSessions ?? 0}',
+                loading: _loading,
               ),
-              Divider(height: 1, thickness: 1, color: tk.edge),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Expanded(
-                    child: _Stat(
-                      label: t('common.doctor.dashboard.totalSessions'),
-                      value: '${s?.totalSessions ?? 0}',
-                      loading: _loading,
-                    ),
-                  ),
-                  Container(width: 1, height: 48, color: tk.edge),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _Stat(
-                      label: t('common.doctor.dashboard.redFlagMetric'),
-                      value: '$redFlags',
-                      loading: _loading,
-                      // 語意色只給「真的有事」：紅旗 > 0 才上警示色，0 維持中性。
-                      valueColor: redFlags > 0 ? tk.alertCritical : null,
-                    ),
-                  ),
-                ]),
+              StatCell(
+                label: t('common.doctor.dashboard.redFlagMetric'),
+                value: '$redFlags',
+                loading: _loading,
+                // 語意色只給「真的有事」：紅旗 > 0 才上警示色，0 維持中性。
+                valueColor: redFlags > 0 ? tk.alertCritical : null,
               ),
-            ]),
+            ],
           ),
           const SizedBox(height: 16),
 
@@ -219,39 +189,6 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
       _complaintKey[b.key] != null ? t('common.doctor.dashboard.${_complaintKey[b.key]}') : b.label;
 }
 
-// ── 統計數字：標籤在上、數字在下；載入時放同形狀骨架而不是轉圈 ──
-class _Stat extends StatelessWidget {
-  const _Stat({required this.label, required this.value, required this.loading, this.valueColor});
-
-  final String label;
-  final String value;
-  final bool loading;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final tk = Theme.of(context).extension<AppTokens>()!;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(label,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: tk.inkSecondary)),
-      const SizedBox(height: 6),
-      if (loading)
-        Container(
-          width: 56,
-          height: 32,
-          decoration: BoxDecoration(color: tk.edge, borderRadius: BorderRadius.circular(6)),
-        )
-      else
-        Text(value,
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: valueColor ?? tk.inkHeading,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                )),
-    ]);
-  }
-}
-
 class _NavRowSpec {
   const _NavRowSpec(this.icon, this.label, this.route);
   final IconData icon;
@@ -289,21 +226,12 @@ class _ActionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tk = Theme.of(context).extension<AppTokens>()!;
-    final primary = Theme.of(context).colorScheme.primary;
     return InkWell(
       onTap: () => context.go(prefixLngToPath(spec.route, currentLng)),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(spec.icon, size: 20, color: primary),
-          ),
+          IconTile(spec.icon),
           const SizedBox(width: 12),
           Expanded(
             child: Text(spec.label,
