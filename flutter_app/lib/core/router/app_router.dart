@@ -33,7 +33,6 @@ import '../../features/patient/patient_history_page.dart';
 import '../../features/patient/patient_home_page.dart';
 import '../../features/patient/patient_session_detail_page.dart';
 import '../../features/patient/patient_settings_page.dart';
-import '../../features/patient/patient_unsupported_page.dart';
 import '../../features/patient/select_complaint_page.dart';
 import '../../features/patient/session_complete_page.dart';
 import '../../features/patient/session_thank_you_page.dart';
@@ -96,7 +95,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         isAuthenticated: auth.isAuthenticated,
         isPatient: auth.user?.isPatient ?? false,
         isAdmin: auth.user?.isAdmin ?? false,
-        doctorOnlyPlatform: isDoctorOnlyPlatform,
+        nativeMobile: isNativeMobile,
       );
     },
     routes: [
@@ -128,11 +127,6 @@ final routerProvider = Provider<GoRouter>((ref) {
                 _lngKeyed(PatientSessionDetailPage(sessionId: state.pathParameters['sessionId']!)),
           ),
           GoRoute(path: 'patient/settings', builder: (context, state) => _lngKeyed(const PatientSettingsPage())),
-          // 醫師專用 App（iOS）上病患帳號的唯一落點；其他平台被 guard 導回各自 landing。
-          GoRoute(
-            path: 'patient-unsupported',
-            builder: (context, state) => _lngKeyed(const PatientUnsupportedPage()),
-          ),
           GoRoute(
             path: 'patient/session/:sessionId/complete',
             builder: (context, state) => _lngKeyed(SessionCompletePage(sessionId: state.pathParameters['sessionId']!)),

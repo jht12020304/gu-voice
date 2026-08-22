@@ -712,9 +712,19 @@ flutter test integration_test/patient_text_flow_test.dart -d <udid> \
 Flutter Web promote blocker，已於 `931b9b7` 修掉（見 §S）。**但 promote 前提完全不變**——
 V4 擋的是實體麥克風驗證，那條仍未做（見 V1 與檔頭未竟事項），不要因為少一個 blocker 就 promote。
 
-### [ ] V7. 🟡 iOS 醫師端（報告/通知/APNs 推播）— 2026-08-20 拍板新方向
+### [ ] V7. 🟡 iOS 端 — 2026-08-22 再度轉向：**iOS 單一 App（含語音問診）**
 
-**平台分工拍板：Web＝病患語音問診（kiosk），iOS＝醫師端查看報告與通知，不做語音問診。**
+> ⚠️ **2026-08-22 拍板推翻下方 2026-08-20 的分工**：只留 App、網頁走向除役。
+> kiosk iPad（候診區共用機）跑病患語音問診，醫師/管理員用自己的裝置跑同一顆 App。
+> 平台閘門已拆（branch feat/ios-full-app）：route_guard 只剩角色守衛，
+> **拆之前先修掉 `/patients` 前綴誤中的病患越權洞**（web 上原本就開著）。
+> 散佈先走 TestFlight（90 天到期照舊），正式散佈另議。
+> **§V1 的紅字現在直接落在產品的唯一路徑上**：語音管線從未對真麥克風跑過，
+> 而 iOS 現在就是要跑它的平台——kiosk iPad 首次驗證前，語音問診不得對病患開放。
+
+以下為 2026-08-20 的舊拍板，留作歷史：
+
+**平台分工拍板（已作廢）：Web＝病患語音問診（kiosk），iOS＝醫師端查看報告與通知，不做語音問診。**
 影響：實體麥克風驗證（V1/V4）只需針對 Web；iOS 的麥克風/MicProbe/TCC 坑不再是 blocker。
 iOS 這條線的待辦：醫師登入後的角色分流、通知列表與 SOAP 報告查看頁、APNs 推播
 （simulator 開發期用 `xcrun simctl push` 模擬；真機/TestFlight 需 Apple Developer 的 .p8 推播金鑰）、

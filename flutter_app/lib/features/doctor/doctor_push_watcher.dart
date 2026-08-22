@@ -14,8 +14,10 @@ import 'services/push_service.dart';
 /// FCM 推播的掛載點，比照 [DoctorAlertWatcher]：掛在 MaterialApp.builder 底下，
 /// 不綁任何一條路由，所以醫師從哪一頁進來都一樣會註冊。
 ///
-/// 啟動條件是 [shouldEnablePush]（醫師專用平台 × 醫護帳號）——web kiosk 與病患帳號
-/// 上這個 widget 只是把 child 原樣傳下去，Firebase 一行都不會跑。
+/// 啟動條件是 [shouldEnablePush]（原生行動平台 × 醫護帳號）。kiosk iPad 登著病患帳號時
+/// 這個 widget 只是把 child 原樣傳下去，Firebase 一行都不會跑——**這一點是刻意的**：
+/// 共用 iPad 不得註冊成任何人的推播端點，紅旗警示打到候診機上是給錯人看。
+/// web 上同樣不跑（FCM 註冊只在原生有意義）。
 ///
 /// **前景推播刻意不處理**：通知頁與分頁 badge 已經由 dashboard WebSocket 即時更新
 /// （notifications_controller.dart 的 `_wsEvents`），而 App 在前景時 WS 本來就連著，
@@ -50,7 +52,7 @@ class _DoctorPushWatcherState extends ConsumerState<DoctorPushWatcher> {
   }
 
   void _sync(User? user) {
-    if (shouldEnablePush(user: user, doctorOnlyPlatform: isDoctorOnlyPlatform)) {
+    if (shouldEnablePush(user: user, nativeMobile: isNativeMobile)) {
       if (_service != null) return; // 已在跑（例如只是換語言重建）
       final service = PushService(backend: createPushBackend(), navigate: _navigate);
       _service = service;

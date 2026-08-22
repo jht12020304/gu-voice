@@ -48,8 +48,10 @@ abstract class PushBackend {
 ///
 /// 病患帳號沒有任何推播來源（後端只對 `session.doctor_id` 發），web kiosk 更不該初始化
 /// Firebase。純函式，好在測試裡把兩個平台都表達出來（比照 route_guard）。
-bool shouldEnablePush({required User? user, required bool doctorOnlyPlatform}) =>
-    doctorOnlyPlatform && user != null && (user.isDoctor || user.isAdmin);
+/// 原生行動平台 × 醫護帳號。病患帳號（含 kiosk iPad）一律 false——共用機不得
+/// 成為任何人的推播端點；web 也 false（FCM 註冊只在原生有意義）。
+bool shouldEnablePush({required User? user, required bool nativeMobile}) =>
+    nativeMobile && user != null && (user.isDoctor || user.isAdmin);
 
 /// 推播 data payload → App 路由。
 ///
