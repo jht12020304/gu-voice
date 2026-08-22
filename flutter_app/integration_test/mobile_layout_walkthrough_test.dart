@@ -31,6 +31,11 @@ const _doctorPassword = String.fromEnvironment('E2E_DOCTOR_PASSWORD');
 const _adminEmail = String.fromEnvironment('E2E_ADMIN_EMAIL');
 const _adminPassword = String.fromEnvironment('E2E_ADMIN_PASSWORD');
 
+// 逐頁截圖開關：只在 `flutter drive`（test_driver/integration_test.dart 的
+// onScreenshot 會把 PNG 落到 build/layout_shots/）時帶 --dart-define=SHOTS=true。
+// `flutter test` 路徑不帶＝不呼叫 takeScreenshot，行為與加這個開關前完全相同。
+const _shots = bool.fromEnvironment('SHOTS');
+
 bool _apiInited = false;
 
 Future<void> _pumpFor(WidgetTester tester, Duration total) async {
@@ -90,6 +95,9 @@ Future<void> _visit(
   // pumpAndSettle 在有動畫/輪詢的頁面會 timeout，改用固定 pump；再收一次例外。
   final e = tester.takeException();
   expect(e, isNull, reason: '$rest 在手機寬度下拋出例外（多半是 RenderFlex overflow）：$e');
+  if (_shots) {
+    await binding.takeScreenshot('shot${rest.replaceAll('/', '_')}');
+  }
 }
 
 void main() {
