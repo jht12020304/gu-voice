@@ -96,7 +96,7 @@ void main() {
 
     test('a link with no params degrades to empty strings, not a crash', () {
       final args = medicalInfoArgsFromUri(Uri.parse('/zh-TW/patient/medical-info'));
-      expect(args, {'complaintId': '', 'complaintName': '', 'complaintText': ''});
+      expect(args, {'complaintId': '', 'complaintName': '', 'complaintText': '', 'patientId': ''});
     });
 
     testWidgets('cold-loading the URL renders the intake page with the complaint', (tester) async {

@@ -102,6 +102,8 @@ String? resolveGuardRedirect({
   final isPatientArea = _isPatientOwnArea(rest);
   final isAdminArea = rest == '/admin' || rest.startsWith('/admin/');
   if (isPatient && !isPatientArea) return landing; // patient blocked from doctor/admin
-  if (isAdminArea && !isAdmin) return landing; // admin-only subtree
+  // 2026-08-22 拍板「醫師＝管理員」：admin 四頁對醫師開放（後端 admin router 同步
+  // 改收 doctor）。病患仍然進不來——上一行已經把病患擋在自己的區域裡。
+  if (isAdminArea && isPatient) return landing;
   return null;
 }

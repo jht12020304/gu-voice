@@ -122,6 +122,10 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
 
     final payload = {
       'chiefComplaintId': _arg('complaintId'),
+      // 醫師代病患問診（2026-08-22）：URL 有帶 patientId（從病患詳情頁進來）就
+      // 傳給後端，場次記在該病患名下。病患自己走 kiosk 流程時本欄缺席，
+      // 後端照舊由登入者解析——兩條路互不影響。
+      if ((_arg('patientId') ?? '').isNotEmpty) 'patientId': _arg('patientId'),
       // The AI/SOAP-facing text; fall back to the display name only when it is genuinely
       // absent (an empty query param is "not provided", not an empty complaint).
       'chiefComplaintText': _arg('complaintText') ?? _arg('complaintName'),

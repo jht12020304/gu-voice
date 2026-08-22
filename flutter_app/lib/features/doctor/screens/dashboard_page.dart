@@ -136,7 +136,8 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
             label: Text(t('dashboard.sidebar.nav.research')),
             onPressed: () => context.go(prefixLngToPath('/research', currentLng)),
           ),
-          if (user?.isAdmin ?? false) ...[
+          // 醫師＝管理員（2026-08-22）：admin 工具列對醫師與管理員都顯示
+          if ((user?.isAdmin ?? false) || (user?.isDoctor ?? false)) ...[
             const SizedBox(height: 20),
             Text(t('dashboard.sidebar.sections.admin').toUpperCase(), style: Theme.of(context).textTheme.labelMedium),
             const SizedBox(height: 8),

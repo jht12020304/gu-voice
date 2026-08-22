@@ -17,6 +17,7 @@ String medicalInfoLocation({
   required String complaintId,
   required String complaintName,
   required String complaintText,
+  String? patientId,
 }) =>
     Uri(
       path: prefixLngToPath(medicalInfoPath, lng),
@@ -24,6 +25,11 @@ String medicalInfoLocation({
         'complaintId': complaintId,
         'complaintName': complaintName,
         'complaintText': complaintText,
+        // 醫師代病患問診（2026-08-22）：從病患詳情頁進來時帶該病患的 id，
+        // POST /sessions 會把場次記在**這位病患**名下（後端只對 doctor/admin
+        // 放行任意 patientId；病患自己進來時本參數缺席，行為完全不變）。
+        // 走 URL 不走 extra，同這個檔案開頭的理由：refresh/deep link 不掉參數。
+        if (patientId != null && patientId.isNotEmpty) 'patientId': patientId,
       },
     ).toString();
 
@@ -36,5 +42,6 @@ Map<String, String> medicalInfoArgsFromUri(Uri uri) {
     'complaintId': q['complaintId'] ?? '',
     'complaintName': q['complaintName'] ?? '',
     'complaintText': q['complaintText'] ?? '',
+    'patientId': q['patientId'] ?? '',
   };
 }

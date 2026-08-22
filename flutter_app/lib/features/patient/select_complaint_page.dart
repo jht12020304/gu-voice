@@ -170,8 +170,12 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
         clampCp(_selected.map((c) => c.name).join(complaintSeparator(currentLng)), complaintTextMax);
     // Query params, not `extra:` — `extra` is in-memory only, so a refresh or a deep link
     // handed MedicalInfoPage a null complaintId and POST /sessions 422'd (see intake_route.dart).
+    // 醫師代病患問診：/patient/start?patientId=... 進來時把 id 一路帶到 intake。
+    // 讀 URL 不read state（deep link / refresh 都不掉）。
+    final patientId = GoRouterState.of(context).uri.queryParameters['patientId'];
     context.go(medicalInfoLocation(
       lng: currentLng,
+      patientId: patientId,
       complaintId: _selected.first.id,
       complaintName: displayName,
       complaintText: buildComplaintText(

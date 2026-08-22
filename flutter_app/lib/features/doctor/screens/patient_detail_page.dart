@@ -89,6 +89,20 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
       appBar: AppBar(
         title: Text(t('common.doctor.patient.title')),
         actions: [
+          // 醫師代病患語音問診（2026-08-22 拍板）：從這裡進的問診場次記在**本頁
+          // 這位病患**名下（patientId 隨 URL 一路帶到 POST /sessions；後端只對
+          // doctor/admin 放行任意 patientId）。醫師拿著裝置訪談，逐字稿/SOAP 都
+          // 落在正確的病歷。
+          IconButton(
+            icon: const Icon(Icons.mic_none),
+            tooltip: t('conversation.title'),
+            onPressed: () => context.go(
+              Uri(
+                path: prefixLngToPath('/patient/start', currentLng),
+                queryParameters: {'patientId': widget.patientId},
+              ).toString(),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.delete_outline),
             color: theme.colorScheme.error,

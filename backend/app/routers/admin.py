@@ -25,7 +25,10 @@ from app.services.admin_service import AdminService
 router = APIRouter(
     prefix="/api/v1/admin",
     tags=["系統管理"],
-    dependencies=[Depends(require_role("admin"))],
+    # 2026-08-22 使用者拍板「醫師＝管理員」：本診所的醫師就是管理者，admin 四頁
+    # （使用者管理／主訴模板／系統健康／稽核日誌）對醫師開放。角色本身不合併——
+    # 病患端的 RoleGuard、報告 scope 等仍分 doctor/admin 判斷，只有這個 router 收兩者。
+    dependencies=[Depends(require_role("admin", "doctor"))],
 )
 
 admin_service = AdminService()
