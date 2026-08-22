@@ -114,7 +114,13 @@ vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.a
 
 ---
 
-## 二、iOS TestFlight 發佈（Flutter 醫師端）
+## 二、iOS TestFlight 發佈（2026-08-22 起：完整 App，含病患語音問診）
+
+> ⚠️ 2026-08-22 平台分工推翻：iOS 不再是「醫師端」，是唯一的 App——kiosk iPad 跑
+> 病患語音問診、醫師/管理員同一顆。所以**從這一天之後的 build 起，裝了 App 的
+> 測試員都能進到病患問診入口**；加測試員前的 PHI 檢查（§V8）比以前更要緊。
+> kiosk iPad 部署方式：用櫃檯發的 patient 帳號登入即可，閒置登出 180 秒自動生效，
+> 不需要特別的 kiosk build。
 
 > 平台分工（2026-08-20 拍板）：**Web＝病患語音問診 kiosk，iOS＝醫師端查看報告與通知**。
 > iOS 這條線只走 TestFlight **內部測試**，不上架。管道現況與未解風險見 `docs/TODO.md` §V8（iOS 醫師端功能面見 §V7）。

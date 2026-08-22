@@ -96,7 +96,7 @@ WS_BASE=wss://gu-voice-app-production.up.railway.app/api/v1/ws
 `pubspec.yaml` 是 `version: 1.0.0+1`，**沒有遞增機制**。打包腳本用 `date -u +%Y%m%d%H%M`（UTC 12 位數）。
 
 ⚠️ **兩種格式不可混用**：備援格式 `date -u +%Y.%m%d.%H%M`（→ `2026.0821.1930`）的首段
-`2026` < `202608211213`，CFBundleVersion 是逐段比較的，換過去會被判成未遞增而永久拒收。
+`2026` < `202608220710（前一顆 202608211213）`，CFBundleVersion 是逐段比較的，換過去會被判成未遞增而永久拒收。
 
 ## 5. 憑證與金鑰
 
