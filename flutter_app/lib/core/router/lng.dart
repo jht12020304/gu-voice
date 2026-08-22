@@ -5,6 +5,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show WidgetsBinding;
 
 const supportedLanguages = ['zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'vi-VN'];
 const betaLanguages = ['ja-JP', 'ko-KR', 'vi-VN'];
@@ -46,6 +47,23 @@ void setCurrentLng(String lng) {
   scheduleMicrotask(() {
     if (currentLngNotifier.value != lng) currentLngNotifier.value = lng;
   });
+}
+
+/// The language the first frame will render in, resolved the same way the router's
+/// redirect resolves it — URL segment first (it is the authority; deep links and the
+/// password-reset mail carry it), device locale only as the seed for a bare `/`.
+///
+/// `main()` needs this *before* runApp so boot can load one language's strings instead
+/// of all five. Keeping the two resolutions in one place is the point: if boot loaded a
+/// different language than the redirect then picks, the first frame renders the zh-TW
+/// fallback and visibly re-renders a beat later.
+String bootLanguage() {
+  if (kIsWeb) {
+    final fromUrl = extractLngFromPath(Uri.base.path);
+    if (fromUrl != null) return fromUrl;
+  }
+  final device = WidgetsBinding.instance.platformDispatcher.locale.toLanguageTag();
+  return normalizeLanguage(device) ?? defaultLanguage;
 }
 
 bool isSupportedLanguage(String? v) => v != null && supportedLanguages.contains(v);

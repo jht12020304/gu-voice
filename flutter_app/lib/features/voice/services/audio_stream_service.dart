@@ -276,6 +276,15 @@ class AudioStreamService {
     if (_vadEnabled) _processVad(pcmRms(frame));
   }
 
+  // Waveform emission is cosmetic-only; VAD reads every raw frame regardless (see
+  // `_onFrame` — `_processVad` must stay outside this throttle or speech onset is
+  // missed and the patient's first words are cut).
+  static const _waveformBars = 32;
+  static const _waveformMinIntervalMs = 50;
+  int _lastWaveformAt = 0;
+  bool _waveformSilenced = false;
+  int _lastEmittedWholeSecond = 0;
+
   void _processVad(double rms) {
     if (_muteMode == MuteMode.hard) return; // no detection at all
     final effective = _muteMode == MuteMode.soft ? _bargeInThreshold : _threshold;
@@ -304,8 +313,18 @@ class AudioStreamService {
     final preroll = _ring?.readLast(_preRollSamples) ?? Int16List(0);
     _liveFrames = preroll.isNotEmpty ? [preroll] : [];
     _capturingPcm = true;
+    // 100 ms cadence is kept so the counter never looks like it skipped a second, but
+    // only whole-second changes are pushed. conversation_page.dart:364 renders this with
+    // `toStringAsFixed(0)`, so nine of every ten emissions produced a byte-identical
+    // string — and each one wrote ConversationState, which the page watches whole, so
+    // each one rebuilt the entire intake screen for nothing.
+    _lastEmittedWholeSecond = 0;
     _durationTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      _cb.onDurationUpdate?.call((_now - _segmentStartAt) / 1000.0);
+      final elapsed = (_now - _segmentStartAt) / 1000.0;
+      final whole = elapsed.floor();
+      if (whole == _lastEmittedWholeSecond) return;
+      _lastEmittedWholeSecond = whole;
+      _cb.onDurationUpdate?.call(elapsed);
     });
     _cb.onSpeechStart?.call();
   }
@@ -317,6 +336,7 @@ class AudioStreamService {
     _ring?.clear(); // drop trailing tail so it can't pollute the next pre-roll
     _durationTimer?.cancel();
     _durationTimer = null;
+    _lastEmittedWholeSecond = 0;
     _cb.onDurationUpdate?.call(0);
 
     _capturingPcm = false;
@@ -334,7 +354,29 @@ class AudioStreamService {
   void _emitWaveform(Int16List frame) {
     final cb = _cb.onWaveformData;
     if (cb == null || frame.isEmpty) return;
-    const bars = 32;
+
+    // Hard mute means the AI is speaking: `_processVad` returns immediately, so
+    // whatever the mic hears here is speaker echo. Drawing it is meaningless, and it is
+    // also the app's most expensive UI write — one whole-page rebuild per mic buffer
+    // (~47/s on iOS, where `record_ios` taps 1024 frames at the 48 kHz input rate).
+    // Flush one flat frame first so the bars settle instead of freezing mid-shape.
+    if (_muteMode == MuteMode.hard) {
+      if (!_waveformSilenced) {
+        _waveformSilenced = true;
+        cb(List<double>.filled(_waveformBars, 0));
+      }
+      return;
+    }
+    _waveformSilenced = false;
+
+    // 20 Hz is past the point where more frames read as smoother motion, and every
+    // extra frame is a full rebuild of the intake screen while the patient is talking —
+    // which is exactly when they are watching it and tapping 「我說完了」.
+    final now = _now;
+    if (now - _lastWaveformAt < _waveformMinIntervalMs) return;
+    _lastWaveformAt = now;
+
+    const bars = _waveformBars;
     final out = List<double>.filled(bars, 0);
     final bucket = (frame.length / bars).ceil();
     for (var b = 0; b < bars; b++) {

@@ -36,7 +36,14 @@ railway up --detach
 curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep
 #    A green healthz does NOT prove the new code is serving: it stays green while the previous
 #    container is still up. Probe the OpenAPI schema for something this release added instead:
-curl -s https://gu-voice-app-production.up.railway.app/openapi.json | python3 -c \
+#    Since 2026-08-22 /openapi.json requires a token in production (/docs and /redoc are off).
+#    Pull METRICS_TOKEN from Railway first and send it as a bearer token:
+#      TOKEN=$(railway variables --service gu-voice-app --kv | sed -n 's/^METRICS_TOKEN=//p')
+#    Anything missing or wrong returns 404 (deliberately not 401 — do not confirm the endpoint
+#    exists to a scanner). NOTE: set METRICS_TOKEN *before* shipping this change, or the first
+#    deploy leaves you with no way to verify it.
+curl -s -H "Authorization: Bearer $TOKEN" \
+  https://gu-voice-app-production.up.railway.app/openapi.json | python3 -c \
   "import json,sys; d=json.load(sys.stdin); print('<field added by this release>' in json.dumps(d))"
 #    Do NOT script this as `... | grep -c FIELD || echo 0`: on no match grep prints "0" AND exits
 #    non-zero, so `|| echo 0` appends a second "0" and the variable becomes "0\n0" != "0" — which

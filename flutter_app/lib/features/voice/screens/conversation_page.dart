@@ -134,6 +134,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   }
 
   Widget _banner(BuildContext context, WsConnState conn) {
+    // `connecting` is the initial value of ConversationState.connection, so this banner
+    // used to be the very first thing a patient saw on the intake screen — telling them
+    // in red-adjacent copy that the connection had been LOST and was being re-established,
+    // before one had ever been attempted. It then stayed up through the whole microphone
+    // permission prompt. A bare progress bar says the same true thing ("working on it")
+    // in every language and needs no new copy in the five locale files.
+    if (conn == WsConnState.connecting) {
+      return const LinearProgressIndicator(minHeight: 2);
+    }
     final label = conn == WsConnState.reconnecting
         ? t('conversation.connection.reconnecting')
         : t('conversation.error.disconnected');

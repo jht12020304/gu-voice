@@ -30,9 +30,9 @@ from app.core.exceptions import (
 from app.core.security import (
     create_access_token,
     create_refresh_token,
-    hash_password,
+    hash_password_async,
     verify_access_token,
-    verify_password,
+    verify_password_async,
     verify_refresh_token,
 )
 from app.models.enums import UserRole
@@ -170,7 +170,7 @@ class AuthService:
         )
         user = result.scalar_one_or_none()
 
-        if user is None or not verify_password(password, user.password_hash):
+        if user is None or not await verify_password_async(password, user.password_hash):
             # 3. 記錄失敗；可能觸發鎖定，但對呼叫端一律回 InvalidCredentials
             await rl.record_login_failure(redis, email)
             raise InvalidCredentialsException()
@@ -242,7 +242,7 @@ class AuthService:
         now = utc_now()
         user = User(
             email=data.email,
-            password_hash=hash_password(data.password),
+            password_hash=await hash_password_async(data.password),
             name=data.name,
             role=effective_role,
             phone=data.phone,
@@ -411,10 +411,10 @@ class AuthService:
         if user is None:
             raise NotFoundException("errors.user_not_found")
 
-        if not verify_password(current_password, user.password_hash):
+        if not await verify_password_async(current_password, user.password_hash):
             raise InvalidCredentialsException("errors.current_password_incorrect")
 
-        user.password_hash = hash_password(new_password)
+        user.password_hash = await hash_password_async(new_password)
         user.updated_at = utc_now()
         await db.flush()
 
@@ -521,7 +521,7 @@ class AuthService:
         if user is None:
             raise NotFoundException("errors.user_not_found")
 
-        user.password_hash = hash_password(new_password)
+        user.password_hash = await hash_password_async(new_password)
         user.updated_at = utc_now()
         await db.flush()
 

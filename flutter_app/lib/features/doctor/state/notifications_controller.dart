@@ -102,10 +102,12 @@ class NotificationsController extends Notifier<NotifState> {
         ws.off(e, _onEvent);
       }
     });
-    Future.microtask(() async {
-      await fetch();
-      await fetchUnreadCount();
-    });
+    // Concurrent, not sequential. These are two independent endpoints writing disjoint
+    // fields of the same state, and on iOS this is the landing screen — chaining them
+    // put a second full round trip to Railway between the doctor and their inbox for
+    // no reason. Neither throws (both swallow their own errors), so `Future.wait` here
+    // cannot leave one half unapplied because the other failed.
+    Future.microtask(() => Future.wait([fetch(), fetchUnreadCount()]));
     return const NotifState(isLoading: true);
   }
 
@@ -206,10 +208,9 @@ class NotificationsController extends Notifier<NotifState> {
   }
 
   Future<void> _refresh() async {
-    await fetch();
-    if (_disposed) return;
-    // The tab badge reads `unreadCount` off this same state, so it moves with the list.
-    await fetchUnreadCount();
+    // The tab badge reads `unreadCount` off this same state, so it moves with the list —
+    // running both at once keeps that true and halves the time the badge lags the WS event.
+    await Future.wait([fetch(), fetchUnreadCount()]);
   }
 }
 

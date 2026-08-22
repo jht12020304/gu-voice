@@ -93,7 +93,7 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
           _kpis(context, d),
           const SizedBox(height: 12),
           _table1(context, d),
-          _figure(context, t('research.fig.one'), t('research.cohort.title'), _weeklyTrend(context, d),
+          _figure(context, t('research.fig.one'), id: 'fig1', t('research.cohort.title'), _weeklyTrend(context, d),
               caption: t('research.cohort.subtitle'),
               // The model exposes cohort completion as a Proportion, not the individual
               // aborted/cancelled counts the web footnote lists, so report what we have:
@@ -104,23 +104,23 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
                 'aborted': '—',
                 'cancelled': '—',
               })),
-          _figure(context, t('research.fig.two'), t('research.efficiency.title'), _boxplots(context, d),
+          _figure(context, t('research.fig.two'), id: 'fig2', t('research.efficiency.title'), _boxplots(context, d),
               caption: t('research.efficiency.subtitle'),
               footnote: t('research.efficiency.footnote')),
-          _figure(context, t('research.fig.three'), t('research.hpi.title'), _hpiRows(context, d),
+          _figure(context, t('research.fig.three'), id: 'fig3', t('research.hpi.title'), _hpiRows(context, d),
               caption: t('research.hpi.subtitle'),
               footnote: t('research.hpi.footnote', args: {'count': '${d.reportsAnalyzed}'})),
-          _figure(context, t('research.fig.four'), t('research.safety.title'), _safety(context, d),
+          _figure(context, t('research.fig.four'), id: 'fig4', t('research.safety.title'), _safety(context, d),
               caption: t('research.safety.subtitle'),
               footnote: t('research.safety.footnote')),
-          _figure(context, t('research.fig.five'), t('research.safety.urgencyTitle'), _urgencyLayer(context, d)),
-          _figure(context, t('research.fig.six'), t('research.stt.title'), _stt(context, d),
+          _figure(context, t('research.fig.five'), id: 'fig5', t('research.safety.urgencyTitle'), _urgencyLayer(context, d)),
+          _figure(context, t('research.fig.six'), id: 'fig6', t('research.stt.title'), _stt(context, d),
               caption: t('research.stt.subtitle'),
               footnote: t('research.stt.footnote', args: {'count': '${d.turnsWithConfidence}'})),
-          _figure(context, t('research.fig.seven'), t('research.documentation.title'), _documentation(context, d),
+          _figure(context, t('research.fig.seven'), id: 'fig7', t('research.documentation.title'), _documentation(context, d),
               caption: t('research.documentation.subtitle'),
               footnote: t('research.documentation.footnote', args: {'count': '${d.reportsAnalyzed}'})),
-          _figure(context, t('research.fig.eight'), t('research.forest.title'), _forest(context, d),
+          _figure(context, t('research.fig.eight'), id: 'fig8', t('research.forest.title'), _forest(context, d),
               caption: t('research.forest.subtitle'),
               footnote: t('research.forest.footnote')),
           _byLanguageTable(context, d),
@@ -142,15 +142,30 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
   /// Export is PNG via `RepaintBoundary`, not SVG: the React page serialises inline SVG,
   /// which has no equivalent here. PNG at 3x is adequate for review; true vector output
   /// would mean re-drawing every chart into an SVG writer.
+  /// Stable export keys, one per figure, created once and reused.
+  ///
+  /// `_figure` used to call `GlobalKey()` inside itself. A GlobalKey *identifies* an
+  /// element, so a fresh one every build told Flutter this was a different widget: all
+  /// nine figures were torn down and re-inflated on each rebuild, and because fl_chart
+  /// animates on mount, they all replayed their entry animation. This page rebuilds on
+  /// every dashboard WebSocket event, so in a clinic with patients coming and going the
+  /// charts re-animated every second or so while the doctor was trying to read them.
+  ///
+  /// Keyed by a fixed id rather than the figure's label: labels come from `t()`, so
+  /// keying on them would mint new keys on a language switch and bring the problem back
+  /// in the one place it is most visible.
+  final Map<String, GlobalKey> _figureKeys = {};
+
   Widget _figure(
     BuildContext context,
     String label,
     String title,
     Widget child, {
+    required String id,
     String? caption,
     String? footnote,
   }) {
-    final key = GlobalKey();
+    final key = _figureKeys.putIfAbsent(id, GlobalKey.new);
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8),
       child: Padding(
@@ -318,7 +333,7 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
 
   Widget _table1(BuildContext context, ResearchAnalytics d) {
     Color c(int i) => researchPalette[i % researchPalette.length];
-    return _figure(context, 'Table 1', t('research.demographics.title'), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    return _figure(context, 'Table 1', id: 'table1', t('research.demographics.title'), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('${t('research.demographics.age')}: ${_iqr(d.ageYears)}', style: _tnum),
       if (d.ageYears.mean != null)
         Text('${t('research.demographics.ageMeanSd')}: '

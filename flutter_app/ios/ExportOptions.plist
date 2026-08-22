@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Gu Voice — iOS TestFlight 匯出設定（ExportOptions.plist）
+
+  用途：`fvm flutter build ipa --export-options-plist=ios/ExportOptions.plist`
+        （由 tool/build_ios_testflight.sh 帶入，不建議手動呼叫）
+
+  合法 key 與允許值的唯一權威來源＝這台機器的 `xcodebuild -help` 最末段
+  「Available keys for -exportOptionsPlist:」。本檔註解中所有引號內英文，
+  皆逐字摘自 Xcode 26.6 (Build 17F113) 的實際輸出，不是憑記憶寫的。
+  （man xcodebuild 只寫「xcodebuild -help can print the full set of available
+   options」，本身不含清單；-help 的清單在輸出的最後約 60 行。）
+
+  安全規則：本檔進版控，因此絕不可出現任何憑證、私鑰、Apple ID、密碼、
+  App Store Connect API key 或 issuer id。簽章身分一律由 Xcode 依登入的
+  Apple ID 自動解析（signingStyle = automatic）。
+-->
+<plist version="1.0">
+<dict>
+
+  <!--
+    method
+    xcodebuild -help 原文：
+      "Describes how Xcode should export the archive. Available options:
+       app-store-connect, release-testing, enterprise, debugging, developer-id,
+       mac-application, and validation. The list of options varies based on the
+       type of archive. Defaults to debugging. Additional options include
+       app-store (deprecated: use app-store-connect), ad-hoc (deprecated: use
+       release-testing), and development (deprecated: use debugging)."
+
+    → 查證結論：這台 Xcode 26.6 仍接受舊名 app-store，但已明文標記 deprecated，
+      正名是 app-store-connect。這裡用正名。
+    → 順帶查證：`flutter build ipa --export-method` 的說明只列 app-store / ad-hoc /
+      development / enterprise，那是 Flutter 3.41.3 自己寫死的過時清單。
+      所以本專案一律走 --export-options-plist（值直接交給 xcodebuild），
+      不要用 --export-method，否則會被 Flutter 的舊清單綁住。
+  -->
+  <key>method</key>
+  <string>app-store-connect</string>
+
+  <!--
+    teamID
+    xcodebuild -help 原文：
+      "The Developer team to use for this export. Defaults to the team used to
+       build the archive."
+    Gu Voice 的 Team ID。寫死是為了讓「Xcode 帳號登入了多個 team」時不會挑錯。
+  -->
+  <key>teamID</key>
+  <string>K593X99M7G</string>
+
+  <!--
+    signingStyle
+    xcodebuild -help 原文：
+      "The signing style to use when re-signing the app for distribution.
+       Options are manual or automatic. ... If your archive is manually signed
+       and you choose to automatically sign when distributing, then Xcode will
+       create provisioning profiles and managed cloud signing certificates as
+       necessary, but will not register devices, register app IDs, or modify
+       app ID settings."
+
+    用 automatic：本專案的 project.pbxproj 沒有 PROVISIONING_PROFILE_SPECIFIER，
+    也沒有指定 distribution 憑證，靠 Xcode 依登入的 Apple ID 自動產生
+    distribution profile。因此這裡刻意「不」設定 provisioningProfiles 與
+    signingCertificate —— 那兩個 key 依原文都是 "For manual signing only."，
+    在 automatic 模式下填了只會製造衝突。
+  -->
+  <key>signingStyle</key>
+  <string>automatic</string>
+
+  <!--
+    destination
+    xcodebuild -help 原文：
+      "Determines whether the app is exported locally or uploaded to Apple.
+       Options are export or upload. ... Defaults to export."
+
+    刻意用 export（而非 upload）：我們要先拿到本機 .ipa，跑完
+    build_ios_testflight.sh 的產物驗證（aps-environment、Assets.car、
+    圖示、出口合規旗標）之後，才由人決定要不要上傳。
+    讓 xcodebuild 直接 upload 等於跳過驗證，這在打生產後端的醫療 App 上不可接受。
+  -->
+  <key>destination</key>
+  <string>export</string>
+
+  <!--
+    uploadSymbols
+    xcodebuild -help 原文：
+      "For App Store exports, should the package include symbols? Defaults to YES."
+    明寫 true：沒有 dSYM 的話 TestFlight 的 crash log 只會是一堆位址，無法讀。
+  -->
+  <key>uploadSymbols</key>
+  <true/>
+
+  <!--
+    manageAppVersionAndBuildNumber
+    xcodebuild -help 原文：
+      "Should Xcode manage the app's build number when uploading to App Store
+       Connect? Defaults to YES."
+
+    設為 false：build number 由 build_ios_testflight.sh 以 UTC 時間戳決定並用
+    --build-number 傳入，必須是我們印在終端機上的那一個值，不能被 Xcode 偷偷改掉，
+    否則腳本最後印出的 CFBundleVersion 與 App Store Connect 上看到的會對不起來。
+    （destination = export 時本 key 實際上不會生效，但明寫出來是為了表態：
+      版本號的權威在腳本，不在 Xcode。）
+  -->
+  <key>manageAppVersionAndBuildNumber</key>
+  <false/>
+
+  <!--
+    testFlightInternalTestingOnly
+    xcodebuild -help 原文：
+      "When enabled, this build cannot be distributed via external TestFlight or
+       the App Store. This is recommended for pull requests, development
+       branches, and other builds that are not suitable for external
+       distribution."
+
+    設為 true 的動機：本 App 的推播 body 會帶真實病患姓名，且後端目前是明文
+    fan-out 給全體在職醫師（逐條佐證見 docs/TODO.md §V8）。在補上去識別化之前，
+    這個 build 不應該外流到 external TestFlight 或商店。
+
+    ✅【2026-08-21 已證實生效】。證據：build 202608211213（版本 1.0.0）就是用
+    本檔（destination = export）產出、再以 `xcrun altool --upload-app` 上傳的，
+    上傳後 App Store Connect → TestFlight 的建置版本清單上，「建置版本 202608211213」
+    那一列旁邊帶著「內部」標記。
+    → 也就是說：即使不是 xcodebuild 直傳（destination = upload）、也不是 Xcode
+      Organizer 匯出，這個 key 仍然會隨包傳達到 App Store Connect 並被 Apple 端認可。
+    ⚠️ 本檔先前寫的「未經驗證／destination = export 下是否生效未經證實／上傳後
+      必須到 ASC 確認是否標示 internal-only」已被上述實測推翻，不要再照那個語氣讀。
+      （上面 manageAppVersionAndBuildNumber 在 export 下不生效是另一回事，
+        當初拿它來類推這一個是錯的推論，別再類推回去。）
+
+    ⚠️ 但下面兩條【沒有被推翻】，仍然成立：
+
+      (a) 走 Xcode Organizer 上傳會【繞過整份 ExportOptions.plist】。
+          Organizer 會自己重新 export 一次，這道旗標會跟著失效，而且沒有任何機制
+          會發現。「旗標有效」的前提是【這顆包是照本檔出的】；打包腳本的收尾段
+          已把 Organizer 標為不建議路徑。
+      (b) 【它擋的是「散佈」，不是「資料」——它不是 PHI 護欄。】
+          xcodebuild -help 原文只說 "cannot be distributed via external TestFlight
+          or the App Store"：它擋的是這顆包流到外部測試員與商店，
+          【擋不了任何一個被加進「內部」測試群組的人】。而內部測試員登入拿的是
+          真實醫師帳號，後端沒有 tenant／scope 隔離，全院病歷與帶真實姓名的推播
+          照樣看得到。
+          → 精確的說法是：【旗標有效 ≠ PHI 有護欄】。
+          → 「加第 2 個測試人員前要走完 docs/TODO.md §V8 的前置條件」這個結論
+            完全不受本次證實影響，一個字都不改。
+          → 目前實際在限制 PHI 暴露面的，仍然是【第一版只裝自己一台】這個人為
+            決定（2026-08-21 拍板）。
+
+    另註：打包腳本的第 6 關【仍然檢查不到它】——這個 key 是給 xcodebuild 的匯出
+    指示，不會在 .ipa 的 bundle 或 entitlements 裡留下痕跡。所以「產物驗證全綠」
+    不等於「這道旗標有帶到」；要看就看 ASC 上那個「內部」標記（上傳後順手瞄一眼即可，
+    不必再當成必辦事項）。
+
+    → 【不要拿掉】。
+    → 內部測試員（含日後加人）不受影響，照樣可以裝。
+    → 等去識別化補完、真的要開外測時，再把這個 key 拿掉並重新出一版。
+  -->
+  <key>testFlightInternalTestingOnly</key>
+  <true/>
+
+  <!--
+    刻意「不」設定的 key，理由記錄在此免得日後有人以為是漏掉：
+    - stripSwiftSymbols：用 xcodebuild 預設（原文 "Defaults to YES."）。
+    - provisioningProfiles / signingCertificate / installerSigningCertificate：
+      原文皆為 "For manual signing only."，與上面的 signingStyle=automatic 互斥。
+    - thinning / manifest / embedOnDemandResourcesAssetPacksInBundle /
+      onDemandResourcesAssetPacksBaseURL：原文皆為 "For non-App Store exports"，
+      對 app-store-connect 無效。
+    - iCloudContainerEnvironment：本 App 沒有用 CloudKit。
+    - generateAppStoreInformation：預設 NO，我們不走 iTMSTransporter metadata 流程。
+    - distributionBundleIdentifier：只有一個 top level bundle（com.guvoice.guVoice），
+      用預設即可。
+  -->
+
+</dict>
+</plist>

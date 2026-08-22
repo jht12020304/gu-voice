@@ -9,8 +9,14 @@ import 'app_tokens.dart';
 class AppTheme {
   static const _brand = Color(0xFF2563EB);
 
-  static ThemeData get light => _build(Brightness.light, AppTokens.light);
-  static ThemeData get dark => _build(Brightness.dark, AppTokens.dark);
+  // Built once, not per call. These were getters, and `App.build` passes both to
+  // MaterialApp on every build — so each one re-ran `ColorScheme.fromSeed` (a full
+  // tonal-palette derivation) plus `GoogleFonts.interTextTheme`, twice per rebuild,
+  // now including the first-frame path and every language switch. ThemeData is
+  // immutable and depends on nothing but these two constants, so there is nothing to
+  // invalidate.
+  static final ThemeData light = _build(Brightness.light, AppTokens.light);
+  static final ThemeData dark = _build(Brightness.dark, AppTokens.dark);
 
   static ThemeData _build(Brightness brightness, AppTokens tokens) {
     final isDark = brightness == Brightness.dark;

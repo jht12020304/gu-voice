@@ -41,6 +41,27 @@ Thumbs.db
 *.png
 # Exception: app logo in frontend public
 !frontend/public/logo.png
+# Exception: iOS/Android 的**圖示資產**必須入庫。`*.png` 曾讓 AppIcon.appiconset 的
+# 15 張圖永遠進不了版控，換一台機器 clone 出來就沒有圖示，而 actool 對「Contents.json
+# 宣告了但檔案不在」不會 build error——Runner.app 只是安靜地生不出 Assets.car，一路
+# 到 App Store Connect 上傳驗證才爆。
+# ⚠️ 白名單刻意只開到 asset catalog／mipmap 這幾個目錄，**不要放寬成
+# `!flutter_app/**/*.png`**：這是**公開** repo（github.com/jht12020304/gu-voice），
+# 而這是醫療系統——一放寬，任何人隨手把醫師 dashboard 或 SOAP 報告的截圖放進
+# flutter_app/ 就會被 commit 出去，且 git 歷史清不乾淨。
+# build/ 是目錄層級排除，優先於這幾條，build 產物不會被拉進來。
+!flutter_app/ios/Runner/Assets.xcassets/**/*.png
+!flutter_app/android/app/src/main/res/**/*.png
+!flutter_app/web/icons/*.png
+
+# Apple 簽章金鑰與憑證——一旦 commit 就等於外洩，且 git 歷史清不乾淨。
+# 目前這些檔案放在 repo 外的 ../firebase-secrets/，這幾行是防手滑複製進來。
+*.p8
+*.p12
+*.cer
+*.certSigningRequest
+*.mobileprovision
+AuthKey_*
 
 # Misc design/integration notes
 agent-skills-main/

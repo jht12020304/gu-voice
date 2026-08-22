@@ -3,7 +3,9 @@
 > 依據 [`system_issues_and_risks.md`](archive/system_issues_and_risks.md) 整理的可執行待辦事項。
 > 完成一項就把 `[ ]` 改成 `[x]`，並在後面加上完成日期與 commit hash。
 >
-> 最後更新：2026-08-21。最新一輪是 **2026-08-20 LLM 管線稽核修復戰役**（見本節末與 §S）。
+> 最後更新：2026-08-21。最新一輪是 **2026-08-21 敵意複驗修復（第二戰役）**——
+> PR #57（merge `5457b32`、內容 commit `3eacd50`），修掉第一戰役自己造成的回歸與遺漏
+> （S7／S8／S10／S11／S12），接在 **2026-08-20 LLM 管線稽核修復戰役**（PR #55）之後。兩輪都見 §S。
 >
 > **2026-08-17**：P0–P2、§E E1–E9、§F F1–F7 全部完成並部署生產。本輪變動：
 > - 部署不變式更正——**merge 到 main 不會上線**，要手動 `railway up` / `vercel --prod`（見 deployment_guide.md 一、）
@@ -23,17 +25,26 @@
 > §3b 家族史誤判會捏造病歷），4 項未結案（R18–R21）。7 個 commit，見 §R。
 > **§R-lessons 的六條教訓比任何一條個別修復重要，動紅旗／§3b 之前先讀。**
 >
-> 未結案：**§V 五條 Flutter 未驗證項**（V1 是紅字——語音仍未跑過；V2 已於 2026-07-27 用文字代替語音驗畢）、
+> 未結案：**§V 六條 Flutter 未驗證項**（V1／V3／V4／V5／V7／V8——V1 是紅字，語音仍未跑過；
+> V2 已於 2026-07-27 用文字代替語音驗畢，V6 是 2026-08-17 結案的 **Flutter Web** 管道。
+> **V8 是 2026-08-21 從 §V6 拆出來的 iOS TestFlight 發佈管道**——它先前寄生在已勾選的 §V6 底下，
+> 掃 checkbox 的人會讀成已完成）、
 > E10（等母語臨床覆核）、F8／G35a（等臨床拍板）、E12（投機 schema，無消費端，不做）、
 > H3（dashboard 其餘硬寫中文標籤）、H5（replay 未 await，推測性未驗證）、
 > **§R 四條**（R18 斷言過嚴／R19 第 1 輪重問／R20 收尾後多一輪／R21 政策接受的誤報）、
-> **§S 十二條**（S1／S2 待臨床拍板的紅旗字面／S3 通知文案搬 i18n／S4 e2e 掃不到病患語言版摘要／
-> S5 `additional_notes` 收下未用／S6 兩份終態清單無跳閘器／**S7 紅旗跨子句漏報**（碼內編號 RF-5，同一缺陷）／
-> **S8 SOAP prompt 未消毒**／**S9 `is_dont_know` 含數詞固定語誤判**／**S10 `sanitize_for_prompt` 行首 `#` 只剝一次**／
-> S11 終態 AST 跳閘器的形狀覆蓋面（**不是 HEAD 上可重現的缺陷**，見 §S 的 S11 開頭那個框）／
-> **S12 越南文 `tiểu` 假朋友誤中止**——
-> S7／S8／S9／S10／S12 都是 2026-08-21 文件校訂輪發現的真缺陷、**在 `6ecf10a` HEAD 上逐句可重現**，
-> 其中 **S7／S8／S10／S12 修復中（工作區有未 commit 改動，別當成已修）、S9 尚無人認領**）。
+> **§S 八條**（S1／S2 待臨床拍板的紅旗字面／S3 通知文案搬 i18n／S4 e2e 掃不到病患語言版摘要／
+> S5 `additional_notes` 收下未用／S6 兩份終態清單無跳閘器／
+> **S9 `is_dont_know` 含數詞固定語誤判**（2026-08-21 發現，**仍尚無人認領**）／
+> **S13 `chief_complaint_text` 可繞過 §3b 必問安全 gate**（2026-08-21 e2e 實證，既有行為、非任一輪造成））。
+>
+> **2026-08-22 效能稽核**：7 面向 × 敵意查證，42 條提出／33 條存活／9 條駁回，已修 21 處（開機路徑、醫師端 N+1、語音頁重建頻率、gzip、bcrypt 移出 event loop）。**剩下的 18 條、四條要你拍板的、以及三條「明確不要這樣做」全部在 [perf_audit_2026-08-22.md](perf_audit_2026-08-22.md)**——那份是唯一權威來源，這裡不重抄。
+>
+> ⚠️ **這行數字先前是錯的**：舊版寫「§S 十二條」卻只列到 S12，**S13 從來沒被算進去**
+> （它是第二戰役的 e2e 新發現，加進 §S 時漏了同步檔頭）。現在的八條＝S1–S6 ＋ S9 ＋ S13。
+>
+> **§S 已結案（2026-08-21，PR #57 / 內容 commit `3eacd50`）**：**S7／S8／S10／S11／S12** 五條落地。
+> 缺陷描述與教訓在 §S **原地保留**（那是這份文件的價值），只把狀態改成已修並補上修法摘要與守它的測試名。
+> ⚠️ **S9 沒有跟著修**——它是同一批發現裡唯一沒人認領的一條，別因為隔壁四條變綠就順手當它也好了。
 >
 > **2026-08-18 文字先行測試掃蕩（P0–P5，分支 `fix/text-sweep-2026-08-18`）**：以文字代替語音把
 > 兩端全流程再走一遍，發現並修掉 14 項。一行式索引（詳情見各 commit message）：
@@ -82,30 +93,64 @@
 >   `intake_wiring_zh.run1_i5fail.json`（檔名沒有 head 前綴）是**稽核前基線 `67cdf30`**
 >   上的 FAIL（08-20 12:58→13:02），那是修復前的預期結果、不是本輪的飄動證據；
 >   本輪的飄動只由帶 head 前綴的那份 `24d3083` 佐證。**留檔請一律把 head 寫進檔名。**
-> - **部署現況（2026-08-21 實測，✅ 已完成）**：後端與 React 前端**都已上線新碼**。
->   - 後端 deployment `09b58ea3` **SUCCESS**，新碼確認在服務流量：
+> - **部署現況（✅ 兩輪都已上線）**：後端與 React 前端都在跑新碼。
+>   - **第一戰役（PR #55）後端 deployment `09b58ea3`**（2026-08-20 15:27 UTC 建立）——當時
+>     **SUCCESS**，新碼確認在服務流量：
 >     `https://gu-voice-app-production.up.railway.app/openapi.json` 的
 >     `SOAPReportResponse` 與 `SOAPReportDetailResponse` **都有 `patient_facing_localized`**、
 >     `GenerateReportRequest` **沒有 `required` 欄位**（＝body 全可選，舊碼是 `["session_id"]`）；
->     12/12 openapi 探針通過。migration 已套用生產 DB、celery 與 Firebase 正常。
->   - React 前端 alias 已切，bundle hash 與 `--prod` deployment 一致；生產
->     `locales/en-US/session.json` 有本輪新增的 `patientFacing`。
+>     12/12 openapi 探針通過。migration `d2e3f4a5b6c7`
+>     （`backend/alembic/versions/20260820_1000-soap_report_patient_facing_localized.py`）
+>     已套用生產 DB、celery 與 Firebase 正常。
+>     ⚠️ **今天 `railway deployment list` 看它會是 `REMOVED` 不是 `SUCCESS`**——那是被下面
+>     第二戰役那次取代的正常狀態，**不是失敗**。查歷史部署時別把 `REMOVED` 讀成出事。
 >   - 過程曾因 **Railway 平台事故（上游 GCP，事故編號 `VVL3A03V`）卡約 50 分鐘**未切流量，
 >     期間依 runbook **未重送 `railway up`**——重送只會排進同一個壞掉的佇列。
+>   - React 前端 alias 已切，bundle hash 與 `--prod` deployment 一致；生產
+>     `locales/en-US/session.json` 有本輪新增的 `patientFacing`。
 >   - 先前記載的「醫師端『重新產生報告』仍回 422」已隨後端上線解除。
->   ⚠️ **`healthz` 綠不代表新碼上線**（舊容器一樣回綠），要打 `/openapi.json` 找新欄位——
+>   - **第二戰役（PR #57 `3eacd50`）後端 deployment `79c5721a`**——
+>     `2026-08-20T19:37:01Z` 建立、**SUCCESS**，`railway status --json` 顯示它就是
+>     `production / gu-voice-app` 的 `activeDeployments`（instance `RUNNING`）；
+>     新容器 log 的 celery banner 時間戳是 `2026-08-20 19:37:28`
+>     ＝**建立到容器起來約 27 秒**。啟動 log 有「資料庫遷移完成」但**沒有 `Running upgrade` 行**
+>     （head 已由 `09b58ea3` 那次套用完，本輪無新 migration，符合預期）。
+>   - ⚠️⚠️ **兩次的驗證強度不一樣，這個差異要記住**：
+>     - 第一次是 **schema 有變**（新增 `patient_facing_localized` 欄位、`GenerateReportRequest`
+>       的 `required` 消失），所以 `/openapi.json` 是**外部可驗的硬證據**——新舊容器回不同的東西。
+>     - 第二次是**純行為改動**（紅旗共現組 `cross_clause`、`sanitize_for_prompt` 剝除次數、
+>       SOAP prompt 內部消毒），**API schema 一個位元都沒動**。於是
+>       **任何外部探針都區分不出新舊容器**：`/openapi.json` 一模一樣、`healthz` 本來就恆綠。
+>       能拿到的只有 **deployment id ＋ SUCCESS ＋ 它是 active ＋ 新容器 log**，
+>       那是**推斷**不是端點證據。
+>     - **未來所有純行為改動的部署都會遇到這個限制。** 想要硬證據就得事先埋
+>       （例如 `/healthz/deep` 或某個 debug 端點回 build/commit 標識），
+>       否則就誠實寫成「以 deployment id 與容器 log 推斷」，**不要假裝驗過端點**。
+>   ⚠️ **`healthz` 綠不代表新碼上線**（舊容器一樣回綠）。schema 有變時要打 `/openapi.json`
+>   找新欄位；schema 沒變時連這招都不管用，見上面那條。
 >   這條與「grep -c 退出碼會讓沒命中被判成命中」已寫進部署手冊（PR #56 `6ecf10a`）。
 > - **本輪新增／變更的不變式**已同步進 `voice-pipeline-invariants` skill 與 CLAUDE.md 鐵律，
 >   TODO 這一份記的是**未結案的部分**（§S）。
-> - ⚠️ **2026-08-21 文件校訂輪又發現五個真缺陷（S7–S10、S12，全部未結案，且全部在 `6ecf10a` HEAD 上逐句可重現）**：
+> **2026-08-21 敵意複驗修復（第二戰役，PR #57 merge `5457b32`／內容 commit `3eacd50`）**
+>
+> - **由來**：第一戰役的文件同步 workflow 有一道敵意查證關卡，它抓到**我們自己的修復造成的
+>   回歸與遺漏**——五個真缺陷，當時全部在 `6ecf10a` HEAD 上逐句可重現。
+> - **已修（✅ 五條，`3eacd50`）**：
 >   S7 紅旗跨子句漏報（`我今天小便，然後有很多血塊` → 零紅旗，是 `6fc51e3` 的回歸）、
 >   S8 `soap_generator.py` 的 SOAP prompt 完全沒過 `sanitize_for_prompt`（D-1 只覆蓋對話路徑）、
->   S9 `is_dont_know` 對含數詞的固定語誤判（真拒答 → AI 換句話重問）、
 >   S10 `sanitize_for_prompt` 的行首 `#` 只剝一次（`'# ## X'` → `'## X'`，消毒層自己漏）、
+>   S11 終態 AST 跳閘器的形狀覆蓋面（**它從來就不是 HEAD 上可重現的缺陷**，見 §S 的 S11 開頭那個框；
+>   與本輪同一個 commit 落地，該條記的是能力清單與刻意不做的部分）、
 >   S12 越南文 `tiểu` 是「排尿」與「小／次要」的假朋友（`tiểu đường`＝糖尿病 → urosepsis critical）。
->   **S7／S8／S10／S12 有執行者正在修（工作區未 commit），S9 尚無人認領——一律不得記成已修。**
->   S11 記的是另一件事——終態 AST 跳閘器的**形狀覆蓋面**（HEAD 上根本沒有那支掃描器，
->   所以那不是可複驗的缺陷；它與本輪同一個 commit 落地，該條記的是能力清單與刻意不做的部分）。
+> - ⚠️ **仍未結案**：**S9**（`is_dont_know` 對含數詞的固定語誤判 → 真拒答被漏掉 → AI 換句話重問）
+>   ——同一批發現裡**唯一沒人認領**的一條，第二戰役沒動它。
+> - **新增未結案**：**S13**（`chief_complaint_text` 可繞過 §3b 必問安全 gate，
+>   `injection_pseudosection_zh` e2e 實證）——**既有行為、非任一輪造成**，本輪只列管不改碼。
+> - **驗收**：`backend venv/bin/pytest tests/unit -q` → **4743 passed / 2 skipped**
+>   （2026-08-21 於 `5457b32` 重跑確認，與 commit message 自報一致；跑法＝**有**
+>   `scripts/e2e_realopenai/results/*.json` 的工作副本，見下方總驗收段對兩種跑法的說明）；
+>   真 OpenAI e2e 4 場全 PASS（torsion×2、hematuria_3b_en、新增 `injection_pseudosection_zh`
+>   端到端證明偽區段不進 SOAP）＋ ruleprobe 36 例 ＋ preflight 11 情境。
 
 ---
 
@@ -673,7 +718,20 @@ V4 擋的是實體麥克風驗證，那條仍未做（見 V1 與檔頭未竟事�
 影響：實體麥克風驗證（V1/V4）只需針對 Web；iOS 的麥克風/MicProbe/TCC 坑不再是 blocker。
 iOS 這條線的待辦：醫師登入後的角色分流、通知列表與 SOAP 報告查看頁、APNs 推播
 （simulator 開發期用 `xcrun simctl push` 模擬；真機/TestFlight 需 Apple Developer 的 .p8 推播金鑰）、
-TestFlight 發佈管道（V6 註明另案）。
+TestFlight 發佈管道（**見 §V8**——2026-08-21 從 §V6 拆成獨立條目，別再回頭找已勾選的 §V6）。
+
+**2026-08-21 進度**：TestFlight 打包管道已備妥（圖示、出口合規、ExportOptions、六關腳本），
+簽章憑證補齊後**首顆 build 已上傳、TestFlight 狀態「準備測試」**（見 §V8）；
+還沒建內部測試群組、還沒在真機上裝過、推播也還沒端到端驗過。
+APNs 推播金鑰（.p8）存在於 **repo 之外**——**絕對不得複製進 repo**，`.gitignore` 已補上
+`*.p8`／`*.p12`／`*.cer`／`*.certSigningRequest`／`*.mobileprovision`／`AuthKey_*` 排除。
+
+⚠️ **發佈管道現況、送測前未解的資料風險（含逐條 file:line）、以及「加第 2 個測試人員之前」
+的完整前置條件，一律見 §V8**（2026-08-21 從 §V6 拆出的獨立條目）；設定值見
+[`ios_release_settings.md`](ios_release_settings.md)。**拍板：第一版只裝使用者自己一台。**
+⚠️ `ExportOptions.plist` 的 `testFlightInternalTestingOnly=true` **已證實生效**（2026-08-21，
+build 在 ASC 上標「內部」），但它擋的是**散佈**不是**資料**，**不是 PHI 護欄**——
+擋 PHI 的仍然只有那個拍板本身（理由見 §V8）。
 
 ### [ ] V5. 🟡 Android 完全沒碰
 
@@ -685,7 +743,234 @@ TestFlight 發佈管道（V6 註明另案）。
 沿用 Vercel `chuns-projects-068de742/gu-voice`，FVM 固定 Flutter 3.41.3；
 `flutter_app/tool/build_vercel_output.sh` 會 analyze、test、CSP release build 並產生 Build Output API。
 固定 staged alias 為 `https://gu-voice-flutter-preview.vercel.app`，正式 React alias 尚未切換；
-rollback deployment 已記錄。iOS TestFlight／Android 內部測試管道仍未建立，另案追蹤。
+rollback deployment 已記錄。**Android 內部測試管道仍未建立**，另案追蹤（見 §V5）。
+
+**iOS TestFlight 發佈管道另案追蹤：見 §V8。**（2026-08-21 拆出——它原本整段寫在這個
+**已勾選、標題是 Flutter Web、日期 08-17** 的 §V6 底下，掃 checkbox 的人會讀成已完成。）
+
+### [ ] V8. 🟡 iOS TestFlight 發佈管道 — 2026-08-21：**首顆 build 已上傳，TestFlight 狀態「準備測試」**；待建內部測試群組、加測試員、真機安裝與推播驗證
+
+**✅ 2026-08-21 20:46 首次上傳完成。** 首顆 build（版本 1.0.0，號碼見總表 §7）已通過 ASC 自動處理，
+狀態**「準備測試」**，而且在 TestFlight 建置版本清單上標著「**內部**」。上傳前
+`xcrun altool --validate-app` 回 "VERIFY SUCCEEDED with no errors"，`--upload-app` 傳輸十秒出頭。
+**✅ 沒有卡 "Missing Compliance"**——`ITSAppUsesNonExemptEncryption = false` 那一修生效了，
+省掉人工到 ASC 網頁回答出口合規問卷這一步。
+⚠️ **90 天到期的倒數已經開始跑**（build 不能刪、只能等它過期）。
+**build number／Delivery UUID／大小／到期日／群組與測試員狀態，一律見
+[`ios_release_settings.md`](ios_release_settings.md) §7**——那份是 iOS 所有設定值的唯一權威來源，
+本節不重抄值，只留風險、理由與踩過的坑。
+
+**⬜ 還沒做的**：建內部測試群組、把自己加進去、真機安裝（確認不是白畫面）、推播端到端驗證、
+年齡分級問卷、隱私政策 URL。清單見總表 §9，操作步驟見 `deployment_guide.md` 二、。
+
+**2026-08-21 20:26 打包端到端驗證通過。** 六關全跑真簽章，產出 `build/ios/ipa/gu_voice.ipa`
+（24MB），第 6 關全綠：`aps-environment = production`、`get-task-allow = false`、
+`Assets.car` 2,285,304 bytes、`CFBundleIconName = AppIcon`、
+`ITSAppUsesNonExemptEncryption = false`。archive 497s、export 53s。
+`aps-environment = production` 同時證明 **App ID 已有 Push Notifications capability**。
+操作細節與 `testFlightInternalTestingOnly` 的證據見 `docs/deployment_guide.md` 二、。
+
+> ⚠️ **第 5 關（真簽章 `flutter build ipa`）第一次跑必然失敗一次，這是新的已知坑。**
+> codesign 首次使用剛建好的私鑰時 macOS 會跳**鑰匙圈授權對話框**，腳本是非互動情境 ⇒ codesign
+> 直接失敗，而 `flutter build ipa` 顯示的錯誤只有
+> `exportArchive codesign command failed (... Flutter.framework: replacing existing signature`
+> ——**「replacing existing signature」是 codesign 的正常訊息、不是失敗原因**，真正的原因被 Flutter
+> 截掉了，照字面去查會查錯方向。按對話框「允許」（選 Always Allow）之後，archive 已經在了，
+> **直接跑 `xcodebuild -exportArchive -allowProvisioningUpdates` 即成功**，不必重編。
+> ⚠️ 而且 `flutter build ipa` 在 export 失敗時**仍回傳 exit 0**——**唯一判準是
+> `build/ios/ipa/*.ipa` 存不存在**，第 6 關就是靠這個擋下來的（這次它真的擋到了）。
+
+⚠️ **Team ID 曾經是錯的**：`A73R7M7VB9`（基線 commit `2aa0ff9` 就寫死在 pbxproj、從未有人驗證）
+是錯的值。2026-08-21 使用者登入 Xcode 後由 Xcode 自行改寫 pbxproj 三處，本輪已把
+ExportOptions／打包腳本／三份文件共 11 處一併更正（正確值見
+[`ios_release_settings.md`](ios_release_settings.md) §1——**值只留那一份**，這次繞遠路正是因為
+同一個值散在四個地方）。
+**當時的下游疑慮：APNs 金鑰是哪個 team 產的無法從檔案判斷**（`.p8` 不含 team ID）——
+若不屬於簽 App 的那個 team，推播一定不通且後端 log 與前端都零徵兆。
+✅ **2026-08-21 已到 developer.apple.com → Keys 實查，歸屬正確**（見總表 §5）。日後換 team 要重驗。
+
+> 2026-08-21 從 §V6 拆出來的獨立條目。§V6 是**已結案的 Flutter Web** 管道（08-17、已勾選），
+> iOS 這條當時**一包都還沒上傳過**，寄生在那底下會被讀成已完成；現在雖然傳出去了，
+> **內部測試群組、真機安裝、推播驗證都還沒做**，所以這一條仍然是未勾選的。
+> 操作步驟一律見 [`deployment_guide.md`](deployment_guide.md) 二、、設定值見
+> [`ios_release_settings.md`](ios_release_settings.md)；**本節是全 repo 唯一持有**
+> **這組風險 file:line 的地方**，SKILL.md／deployment_guide／README／腳本 banner 只留濃縮敘述並指回這裡。
+
+已備妥的東西（這裡只記狀態，操作步驟不重抄）：
+
+- `flutter_app/tool/build_ios_testflight.sh` — 六關打包腳本（前置檢查／build number／
+  後端位址斷言／analyze+test／`build ipa`／產物驗證），開頭與結尾各印一次資料風險 banner。
+- `flutter_app/ios/ExportOptions.plist` — 各 key 的值見 [`ios_release_settings.md`](ios_release_settings.md) §4。
+  兩個要記住的理由：`method` 用正名 `app-store-connect`（`app-store` 已是 deprecated 別名）；
+  `destination=export` 是刻意的，先出本機 .ipa 跑完產物驗證才由人上傳。
+- `flutter_app/tool/gen_app_icons.py` — 從 `frontend/public/logo.png` 產 15 張 App Icon ＋ 3 張 LaunchImage，
+  `--check` 缺檔就 exit 1（順帶驗 1024 那張無 alpha）。`.gitignore` 原本的 `*.png` 讓圖示永遠進不了版控，
+  已補**三條窄白名單**（asset catalog／Android mipmap／web icons）。
+  ⚠️ **不要「簡化」成 `!flutter_app/**/*.png`**——這是**公開** repo 而且是醫療系統，一放寬，
+  任何人隨手把醫師 dashboard 或 SOAP 報告的截圖放進 `flutter_app/` 就會 commit 出去，
+  且 git 歷史清不乾淨。理由寫在 `.gitignore` 那幾行的註解裡，改之前先讀。
+  ⚠️ **它靠 `backend/venv` 的 Pillow，而 `backend/requirements.txt` 沒有列 Pillow**（自己 grep 可證）
+  ——所以**任何一次重建 venv 之後都必然缺**，`--check` 會以 `ModuleNotFoundError` exit 1，
+  和「圖示缺檔」同樣是 exit 1、分不出來。打包腳本已改成**先探測 `import PIL` 再跑 `--check`**，
+  缺 Pillow 時分開報並給 `backend/venv/bin/pip install Pillow`（先前會誤報「圖示資產不齊全」，
+  照那個指引去重跑 `gen_app_icons.py` 又會以同一個原因再爆一次＝死路）。
+  **刻意不改 `requirements.txt`**：Pillow 是這支打包工具的相依，不是後端執行期相依。
+- `flutter_app/ios/Runner/Info.plist` 的 `ITSAppUsesNonExemptEncryption = false`——少了它 build 會卡在
+  App Store Connect 的 "Missing Compliance"，內部測試也一起被擋。
+
+已實測通過（2026-08-21，Xcode 26.6 Build 17F113）：
+
+- `fvm flutter build ipa --release --no-codesign --dart-define=API_BASE=… --dart-define=WS_BASE=…`
+  → **exit 0**，47.1s，產出 `build/ios/archive/Runner.xcarchive`（185.6MB）
+  ＝ Flutter 3.41.3 能對 Xcode 26.6 的 iOS 26 SDK 乾淨編譯。
+- 產物：`Assets.car` 2,285,304 bytes（改動前**完全不存在**）、
+  `CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName = AppIcon` 已被 actool 注入
+  （⚠️ **頂層沒有 `CFBundleIconName`**，Xcode 26.6 的 actool 只吐巢狀那兩份，照字面斷言頂層會誤擋正常 build）、
+  `ITSAppUsesNonExemptEncryption = false` 已進 bundle。
+- `fvm flutter clean` → 重跑 `pub get` ＋ `pod install` 後 `git diff ios/Podfile.lock` **零變動**
+  （證實 3.41.3 是對的工具鏈），並補回原本缺失的 `ios/Pods/Manifest.lock`
+  （缺它 Xcode 會直接 Archive 在 `[CP] Check Pods Manifest.lock` 失敗）。
+- ⚠️ **一律用 `fvm flutter`**：PATH 上的裸 `flutter` 是 homebrew 3.47.0，它 SPM 預設開，
+  會把 `.flutter-plugins-dependencies` 翻成 `swift_package_manager_enabled=true` 並動到 Podfile.lock。
+  「SPM／CocoaPods 半切換」不是架構問題，只是跑錯 SDK。
+
+✅ **當日稍早的卡點已解除（保留紀錄，因為換機器會再撞一次）**：那時
+`security find-identity -v -p codesigning` → **0 valid identities found**、
+`~/Library/MobileDevice/Provisioning Profiles/` 目錄不存在、Xcode 未登入任何 Apple ID
+→ **產不出已簽章的 .ipa**，腳本第 1 關擋在這裡並印出修法（含「team 名稱標 (Personal Team)＝免費帳號＝
+永遠拿不到 Distribution 憑證」的判別）。⚠️ **登入 Xcode 不會自動產生 Distribution 憑證**，
+要自己去 Accounts → Manage Certificates… 建——這是當天卡最久的一步。
+憑證補齊後第 5 關已端到端跑過（見上），**「第 5 關零覆蓋」的敘述已過期**。
+
+**第 6 關已不再是零覆蓋（2026-08-21 補）**：腳本新增 `--verify-only=<path/to/.ipa 或 .app>` 模式，
+跳過第 1e 簽章關與整個 build，只跑產物驗證。已用 ad-hoc 簽章（`codesign -s -`）造出的測試產物
+把 6a–6f 逐關實跑過：production／development 兩種 `aps-environment`、`get-task-allow` 三態、
+build number 不符、`.ipa` 與裸 `.app` 兩種輸入、以及 codesign 輸出無法解析時的錯誤分支，
+全部走到並印出預期訊息。**憑證到手那天不必第一次面對這幾十行。**
+
+⚠️ 實跑時抓到一條真缺陷並已修：`codesign -d --entitlements :-` 在本機（macOS 26.5.1／Xcode 26.6）
+吐的是**單行緊湊 plist**，舊版那支「假設 `<key>` 與 `<string>` 分行」的 sed 備援對它回**空字串**
+→ 會把**解析失敗**誤報成「Apple 後台沒勾 Push Notifications」，把人送去改一個沒壞的東西。
+現在先 `plutil -convert xml1` 正規化再解析，正規化失敗時**誠實報「解析失敗」**並保留原始輸出。
+
+⚠️ **build number 沒有遞增機制**：`pubspec.yaml` 的 `CFBundleVersion` 解析為 `1`；
+TestFlight 要求同一 `CFBundleShortVersionString` 下單調遞增，重複的會被拒。打包一律由腳本用
+`date -u +%Y%m%d%H%M` 覆寫。✅ **2026-08-21 已證實 ASC 收 12 位數整數**（首顆 build 就是這個格式），
+先前「超過 uint32、尚未證明 ASC 收」的殘留風險解除。腳本的格式斷言收的是
+**最多三段句點分隔的非負整數**，另一種寫法 `date -u +%Y.%m%d.%H%M` 也放行。
+
+⚠️ **但兩種格式不可混用**（2026-08-21 補進腳本註解）：`CFBundleVersion` 是**逐段**比較的，
+不是當成一個大整數比。`2026.0821.1930` 的首段是 `2026`，而 `202608211930` 只有一段。
+`2026 < 202608211930` → 從 12 位數格式**換成**三段格式會被判定為**倒退**而拒收，且無法回頭
+（同一個 `CFBundleShortVersionString` 下沒辦法往回填）。換格式前必須先確認**這個版本號底下
+尚未用另一種格式上傳過任何一版**；已經傳過的話唯一出路是把 `pubspec.yaml` 的 `version` 往上帶，
+＝換一個 `CFBundleShortVersionString`、重新開一條 build number 序列。
+
+⚠️ **測試裝置要 iOS 16+**（deployment target 是 15.0，但 TestFlight App 本身要 16+）——
+細節與另一個到期門檻見 [`deployment_guide.md`](deployment_guide.md) 二、〈到期與相容性門檻〉。
+
+❌ **對抗式查證推翻過、不要再犯的三件事**：① 改 `ios/Runner/Runner.entitlements` 的
+`aps-environment` 成 production（值由簽章時的 provisioning profile 決定，Apple TN2265，**改了沒有用**；
+真因是 Apple Developer 後台 App ID 沒勾 Push Notifications capability → ITMS-90078）
+② 動 `project.pbxproj` 的 `CODE_SIGN_IDENTITY[sdk=iphoneos*]`（與 Flutter 官方 template 一字不差，
+automatic signing 會覆寫它）③ 把 iOS build 加進 `.github/workflows/ci.yml`
+（`ci.yml:124-127` 明文註解「iOS/Android builds and integration_test stay local」，是專案既有決定）。
+①② 已寫進 CLAUDE.md 鐵律，驗法（`codesign -d --entitlements :-`）見
+[`deployment_guide.md`](deployment_guide.md) 二、。
+
+#### ⚠️ 送測前未解的資料風險（2026-08-21 逐行核實；唯一持有 file:line 的地方）
+
+這是醫療系統，**內測包打的是生產後端**，本專案沒有 staging（`deployment_guide.md` 只有 production 一組）。
+
+> ❌ **先更正一條被證實錯誤的引用（本輪之前四份文件與打包腳本 banner 都照抄它）**：
+> 舊敘述寫「`backend/app/utils/i18n_messages.py:587` 的 `notifications.session_complete.body`
+> 會把病患姓名推到測試者的鎖定畫面」——**錯的**。`notification_service.notify_session_complete`
+> 的 docstring 明文寫「**這一條刻意不 fan-out**」，且呼叫端（`conversation_handler`）本來就只在
+> **有 `doctor_id` 時**才呼叫；碼內自陳「實測 DB 內 `sessions.doctor_id` 全為 NULL」
+> → **session_complete 目前根本不會發出去**。照舊敘述去「補去識別化 587」只會改到一條不會觸發的
+> 文案，**真正的外洩通道原封不動**。下面第 1–3 條才是會打到手機的。
+
+1. **真實病患姓名會出現在測試者的鎖定畫面上——通道是 report_ready，不是 session_complete。**
+   `backend/app/utils/i18n_messages.py:601` 的 `notifications.report_ready.body`
+   （zh-TW＝「病患 {patient_name} 的 SOAP 報告已生成，請審閱。」）原封不動送進 FCM。
+2. **而且這一條是 fan-out 給全體在職醫師。** `backend/app/services/notification_service.py:205`
+   （`notify_report_ready` 的 fan-out 迴圈）在 `sessions.doctor_id IS NULL` 時對**每一位在職醫師**
+   各建一則通知＋一次推播（docstring 自陳「實測 DB 內 `sessions.doctor_id` 全為 NULL」）
+   → 測試者一登入註冊 FCM token，就成為**全院每一位病患**報告的收件人。
+3. **第二條會打到手機的文案**：`backend/app/services/notification_service.py:729` 的
+   `_REPORT_FAILED_COPY`（report_failed，body 帶 `{patient_name}`，**同樣走 fan-out**）。
+4. **休眠地雷（目前不觸發，但「開始指派醫師」那天會自動解封）**：
+   `backend/app/services/alert_service.py:403` 的紅旗推播，body ＝ `data["description"]`
+   ＝ **LLM 生成的醫師向臨床描述**（比姓名更敏感）。它走 `session.doctor_id`，因為目前全 NULL
+   所以不觸發——**一旦開始指派醫師，這條會直接把臨床描述送上鎖定畫面，沒有人需要改任何一行碼**。
+5. **iOS 端可達破壞性 API**：`flutter_app/lib/data/api/patients_api.dart:35` 刪病患、
+   `admin_api.dart:40/51` 停用帳號與重設密碼（`route_guard` 只擋 `/patient` 問診子樹，
+   `/patients` 是刻意開著的醫師端清單）。
+6. **另一條休眠地雷**：`flutter_app/lib/features/doctor/services/push_service.dart:161` 的
+   `unregister()` 失敗只 `debugPrint`、**不重試**——登出後那台手機的 token 可能還留在
+   `fcm_devices` 裡，繼續收全院推播。
+
+**拍板（2026-08-21）：第一版 TestFlight 只裝使用者自己一台**，用途純粹是驗證發佈管道。
+
+✅ **`testFlightInternalTestingOnly` 已證實生效（2026-08-21 實查，這條推翻了先前的立場）**：
+上傳後的那顆 build 在 App Store Connect 的 TestFlight 建置版本清單上標著「**內部**」。
+也就是說即使走 `destination=export` ＋ `xcrun altool`（不是 xcodebuild 直傳、也不是 Organizer），
+這個旗標**仍然會被帶到 ASC**。先前寫的「未經驗證／不可當技術護欄／`destination=export` 下是否
+生效未經證實／要上傳後才知道」**全部過期**，不必再用懷疑的語氣講它——當然更**不要拿掉那個 key**。
+
+⚠️ 但有兩件事**沒有**被推翻，而且是這一整段的重點：
+
+- **(a) 它擋的是「散佈」，不是「資料」。** 它讓這顆包不能拿去做 external TestFlight／上架，
+  但**對任何一個被加進 internal 群組的人完全沒有作用**——那個人拿到的是真實醫師帳號，
+  登進去就讀得到全部真實病患姓名與完整 SOAP 報告（上面第 1–6 條）。
+  ⇒ **它不是 PHI 護欄。** 擋 PHI 的仍然只有「第一版只裝自己一台」這個人為拍板，
+  **下面〈加第 2 個測試人員之前的前置條件〉一個字都沒有因此放寬**。
+  🛑 **「旗標有效」≠「PHI 有護欄」**，把這兩件事混在一起就是這一段最容易犯的錯。
+- **(b) 走 Xcode Organizer 上傳仍然會自己重新 export**，整份 `ExportOptions.plist` 連同這個 key
+  一起被繞過，而且沒有任何機制會發現。腳本收尾段已把 Organizer 標成不建議路徑
+  （建議走 altool 或 Transporter——它們傳的就是第 6 關驗過的那一顆位元組）。
+
+ⓘ 附帶一條本機事實，免得日後有人以為壞了：**第 6 關驗不到這個旗標是正常的**——
+它是給 xcodebuild 的匯出指示，不會在 `.ipa` 的 bundle 或 entitlements 裡留下痕跡
+（`Packaging.log` 也掃不到）。「產物驗證全綠」與「這道旗標有生效」本來就是兩件無關的事，
+它生效與否只能在 ASC 上看。
+
+#### 加第 2 個測試人員之前的前置條件（不是選配）
+
+> ⚠️ **已查證的關鍵事實：遮蔽推播文案不會降低 PHI 暴露。**
+> 測試者拿到的是**真實醫師帳號**，登進去就能在 `/patients`、`/reports/:id`、`/sessions/:id`
+> 讀到**全部真實病患姓名與完整 SOAP 報告**；**後端沒有 tenant／scope 隔離**。
+> 推播文案只是鎖定畫面那一行——把它遮掉，帳號本身的存取面**一點都沒有變**。
+> 任何「先把姓名遮掉再多發一個人」的計畫都建立在這個誤解上。
+
+依第 2 人的**授權狀態**二選一，不要混：
+
+- **A) 第 2 人已獲授權接觸真實病歷**（院內醫護）：遮蔽推播文案（report_ready 與 report_failed
+  的 body 拿掉 `{patient_name}`）＋ 關掉 iOS 端破壞性入口（刪病患／停用帳號／重設密碼）
+  ＋ 書面記錄授權依據。**估時約 3 小時。**
+- **B) 第 2 人未獲授權**（工程師／PM）：**任何程度的文案遮蔽都不足以合法化**——他一登入就看得到全部。
+  唯一的最小安全集是**開 staging 環境**：獨立 Railway service ＋ 空的 Supabase DB ＋ 3–5 筆
+  明顯假名的病患資料，內測包改打 staging。**估時 4–8 小時。** 附帶好處：同時解鎖 V1／V4 的
+  實體麥克風驗證（不必拿生產資料練習）與日後的 external TestFlight。
+
+⚠️ **本輪刻意不實作**（使用者已拍板「第一版只裝自己一台」）：後端去識別化、route guard 擋 `/admin`、
+`unregister()` 失敗重試。這三項在這裡是**前置條件的記錄**，不是本輪待辦——動手前先確認要走 A 還是 B。
+
+#### 兩條沒人提過、但第一次上傳就定生死的風險
+
+- **App 仍然沒有崩潰回報，但例外至少看得見了（2026-08-22 更新）。**
+  `flutter_app/lib/core/error_boundary.dart` 掛上 `FlutterError.onError`、
+  `PlatformDispatcher.onError` 與 `ErrorWidget.builder`：Dart 例外現在會顯示成一行可讀訊息，
+  堆疊寫進 stderr（裝置接著 Mac 時 `flutter logs`／Console.app 看得到）。
+  **`pubspec.yaml` 仍然沒有 Sentry／Crashlytics**——錯誤不會自己送到任何地方，
+  還是要測試者手動截圖回報（ExportOptions 的 `uploadSymbols=true` 只救得了原生 crash，救不了 Dart）。
+  ⚠️ 這條原本寫「任何 Dart 例外＝白畫面、哪裡都查不到」，那個前提在 2026-08-22 之後不再成立；
+  但「裝上去打不開時先假設是 Dart 例外而不是後端掛了」這個判斷順序仍然對。
+- **第一次上傳的錯誤是永久的。** `CFBundleIdentifier` 與 App Store Connect 的 SKU **建立後不可更改**；
+  已上傳的 build **不能刪、只能等它過期**；TestFlight build **90 天到期且不能延長**。
+  ⇒ 90 天那件事**上傳當天就排進行事曆提醒**——寫進文件不會提醒任何人。
+  ⚠️ **2026-08-21 已經上傳，所以這幾件事現在都是既成事實**：bundle id 與 SKU 定了（值見總表 §3）、
+  第一顆 build 的 90 天倒數已經在跑（到期日見總表 §7）。**行事曆那件事現在就該做，不是日後。**
 
 ### [ ] E10. 🟢 紅旗譯名待母語臨床者最終覆核（AI 稽核標 medium/uncertain 的 8 筆）
 
@@ -1403,7 +1688,7 @@ AI    Sorry, I had trouble processing your last reply. Could you…?    ← 是�
 
 ---
 
-## S — LLM 管線稽核與全數修復（2026-08-20，PR #55 `b7323ca`／9 commits）
+## S — LLM 管線稽核與全數修復（2026-08-20，PR #55 `b7323ca`／9 commits ＋ 2026-08-21 第二戰役 PR #57 `3eacd50`）
 
 > 方法：以 `.claude/skills/voice-pipeline-invariants/SKILL.md` 的不變式為基準
 > （**稽核當時 27 條，本輪之後已擴到 37 條**），
@@ -1429,6 +1714,7 @@ AI    Sorry, I had trouble processing your last reply. Could you…?    ← 是�
 | `c6938c8` | SOAP 報告鏈：**SO-1** 時間窗×自行求醫消毒規則、SO-2 regenerate／FAILED 可恢復、`soap_reports.patient_facing_localized` 病患語言摘要、D-4 型別矯正、SO-5 PDF 欄位化 |
 | `24d3083` | 對話層：**IN-2** §3b 涵蓋詞庫補齊五語、IN-3 來源標籤三態、D-2 配額吃過濾後的 must-ask 數、**D-1** 病患自由輸入雙層消毒、D-8（`is_dont_know` 窄化＋guidance key prefix＋壓縮歷史摘要真的進得了 LLM） |
 | `fb403d6` | e2e `t5` 斷言改版：錨定「終止後零 LLM」的實質，不把其中一種合格樣態寫死成唯一樣態 |
+| `3eacd50` | **第二戰役（PR #57，merge `5457b32`）**：修掉第一戰役自己造成的回歸與遺漏——**S7** 紅旗跨子句漏報（`urine_x_heavy_blood` 開 `cross_clause` ＋補 RF-3 漏網的英文 `blood clots` ＋ urosepsis 缺的 `pass water`）、**S8** SOAP prompt 補入口消毒、**S10** `sanitize_for_prompt` 行首標記剝到固定點 ＋ 補 BiDi isolates ＋ oracle 同步、**S11** 終態 AST 跳閘器改 `_terminal_writes` 十種形狀、**S12** 越南文 `tiểu` 假朋友位置排除。逐條見下方 S7／S8／S10／S11／S12 |
 
 **總驗收**：backend unit **4602 passed / 4604 collected**（稽核前 `67cdf30` 是
 **3954 collected**）。**passed 的差是 +648，不是 +650；+650 只對 collected 成立**
@@ -1450,6 +1736,17 @@ AI    Sorry, I had trouble processing your last reply. Could you…?    ← 是�
 其餘驗收：flutter 217 tests ＋ `analyze` 零 issue、React type-check／lint／build／11 tests、
 `check_translations.py` OK、真 OpenAI e2e 六情境全 PASS ＋ ruleprobe 36 ＋ preflight 10
 （⚠️ 六場的 `backend_head` 皆為 `24d3083`，在第 9 個 commit `fb403d6` 之前）。
+
+**第二戰役（`3eacd50`）的總驗收另計**：backend unit **4743 passed / 2 skipped**
+（2026-08-21 在 merge `5457b32` 上實跑重現，跑法＝**有** `scripts/e2e_realopenai/results/*.json`
+的工作副本——沒有 results 的 clone 會少 2 條，理由同上一段）；相對第一戰役的 4602 passed
+是 **+141**，全部落在 `test_red_flag_audit_2026_08.py`（S7／S12 的雙向語料與注入測試）、
+新檔 `test_soap_prompt_injection_sanitization.py`（S8，12 條）、
+`test_terminal_path_six_things_matrix.py`（S11 的 `_BLIND_SPOT_INJECTIONS` 十型）、
+`test_prompt_injection_sanitization.py`（S10 的固定點與零寬字元語料）。
+真 OpenAI e2e 4 場全 PASS（torsion×2／`hematuria_3b_en`／新增 `injection_pseudosection_zh`）
+＋ ruleprobe 36 ＋ preflight 11。**引用測試數時務必連 commit 與跑法一起寫**，
+4602 與 4743 是兩個不同 HEAD 的數字，不是同一份碼的兩種算法。
 
 **五項拍板（已落地）**：① 紅旗誤報字面逐條舉證後收窄（保留清單 `KEPT_LITERALS` 見 S1／S2）
 ② ICD-10 白名單全剝時保留 raw 碼並標 `icd10_verified=false` ③ 病患端下架未確認 ICD-10 與

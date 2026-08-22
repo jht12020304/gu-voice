@@ -2,8 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- APNs 環境。development = Xcode 直裝 / debug；上 TestFlight 或 App Store 前要改成
-	     production（否則 device token 對不到正式 APNs，推播全部收不到）。 -->
+	<!-- APNs 環境。⚠️ 此值由**簽章時的 provisioning profile** 決定（Apple TN2265），
+	     distribution profile 一律給 production；這裡躺著 development 是正確狀態，
+	     改它沒有作用（全世界 Flutter 專案的 Runner.entitlements 都是這樣）。
+	     收不到推播請去 Apple Developer 後台確認 App ID 有勾 Push Notifications
+	     capability——沒勾會吃 ITMS-90078，且線上永遠收不到推播。
+	     實際簽進去的值要對 export 出來的 .ipa 驗（codesign 的 entitlements 傾印指令見
+	     docs/deployment_guide.md 二、；打包腳本第 6 關已自動做）。 -->
 	<key>aps-environment</key>
 	<string>development</string>
 </dict>

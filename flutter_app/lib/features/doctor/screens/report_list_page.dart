@@ -31,7 +31,7 @@ class _ReportListPageState extends State<ReportListPage> {
   final _scroll = ScrollController();
 
   List<SoapReport> _reports = [];
-  List<SoapReport> _summary = [];
+  _Counts? _counts;
   final Map<String, _Meta> _meta = {};
   String? _cursor;
   bool _hasMore = true;
@@ -81,15 +81,52 @@ class _ReportListPageState extends State<ReportListPage> {
     await _fetchReports(reset: false);
   }
 
+  /// The four numbers on the summary cards.
+  ///
+  /// This used to fetch `list(limit: 100)` and count the rows client-side, which was
+  /// both the heaviest request on the screen — 100 full SOAP reports, each carrying its
+  /// `summary` text and patient-facing JSON, downloaded to produce four integers — and
+  /// silently wrong past 100 reports, because `limit` caps at 100 and the cards then
+  /// under-counted a clinic's real backlog with no indication anything was truncated.
+  ///
+  /// `pagination.totalCount` is a server-side COUNT over the same filters, so asking for
+  /// one row per status and reading the count is both smaller and correct at any size.
+  /// The four run concurrently: one round trip of latency, four rows of payload.
   Future<void> _fetchSummary() async {
     try {
-      final page = await _reportsApi.list(limit: 100);
-      if (mounted) setState(() => _summary = page.data);
-    } catch (_) {/* fall back to displayed reports */}
+      final counts = await Future.wait([
+        _reportsApi.list(limit: 1),
+        _reportsApi.list(limit: 1, reviewStatus: 'pending'),
+        _reportsApi.list(limit: 1, reviewStatus: 'approved'),
+        _reportsApi.list(limit: 1, reviewStatus: 'revision_needed'),
+      ]);
+      if (!mounted) return;
+      setState(() => _counts = (
+            total: counts[0].totalCount,
+            pending: counts[1].totalCount,
+            approved: counts[2].totalCount,
+            revisionNeeded: counts[3].totalCount,
+          ));
+    } catch (_) {/* cards fall back to counting what is loaded — see _summaryCards */}
   }
 
+  /// Per-row patient name / chief complaint / red flag.
+  ///
+  /// The backend now ships these on the report itself (2026-08-22, `GET /reports`
+  /// eager-loads the session), so in the normal case `missing` is empty and this makes
+  /// no requests at all — where it used to make one per row, i.e. 20 on a full page,
+  /// each one arriving late enough to visibly reflow the list.
+  ///
+  /// The per-row fetch is kept as the fallback, not deleted, because the two sides do
+  /// not deploy together: the TestFlight build talks to production, and until that is
+  /// redeployed every report comes back without the new fields. Rows that already have
+  /// them are skipped, so a half-migrated backend costs only what it has to.
   Future<void> _loadMeta() async {
-    final missing = _reports.map((r) => r.sessionId).toSet().difference(_meta.keys.toSet());
+    final missing = _reports
+        .where((r) => !r.hasSessionContext)
+        .map((r) => r.sessionId)
+        .toSet()
+        .difference(_meta.keys.toSet());
     if (missing.isEmpty) return;
     await Future.wait(missing.map((id) async {
       try {
@@ -123,7 +160,10 @@ class _ReportListPageState extends State<ReportListPage> {
     final q = _search.trim().toLowerCase();
     if (q.isEmpty) return _reports;
     return _reports.where((r) {
-      final m = _meta[r.sessionId];
+      // `_metaFor`, not `_meta` — otherwise searching by patient name silently stops
+      // matching for exactly the rows whose name came from the report itself, i.e. all
+      // of them once the backend is deployed.
+      final m = _metaFor(r);
       return '${m?.patientName ?? ''} ${m?.complaint ?? ''} ${r.sessionId}'.toLowerCase().contains(q);
     }).toList();
   }
@@ -132,10 +172,12 @@ class _ReportListPageState extends State<ReportListPage> {
   Widget build(BuildContext context) {
     if (_lastLng != currentLng) {
       _lastLng = currentLng;
+      // Only the per-row meta is localized (chief complaint text). The counts are
+      // integers, so re-fetching them on a language switch was four requests buying
+      // nothing.
       _meta.clear();
-      Future.microtask(() { _fetchReports(reset: true); _fetchSummary(); });
+      Future.microtask(() => _fetchReports(reset: true));
     }
-    final overview = _summary.isNotEmpty ? _summary : _reports;
     final filtered = _filtered;
 
     return Scaffold(
@@ -146,7 +188,7 @@ class _ReportListPageState extends State<ReportListPage> {
               controller: _scroll,
               padding: const EdgeInsets.all(16),
               children: [
-                _summaryCards(context, overview),
+                _summaryCards(context),
                 const SizedBox(height: 12),
                 _filterTabs(),
                 TextField(
@@ -175,8 +217,18 @@ class _ReportListPageState extends State<ReportListPage> {
     );
   }
 
-  Widget _summaryCards(BuildContext context, List<SoapReport> overview) {
+  Widget _summaryCards(BuildContext context) {
     final tk = Theme.of(context).extension<AppTokens>()!;
+    // Until the counts land (or if that request failed) fall back to counting the page
+    // that is already on screen, so the cards show something truthful-for-what-is-loaded
+    // rather than four zeroes.
+    final c = _counts ??
+        (
+          total: _reports.length,
+          pending: _countByStatus(_reports, 'pending'),
+          approved: _countByStatus(_reports, 'approved'),
+          revisionNeeded: _countByStatus(_reports, 'revision_needed'),
+        );
     Widget card(String label, int n, Color color) => Expanded(
           child: Card(
             child: Padding(
@@ -189,13 +241,13 @@ class _ReportListPageState extends State<ReportListPage> {
           ),
         );
     return Row(children: [
-      card(t('dashboard.reportList.summaryTotal'), overview.length, tk.statusInProgress),
+      card(t('dashboard.reportList.summaryTotal'), c.total, tk.statusInProgress),
       const SizedBox(width: 8),
-      card(t('dashboard.reportList.tabs.pending'), _countByStatus(overview, 'pending'), tk.alertMedium),
+      card(t('dashboard.reportList.tabs.pending'), c.pending, tk.alertMedium),
       const SizedBox(width: 8),
-      card(t('dashboard.reportList.tabs.approved'), _countByStatus(overview, 'approved'), tk.statusCompleted),
+      card(t('dashboard.reportList.tabs.approved'), c.approved, tk.statusCompleted),
       const SizedBox(width: 8),
-      card(t('dashboard.reportList.tabs.revisionNeeded'), _countByStatus(overview, 'revision_needed'), tk.alertCritical),
+      card(t('dashboard.reportList.tabs.revisionNeeded'), c.revisionNeeded, tk.alertCritical),
     ]);
   }
 
@@ -225,9 +277,24 @@ class _ReportListPageState extends State<ReportListPage> {
     );
   }
 
+  /// The row's session context: straight off the report when the backend supplied it,
+  /// otherwise from the per-row fallback fetch. Returns null only while that fallback is
+  /// still in flight.
+  _Meta? _metaFor(SoapReport r) {
+    if (r.hasSessionContext) {
+      return _Meta(
+        r.patientName ?? r.sessionId,
+        r.chiefComplaintText ?? t('dashboard.reportList.complaintEmpty'),
+        r.sessionRedFlag ?? false,
+        r.sessionStatus,
+      );
+    }
+    return _meta[r.sessionId];
+  }
+
   Widget _row(BuildContext context, SoapReport r) {
     final tk = Theme.of(context).extension<AppTokens>()!;
-    final m = _meta[r.sessionId];
+    final m = _metaFor(r);
     final (badgeLabel, badgeColor) = switch (r.reviewStatus) {
       'approved' => (t('dashboard.reportList.tabs.approved'), tk.statusCompleted),
       'revision_needed' => (t('dashboard.reportList.tabs.revisionNeeded'), tk.alertCritical),
@@ -284,3 +351,5 @@ class _ReportListPageState extends State<ReportListPage> {
     );
   }
 }
+
+typedef _Counts = ({int total, int pending, int approved, int revisionNeeded});
