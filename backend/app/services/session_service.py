@@ -843,8 +843,23 @@ class SessionService:
 
         patient: Optional[Any] = None
 
-        # 1) 明確指定 patient_id → 必須屬於目前使用者才採用
-        if requested_patient_id and current_user_id:
+        # 1a) 醫師/管理員代病患建場次（2026-08-22，醫師端語音問診入口）：
+        #     指定的 patient_id 不受「屬於自己」限制——醫師在診間拿著裝置訪談病患，
+        #     場次要記在**該病患**的病歷下，不是醫師自己名下。
+        #     授權邊界：只有 doctor/admin 走這條；指定的 id 必須真的存在（查無→
+        #     fall through 到下面的自有邏輯，對醫師而言最終會 404/建在自己名下，
+        #     所以前端一律從病患清單帶真實 id）。存取控制與後續 WS 連線由
+        #     _validate_session_access 把關（doctor 可存取 doctor_id 為 NULL 的場次，
+        #     本場次建立時 doctor_id 即為 NULL，故建立者本人一定連得上）。
+        creator_role = _get_user_role(current_user)
+        if requested_patient_id and creator_role in (UserRole.DOCTOR, UserRole.ADMIN):
+            result = await db.execute(
+                select(Patient).where(Patient.id == requested_patient_id)
+            )
+            patient = result.scalar_one_or_none()
+
+        # 1) 明確指定 patient_id → 必須屬於目前使用者才採用（病患自己的路徑）
+        if patient is None and requested_patient_id and current_user_id:
             result = await db.execute(
                 select(Patient).where(
                     and_(

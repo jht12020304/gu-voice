@@ -101,11 +101,13 @@ void main() {
       });
     }
 
-    test('admin 子樹需要 admin；/admin 前綴不誤傷其他路由', () {
-      expect(go('/zh-TW/admin/users', role: 'doctor'), isNotNull);
+    test('admin 子樹：醫師＝管理員（2026-08-22 拍板），病患仍然進不來', () {
+      // 本診所的醫師就是管理者；後端 admin router 同步收 doctor。
+      expect(go('/zh-TW/admin/users', role: 'doctor'), isNull);
       expect(go('/zh-TW/admin/users', role: 'admin'), isNull);
-      // 整段比對：假設未來有 /administrative-x 這類路由，不得被 /admin 前綴誤擋。
-      expect(go('/zh-TW/admin', role: 'doctor'), isNotNull);
+      // 病患被自己的區域限制擋住（不是靠 admin 條件）——這條是 PHI 防線，釘死。
+      expect(go('/zh-TW/admin/users', role: 'patient'), '/zh-TW/patient');
+      expect(go('/zh-TW/admin', role: 'patient'), '/zh-TW/patient');
     });
   });
 
