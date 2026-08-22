@@ -15,6 +15,7 @@ import '../../../data/models/research_analytics.dart';
 import '../research/charts.dart' show researchPalette;
 import '../research/research_figures.dart';
 import '../services/dashboard_ws.dart';
+import '../../../shared/widgets/dashboard_back_button.dart';
 
 const _refetchDebounceMs = 1500;
 const _tnum = TextStyle(fontFeatures: [FontFeature.tabularFigures()]);
@@ -87,13 +88,15 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
   Widget build(BuildContext context) {
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(title: Text(t('research.page.title'))),
+        appBar: AppBar(
+        leading: const DashboardBackButton(),title: Text(t('research.page.title'))),
         body: const SkeletonList(),
       );
     }
     if (_error || _data == null) {
       return Scaffold(
-        appBar: AppBar(title: Text(t('research.page.title'))),
+        appBar: AppBar(
+        leading: const DashboardBackButton(),title: Text(t('research.page.title'))),
         body: ErrorState(
           message: t('research.page.error'),
           retryLabel: t('common.retry'),
@@ -104,7 +107,8 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
     final d = _data!;
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('research.page.title'))),
+      appBar: AppBar(
+        leading: const DashboardBackButton(),title: Text(t('research.page.title'))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

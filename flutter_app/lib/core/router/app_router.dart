@@ -26,7 +26,6 @@ import '../../features/doctor/screens/research_analytics_page.dart';
 import '../../features/doctor/screens/session_detail_page.dart';
 import '../../features/doctor/screens/session_list_page.dart';
 import '../../features/doctor/screens/soap_report_page.dart';
-import '../../features/home/role_home_page.dart';
 import '../../features/patient/intake_route.dart';
 import '../../features/patient/medical_info_page.dart';
 import '../../features/patient/patient_history_page.dart';
@@ -99,82 +98,131 @@ final routerProvider = Provider<GoRouter>((ref) {
       );
     },
     routes: [
+      // 2026-08-22 路由樹重構：原本**所有頁面都是 RoleHomePage（Phase-1 佔位頁）的
+      // 子路由**，而 go_router 的 pop 不經過 redirect——結果是每一頁左上角都長出
+      // 返回鍵，按下去 pop 回佔位頁（使用者回報的「沒必要出現的頁面」）。
+      // 重構原則：
+      //   1. URL 一個都不變（推播 route、kiosk 書籤、深連結全部照舊）。
+      //   2. 佔位頁刪除；'/:lng' 只剩 fallback builder（頂層 redirect 永遠先把它
+      //      彈去角色 landing，正常流程到不了）。
+      //   3. 巢狀＝語意：詳情頁巢在列表下（返回鍵＝回列表）、intake 巢在病患首頁下
+      //      （返回鍵＝回首頁）。
+      //   4. 對話頁是**頂層路由**：問診中不得有返回鍵/邊緣滑動返回——kiosk 病患
+      //      誤觸就會半途離開問診（場次卡 in_progress 60 分鐘），唯一出口是
+      //      結束鈕與語言切換（兩者都會正確收掉場次）。
+      //   5. 儀表板區頁面（病患列表/報告/研究/admin）包 DoctorShell(index:0)：
+      //      原本既無底部導覽、返回鍵又通向佔位頁＝死路。
+      // ---- auth（頂層：登入頁背後不留任何 stack）----
+      GoRoute(path: '/:lng/login', builder: (context, state) => _lngKeyed(const LoginPage())),
+      GoRoute(path: '/:lng/register', builder: (context, state) => _lngKeyed(const RegisterPage())),
+      GoRoute(path: '/:lng/forgot-password', builder: (context, state) => _lngKeyed(const ForgotPasswordPage())),
       GoRoute(
-        path: '/:lng',
-        builder: (context, state) => _lngKeyed(const RoleHomePage()),
+        path: '/:lng/reset-password',
+        builder: (context, state) => _lngKeyed(ResetPasswordPage(token: state.uri.queryParameters['token'] ?? '')),
+      ),
+      // ---- 病患區（intake 流程巢在首頁下）----
+      GoRoute(
+        path: '/:lng/patient',
+        builder: (context, state) => _lngKeyed(const PatientHomePage()),
         routes: [
-          GoRoute(path: 'login', builder: (context, state) => _lngKeyed(const LoginPage())),
-          GoRoute(path: 'register', builder: (context, state) => _lngKeyed(const RegisterPage())),
-          GoRoute(path: 'forgot-password', builder: (context, state) => _lngKeyed(const ForgotPasswordPage())),
+          GoRoute(path: 'start', builder: (context, state) => _lngKeyed(const SelectComplaintPage())),
           GoRoute(
-            path: 'reset-password',
-            builder: (context, state) => _lngKeyed(ResetPasswordPage(token: state.uri.queryParameters['token'] ?? '')),
-          ),
-          GoRoute(path: 'patient', builder: (context, state) => _lngKeyed(const PatientHomePage())),
-          GoRoute(path: 'patient/start', builder: (context, state) => _lngKeyed(const SelectComplaintPage())),
-          GoRoute(
-            path: 'patient/medical-info',
+            path: 'medical-info',
             // Args come from the URL, never `state.extra`: `extra` is in-memory only, so a
             // browser refresh or a shared deep link rebuilt this page with a null
             // complaintId and POST /sessions 422'd (see intake_route.dart).
             builder: (context, state) =>
                 _lngKeyed(MedicalInfoPage(args: medicalInfoArgsFromUri(state.uri))),
           ),
-          GoRoute(path: 'patient/history', builder: (context, state) => _lngKeyed(const PatientHistoryPage())),
           GoRoute(
-            path: 'patient/history/:sessionId',
-            builder: (context, state) =>
-                _lngKeyed(PatientSessionDetailPage(sessionId: state.pathParameters['sessionId']!)),
+            path: 'history',
+            builder: (context, state) => _lngKeyed(const PatientHistoryPage()),
+            routes: [
+              GoRoute(
+                path: ':sessionId',
+                builder: (context, state) =>
+                    _lngKeyed(PatientSessionDetailPage(sessionId: state.pathParameters['sessionId']!)),
+              ),
+            ],
           ),
-          GoRoute(path: 'patient/settings', builder: (context, state) => _lngKeyed(const PatientSettingsPage())),
+          GoRoute(path: 'settings', builder: (context, state) => _lngKeyed(const PatientSettingsPage())),
           GoRoute(
-            path: 'patient/session/:sessionId/complete',
+            path: 'session/:sessionId/complete',
             builder: (context, state) => _lngKeyed(SessionCompletePage(sessionId: state.pathParameters['sessionId']!)),
           ),
           GoRoute(
-            path: 'patient/session/:sessionId/thank-you',
+            path: 'session/:sessionId/thank-you',
             builder: (context, state) =>
                 _lngKeyed(SessionThankYouPage(abortedRedFlag: (state.extra as Map?)?['abortedRedFlag'] == true)),
           ),
-          GoRoute(
-            path: 'conversation/:sessionId',
-            builder: (context, state) => _lngKeyed(ConversationPage(
-              sessionId: state.pathParameters['sessionId']!,
-              session: state.extra as Session?,
-            )),
-          ),
-          // ---- doctor / admin ----
-          GoRoute(path: 'dashboard', builder: (context, state) => _lngKeyed(const DoctorShell(index: 0, child: DashboardPage()))),
-          GoRoute(path: 'sessions', builder: (context, state) => _lngKeyed(const DoctorShell(index: 1, child: SessionListPage()))),
-          GoRoute(
-            path: 'sessions/:sessionId',
-            builder: (context, state) => _lngKeyed(SessionDetailPage(sessionId: state.pathParameters['sessionId']!)),
-          ),
-          GoRoute(path: 'alerts', builder: (context, state) => _lngKeyed(const DoctorShell(index: 2, child: AlertListPage()))),
-          GoRoute(
-            path: 'alerts/:alertId',
-            builder: (context, state) => _lngKeyed(AlertDetailPage(alertId: state.pathParameters['alertId']!)),
-          ),
-          GoRoute(path: 'notifications', builder: (context, state) => _lngKeyed(const DoctorShell(index: 3, child: NotificationPage()))),
-          GoRoute(path: 'settings', builder: (context, state) => _lngKeyed(const DoctorShell(index: 4, child: DoctorSettingsPage()))),
-          GoRoute(path: 'patients', builder: (context, state) => _lngKeyed(const PatientListPage())),
-          GoRoute(
-            path: 'patients/:patientId',
-            builder: (context, state) => _lngKeyed(PatientDetailPage(patientId: state.pathParameters['patientId']!)),
-          ),
-          GoRoute(path: 'reports', builder: (context, state) => _lngKeyed(const ReportListPage())),
-          GoRoute(
-            path: 'reports/:sessionId',
-            builder: (context, state) => _lngKeyed(SoapReportPage(sessionId: state.pathParameters['sessionId']!)),
-          ),
-          GoRoute(path: 'research', builder: (context, state) => _lngKeyed(const ResearchAnalyticsPage())),
-          // ---- admin (RoleGuard: admin only) ----
-          GoRoute(path: 'admin/users', builder: (context, state) => _lngKeyed(const UserManagementPage())),
-          GoRoute(path: 'admin/complaints', builder: (context, state) => _lngKeyed(const ComplaintManagementPage())),
-          GoRoute(path: 'admin/health', builder: (context, state) => _lngKeyed(const SystemHealthPage())),
-          GoRoute(path: 'admin/audit-logs', builder: (context, state) => _lngKeyed(const AuditLogsPage())),
         ],
       ),
+      // ---- 對話頁（頂層，無父層：見上方原則 4）----
+      GoRoute(
+        path: '/:lng/conversation/:sessionId',
+        builder: (context, state) => _lngKeyed(ConversationPage(
+          sessionId: state.pathParameters['sessionId']!,
+          session: state.extra as Session?,
+        )),
+      ),
+      // ---- 醫師 5 tab（頂層：tab 間用底部導覽切換，無返回鍵）----
+      GoRoute(path: '/:lng/dashboard', builder: (context, state) => _lngKeyed(const DoctorShell(index: 0, child: DashboardPage()))),
+      GoRoute(
+        path: '/:lng/sessions',
+        builder: (context, state) => _lngKeyed(const DoctorShell(index: 1, child: SessionListPage())),
+        routes: [
+          GoRoute(
+            path: ':sessionId',
+            builder: (context, state) => _lngKeyed(
+                DoctorShell(index: 1, child: SessionDetailPage(sessionId: state.pathParameters['sessionId']!))),
+          ),
+        ],
+      ),
+      GoRoute(
+        path: '/:lng/alerts',
+        builder: (context, state) => _lngKeyed(const DoctorShell(index: 2, child: AlertListPage())),
+        routes: [
+          GoRoute(
+            path: ':alertId',
+            builder: (context, state) => _lngKeyed(
+                DoctorShell(index: 2, child: AlertDetailPage(alertId: state.pathParameters['alertId']!))),
+          ),
+        ],
+      ),
+      GoRoute(path: '/:lng/notifications', builder: (context, state) => _lngKeyed(const DoctorShell(index: 3, child: NotificationPage()))),
+      GoRoute(path: '/:lng/settings', builder: (context, state) => _lngKeyed(const DoctorShell(index: 4, child: DoctorSettingsPage()))),
+      // ---- 儀表板區（shell index 0：底部導覽在、儀表板 tab 亮著）----
+      GoRoute(
+        path: '/:lng/patients',
+        builder: (context, state) => _lngKeyed(const DoctorShell(index: 0, child: PatientListPage())),
+        routes: [
+          GoRoute(
+            path: ':patientId',
+            builder: (context, state) => _lngKeyed(
+                DoctorShell(index: 0, child: PatientDetailPage(patientId: state.pathParameters['patientId']!))),
+          ),
+        ],
+      ),
+      GoRoute(
+        path: '/:lng/reports',
+        builder: (context, state) => _lngKeyed(const DoctorShell(index: 0, child: ReportListPage())),
+        routes: [
+          GoRoute(
+            path: ':sessionId',
+            builder: (context, state) => _lngKeyed(
+                DoctorShell(index: 0, child: SoapReportPage(sessionId: state.pathParameters['sessionId']!))),
+          ),
+        ],
+      ),
+      GoRoute(path: '/:lng/research', builder: (context, state) => _lngKeyed(const DoctorShell(index: 0, child: ResearchAnalyticsPage()))),
+      // ---- admin（RoleGuard：admin/doctor）----
+      GoRoute(path: '/:lng/admin/users', builder: (context, state) => _lngKeyed(const DoctorShell(index: 0, child: UserManagementPage()))),
+      GoRoute(path: '/:lng/admin/complaints', builder: (context, state) => _lngKeyed(const DoctorShell(index: 0, child: ComplaintManagementPage()))),
+      GoRoute(path: '/:lng/admin/health', builder: (context, state) => _lngKeyed(const DoctorShell(index: 0, child: SystemHealthPage()))),
+      GoRoute(path: '/:lng/admin/audit-logs', builder: (context, state) => _lngKeyed(const DoctorShell(index: 0, child: AuditLogsPage()))),
+      // ---- root fallback：頂層 redirect 永遠先把 '/:lng' 彈去角色 landing，
+      //      這個 builder 正常流程到不了；留空殼只為滿足 GoRoute 的必填 builder。----
+      GoRoute(path: '/:lng', builder: (context, state) => _lngKeyed(const SizedBox.shrink())),
     ],
   );
 });

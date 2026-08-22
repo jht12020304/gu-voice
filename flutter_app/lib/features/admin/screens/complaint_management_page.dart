@@ -5,6 +5,7 @@ import '../../../core/router/lng.dart';
 import '../../../data/api/complaints_api.dart';
 import '../../../data/models/session.dart';
 import '../../../shared/widgets/ui_kit.dart';
+import '../../../shared/widgets/dashboard_back_button.dart';
 
 // Port of ComplaintManagementPage.tsx: chief-complaint template admin.
 // Loads all templates (activeOnly:false), client-side search, create/edit dialog
@@ -124,7 +125,8 @@ class _ComplaintManagementPageState extends State<ComplaintManagementPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(t('admin.complaints.title'))),
+      appBar: AppBar(
+        leading: const DashboardBackButton(),title: Text(t('admin.complaints.title'))),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openForm(),
         icon: const Icon(Icons.add),

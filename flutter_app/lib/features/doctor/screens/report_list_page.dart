@@ -8,6 +8,7 @@ import '../../../data/api/reports_api.dart';
 import '../../../data/api/sessions_api.dart';
 import '../../../data/models/soap_report.dart';
 import '../../../shared/widgets/ui_kit.dart';
+import '../../../shared/widgets/dashboard_back_button.dart';
 
 class _Meta {
   final String patientName;
@@ -182,7 +183,8 @@ class _ReportListPageState extends State<ReportListPage> {
     final filtered = _filtered;
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('dashboard.sidebar.nav.soapReports'))),
+      appBar: AppBar(
+        leading: const DashboardBackButton(),title: Text(t('dashboard.sidebar.nav.soapReports'))),
       body: _loading && _reports.isEmpty
           ? const SkeletonList()
           : ListView(

@@ -4,6 +4,7 @@ import '../../../core/i18n/loc.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/admin_api.dart';
 import '../../../shared/widgets/ui_kit.dart';
+import '../../../shared/widgets/dashboard_back_button.dart';
 
 // Port of frontend/src/screens/admin/SystemHealthPage.tsx.
 // getSystemHealth() returns a Map whose shapes vary (a field may be a plain
@@ -87,6 +88,7 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: const DashboardBackButton(),
         title: Text(t('admin.systemHealth.title')),
         actions: [
           IconButton(

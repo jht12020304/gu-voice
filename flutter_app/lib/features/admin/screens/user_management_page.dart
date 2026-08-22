@@ -8,6 +8,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/admin_api.dart';
 import '../../../data/models/user.dart';
 import '../../../shared/widgets/ui_kit.dart';
+import '../../../shared/widgets/dashboard_back_button.dart';
 
 // Port of frontend/src/screens/admin/UserManagementPage.tsx: admin user list with
 // search + role/active filter + cursor infinite scroll, create/edit dialog, and a
@@ -225,6 +226,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: const DashboardBackButton(),
         title: Text(t('admin.users.title')),
         actions: [
           IconButton(

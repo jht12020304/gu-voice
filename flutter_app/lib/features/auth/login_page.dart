@@ -275,19 +275,28 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   ],
 
                   const SizedBox(height: 16),
+                  // Flexible + ellipsis：兩顆文字鈕在長字語系（vi/ja）合計可超過
+                  // 354pt——固定寬 Row 溢位 3.1px（lng_deep_link 五語掃描抓到的）。
+                  // 讓兩側可收縮，超長時截斷而不是溢位。
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      TextButton(
-                        onPressed: () => context.go(
-                          prefixLngToPath('/forgot-password', currentLng),
+                      Flexible(
+                        child: TextButton(
+                          onPressed: () => context.go(
+                            prefixLngToPath('/forgot-password', currentLng),
+                          ),
+                          child: Text(t('common.login.forgotPassword'),
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
                         ),
-                        child: Text(t('common.login.forgotPassword')),
                       ),
-                      TextButton(
-                        onPressed: () => context
-                            .go(prefixLngToPath('/register', currentLng)),
-                        child: Text(t('auth.register.title')),
+                      Flexible(
+                        child: TextButton(
+                          onPressed: () => context
+                              .go(prefixLngToPath('/register', currentLng)),
+                          child: Text(t('auth.register.title'),
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
                       ),
                     ],
                   ),
