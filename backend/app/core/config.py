@@ -221,18 +221,27 @@ class Settings(BaseSettings):
 
     # ── OPENAI ──────────────────────────────────────────
     OPENAI_API_KEY: str = ""
-    # Default 對齊 production(Railway env vars,2026-04-15 升級):
-    #   Conversation + Supervisor 走 gpt-5.4-mini(reasoning 模型家族,2026-03-17
-    #     snapshot,400K context,knowledge cutoff 2025-08-31)
-    #   Conversation 設 reasoning_effort=none → 走傳統 chat 路徑,送 temperature=0.7
-    #     保留語音問診的口吻親和與低延遲
-    #   Supervisor 設 reasoning_effort=medium → 啟用 CoT,拿到更精準的 next_focus
-    #     督導指令;Supervisor 是背景任務,延遲影響低
-    #   SOAP / Red flag 暫維持 gpt-4o / gpt-4o-mini(未來可再評估)
-    OPENAI_MODEL_CONVERSATION: str = "gpt-5.4-mini"
-    OPENAI_MODEL_SUPERVISOR: str = "gpt-5.4-mini"
-    OPENAI_MODEL_SOAP: str = "gpt-4o"
-    OPENAI_MODEL_RED_FLAG: str = "gpt-4o-mini"
+    # 2026-08-22 全面換到 gpt-5.6 世代（使用者拍板「最新最划算」）。
+    # 定價（每 1M tokens，官方 pricing 頁 2026-08-22 查）：
+    #   gpt-5.6-luna  $0.20/$1.20 —— 比先前的 gpt-5.4-mini（$0.75/$4.50）便宜 ~73%
+    #   gpt-5.6-terra $2.00/$12.0 —— 與先前的 gpt-4o（$2.50/$10.0）約同價、新兩個世代
+    # 分工：
+    #   Conversation → luna + effort="none"（實測 ~1.5s/輪、0 reasoning token，
+    #     對話要快，CoT 留給 Supervisor）
+    #   Supervisor   → luna + effort=medium（背景任務，CoT 換更準的 next_focus）
+    #   SOAP         → terra + effort="none"（臨床文件品質要最好的一級；不開 CoT 是
+    #     因為 reasoning token 吃 max_completion_tokens 額度，SOAP JSON 本體就要 2-3K）
+    #   Red flag     → luna + effort="none"（每輪都跑，快優先；輸出只是小 JSON）
+    #   Summarizer   → luna（純壓縮/翻譯）
+    # ⚠️ gpt-5.6 全家族**拒收非預設 temperature**（400），取樣參數一律走
+    #   openai_client.sampling_kwargs（依模型家族選 reasoning_effort 或 temperature），
+    #   別在任何呼叫點手寫 temperature=。
+    # ⚠️ reasoning_effort 合法值是 none/low/medium/high——**沒有 "minimal"**
+    #   （gpt-5 初代文件有、5.6 已拿掉，實測 400）。
+    OPENAI_MODEL_CONVERSATION: str = "gpt-5.6-luna"
+    OPENAI_MODEL_SUPERVISOR: str = "gpt-5.6-luna"
+    OPENAI_MODEL_SOAP: str = "gpt-5.6-terra"
+    OPENAI_MODEL_RED_FLAG: str = "gpt-5.6-luna"
     OPENAI_TEMPERATURE_CONVERSATION: float = 0.7
     OPENAI_TEMPERATURE_SOAP: float = 0.3
     OPENAI_TEMPERATURE_RED_FLAG: float = 0.2
@@ -249,8 +258,16 @@ class Settings(BaseSettings):
     #                                 會自動切換 create_kwargs 不送 temperature
     OPENAI_REASONING_EFFORT_CONVERSATION: str = "none"
     OPENAI_REASONING_EFFORT_SUPERVISOR: str = "medium"
+    # SOAP 不開 CoT 的理由見上面模型分工註解（reasoning token 會擠掉 JSON 本體）
+    OPENAI_REASONING_EFFORT_SOAP: str = "none"
+    OPENAI_REASONING_EFFORT_RED_FLAG: str = "none"
 
     # ── STT (OpenAI Whisper) ─────────────────────────────
+    # ⚠️ STT 刻意**不**換 gpt-transcribe（雖然 $0.0045/min 比 whisper-1 的
+    # $0.006/min 便宜）：stt_pipeline 依賴 whisper-1 的 verbose_json segments
+    # （no_speech_prob / avg_logprob）做「靜音幻覺兜底」與每輪 stt_confidence
+    # （研究分析在用）。gpt-transcribe 不回這些欄位——換了等於默默拆掉一道
+    # 安全防護去省 25% 的錢。要換就要先重做兜底邏輯。
     OPENAI_STT_MODEL: str = "whisper-1"
     OPENAI_STT_LANGUAGE: str = "zh"      # ISO-639-1，zh = 中文（繁/簡皆可）
     # #3：STT 專用逾時。預設 client 為 60s，病患一口氣講很長 → 大檔 Whisper 轉錄常 >60s
@@ -327,7 +344,7 @@ class Settings(BaseSettings):
     PASSWORD_RESET_IP_WINDOW: int = 900  # window 秒數（15 分鐘）
 
     # ── WebSocket / Session Stability (P2) ─────────────
-    OPENAI_MODEL_SUMMARIZER: str = "gpt-4o-mini"           # 便宜的摘要模型
+    OPENAI_MODEL_SUMMARIZER: str = "gpt-5.6-luna"          # 摘要/翻譯（2026-08-22 換）
     CONVERSATION_HISTORY_MAX_TURNS: int = 50                # 最大保留的對話輪次數
     SUPERVISOR_TIMEOUT_SECONDS: int = 30                    # Supervisor 背景任務逾時
     SESSION_IDLE_TIMEOUT_SECONDS: int = 600                 # 10 分鐘閒置逾時
@@ -366,7 +383,9 @@ class Settings(BaseSettings):
     MAX_HARD_CAP_DRAIN_DEFERS: int = 2
 
     # ── TTS (OpenAI TTS) ─────────────────────────────────
-    OPENAI_TTS_MODEL: str = "tts-1"      # tts-1（快速）或 tts-1-hd（高品質）
+    # 2026-08-22 換 gpt-4o-mini-tts：$12/1M chars（tts-1 是 $15）、較新。
+    # 已實測 nova/shimmer × mp3 × speed=0.9 全部相容。
+    OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
     OPENAI_TTS_VOICE: str = "nova"       # alloy / echo / fable / onyx / nova / shimmer
     OPENAI_TTS_SPEED: float = 0.9        # 0.25 ~ 4.0，< 1.0 稍慢較自然
 

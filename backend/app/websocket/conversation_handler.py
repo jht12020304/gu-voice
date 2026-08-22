@@ -166,7 +166,7 @@ async def _summarize_history_segment(
         if not transcript.strip():
             return None
 
-        from app.core.openai_client import get_openai_client
+        from app.core.openai_client import get_openai_client, sampling_kwargs
         client = get_openai_client()
         model = getattr(settings, "OPENAI_MODEL_SUMMARIZER", "gpt-4o-mini")
         resp = await asyncio.wait_for(
@@ -183,7 +183,8 @@ async def _summarize_history_segment(
                     },
                     {"role": "user", "content": transcript},
                 ],
-                temperature=0.2,
+                # 摘要是壓縮任務，reasoning 家族 effort="none" 即可
+                **sampling_kwargs(model, effort="none", temperature=0.2),
                 max_tokens=400,
             ),
             timeout=15.0,

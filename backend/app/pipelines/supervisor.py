@@ -23,7 +23,7 @@ from redis.asyncio import Redis
 
 from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
-from app.core.openai_client import call_with_retry, get_openai_client
+from app.core.openai_client import call_with_retry, get_openai_client, sampling_kwargs
 from app.pipelines.llm_conversation import (
     render_critical_risk_factor_items_with_intake,
     session_intake_fields,
@@ -323,11 +323,15 @@ class SupervisorEngine:
                 ],
                 "response_format": {"type": "json_object"},
                 "max_completion_tokens": self._max_tokens,
+                # 取樣參數綁模型家族（openai_client.sampling_kwargs），不再用
+                # config=="none" 的字串約定——gpt-5.6 拒收 temperature 之後那個約定
+                # 就是 400 的來源。
+                **sampling_kwargs(
+                    self._model,
+                    effort=self._reasoning_effort,
+                    temperature=self._temperature,
+                ),
             }
-            if self._reasoning_effort and self._reasoning_effort != "none":
-                create_kwargs["reasoning_effort"] = self._reasoning_effort
-            else:
-                create_kwargs["temperature"] = self._temperature
             response = await call_with_retry(
                 lambda: self._client.chat.completions.create(**create_kwargs)
             )
