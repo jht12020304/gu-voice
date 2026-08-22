@@ -16,7 +16,7 @@ backend/            → FastAPI + Celery。app/pipelines/ 問診管線（llm_con
 frontend/           → React + Vite + TS，**目前的生產前端**。src/i18n/locales/ 是翻譯源頭；
                       public/locales/ 是 build 鏡像
 flutter_app/        → Flutter 單一碼庫前端（web+iOS+Android），要取代 frontend/。
-                      **平台定位（2026-08-22 拍板，推翻 2026-08-20 的分工）：iOS 單一 App**——候診區 kiosk iPad 跑病患語音問診，醫師/管理員用自己的裝置跑同一顆 App（角色分流），**網頁版走向除役**（React 正式站在 App 驗證完成前暫時保留，Flutter Web 停止投資）。iOS 平台閘門已拆（route_guard.dart 只剩角色守衛；拆除前先修掉 `/patients` 前綴誤中的病患越權洞——閘門拆掉後那是唯一防線）。Web 的 Vercel 管道與預覽網址仍在，僅供過渡
+                      **平台定位（2026-08-22 拍板，推翻 2026-08-20 的分工）：iOS 單一 App**——候診區 kiosk iPad 跑病患語音問診，醫師/管理員用自己的裝置跑同一顆 App（角色分流），**網頁版走向除役**（React 正式站在 App 驗證完成前暫時保留，Flutter Web 停止投資）。iOS 平台閘門已拆（route_guard.dart 只剩角色守衛；拆除前先修掉 `/patients` 前綴誤中的病患越權洞——閘門拆掉後那是唯一防線）。Web 的 Vercel 管道與預覽網址仍在，僅供過渡。**醫師＝管理員（2026-08-22 拍板）**：admin 四頁與 admin API 對醫師開放（`require_role("admin","doctor")`），醫師並可從病患詳情頁代病患發起語音問診（場次記在該病患名下；後端 create_session 僅對 doctor/admin 放行任意 patient_id）。LLM 模型 2026-08-22 起為 gpt-5.6 世代，**權威在 backend/app/core/config.py**，取樣參數一律走 `sampling_kwargs`（不變式 #33，手寫 temperature= 會在 gpt-5.6 上 400）
                       iOS 有 TestFlight 內部測試發佈管道（`tool/build_ios_testflight.sh`
                       ＋ `ios/ExportOptions.plist` ＋ `tool/gen_app_icons.py`）——**2026-08-21 首顆 build
                       已上傳，TestFlight 狀態「準備測試」**，待建內部測試群組／真機安裝／推播驗證（§V8）；
@@ -63,6 +63,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 | `deploy-production` | 部署、改部署設定、生產環境除錯（DB timeout、連線問題）時 |
 | `research-analytics` | 動到 /research 分析頁或 /api/v1/research/analytics 時 |
 | `ios-testflight` | 打 iOS TestFlight 包、處理簽章／上傳／內部測試群組，或動到 `flutter_app/ios/` 與打包腳本時 |
+| `design-taste-frontend` | 改任何前端視覺（頁面、按鈕、配色、版面）之前——taste-skill 的反樣板規則（2026-08-22 引入，登入頁重設計即依它） |
 
 ## 鐵律（Boundaries）
 

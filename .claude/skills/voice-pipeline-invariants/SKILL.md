@@ -9,25 +9,20 @@ description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§
 
 這條管線的每一條不變式都對應一個修過的生產 bug 或 e2e 驗收（詳見 docs/archive/e2e_realopenai_audit_2026-06-28.md、docs/archive/product_audit_2026-07-06.md、2026-08-20 稽核修復戰役 commit 索引 `8e30bd3 931b9b7 116282d 6fc51e3 7e28d11 2daa82c c6938c8 24d3083 fb403d6`）。改動前先核對清單，改動後用 `e2e-real-openai` skill 驗證，否則回歸風險極高。
 
-## ⚠️ 已知缺口（2026-08-21，修復中——別當成已保證的行為）
+## 已知缺口：2026-08-22 全數結案（留作歷史，別再修一次）
 
-這份清單記的是**程式碼實際的樣子**，不是應該的樣子——**每一條都在 `6ecf10a` HEAD（＝目前生產跑的碼）上可以逐句重現**。以下五處不變式有已實測重現的破口：
-
-| 缺口 | 影響 | 詳見 |
-|---|---|---|
-| **紅旗跨子句漏報**：`我今天小便，然後有很多血塊` → **零紅旗**（`6fc51e3` 把裸「血塊」降進 `urine_x_heavy_blood` 的回歸，該共現組沒開 `cross_clause`） | 大量血尿最自然的真人語序不再命中 critical | #30 的 ⚠️、TODO S7 |
-| **SOAP prompt 完全沒過 `sanitize_for_prompt`**：D-1 只覆蓋對話路徑（`supervisor` / `llm_conversation`），`soap_generator.generate()` 直接 f-string 病患欄位進 prompt（其中三欄還吃 `patients` 表 fallback） | 攻擊面最大、含 PHI 最多的那條 prompt 可被偽區段注入 | #32 的 ⚠️、TODO S8 |
-| **`sanitize_for_prompt` 的行首 `#` 只剝一次**：`'# ## Consultation Transcript'` → `'## Consultation Transcript'`（實測） | **消毒層自己漏**：過了消毒的值仍可能以 `##` 開頭 → 上一條修好也擋不住這個形狀 | #32 的 ⚠️⚠️、TODO S10 |
-| **越南文 `tiểu` 假朋友**：`tôi bị tiểu đường và hôm qua tôi bị sốt`（我有糖尿病、昨天發燒）→ `urosepsis(critical)` | 糖尿病是 §3b 必問風險因子，vi 場次講到自己的病史就被中止問診 | #25 的 ⚠️、TODO S12 |
-| **`is_dont_know` 對含數詞的固定語誤判**：`我不知道，一天到晚都在痛` → 判成「有回答」 | 真拒答**沒進** declined 清單 → 禁令沒下、過期的 `next_focus` 續指同欄 → **AI 會換句話重問該欄**（正是 R19 那個失效面） | #8 的 ⚠️、TODO S9 |
-
-前四條有執行者正在修（工作區已有未 commit 的改動），**在 commit + e2e 驗收之前不要在別處記成已修**；`is_dont_know` 那條尚無人認領（已列進 TODO S9，別讓它只活在這張表裡）。
-
-⚠️ **這張表的門檻是「在 HEAD 上重現得出來」**——只在某個未 commit 的中間態存在過的缺陷不列在這裡（那種東西讀者無從複驗，寫成現在式只會製造假情報）。終態 AST 跳閘器的 tuple 盲點就是這一類：它從來沒被 commit 過，見 #29 的設計說明。
+2026-08-21 的五條缺口（S7 紅旗跨子句／S8 SOAP prompt 未消毒／S10 行首 `#` 只剝一次／
+S12 越南文 `tiểu` 假朋友／S9 `is_dont_know` 數詞誤判）中，**S7/S8/S10/S12 已於
+PR #57（`3eacd50`）修復合併，並在 2026-08-22 於 HEAD 逐條複核**：
+- S7：`urine_x_heavy_blood` 已開 `cross_clause`（shared.py 該組帶 RF-5 註解）
+- S8：`soap_generator` 全部病患欄位過 `sanitize_for_prompt`（13 個使用點）
+- S10：`_leading_marks_stripped` 一次貪婪剝到 fixpoint＋後置斷言（字元類改窄會當場炸）
+- S12：裸 `tiểu` 已從觸發字面拆除，改多詞字面
+**S9 仍未結案**（TODO S9，尚無人認領）——它是表裡唯一還活著的。
 
 ⚠️ **編號對照**：紅旗跨子句漏報這條在文件叫 **S7**、在 `shared.py` 的碼內註解叫 **RF-5**——同一個缺陷。看到 RF-5 就是在講 S7。
 
-另有兩處**單邊落實**（不是缺陷但常被讀成兩端通則）：#18 的四條結束流程行為 Flutter 只有一條；#28 的「純函式 + 精確 JSON 斷言」只有 Flutter 有。
+另有兩處**單邊落實**（不是缺陷但常被讀成兩端通則）：#18 的四條結束流程行為 Flutter 原本只有一條，**2026-08-22 補上第二條**——結束鈕的離線守衛（`endSession()` 在 WS 非 open 時顯示錯誤而不是靜默丟包；沒有它，病患在重連空窗按結束＝以為結束了就走人 → 場次卡 in_progress → 60 分後收成 cancelled、SOAP 永不生成）。其餘兩條（busy 狀態、送達 watchdog）仍缺；#28 的「純函式 + 精確 JSON 斷言」只有 Flutter 有。
 
 ## When to Use
 
@@ -346,3 +341,29 @@ description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§
 - [ ] 動到 intake 三態或病患面文字：兩份前端都改了，且有斷言 payload 形狀／resolver 三態的單元測試
 - [ ] 新增探針斷言：環境假設有自我證明分支，且沒有把單一合格樣態寫死（`post_abort_shape` 型的觀測欄位）
 - [ ] 前端改動通過 `npm run type-check` 與 `npm run lint`
+
+## 2026-08-22 新增不變式（模型換代與 SOAP 表單指令）
+
+**#33 取樣參數一律走 `sampling_kwargs`，任何呼叫點不得手寫 `temperature=`。**
+2026-08-22 全面換到 gpt-5.6 世代（conversation/supervisor/red_flag/summarizer =
+`gpt-5.6-luna`、SOAP = `gpt-5.6-terra`；模型與 effort 的唯一權威是
+`backend/app/core/config.py` 的 `OPENAI_MODEL_*` / `OPENAI_REASONING_EFFORT_*`）。
+gpt-5.6 全家族**拒收非預設 temperature（400）**；`reasoning_effort:"none"` 是合法
+API 值＝關 CoT（0 reasoning token）。相容性判斷集中在
+`app/core/openai_client.py` 的 `is_reasoning_model` / `sampling_kwargs`
+（`test_sampling_kwargs.py` 18 項釘住）。歷史教訓：SOAP／紅旗原本無條件手寫
+`temperature=`，一換模型整條 400——**新增 LLM 呼叫點一律用 helper**。
+另外兩個實測事實：`"minimal"` effort 在 5.6 已拿掉（400）；SOAP 不開 CoT 是刻意的
+（reasoning token 與 JSON 本體共用 `max_completion_tokens` 額度，會撞 D-4 截斷偵測）。
+**STT 刻意留 whisper-1**：`stt_pipeline` 依賴 verbose_json segments 做靜音幻覺兜底與
+`stt_confidence`，`gpt-transcribe` 不回那些欄位——換 STT 模型前要先重做兜底。
+
+**#34 SOAP prompt 的「表單資料的使用規則」段落不得刪（2026-08-22 加）。**
+資料面（R1）只保證 intake 進了 user_message；這一段才是**指令面**：表單的既往史／
+用藥／過敏／家族史必須（a）整理進 subjective 並標注「（表單自填）」、（b）納入鑑別
+與檢查安排的 reasoning（血尿×抗凝血劑、家族泌尿癌×惡性分層要明確引用）、（c）三態
+明確化——表單勾「無」→ 寫「病患於表單勾選無」，**null 只留給真正未知**。
+刪掉這段會回到「表單資料被貼進 prompt 但模型自由決定用不用」的狀態（定向真測
+驗證過：warfarin 與父親膀胱癌在有這段時進了鑑別 reasoning）。動 SOAP system prompt
+時注意它與「你只能依據提供的對話內容」的舊敘述已改寫為雙來源，不要改回單來源。
+
