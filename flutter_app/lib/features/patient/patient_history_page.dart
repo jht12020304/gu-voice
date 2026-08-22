@@ -11,6 +11,7 @@ import '../../shared/format.dart';
 import '../../shared/widgets/status_badge.dart';
 import '../auth/auth_notifier.dart';
 import '../../shared/widgets/language_action.dart';
+import '../../shared/widgets/ui_kit.dart';
 
 // Port of PatientHistoryPage.tsx: patient-scoped list (limit 50) with client-side status
 // filter tabs (all/completed/in_progress/cancelled). No pagination. Subtitle count = total,
@@ -69,11 +70,13 @@ class _PatientHistoryPageState extends ConsumerState<PatientHistoryPage> {
           _filterTabs(),
           Expanded(
             child: _loading
-                ? Center(child: Text(t('session.patientHistory.loading')))
+                ? const SkeletonList()
                 : filtered.isEmpty
-                    ? Center(child: Text(t(_filter == 'all'
-                        ? 'session.patientHistory.emptyAll'
-                        : 'session.patientHistory.emptyFiltered')))
+                    ? EmptyState(
+                        icon: Icons.forum_outlined,
+                        title: t(_filter == 'all'
+                            ? 'session.patientHistory.emptyAll'
+                            : 'session.patientHistory.emptyFiltered'))
                     : ListView(
                         padding: const EdgeInsets.all(16),
                         children: [for (final s in filtered) _row(context, s)],
@@ -119,7 +122,7 @@ class _PatientHistoryPageState extends ConsumerState<PatientHistoryPage> {
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
         onTap: () => _open(s),
-        leading: s.redFlag ? Container(width: 3, height: 40, color: redFlagColor) : null,
+        leading: s.redFlag ? IconTile(Icons.flag, color: redFlagColor) : null,
         title: Text(s.chiefComplaintText ?? t('common.patient.home.defaultComplaint')),
         subtitle: Text('${formatDateTime(s.createdAt)}$duration'),
         trailing: Row(

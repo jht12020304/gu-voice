@@ -9,6 +9,7 @@ import '../../data/api/sessions_api.dart';
 import '../../data/models/session.dart';
 import '../../shared/format.dart';
 import '../../shared/widgets/language_bar.dart';
+import '../../shared/widgets/ui_kit.dart';
 import '../../shared/widgets/status_badge.dart';
 import '../auth/auth_notifier.dart';
 
@@ -88,8 +89,7 @@ class _PatientHomePageState extends ConsumerState<PatientHomePage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(t('common.patient.home.recent').toUpperCase(),
-                      style: theme.textTheme.labelMedium),
+                  GroupHeader(t('common.patient.home.recent')),
                   if (_recent.isNotEmpty)
                     TextButton(
                       onPressed: () => context.go(prefixLngToPath('/patient/history', currentLng)),
@@ -99,7 +99,7 @@ class _PatientHomePageState extends ConsumerState<PatientHomePage> {
               ),
               const SizedBox(height: 8),
               if (_loading)
-                const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
+                const SizedBox(height: 220, child: SkeletonList(rows: 3))
               else if (_recent.isEmpty)
                 _empty(context)
               else
@@ -117,12 +117,12 @@ class _PatientHomePageState extends ConsumerState<PatientHomePage> {
     final theme = Theme.of(context);
     return InkWell(
       onTap: () => context.go(prefixLngToPath('/patient/start', currentLng)),
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: theme.colorScheme.primary,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -151,17 +151,10 @@ class _PatientHomePageState extends ConsumerState<PatientHomePage> {
   }
 
   Widget _empty(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Column(
-        children: [
-          Text(t('common.patient.home.empty'), style: theme.textTheme.bodyMedium),
-          const SizedBox(height: 4),
-          Text(t('common.patient.home.emptyHint'),
-              style: theme.textTheme.bodySmall, textAlign: TextAlign.center),
-        ],
-      ),
+    return EmptyState(
+      icon: Icons.forum_outlined,
+      title: t('common.patient.home.empty'),
+      message: t('common.patient.home.emptyHint'),
     );
   }
 
@@ -174,7 +167,7 @@ class _PatientHomePageState extends ConsumerState<PatientHomePage> {
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
         onTap: () => _openSession(s),
-        leading: s.redFlag ? Container(width: 3, height: 40, color: redFlagColor) : null,
+        leading: s.redFlag ? IconTile(Icons.flag, color: redFlagColor) : null,
         title: Text(s.chiefComplaintText ?? t('common.patient.home.defaultComplaint')),
         subtitle: Text('${formatDateTime(s.createdAt)}$duration'),
         trailing: Row(

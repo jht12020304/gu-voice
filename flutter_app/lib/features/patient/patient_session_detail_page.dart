@@ -7,6 +7,7 @@ import '../../data/api/sessions_api.dart';
 import '../../data/models/session.dart';
 import '../../data/models/soap_report.dart';
 import '../../shared/format.dart';
+import '../../shared/widgets/ui_kit.dart';
 import 'patient_facing_summary.dart';
 
 // Port of PatientSessionDetailPage.tsx — patient-friendly read-only view: summary + advice
@@ -50,12 +51,14 @@ class _PatientSessionDetailPageState extends State<PatientSessionDetailPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return Scaffold(body: Center(child: Text(t('session.patientDetail.loading'))));
+      return const Scaffold(body: SkeletonList(rows: 4));
     }
     if (_error || _session == null) {
       return Scaffold(
         appBar: AppBar(),
-        body: Center(child: Text(t('session.patientDetail.notFound'))),
+        body: EmptyState(
+            icon: Icons.search_off_outlined,
+            title: t('session.patientDetail.notFound')),
       );
     }
     final s = _session!;
@@ -142,11 +145,18 @@ class _PatientSessionDetailPageState extends State<PatientSessionDetailPage> {
   }
 
   Widget _section(BuildContext context, String heading, String body) {
-    final theme = Theme.of(context);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(heading, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-      const SizedBox(height: 6),
-      Text(body),
+      GroupHeader(heading),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          // 病患端閱讀內容：bodyLarge（讀者含年長病患，比預設大半級）
+          child: SizedBox(
+            width: double.infinity,
+            child: Text(body, style: Theme.of(context).textTheme.bodyLarge),
+          ),
+        ),
+      ),
     ]);
   }
 

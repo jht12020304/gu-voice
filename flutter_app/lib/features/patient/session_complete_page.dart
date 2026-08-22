@@ -11,6 +11,7 @@ import '../../data/api/sessions_api.dart';
 import '../../data/models/session.dart';
 import '../../data/models/soap_report.dart';
 import '../../shared/format.dart';
+import '../../shared/widgets/ui_kit.dart';
 import 'patient_facing_summary.dart';
 
 // Port of SessionCompletePage.tsx — the reviewable post-consult summary reached by tapping
@@ -74,7 +75,7 @@ class _SessionCompletePageState extends State<SessionCompletePage> {
   @override
   Widget build(BuildContext context) {
     if (_loadingSession && _loadingReport) {
-      return Scaffold(body: Center(child: Text(t('session.complete.loading'))));
+      return const Scaffold(body: SkeletonList(rows: 4));
     }
     final theme = Theme.of(context);
     return Scaffold(
@@ -90,10 +91,15 @@ class _SessionCompletePageState extends State<SessionCompletePage> {
             ]),
           ),
           const SizedBox(height: 24),
-          if (_session != null) _summaryCard(context, _session!),
-          const SizedBox(height: 16),
+          if (_session != null) ...[
+            GroupHeader(t('session.complete.summaryTitle')),
+            _summaryCard(context, _session!),
+          ],
+          const SizedBox(height: 8),
+          GroupHeader(t('session.complete.reportTitle')),
           _reportCard(context),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
+          GroupHeader(t('session.complete.nextStepsTitle')),
           _nextStepsCard(context),
           const SizedBox(height: 24),
           Row(children: [
@@ -127,8 +133,6 @@ class _SessionCompletePageState extends State<SessionCompletePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(t('session.complete.summaryTitle').toUpperCase(), style: Theme.of(context).textTheme.labelMedium),
-            const SizedBox(height: 12),
             _row(t('session.complete.summaryChiefComplaint'), s.chiefComplaintText ?? '—'),
             _row(t('session.complete.summaryStartedAt'), formatDateTime(s.startedAt ?? s.createdAt)),
             _row(t('session.complete.summaryDuration'), duration),
@@ -181,13 +185,7 @@ class _SessionCompletePageState extends State<SessionCompletePage> {
       body = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (summaryText != null) Text(summaryText),
         const SizedBox(height: 12),
-        Row(children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(9999)),
-            child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 12)),
-          ),
-        ]),
+        Row(children: [PillTag(label, color: color)]),
       ]);
     } else {
       body = Text(t('session.complete.reportEmpty'));
@@ -196,8 +194,6 @@ class _SessionCompletePageState extends State<SessionCompletePage> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(t('session.complete.reportTitle').toUpperCase(), style: theme.textTheme.labelMedium),
-          const SizedBox(height: 12),
           body,
         ]),
       ),
@@ -210,12 +206,14 @@ class _SessionCompletePageState extends State<SessionCompletePage> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(t('session.complete.nextStepsTitle').toUpperCase(), style: theme.textTheme.labelMedium),
-          const SizedBox(height: 8),
           for (final k in const ['nextStep1', 'nextStep2', 'nextStep3'])
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Text('— ${t('session.complete.$k')}'),
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.check_circle_outline, size: 18, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(child: Text(t('session.complete.$k'))),
+              ]),
             ),
         ]),
       ),
