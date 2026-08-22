@@ -20,7 +20,7 @@ from app.core.metrics import (
     record_red_flag_rule_layer_coverage,
     record_red_flag_triggers,
 )
-from app.core.openai_client import call_with_retry, get_openai_client
+from app.core.openai_client import call_with_retry, get_openai_client, sampling_kwargs
 from app.pipelines.prompts.shared import (
     RED_FLAG_SUPERSEDES,
     URO_RED_FLAGS,
@@ -2094,7 +2094,7 @@ class RedFlagDetector:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_message},
                     ],
-                    temperature=self._temperature,
+                    **sampling_kwargs(self._model, effort=getattr(self._settings, "OPENAI_REASONING_EFFORT_RED_FLAG", "none"), temperature=self._temperature),
                     max_completion_tokens=1024,
                     response_format={"type": "json_object"},
                 )

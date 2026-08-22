@@ -15,6 +15,7 @@ from app.core.openai_client import (
     budget_messages,
     call_with_retry,
     get_openai_client,
+    sampling_kwargs,
 )
 from app.pipelines.next_focus_guard import (
     build_dont_know_ban,
@@ -1173,13 +1174,11 @@ class LLMConversationEngine:
                 len(messages),
             )
 
-            # 模型能力分兩類:
-            #   (a) reasoning 模型 (o1 / o3-mini / gpt-5 系列):可吃 reasoning_effort=
-            #       low/medium/high,且此時 API 會拒絕 temperature。
-            #   (b) 傳統 chat 模型 (gpt-4o / gpt-4.1 系列):不認識 reasoning_effort 參數,
-            #       任何值(包括字面字串 "none")都會被 API 拒絕,但接受 temperature。
-            # 約定:OPENAI_REASONING_EFFORT_CONVERSATION="none" 代表「走傳統路徑」,
-            # 這時完全不送 reasoning_effort,只送 temperature。
+            # 取樣參數依「模型家族」決定，集中在 sampling_kwargs（openai_client.py）：
+            # reasoning 家族（gpt-5.x／o 系列）送 reasoning_effort（"none" 是合法 API 值
+            # ＝關 CoT，對話走這個最快）、傳統家族（gpt-4o）送 temperature。
+            # 2026-08-22 之前這裡用 config=="none" 的字串約定判斷，gpt-5.6 拒收
+            # temperature 之後那個約定就是錯的來源，故改綁模型名。
             # P1-#7：送 LLM 前先套 token budget（context_limit - max_tokens - reserve），
             # 超量時保留 system prompt、從頭部丟舊對話。
             budgeted = budget_messages(messages, self._model, self._max_tokens)
@@ -1189,13 +1188,12 @@ class LLMConversationEngine:
                 "messages": budgeted,
                 "max_completion_tokens": self._max_tokens,
                 "stream": True,
+                **sampling_kwargs(
+                    self._model,
+                    effort=self._reasoning_effort,
+                    temperature=self._temperature,
+                ),
             }
-            if self._reasoning_effort and self._reasoning_effort != "none":
-                # reasoning 路徑:送 reasoning_effort,不送 temperature
-                create_kwargs["reasoning_effort"] = self._reasoning_effort
-            else:
-                # 傳統路徑:送 temperature,完全不送 reasoning_effort
-                create_kwargs["temperature"] = self._temperature
 
             # 只有 stream 初建失敗（429 / timeout）才重試；一旦開始收 chunk 就不能重試。
             stream = await call_with_retry(

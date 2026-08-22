@@ -163,3 +163,32 @@ def budget_messages(
         len(messages), len(truncated), model, budget,
     )
     return truncated
+
+# ── 模型能力判斷（2026-08-22）─────────────────────────────────────────────
+# 取樣參數的相容性是「模型家族」的屬性，不是 config 約定的屬性。歷史上每條管線
+# 各自靠 OPENAI_REASONING_EFFORT_*=="none" 這個字串約定決定送 temperature 還是
+# reasoning_effort，結果 SOAP／紅旗根本沒有這個分支（無條件送 temperature），
+# 一換 gpt-5.6 就整條 400。集中在這裡，五個呼叫點共用。
+#
+# 實測（2026-08-22，gpt-5.6-luna / terra）：
+#   - temperature=0.7 → 400「Only the default (1) value is supported」
+#   - reasoning_effort="none" → 200，reasoning_tokens=0（合法 API 值＝關閉 CoT）
+#   - reasoning_effort="minimal" → 400（gpt-5.6 不支援，別照 gpt-5 初代文件抄）
+def is_reasoning_model(model: str) -> bool:
+    """gpt-5 系列與 o 系列：拒收非預設 temperature、接受 reasoning_effort。"""
+    m = (model or "").lower()
+    return m.startswith(("gpt-5", "o1", "o3", "o4"))
+
+
+def sampling_kwargs(model: str, *, effort: str | None, temperature: float) -> dict:
+    """回傳該模型接受的取樣參數。
+
+    reasoning 家族 → {"reasoning_effort": effort 或 "none"}（"none" 是合法 API 值，
+    代表關 CoT、走最快路徑）；傳統家族（gpt-4o / gpt-4.1）→ {"temperature": ...}。
+    config 的 OPENAI_REASONING_EFFORT_* 語意隨之簡化：它就是 reasoning 家族的
+    effort 值，模型不是 reasoning 家族時被忽略。
+    """
+    if is_reasoning_model(model):
+        return {"reasoning_effort": effort or "none"}
+    return {"temperature": temperature}
+

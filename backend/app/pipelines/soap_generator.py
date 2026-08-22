@@ -12,7 +12,7 @@ from typing import Any
 
 from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
-from app.core.openai_client import call_with_retry, get_openai_client
+from app.core.openai_client import call_with_retry, get_openai_client, sampling_kwargs
 from app.models.enums import URGENCY_VALUES, Urgency
 from app.pipelines.icd10_validator import validate_icd10_codes
 from app.pipelines.prompts.shared import sanitize_for_prompt
@@ -780,7 +780,14 @@ Please produce the full SOAP report based on the information above."""
                         {"role": "system", "content": system_prompt_localized},
                         {"role": "user", "content": user_message},
                     ],
-                    temperature=self._temperature,
+                    # 取樣參數綁模型家族（sampling_kwargs）。SOAP 用 effort="none"：
+                    # reasoning token 會吃掉 max_completion_tokens 的額度，SOAP 的
+                    # JSON 本體就要 2-3K，開 CoT 會撞上 D-4 那個截斷偵測。
+                    **sampling_kwargs(
+                        self._model,
+                        effort=getattr(self._settings, "OPENAI_REASONING_EFFORT_SOAP", "none"),
+                        temperature=self._temperature,
+                    ),
                     max_completion_tokens=self._max_tokens,
                     response_format={"type": "json_object"},
                 )
@@ -1280,7 +1287,8 @@ You will be given two short patient-facing texts written in Traditional Chinese:
                         "content": json.dumps(source, ensure_ascii=False),
                     },
                 ],
-                temperature=0.2,
+                # localizer 是純翻譯，reasoning 家族一律 effort="none"
+                **sampling_kwargs(model, effort="none", temperature=0.2),
                 max_completion_tokens=1500,
                 response_format={"type": "json_object"},
             )
