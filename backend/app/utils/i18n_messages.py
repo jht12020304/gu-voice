@@ -969,27 +969,37 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
 
     # ── Greeting（初始問診語） ───────────────────────
+    # 2026-08-22 依衛福部「醫療機構應用生成式人工智慧指引」（2026-05-29 函頒，
+    # 衛部醫字第1151663164號）補「資料用途」揭露：以生成式 AI 與民眾互動時須主動
+    # 揭露 AI 身分（原句已有「AI 問診助手」）並告知用途——「對話會記錄、整理成
+    # 摘要供醫師看診參考」那一句就是用途揭露，五語都要有，**不得刪**。
     "ws.initial_greeting": {
         "zh-TW": (
             "您好！我是泌尿科 AI 問診助手，今天將協助您進行初步問診。"
+            "我們的對話會記錄下來，整理成摘要提供醫師看診參考。"
             "請問您的「{chief_complaint}」症狀是什麼時候開始的？"
         ),
         "en-US": (
             "Hello! I'm your urology AI intake assistant and I'll help with "
-            "your initial assessment today. When did your \"{chief_complaint}\" "
-            "symptom first start?"
+            "your initial assessment today. Our conversation will be recorded "
+            "and summarized for your doctor to review. When did your "
+            "\"{chief_complaint}\" symptom first start?"
         ),
         "ja-JP": (
             "こんにちは。泌尿器科のAI問診アシスタントです。本日は初診の問診をお手伝いします。"
+            "会話の内容は記録され、要約して担当の医師に提供されます。"
             "「{chief_complaint}」の症状はいつから始まりましたか？"
         ),
         "ko-KR": (
             "안녕하세요. 비뇨기과 AI 문진 도우미입니다. 오늘 초기 문진을 도와드리겠습니다."
+            "대화 내용은 기록되어 요약본으로 진료 의사에게 전달됩니다."
             "「{chief_complaint}」 증상은 언제부터 시작되었나요?"
         ),
         "vi-VN": (
             "Xin chào! Tôi là trợ lý hỏi bệnh AI chuyên khoa Tiết niệu, "
             "hôm nay tôi sẽ hỗ trợ buổi hỏi bệnh ban đầu của bạn. "
+            "Nội dung trò chuyện sẽ được ghi lại và tóm tắt để bác sĩ "
+            "tham khảo khi khám. "
             "Triệu chứng \"{chief_complaint}\" của bạn bắt đầu từ khi nào?"
         ),
     },

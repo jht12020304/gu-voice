@@ -262,13 +262,24 @@ class Settings(BaseSettings):
     OPENAI_REASONING_EFFORT_SOAP: str = "none"
     OPENAI_REASONING_EFFORT_RED_FLAG: str = "none"
 
-    # ── STT (OpenAI Whisper) ─────────────────────────────
-    # ⚠️ STT 刻意**不**換 gpt-transcribe（雖然 $0.0045/min 比 whisper-1 的
-    # $0.006/min 便宜）：stt_pipeline 依賴 whisper-1 的 verbose_json segments
-    # （no_speech_prob / avg_logprob）做「靜音幻覺兜底」與每輪 stt_confidence
-    # （研究分析在用）。gpt-transcribe 不回這些欄位——換了等於默默拆掉一道
-    # 安全防護去省 25% 的錢。要換就要先重做兜底邏輯。
-    OPENAI_STT_MODEL: str = "whisper-1"
+    # ── STT (OpenAI gpt-transcribe，2026-08-22 換代) ─────
+    # 由 whisper-1 換 gpt-transcribe（2026-07-28 上市的接班世代；真 API 實測拍板）：
+    #   - 幻聽：2 秒雜訊實測 whisper-1 吐「字幕由Amara.org社区提供」，gpt-transcribe
+    #     回空字串；純靜音也回空——這正是換代的醫療安全主因
+    #   - prompt 可作醫療詞彙 keyword hints（實測能把誤聽的藥名拉回正確詞），
+    #     stt_pipeline.build_stt_keyword_hint 每場注入病患表單詞彙
+    #   - 價格 $0.0045/min（whisper-1 $0.006）
+    # 換代前 skill 要求重做的兩道防護（皆在 stt_pipeline.py）：
+    #   - stt_confidence 改由 include[]=logprobs 的 token logprobs 估算
+    #     （經 extra_body 傳遞，SDK 1.58.1 實測可用，不必升 SDK）
+    #   - 靜音幻覺兜底：片語黑名單保留；verbose_json segments 僅 whisper-1 回，
+    #     gpt 家族自然跳過 segments 路徑
+    # ⚠️ gpt-transcribe 中文輸出一律**簡體**（prompt 逼不回來，2026-08-22 實測），
+    #    zh 場次由 OpenCC s2tw 確定性轉台灣繁體（已繁字串轉換為恆等）。
+    # 回退：設 OPENAI_STT_MODEL=whisper-1 即回舊路徑（verbose_json 兜底完整保留）。
+    # 刻意不選 gpt-4o-(mini-)transcribe 世代：長音檔 WER 暴增（第三方 benchmark），
+    # 且 mini 快照實測把「三天」聽成「散田」（病程天數是 HPI 關鍵）。
+    OPENAI_STT_MODEL: str = "gpt-transcribe"
     OPENAI_STT_LANGUAGE: str = "zh"      # ISO-639-1，zh = 中文（繁/簡皆可）
     # #3：STT 專用逾時。預設 client 為 60s，病患一口氣講很長 → 大檔 Whisper 轉錄常 >60s
     # 撞逾時又 tenacity 重試（~2x）造成「當機約一分鐘」。STT 拉長到 120s 避免誤判逾時重試。
@@ -385,7 +396,10 @@ class Settings(BaseSettings):
     # ── TTS (OpenAI TTS) ─────────────────────────────────
     # 2026-08-22 換 gpt-4o-mini-tts：$12/1M chars（tts-1 是 $15）、較新。
     # 已實測 nova/shimmer × mp3 × speed=0.9 全部相容。
-    OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
+    # 2026-08-22 晚間釘 2025-12-15 快照：官方數據唸錯率（WER）約降 35%、
+    # 新 decoder 更自然（醫療場景唸錯藥名/劑量代價高）；nova×mp3×speed0.9
+    # 已對快照實測相容（HTTP 200、mp3 正常）。
+    OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts-2025-12-15"
     OPENAI_TTS_VOICE: str = "nova"       # alloy / echo / fable / onyx / nova / shimmer
     OPENAI_TTS_SPEED: float = 0.9        # 0.25 ~ 4.0，< 1.0 稍慢較自然
 

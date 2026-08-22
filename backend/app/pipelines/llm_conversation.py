@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.core.exceptions import AIServiceUnavailableException
 from app.core.openai_client import (
     budget_messages,
+    cache_kwargs,
     call_with_retry,
     get_openai_client,
     sampling_kwargs,
@@ -1193,6 +1194,8 @@ class LLMConversationEngine:
                     effort=self._reasoning_effort,
                     temperature=self._temperature,
                 ),
+                # 每輪重送同一 session 前綴 → 按場次路由快取（openai_client.cache_kwargs）
+                **cache_kwargs(session_context.get("session_id")),
             }
 
             # 只有 stream 初建失敗（429 / timeout）才重試；一旦開始收 chunk 就不能重試。

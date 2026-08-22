@@ -36,6 +36,8 @@ aiohttp==3.11.11
 
 # --- OpenAI SDK ---
 openai==1.58.1
+# STT 簡轉繁（gpt-transcribe 中文輸出一律簡體，zh 場次確定性轉台灣繁體）
+opencc-python-reimplemented==0.1.7
 tiktoken==0.8.0
 
 # --- PDF 報告產生 ---

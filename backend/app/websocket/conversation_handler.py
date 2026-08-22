@@ -31,7 +31,11 @@ from app.pipelines.llm_conversation import (
 from app.pipelines.patient_context import build_patient_info
 from app.pipelines.prompts.shared import count_critical_risk_factors_for_complaint
 from app.pipelines.red_flag_detector import RedFlagDetector
-from app.pipelines.stt_pipeline import STTPipeline, to_whisper_language
+from app.pipelines.stt_pipeline import (
+    STTPipeline,
+    build_stt_keyword_hint,
+    to_whisper_language,
+)
 from app.pipelines.tts_pipeline import TTSPipeline
 from app.pipelines.supervisor import SupervisorEngine
 from app.utils.i18n_messages import get_message as _i18n_get
@@ -584,6 +588,13 @@ async def conversation_websocket(
             # 帶進 context 免得 `_persist_and_emit_alert` 每則警示再 SELECT 一次。
             "doctor_id": session_data.get("doctor_id"),
         }
+        # STT 醫療詞彙提示：整場固定（來源是主訴 + 表單），一次組好整場重用。
+        # 病患自由文字在 build_stt_keyword_hint 內過 sanitize_for_prompt。
+        session_context["stt_hint"] = build_stt_keyword_hint(
+            chief_complaint=session_context.get("chief_complaint", ""),
+            patient_info=session_context.get("patient_info", {}),
+            language=session_context.get("language"),
+        )
 
         # 建構系統提示詞
         # 需把 session.language 傳進去,否則 LLM 會永遠回繁體中文
@@ -1337,15 +1348,19 @@ async def _handle_audio_chunk(
         len(complete_audio),
     )
 
-    # 呼叫 OpenAI Whisper 轉錄
+    # 呼叫 OpenAI 轉錄（gpt-transcribe；回退 whisper-1）
     # 場次語言在 MedicalInfoPage 建 session 時用 i18n.resolvedLanguage 寫入
-    # （BCP-47：zh-TW / en-US / ja-JP / ko-KR / vi-VN）。Whisper 只吃 ISO-639-1,
+    # （BCP-47：zh-TW / en-US / ja-JP / ko-KR / vi-VN）。轉錄 API 吃 ISO-639-1,
     # 不轉會讓它退回 STTPipeline._language（預設 "zh"）導致英文被強制轉中文。
     whisper_lang = to_whisper_language(session_context.get("language"))
     final_text = ""
     stt_confidence: float | None = None
     try:
-        result = await stt_pipeline.transcribe(complete_audio, language=whisper_lang)
+        result = await stt_pipeline.transcribe(
+            complete_audio,
+            language=whisper_lang,
+            prompt=session_context.get("stt_hint"),
+        )
         final_text = result["text"]
         # 真實信心分數（segments avg_logprob 估算）；None＝未知。
         # 未知時「不帶 confidence 鍵」而非送 null：前端 ChatBubble 以
