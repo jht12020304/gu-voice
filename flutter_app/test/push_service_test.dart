@@ -117,24 +117,24 @@ void main() {
   group('啟動閘門（web / 病患一律不啟動）', () {
     User user(String role) => User(id: 'u1', email: 'a@b.c', name: 'n', role: role);
 
-    test('醫師專用平台 × 醫護 → 啟動', () {
+    test('原生行動平台 × 醫護 → 啟動', () {
       for (final role in ['doctor', 'admin']) {
-        expect(shouldEnablePush(user: user(role), doctorOnlyPlatform: true), isTrue, reason: role);
+        expect(shouldEnablePush(user: user(role), nativeMobile: true), isTrue, reason: role);
       }
     });
 
-    test('web / Android（doctorOnlyPlatform=false）永遠不啟動 —— kiosk 不該載 Firebase', () {
+    test('web（nativeMobile=false）永遠不啟動 —— 瀏覽器上 FCM 註冊沒有意義', () {
       for (final role in ['doctor', 'admin', 'patient']) {
-        expect(shouldEnablePush(user: user(role), doctorOnlyPlatform: false), isFalse, reason: role);
+        expect(shouldEnablePush(user: user(role), nativeMobile: false), isFalse, reason: role);
       }
     });
 
-    test('病患帳號不啟動（後端只對 doctor_id 發推播）', () {
-      expect(shouldEnablePush(user: user('patient'), doctorOnlyPlatform: true), isFalse);
+    test('病患帳號不啟動 —— kiosk iPad 是共用機，不得成為任何人的推播端點', () {
+      expect(shouldEnablePush(user: user('patient'), nativeMobile: true), isFalse);
     });
 
     test('未登入不啟動', () {
-      expect(shouldEnablePush(user: null, doctorOnlyPlatform: true), isFalse);
+      expect(shouldEnablePush(user: null, nativeMobile: true), isFalse);
     });
   });
 

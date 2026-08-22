@@ -86,16 +86,15 @@ import 'package:integration_test/integration_test.dart';
 import 'package:gu_voice/app.dart';
 import 'package:gu_voice/core/i18n/locales_loader.dart';
 import 'package:gu_voice/core/router/app_router.dart';
+import 'package:gu_voice/core/router/lng.dart';
 import 'package:gu_voice/core/router/route_guard.dart';
 import 'package:gu_voice/data/api/dio_client.dart';
 import 'package:gu_voice/data/api/token_store.dart';
 import 'package:gu_voice/features/auth/auth_notifier.dart';
-import 'package:gu_voice/features/auth/login_page.dart';
 import 'package:gu_voice/features/doctor/screens/dashboard_page.dart';
 import 'package:gu_voice/features/doctor/screens/notification_page.dart';
 import 'package:gu_voice/features/doctor/state/notifications_controller.dart';
 import 'package:gu_voice/features/patient/patient_home_page.dart';
-import 'package:gu_voice/features/patient/patient_unsupported_page.dart';
 
 const _doctorEmail = String.fromEnvironment('E2E_DOCTOR_EMAIL');
 const _doctorPassword = String.fromEnvironment('E2E_DOCTOR_PASSWORD');
@@ -167,12 +166,13 @@ String _currentPath(ProviderContainer container) =>
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  // 三支 test 的共同前提：這真的是「醫師專用平台」的 build。若不成立（誤用 web/Android
-  // 跑這支），底下所有斷言都會變成在驗別的東西，先在這裡擋掉。
+  // 三支 test 的共同前提：這是原生行動 build（2026-08-22 起 iOS 是完整 App，
+  // 醫師 landing = 通知頁、病患 landing = 病患首頁）。誤用 web 跑這支，
+  // 底下所有斷言都會變成在驗別的東西，先在這裡擋掉。
   setUp(() {
-    expect(kIsWeb, isFalse, reason: '這支只在原生 iOS build 上有意義');
-    expect(isDoctorOnlyPlatform, isTrue,
-        reason: 'isDoctorOnlyPlatform=false —— 請用 iOS simulator（-d <udid>）跑這支，'
+    expect(kIsWeb, isFalse, reason: '這支只在原生 build 上有意義');
+    expect(isNativeMobile, isTrue,
+        reason: 'isNativeMobile=false —— 請用 iOS simulator（-d <udid>）跑這支，'
             'defaultTargetPlatform=$defaultTargetPlatform');
   });
 
@@ -202,7 +202,7 @@ void main() {
   }, timeout: const Timeout(Duration(minutes: 3)));
 
   // ── B ───────────────────────────────────────────────────────────────────
-  testWidgets('B. 病患帳號登入 iOS → patient-unsupported 提示頁，登出可回登入頁', (tester) async {
+  testWidgets('B. 病患帳號登入 iOS → 病患首頁（2026-08-22 起問診區在 iOS 開放）', (tester) async {
     if (_patientEmail.isEmpty || _patientPassword.isEmpty) {
       markTestSkipped('未提供 E2E_PATIENT_EMAIL / E2E_PATIENT_PASSWORD，跳過');
       return;
@@ -214,31 +214,21 @@ void main() {
     expect(user.isPatient, isTrue, reason: 'E2E_PATIENT_* 給的不是病患帳號');
 
     await _pumpFor(tester, const Duration(seconds: 10),
-        until: () => find.byType(PatientUnsupportedPage).evaluate().isNotEmpty);
+        until: () => find.byType(PatientHomePage).evaluate().isNotEmpty);
     await tester.pumpAndSettle();
 
-    expect(find.byType(PatientUnsupportedPage), findsOneWidget,
-        reason: '病患帳號在 iOS 上沒落在提示頁（實際路徑 ${_currentPath(container)}）');
-    expect(find.byType(PatientHomePage), findsNothing,
-        reason: 'iOS 上病患仍進得了病患首頁 —— 問診區沒被關掉');
-    expect(_currentPath(container), endsWith(patientUnsupportedRest),
-        reason: 'router 路徑不是 /{lng}$patientUnsupportedRest：${_currentPath(container)}');
+    expect(find.byType(PatientHomePage), findsOneWidget,
+        reason: '病患帳號沒落在病患首頁（實際路徑 ${_currentPath(container)}）——'
+            '若看到的是登入頁或通知頁，檢查 route_guard 的 landing 規則');
+    expect(_currentPath(container), endsWith('/patient'),
+        reason: 'router 路徑不是 /{lng}/patient：${_currentPath(container)}');
 
-    // 頁面上真的有可按的登出鈕（不是只有文案）。
-    final logout = find.widgetWithIcon(FilledButton, Icons.logout);
-    expect(logout, findsOneWidget, reason: '提示頁上找不到登出按鈕 —— 病患會被鎖死在這頁');
-
-    await tester.tap(logout);
-    await _pumpFor(tester, const Duration(seconds: 15),
-        until: () => container.read(authProvider).user == null);
+    // 角色守衛仍在：病患 deep link 到醫師的病患清單必須被彈回自己的首頁。
+    // 這正是 2026-08-22 修掉的 `/patients` 前綴洞——閘門拆掉後它是唯一防線。
+    container.read(routerProvider).go('/$currentLng/patients');
     await tester.pumpAndSettle();
-
-    expect(container.read(authProvider).user, isNull, reason: '按了登出但 auth 狀態沒清掉');
-    expect(find.byType(LoginPage), findsOneWidget,
-        reason: '登出後沒回到登入頁（實際路徑 ${_currentPath(container)}）');
-    expect(find.byType(PatientUnsupportedPage), findsNothing);
-    expect(await TokenStore.instance.readRefresh(), isNull,
-        reason: 'refresh token 沒被清掉 —— 下次開 App 會自動用舊帳號登回去');
+    expect(_currentPath(container), endsWith('/patient'),
+        reason: '病患走進了 /patients（醫師的病患清單）—— 越權洞回歸！');
   }, timeout: const Timeout(Duration(minutes: 3)));
 
   // ── C ───────────────────────────────────────────────────────────────────

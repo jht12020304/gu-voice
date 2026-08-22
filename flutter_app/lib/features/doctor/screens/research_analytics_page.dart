@@ -35,12 +35,18 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
   Timer? _debounce;
   static const _wsEvents = ['report_generated', 'session_status_changed'];
 
+  // 存欄位而不是在 dispose() 裡 ref.read：Riverpod 禁止 unmount 中的 widget 碰 ref，
+  // 會丟「Using "ref" when a widget is about to or has been unmounted is unsafe」。
+  // 症狀是**離開這一頁**（切到任何其他分頁）時炸一次——2026-08-22 的手機版面走查
+  // （mobile_layout_walkthrough_test）抓到的；在 web 上它一直存在，只是沒人看 console。
+  late final DashboardWs _ws;
+
   @override
   void initState() {
     super.initState();
-    final ws = ref.read(dashboardWsProvider)..ensureConnected();
+    _ws = ref.read(dashboardWsProvider)..ensureConnected();
     for (final e in _wsEvents) {
-      ws.on(e, _onWs);
+      _ws.on(e, _onWs);
     }
     Future.microtask(_fetch);
   }
@@ -48,9 +54,8 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
   @override
   void dispose() {
     _debounce?.cancel();
-    final ws = ref.read(dashboardWsProvider);
     for (final e in _wsEvents) {
-      ws.off(e, _onWs);
+      _ws.off(e, _onWs);
     }
     super.dispose();
   }

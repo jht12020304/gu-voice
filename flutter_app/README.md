@@ -6,6 +6,20 @@
 `https://gu-voice-flutter-preview.vercel.app` 做 staged production 驗證，尚未 promote。
 release build、78 tests、五語 deep link、CORS 與測試病患登入已過，實體麥克風／STT／TTS／VAD 仍待驗。
 
+## 2026-08-22 轉向：iOS 單一 App（含語音問診）
+
+平台分工推翻：**只留 App，網頁走向除役**。kiosk iPad（候診區共用機）跑病患語音問診，
+醫師/管理員用自己的裝置跑同一顆 App。實作重點：
+
+- 平台閘門拆除，`route_guard.dart` 只剩**角色守衛**；拆之前先修掉 `/patients` 前綴
+  誤中的病患越權洞（`role_guard_test.dart` 釘死）。
+- 醫師 landing 依平台：原生 → `/notifications`，web（過渡期）→ `/dashboard`。
+- kiosk iPad（病患帳號）**不註冊推播**；閒置登出 180 秒照舊（`KIOSK_IDLE_TIMEOUT_SECONDS`）。
+- 已在 iOS simulator × 本機後端上驗過：醫師/病患 landing 與越權防線
+  （`ios_doctor_app_test.dart`）、**12 個醫師+admin 頁在 iPhone 寬度零 overflow**
+  （`mobile_layout_walkthrough_test.dart`——順手抓到 research 頁 dispose 裡 ref.read
+  的生命週期炸彈，已修）。
+
 ## ⚠️ 尚未驗證的部分（讀這份之前先看這裡）
 
 **病患端非語音全流程已真跑驗畢（2026-07-27，文字代替語音）；麥克風／VAD 路徑仍是零實測。**
@@ -14,7 +28,7 @@ release build、78 tests、五語 deep link、CORS 與測試病患登入已過�
 
 | 未驗證 | 為什麼要緊 |
 |---|---|
-| **麥克風路徑一次都沒跑過** | 這是 app 的存在理由。四條語音修法（AI 回音被當病患答話、TTS chain 洩漏→VAD 卡死、pause 順序讓半句症狀消失、硬鎖 re-assert）全靠單元測試與讀碼推論。文字流程繞過 VAD，驗不到這四條 |
+| **麥克風路徑一次都沒跑過** | **2026-08-22 起這是 iOS 的正式路徑（kiosk iPad），不再只是 web 的事。** 這是 app 的存在理由。四條語音修法（AI 回音被當病患答話、TTS chain 洩漏→VAD 卡死、pause 順序讓半句症狀消失、硬鎖 re-assert）全靠單元測試與讀碼推論。文字流程繞過 VAD，驗不到這四條 |
 | **TTS 從未實機播過音** | 測試用 fake player；fake 是 broadcast stream 而真 player 是 `BehaviorSubject.seeded`，「陳舊 completed 被重播」整類 bug 結構性測不到 |
 | **Web 語音是未決策的 HIGH risk** | 麥克風原始 PCM 需手寫 AudioWorklet JS interop。「web 可用」目前只對非語音頁成立 |
 | **iOS 實機只驗到「裝得起來」** | 打包鏈已通到底：2026-08-21 已產出**真簽章 .ipa** 並上傳 TestFlight（build `202608211213`，狀態「準備測試」），2026-08-21 起 App Store Connect 顯示兩位測試員**已安裝**該 build。但「裝得起來」不等於「打得開、功能能用」——**還沒有任何人回報實際使用結果**——醫師端角色分流／通知列表／APNs 推播在真機一次都沒驗，2026-08-22 起 `lib/core/error_boundary.dart` 掛上 `FlutterError.onError`／`PlatformDispatcher.onError`／`ErrorWidget.builder`，例外會顯示成一行可讀訊息、堆疊寫進 stderr（`flutter logs` 看得到）。**但那不是崩潰回報**——沒有 Sentry／Crashlytics，錯誤不會自己送到任何地方，仍要測試者手動回報（docs/TODO.md §V7／§V8） |

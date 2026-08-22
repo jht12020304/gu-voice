@@ -194,6 +194,22 @@ TestFlight 邀請信。只寄第二封對方會卡住——這是這條流程最
 > 登進去就讀得到全部真實病患姓名與完整 SOAP 報告（後端沒有 tenant／scope 隔離）。
 > **遮蔽推播文案不會降低 PHI 暴露**，那只是鎖定畫面那一行。
 
+## 8.5 2026-08-22 轉向：iOS 單一 App（語音問診開通）
+
+平台分工推翻（詳見 `docs/TODO.md` §V7 開頭與 CLAUDE.md）：iOS 不再是醫師專用，
+kiosk iPad 跑病患語音問診、醫師/管理員同一顆 App、網頁走向除役。對這份文件的影響：
+
+- **下一顆 build 起，App 內含完整病患問診流程。** `testFlightInternalTestingOnly=true`
+  照舊（擋散佈不擋資料），但測試員名單的意義變了——**裝了 App 的人現在可能接觸到
+  病患問診入口**，加人前的 PHI 檢查照 §V8 不變。
+- **kiosk iPad 要用 kiosk 帳號（patient 角色）登入**，閒置登出 180 秒起效；
+  醫師裝置用醫師帳號，兩者同一顆 binary。
+- **kiosk iPad 不會註冊推播**（`shouldEnablePush` 對病患帳號恆 false——共用機
+  不得成為任何醫師的推播端點）。
+- ⚠️ **語音管線在真麥克風上仍是零實測**（§V1 紅字）。在 kiosk iPad 上第一次
+  實測通過之前，**不要把 App 拿給真病患用**。驗證清單見 `flutter_app/README.md`
+  「剩下的最小驗證路徑」。
+
 ## 9. 還沒做的事
 
 - ⬜ 在 iPhone（iOS 16+）上實際安裝並確認**打得開、功能能用**

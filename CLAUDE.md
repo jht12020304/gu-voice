@@ -16,9 +16,7 @@ backend/            → FastAPI + Celery。app/pipelines/ 問診管線（llm_con
 frontend/           → React + Vite + TS，**目前的生產前端**。src/i18n/locales/ 是翻譯源頭；
                       public/locales/ 是 build 鏡像
 flutter_app/        → Flutter 單一碼庫前端（web+iOS+Android），要取代 frontend/。
-                      **平台分工（2026-08-20 拍板）：Web＝病患語音問診（院內 kiosk）；
-                      iOS＝醫師端查看報告/通知（不做語音問診）**。Web 已有
-                      Vercel staged production 部署管道與固定預覽網址，但尚未 promote 為正式前端。
+                      **平台定位（2026-08-22 拍板，推翻 2026-08-20 的分工）：iOS 單一 App**——候診區 kiosk iPad 跑病患語音問診，醫師/管理員用自己的裝置跑同一顆 App（角色分流），**網頁版走向除役**（React 正式站在 App 驗證完成前暫時保留，Flutter Web 停止投資）。iOS 平台閘門已拆（route_guard.dart 只剩角色守衛；拆除前先修掉 `/patients` 前綴誤中的病患越權洞——閘門拆掉後那是唯一防線）。Web 的 Vercel 管道與預覽網址仍在，僅供過渡
                       iOS 有 TestFlight 內部測試發佈管道（`tool/build_ios_testflight.sh`
                       ＋ `ios/ExportOptions.plist` ＋ `tool/gen_app_icons.py`）——**2026-08-21 首顆 build
                       已上傳，TestFlight 狀態「準備測試」**，待建內部測試群組／真機安裝／推播驗證（§V8）；
