@@ -63,7 +63,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 | `deploy-production` | 部署、改部署設定、生產環境除錯（DB timeout、連線問題）時 |
 | `research-analytics` | 動到 /research 分析頁或 /api/v1/research/analytics 時 |
 | `ios-testflight` | 打 iOS TestFlight 包、處理簽章／上傳／內部測試群組，或動到 `flutter_app/ios/` 與打包腳本時 |
-| `design-taste-frontend` | 改任何前端視覺（頁面、按鈕、配色、版面）之前——taste-skill 的反樣板規則（2026-08-22 引入，登入頁重設計即依它） |
+| `design-taste-frontend` | 改任何前端視覺（頁面、按鈕、配色、版面）之前——taste-skill 的反樣板規則（2026-08-22 引入；登入頁重設計與全頁面統一皆依它）。**共用元件一律用 `flutter_app/lib/shared/widgets/ui_kit.dart`**（IconTile/PillTag/GroupHeader/Empty/Error/Skeleton/StatCell/MonthStatsCard，檔頭載明兩形系統等規則），別在頁面裡手刻樣式 |
 
 ## 鐵律（Boundaries）
 
