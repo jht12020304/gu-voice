@@ -268,15 +268,25 @@ class StatCell extends StatelessWidget {
       if (loading)
         const SkeletonBox(width: 56, height: 32)
       else
-        Text(value,
-            style: (compact
-                    ? Theme.of(context).textTheme.titleLarge
-                    : Theme.of(context).textTheme.headlineMedium)
-                ?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: valueColor ?? tk.inkHeading,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            )),
+        // FittedBox(scaleDown)：值在無界寬度下排成單行、放不下就整行縮字——
+        // 統計值**永遠不換行**（「3.3 (2.6–4.2)」在半寬卡曾斷行斷在括號中間，
+        // 光縮字級（compact）治標不治本，改成物理上不可能換行）。
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(value,
+                maxLines: 1,
+                style: (compact
+                        ? Theme.of(context).textTheme.titleLarge
+                        : Theme.of(context).textTheme.headlineMedium)
+                    ?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: valueColor ?? tk.inkHeading,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                )),
+          ),
+        ),
     ]);
   }
 }
