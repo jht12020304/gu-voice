@@ -57,6 +57,14 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- 出口合規（Export Compliance）。少了這個 key，每次上傳 App Store Connect 後
+	     build 會停在 "Missing Compliance"，在人工到網頁上回答問卷之前**無法**指派給
+	     TestFlight 測試人員——內部測試也一樣擋。
+	     填 false 的依據：本 App 只用 HTTPS/WSS 與系統 Keychain，這兩者都屬 Apple 的
+	     豁免範圍（未自行實作或整合非豁免加密演算法）。若日後自行實作加密，這裡要
+	     改回 true 並走 CCATS/年度自我分類申報。 -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<!-- FCM 推播：讓 App 在背景收得到 content-available 的靜默推播。
 	     使用者可見的橫幅不需要它，但少了它背景資料推播會被系統丟掉。 -->
 	<key>UIBackgroundModes</key>
