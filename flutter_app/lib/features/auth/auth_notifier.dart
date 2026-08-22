@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config/env.dart';
 import '../../data/api/auth_api.dart';
 import '../../data/api/token_store.dart';
 import '../../data/models/user.dart';
@@ -84,6 +86,29 @@ class AuthNotifier extends Notifier<AuthState> {
     }
 
     if (TokenStore.instance.accessToken == null) {
+      // ── 測試建置的自動登入（2026-08-22）────────────────────────────────
+      // 只在 build 時帶了 --dart-define=E2E_EMAIL/E2E_PASSWORD 才存在這條路；
+      // 正式建置不帶參數，這整段在編譯期就是死碼。用途：內測期間省掉每次打字
+      // （使用者拍板「登入最後才設定」）。
+      //
+      // 三條刻意的邊界：
+      //  1. 只在**冷啟動且沒有既存 session** 時觸發——登出後回到登入頁不會被
+      //     搶著登回去，否則登出等於永遠登不出、也換不了帳號（登入頁上仍有
+      //     「測試：帶入帳密」鈕，一鍵補回）。
+      //  2. 失敗（網路、帳號被停用）就靜靜落回登入頁，不進 bootOffline 重試
+      //     畫面——那個畫面是給「有 session 但網路斷」的人的。
+      //  3. 憑證只能是**無真實資料的 patient 測試帳號**（既有鐵律：禁止內嵌
+      //     doctor/admin 憑證——那等於把全院病歷的鑰匙藏在安裝包裡）。
+      if (Env.hasE2eCredentials) {
+        try {
+          await login(Env.e2eEmail, Env.e2ePassword);
+          return; // login() 已把 state 設好（含 booted）
+        } catch (e) {
+          // 只在 debug 印，release 下 debugPrint 是 no-op；不能讓憑證或後端錯誤細節
+          // 出現在正式 log 裡。
+          debugPrint('[auto-login] failed: $e');
+        }
+      }
       state = const AuthState(booted: true);
       return;
     }
