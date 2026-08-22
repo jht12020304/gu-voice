@@ -93,7 +93,9 @@
       "completed": "Completed",
       "abortedRedFlag": "Aborted (Red Flag)",
       "cancelled": "Cancelled"
-    }
+    },
+    "acknowledgeAll": "Acknowledge all",
+    "acknowledgeAllConfirm": "Mark all unacknowledged red-flag alerts as handled? This cannot be undone."
   },
   "transcript": {
     "title": "Consultation transcript",

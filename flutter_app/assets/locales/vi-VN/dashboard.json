@@ -93,7 +93,9 @@
       "completed": "Đã hoàn tất",
       "abortedRedFlag": "Dừng do cờ đỏ",
       "cancelled": "Đã hủy"
-    }
+    },
+    "acknowledgeAll": "Xác nhận tất cả",
+    "acknowledgeAllConfirm": "Đánh dấu tất cả cảnh báo cờ đỏ chưa xử lý là đã xử lý? Thao tác này không thể hoàn tác."
   },
   "transcript": {
     "title": "Biên bản hội thoại khám",

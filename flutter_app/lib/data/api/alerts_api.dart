@@ -30,6 +30,13 @@ class AlertsApi {
     );
   }
 
+  /// 一鍵確認所有未確認警示；回傳實際確認筆數。
+  /// 後端不逐筆發 WS 廣播（事件風暴），呼叫端要自行 refetch 收斂。
+  Future<int> acknowledgeAll() async {
+    final res = await _dio.post('/alerts/acknowledge-all');
+    return ((res.data as Map)['acknowledged'] as num?)?.toInt() ?? 0;
+  }
+
   Future<RedFlagAlert> get(String id) async {
     final res = await _dio.get('/alerts/$id');
     return RedFlagAlert.fromJson(res.data as Map);

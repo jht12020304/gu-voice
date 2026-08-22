@@ -128,6 +128,25 @@ async def get_unacknowledged_count(
     return {"count": count}
 
 
+@router.post(
+    "/acknowledge-all",
+    status_code=status.HTTP_200_OK,
+    summary="一鍵確認所有未確認警示",
+    dependencies=[Depends(require_role("doctor", "admin"))],
+)
+async def acknowledge_all_alerts(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> dict:
+    """把所有未確認紅旗警示標記為已處理（U1 全院視野後歷史積壓的收斂出口）。
+
+    ⚠️ 本路由必須註冊在 `/{alert_id}` 之前：FastAPI 依註冊順序匹配，
+    否則 'acknowledge-all' 會被當成 UUID 解析而 422。
+    """
+    count = await alert_service.acknowledge_all(db, user_id=current_user.id)
+    return {"acknowledged": count}
+
+
 @router.get(
     "/{alert_id}",
     response_model=AlertDetail,

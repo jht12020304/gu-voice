@@ -275,3 +275,35 @@ def test_count_returns_zero_for_unknown_role_without_db():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+class _ExecCapturingDB:
+    """捕捉 execute 的 statement 並回報 rowcount（bulk acknowledge 用）。"""
+
+    def __init__(self, rowcount: int):
+        self._rowcount = rowcount
+        self.executed_stmt = None
+        self.committed = False
+
+    async def execute(self, stmt):
+        self.executed_stmt = stmt
+        return SimpleNamespace(rowcount=self._rowcount)
+
+    async def commit(self):
+        self.committed = True
+
+
+def test_acknowledge_all_updates_only_unacknowledged_and_returns_count():
+    # 2026-08-23：U1 全院視野讓歷史未確認警示整批浮出（生產 128 筆），
+    # 一鍵確認是收斂出口。SQL 形狀必須是「只挑 acknowledged_by IS NULL」的
+    # UPDATE——少了這個 where 會把別人已確認的紀錄蓋掉（竄改稽核軌跡）。
+    db = _ExecCapturingDB(rowcount=128)
+    doctor = _make_user(UserRole.DOCTOR)
+
+    count = _run(AlertService.acknowledge_all(db, user_id=doctor.id))
+
+    assert count == 128
+    assert db.committed is True
+    sql = _stmt_sql(db.executed_stmt)
+    assert sql.startswith("update")
+    assert "acknowledged_by is null" in sql

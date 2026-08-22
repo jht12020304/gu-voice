@@ -93,7 +93,9 @@
       "completed": "已完成",
       "abortedRedFlag": "紅旗中止",
       "cancelled": "已取消"
-    }
+    },
+    "acknowledgeAll": "全部標示已處理",
+    "acknowledgeAllConfirm": "確認要將所有未處理的紅旗警示標記為已處理嗎？此動作無法復原。"
   },
   "transcript": {
     "title": "問診對話逐字稿",
