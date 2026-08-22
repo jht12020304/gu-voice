@@ -87,7 +87,9 @@ class AuthNotifier extends Notifier<AuthState> {
 
     if (TokenStore.instance.accessToken == null) {
       // ── 測試建置的自動登入（2026-08-22）────────────────────────────────
-      // 只在 build 時帶了 --dart-define=E2E_EMAIL/E2E_PASSWORD 才存在這條路；
+      // 只在 build 同時帶 --dart-define=E2E_AUTO_LOGIN=true 與 E2E_EMAIL/PASSWORD
+      // 才存在這條路（2026-08-22 拆開：帶入鈕看憑證、自動登入看這個開關——
+      // 否則登入頁的角色選擇永遠被冷啟動搶走）；
       // 正式建置不帶參數，這整段在編譯期就是死碼。用途：內測期間省掉每次打字
       // （使用者拍板「登入最後才設定」）。
       //
@@ -99,7 +101,7 @@ class AuthNotifier extends Notifier<AuthState> {
       //     畫面——那個畫面是給「有 session 但網路斷」的人的。
       //  3. 憑證只能是**無真實資料的 patient 測試帳號**（既有鐵律：禁止內嵌
       //     doctor/admin 憑證——那等於把全院病歷的鑰匙藏在安裝包裡）。
-      if (Env.hasE2eCredentials) {
+      if (Env.e2eAutoLogin && Env.hasE2eCredentials) {
         try {
           await login(Env.e2eEmail, Env.e2ePassword);
           return; // login() 已把 state 設好（含 booted）
