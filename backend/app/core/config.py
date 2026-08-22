@@ -57,6 +57,27 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "info"
     APP_SECRET_KEY: str = "change-me-in-production"
 
+    # ── 運維端點的曝光控制（2026-08-22）──────────────────
+    # `/metrics`、`/docs`、`/redoc`、`/openapi.json` 在 2026-08-22 之前**全部是公開的**。
+    # 裡面沒有 PHI，但合起來是一份完整的偵查資料：整個 API 介面與所有欄位名稱、
+    # 每支端點的流量與錯誤率、紅旗觸發次數、精確的 Python 版本（好對 CVE）、
+    # 以及「什麼時段沒有人在用」。醫療系統不該免費送出這些。
+    #
+    # ⚠️ main.py 原本寫 `getattr(settings, "PROMETHEUS_METRICS_ENABLED", True)`，
+    # 而 Settings 裡**根本沒有這個欄位**，加上 `extra="ignore"`，所以那個開關
+    # 從來不存在——設環境變數也關不掉。這裡把它換成真的存在的欄位。
+    METRICS_ENABLED: bool = True
+
+    # `/metrics` 與（正式環境的）`/openapi.json` 的存取權杖。
+    # **正式環境沒設就是關閉**（fail closed），不是放行。
+    # 帶法：`Authorization: Bearer <token>`，與 Prometheus scrape config 的
+    # `bearer_token` 相容。
+    METRICS_TOKEN: Optional[str] = None
+
+    # Swagger UI / ReDoc / openapi.json。None ＝ 依 APP_ENV 決定
+    # （development 開、其餘關）。要在正式環境臨時打開就明確設 true。
+    DOCS_ENABLED: Optional[bool] = None
+
     # ── DATABASE ────────────────────────────────────────
     # 顯式 URL（Railway/Supabase 插件常自動注入）。若未設則從 DB_* 元件組。
     DATABASE_URL_EXPLICIT: Optional[str] = Field(default=None, validation_alias="DATABASE_URL")
@@ -438,6 +459,24 @@ class Settings(BaseSettings):
         查不到時 fallback 至 DEFAULT_LANGUAGE，不 raise。
         """
         return [code for code, info in self.LANGUAGE_MAP.items() if info.get("status") == "active"]
+
+
+    # ── 運維端點的解析後狀態 ────────────────────────────
+    @property
+    def is_development(self) -> bool:
+        return self.APP_ENV.lower() in ("development", "dev", "local")
+
+    @property
+    def docs_exposed(self) -> bool:
+        """Swagger / ReDoc / openapi.json 是否掛上公開路由。"""
+        if self.DOCS_ENABLED is not None:
+            return self.DOCS_ENABLED
+        return self.is_development
+
+    @property
+    def metrics_open_without_token(self) -> bool:
+        """本機沒設 token 時放行，方便開發；正式環境一律不放行。"""
+        return self.is_development
 
 
 settings = Settings()

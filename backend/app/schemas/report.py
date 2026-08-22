@@ -4,9 +4,14 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.enums import ReportRevisionReason, ReportStatus, ReviewStatus
+from app.models.enums import (
+    ReportRevisionReason,
+    ReportStatus,
+    ReviewStatus,
+    SessionStatus,
+)
 from app.schemas.common import CursorPagination, JsonFloatDecimal
 
 
@@ -35,7 +40,48 @@ class SOAPReportResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # ── 場次上下文（2026-08-22）────────────────────────────
+    # 醫師端報告列表每一列要顯示的四個欄位。它們屬於 Session 而不是 SOAPReport，
+    # 而 report 上只有 session_id，所以前端過去是「先拿 20 筆報告，再對每一筆打一次
+    # GET /sessions/{id}」——開一次列表 22 個 round trip，而且列先畫出 20 行 UUID、
+    # 名字與主訴再一筆一筆補進來，整份清單跟著重排。
+    #
+    # 只有 `list_reports` 會 eager-load 這條關聯；沒載到時下面的 validator 靜靜留 None
+    # （它走 `__dict__`，不會觸發 lazy load —— 在 async session 裡那會直接
+    # MissingGreenlet）。所以單筆 detail 端點行為完全不變。
+    #
+    # 這裡沒有新增任何資料曝光：list_reports 的 scope 子查詢本來就把報告限縮在該
+    # 使用者看得到的場次內，而前端原本就是逐筆去打 /sessions/{id} 拿同樣這些值。
+    patient_name: Optional[str] = None
+    chief_complaint_text: Optional[str] = None
+    session_status: Optional[SessionStatus] = None
+    session_red_flag: Optional[bool] = None
+
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flatten_session_context(cls, data: Any) -> Any:
+        # 只在「從 ORM 物件載入」且 `session` 已被 eager-load 時才攤平。
+        # 一律用 `data.__dict__`：`getattr(data, "session")` 在關聯沒載到時會觸發
+        # lazy load，在 asyncio 下就是 MissingGreenlet 500。
+        if data is None or isinstance(data, dict):
+            return data
+        try:
+            session = data.__dict__.get("session") if hasattr(data, "__dict__") else None
+        except Exception:  # noqa: BLE001 — 攤平失敗絕不能讓報告本身取不到
+            session = None
+        if session is None:
+            return data
+        try:
+            patient = session.__dict__.get("patient")
+            data.patient_name = getattr(patient, "name", None) if patient else None
+            data.chief_complaint_text = getattr(session, "chief_complaint_text", None)
+            data.session_status = getattr(session, "status", None)
+            data.session_red_flag = getattr(session, "red_flag", None)
+        except Exception:  # noqa: BLE001
+            pass
+        return data
 
 
 class SOAPReportDetailResponse(SOAPReportResponse):

@@ -4,6 +4,7 @@ JWT 認證 + 密碼雜湊工具
 - Access Token (15 分鐘) + Refresh Token (7 天)
 """
 
+import asyncio
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -26,6 +27,24 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """驗證明文密碼是否與雜湊值匹配"""
     return pwd_context.verify(plain_password, hashed_password)
+
+
+# ── 給 async 路徑用的包裝 ──────────────────────────────
+# bcrypt(cost 12) 在 Railway 容器上是 ~200-400ms 不可中斷的 CPU。直接在 `async def`
+# 裡呼叫會把整個 event loop 釘住那麼久——那期間**所有**併發使用者都停擺：問診 WS 的
+# 音訊 chunk 不會被送出、STT 上傳卡住、dashboard 事件延後。一次登入拖慢全院，
+# 症狀是「app 偶爾就是會頓一下」，而且完全查不到是誰造成的。
+#
+# 同步版本刻意保留：CLI 腳本、測試 fixture 與 `admin_service`（測試有 monkeypatch
+# 成同步 lambda）都還在用它，而那些路徑不在 event loop 上。
+async def hash_password_async(password: str) -> str:
+    """在 worker thread 上做雜湊，不佔用 event loop"""
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(plain_password: str, hashed_password: str) -> bool:
+    """在 worker thread 上做驗證，不佔用 event loop"""
+    return await asyncio.to_thread(verify_password, plain_password, hashed_password)
 
 
 # ── JWT Token ──────────────────────────────────────────

@@ -15,6 +15,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.authz import get_user_role as _get_user_role
 from app.core.exceptions import (
@@ -311,8 +312,15 @@ class ReportService:
             stmt = stmt.where(SOAPReport.session_id.in_(scope_subquery))
             return stmt
 
-        query = select(SOAPReport).order_by(
-            SOAPReport.created_at.desc(), SOAPReport.id.desc()
+        # 一起把場次與病患撈回來（見 SOAPReportResponse 的「場次上下文」）。
+        # selectinload 而非 joinedload：兩張表都是 many-to-one，selectin 會多發一次
+        # `WHERE id IN (...)`，但不會把報告本身的 JSONB 欄位（subjective/objective/
+        # assessment/plan）在 join 結果裡複製 N 份。這是**兩次**查詢換掉前端原本
+        # 每列一次、最多 20 次的 GET /sessions/{id}。
+        query = (
+            select(SOAPReport)
+            .options(selectinload(SOAPReport.session).selectinload(Session.patient))
+            .order_by(SOAPReport.created_at.desc(), SOAPReport.id.desc())
         )
         if scope_subquery is not None:
             query = _apply_scope(query)
