@@ -25,10 +25,39 @@ startCommand = "/app/scripts/start.sh"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
 
-# 副本數量（依需求調整，單一副本適合初期）
+# 副本數量 —— **必須維持 1**。
+# `scripts/start.sh` 在同一個容器裡起 celery beat（`RUN_CELERY_IN_API` 預設 true），
+# 而 beat 全系統只能有一個實例；副本數 >1 會讓排程任務重複觸發。
+# 要調大之前必須先照 docs/railway_celery_runbook.md 把 beat 拆成獨立 service。
 numReplicas = 1
 
-# Railway 部署區域 — 選擇離台灣最近的區域以降低延遲
-# 可用區域：us-west1, us-east4, asia-southeast1, europe-west4 等
-# asia-southeast1（新加坡）對台灣使用者延遲最低
-region = "asia-southeast1"
+# ── 部署區域 ────────────────────────────────────────────────────────────────
+# ⚠️ 2026-08-22 修正。這裡原本是：
+#
+#     region = "asia-southeast1"
+#
+# 那一行**從來沒有生效過**，而且錯了兩次：
+#   1. Railway 的 config schema 底下**沒有 `region` 這個鍵**（`[deploy]` 只認
+#      startCommand / preDeployCommand / multiRegionConfig / healthcheckPath /
+#      healthcheckTimeout / restartPolicyType / restartPolicyMaxRetries /
+#      cronSchedule / overlapSeconds / drainingSeconds）。無法辨識的鍵被安靜忽略，
+#      沒有錯誤、沒有警告，服務就留在預設的 us-west2。
+#   2. 區域代號也不完整——新加坡是 `asia-southeast1-eqsg3a`，不是 `asia-southeast1`。
+#
+# 代價：後端跑在加州、Supabase 在新加坡（ap-southeast-1，見
+# docs/supabase_connection_guide.md:7），**每一句 SQL 都橫跨一次太平洋**。
+# 2026-08-22 實測：不碰 DB 的 /api/v1/health 是 1.88 ms，
+# 只跑一句 `SELECT 1` 的 /api/v1/healthz/deep 是 1.55 s（827 倍），
+# 而且 38 次裡有 20 次超過 2 秒的內部逾時、回 500。
+#
+# 改動後務必到 Railway 後台確認 Settings → Regions 真的變成
+# Southeast Asia (Singapore)——config-as-code 生效與否要用眼睛驗，別假設。
+# Redis 是另一個 service（在加州、掛著 volume），**不必跟這次一起搬**——Railway 的
+# 私有網路可以跨區，只是不做區域感知路由，所以中間狀態只是 Redis 那一跳變慢、不會壞。
+# 先搬 app（無停機）拿到主要的改善，Redis 挑離峰再搬（有停機，volume 要一起搬）。
+# 完整步驟、Redis volume 弄丟會失去什麼、驗收與回退見 docs/railway_region_move.md。
+#
+# 注意 TOML 語法：sub-table 的 header 一旦出現，後面的 key 就會被歸進那個
+# sub-table，所以這一段**必須放在 [deploy] 的所有純 key 之後**。
+[deploy.multiRegionConfig."asia-southeast1-eqsg3a"]
+numReplicas = 1
