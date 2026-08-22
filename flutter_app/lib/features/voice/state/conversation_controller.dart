@@ -496,7 +496,19 @@ class ConversationController extends Notifier<ConversationState> {
   /// `completed`：那會讓 ConversationPage 立刻導頁 → autoDispose 拆掉 controller →
   /// `_ws.disconnect()` 在 end_session 送達前就關掉 socket，場次永遠停在 in_progress、
   /// SOAP 不會生成（真跑抓到）。
-  void endSession() => _ws.send('control', {'action': 'end_session'});
+  ///
+  /// 斷線守衛（2026-08-22，skill #18 的缺口）：`_ws.send` 在非 open 狀態下**靜默丟包**。
+  /// 沒有這個檢查時，病患在重連空窗按「結束問診」＝什麼都沒發生也沒有任何回饋，
+  /// 病患以為結束了就走人 → 場次留在 in_progress → 60 分鐘後被 Celery 收成
+  /// cancelled，**SOAP 永遠不會生成**。與 [sendText] 的離線守衛同一個道理：
+  /// 寧可大聲失敗，也不要假裝成功。重連成功後再按一次即可（error 會被下一輪清掉）。
+  void endSession() {
+    if (_ws.connectionState != WsConnState.open) {
+      state = state.copyWith(error: t('conversation.input.sendOffline'));
+      return;
+    }
+    _ws.send('control', {'action': 'end_session'});
+  }
 
   // Text-input fallback (noisy kiosk / STT failure / speech impairment): runs the SAME
   // red-flag/LLM/TTS pipeline as voice. Optimistically add the patient bubble.
