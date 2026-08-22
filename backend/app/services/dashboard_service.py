@@ -62,10 +62,13 @@ ALERT_SEVERITY_LABELS = {
 
 
 def _resolve_doctor_scope(current_user: Any, doctor_id: Optional[UUID]) -> Optional[UUID]:
-    """醫師角色只能看自己的資料；管理員可查看全部或指定醫師。"""
-    role = getattr(getattr(current_user, "role", None), "value", None)
-    if role == "doctor":
-        return getattr(current_user, "id", None)
+    """儀表板統計的醫師範圍：**預設全院，query 參數可顯式指定**。
+
+    2026-08-23 對齊「醫師＝管理員」拍板（詳見 alert_service._doctor_scope_id 的
+    同款註解）：kiosk 場次 doctor_id 恆 NULL，舊的「醫師自動限縮到自己」讓
+    儀表板月統計/今日統計對每一位醫師恆為 0，與場次列表頁（從不限縮）自相
+    矛盾——2026-08-23 生產實測（summary total_sessions=0 而八月場次一大串）。
+    """
     return doctor_id
 
 

@@ -38,6 +38,10 @@ class RedFlagAlertResponse(BaseModel):
     acknowledged_by: Optional[UUID] = None
     acknowledged_at: Optional[datetime] = None
     acknowledge_notes: Optional[str] = None
+    # 2026-08-23 稽核補漏：DB 有寫（acknowledge 時的實際處置，稽核軌跡）、
+    # 前端 model 有讀（actionTaken），唯獨 response schema 漏了——確認後重進
+    # 詳情頁永遠讀不回來。
+    action_taken: Optional[str] = None
     language: Optional[str] = None
     created_at: datetime
 

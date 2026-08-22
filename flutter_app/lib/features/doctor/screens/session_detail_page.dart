@@ -114,9 +114,13 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
     if (_session == null) return;
     Navigator.of(context).pop(); // close modal
     try {
-      final updated = await _api.updateStatus(_session!.id, status);
+      // 窄回應陷阱（2026-08-23 稽核）：PUT /status 的 response_model 只有
+      // id/status/previousStatus/updatedAt 四欄，拿它覆蓋整個 _session 會讓
+      // 主訴/紅旗卡/時長當場清空（React 版同病）。改為重抓完整場次。
+      await _api.updateStatus(_session!.id, status);
       if (!mounted) return;
-      setState(() => _session = updated);
+      await _load();
+      if (!mounted) return;
       _toast(t(status == 'completed'
           ? 'session.doctor.detail.statusCompletedSuccess'
           : 'session.doctor.detail.statusCancelledSuccess'));

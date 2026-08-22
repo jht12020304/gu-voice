@@ -73,7 +73,11 @@ class SoapReport {
       icd10Codes: codes is List ? codes.cast<String>() : const [],
       icd10Verified: json['icd10Verified'] as bool?,
       aiConfidenceScore: (json['aiConfidenceScore'] as num?)?.toDouble(),
-      patientEducation: edu is List ? edu.cast<String>() : const [],
+      // 後端 LLM schema 宣告 list[string]，但出口過濾/舊資料可能是單一字串——
+      // 字串收成單元素清單，別讓病患端的「給您的建議」整段蒸發（2026-08-23 稽核）。
+      patientEducation: edu is List
+          ? edu.cast<String>()
+          : (edu is String && edu.trim().isNotEmpty ? [edu.trim()] : const []),
       reviewNotes: json['reviewNotes'] as String?,
       patientFacingLocalized: PatientFacingLocalized.tryParse(
         json['patientFacingLocalized'] ?? json['patient_facing_localized'],
@@ -122,12 +126,17 @@ class PatientFacingLocalized {
     return PatientFacingLocalized(
       language: lng.trim(),
       summary: summary is String && summary.trim().isNotEmpty ? summary.trim() : null,
-      patientEducation: edu is List
-          ? [
-              for (final e in edu)
-                if (e is String && e.trim().isNotEmpty) e.trim(),
-            ]
-          : const [],
+      // 後端 schema 註解明載本欄形狀是 **str**（schemas/report.py:31）；舊解析
+      // 只認 List → 非中文場次的在地化衛教永遠被丟掉、病患看到 adviceEmpty
+      // （2026-08-23 稽核）。str 收成單元素清單，list 形照舊容錯。
+      patientEducation: edu is String && edu.trim().isNotEmpty
+          ? [edu.trim()]
+          : edu is List
+              ? [
+                  for (final e in edu)
+                    if (e is String && e.trim().isNotEmpty) e.trim(),
+                ]
+              : const [],
     );
   }
 }

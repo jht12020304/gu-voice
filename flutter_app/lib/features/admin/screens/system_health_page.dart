@@ -73,7 +73,10 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
 
   bool _isBad(String s) {
     final low = s.toLowerCase();
-    return low == 'error' || low == 'down' || low == 'unhealthy' || low == 'disconnected' || low == 'fail' || low == 'failed' || low == 'false' || low == 'offline';
+    // 後端探測失敗回的是帶內容的 'fail: <exception>'（非裸 'fail'），
+    // 全等比對永遠判不出危急 → 前綴比對（2026-08-23 稽核）。
+    if (low.startsWith('fail') || low.startsWith('error') || low.startsWith('down')) return true;
+    return low == 'unhealthy' || low == 'disconnected' || low == 'false' || low == 'offline';
   }
 
   // ok 對應 statusCompleted 而非 alertSuccess：與 alert_list_page 的

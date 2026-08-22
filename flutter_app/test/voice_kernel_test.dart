@@ -69,11 +69,26 @@ void main() {
 
   test('normalizeSupervisorGuidance defaults and passthrough', () {
     expect(normalizeSupervisorGuidance(null), isNull);
+    // snake_case 備形（向後容忍）
     final g = normalizeSupervisorGuidance({'next_focus': 'hpi', 'missing_hpi': ['onset'], 'fallback': true})!;
     expect(g.nextFocus, 'hpi');
     expect(g.missingHpi, ['onset']);
     expect(g.hpiCompletionPercentage, 0); // absent -> 0
     expect(g.fallback, true);
+  });
+
+  test('normalizeSupervisorGuidance 讀後端實際的 camelCase WS payload', () {
+    // 2026-08-23：後端 _emit_supervisor_guidance 發的就是這個形狀；WS 不經 dio
+    // 轉換層，只讀 snake_case 的舊版讓指導橫幅從未亮過——這條釘住 camel 主形。
+    final g = normalizeSupervisorGuidance({
+      'nextFocus': '請追問症狀持續時間',
+      'missingHpi': ['duration', 'severity'],
+      'hpiCompletionPercentage': 40,
+    })!;
+    expect(g.nextFocus, '請追問症狀持續時間');
+    expect(g.missingHpi, ['duration', 'severity']);
+    expect(g.hpiCompletionPercentage, 40);
+    expect(g.fallback, false);
   });
 
   group('PcmRingBuffer', () {

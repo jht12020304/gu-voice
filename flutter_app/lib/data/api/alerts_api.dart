@@ -13,7 +13,10 @@ class AlertsApi {
       'cursor': ?cursor,
       'limit': limit,
       'severity': ?severity,
-      'acknowledged': ?acknowledged,
+      // 後端參數是 is_acknowledged；dio 會把 camelCase 轉 snake_case，
+      // 舊值 'acknowledged'（單字）轉完還是 'acknowledged' → 篩選永遠沒生效
+      // （未處理/已處理兩個 tab 等同「全部」，2026-08-23 稽核）。
+      'isAcknowledged': ?acknowledged,
       'sessionId': ?sessionId,
     });
     final data = res.data as Map;

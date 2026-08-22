@@ -22,6 +22,11 @@ class SOAPReportResponse(BaseModel):
     status: ReportStatus
     review_status: ReviewStatus
     summary: Optional[str] = None
+    # 2026-08-23 稽核補漏：列表卡要渲染 ICD-10 標籤與「需修改」原因框
+    # （report_list_page），但這兩欄原本只在 Detail 子類——列表永遠 null。
+    # 皆為小標量（≤3 個代碼＋短文字），不影響列表負載。
+    icd10_codes: Optional[list[str]] = None
+    review_notes: Optional[str] = None
     # 病患語言版的病患面兩欄（2026-08-20）。
     # 形狀：{"language": "<BCP-47>", "summary": str, "patient_education": str}。
     # 主報告與 `summary` 仍固定 zh-TW（不變式 #12）；本欄是給**病患自己**看的

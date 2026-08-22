@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../core/i18n/loc.dart';
-import '../../core/theme/app_tokens.dart';
 import '../../data/api/reports_api.dart';
 import '../../data/api/sessions_api.dart';
 import '../../data/models/session.dart';
 import '../../data/models/soap_report.dart';
 import '../../shared/format.dart';
+import '../../shared/widgets/status_badge.dart';
 import '../../shared/widgets/ui_kit.dart';
 import 'patient_facing_summary.dart';
 
@@ -63,7 +63,6 @@ class _PatientSessionDetailPageState extends State<PatientSessionDetailPage> {
     }
     final s = _session!;
     final r = _report;
-    final tk = Theme.of(context).extension<AppTokens>()!;
     final theme = Theme.of(context);
 
     // 病患摘要與衛教（SOAP summary + plan.patientEducation）——本頁唯一允許呈現給病患
@@ -109,12 +108,9 @@ class _PatientSessionDetailPageState extends State<PatientSessionDetailPage> {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Icon(Icons.check_circle, size: 18, color: tk.statusCompleted),
-                const SizedBox(width: 6),
-                Text(t('session.patientDetail.statusCompleted'),
-                    style: TextStyle(color: tk.statusCompleted, fontWeight: FontWeight.w600)),
-              ]),
+              // 綁真實狀態（2026-08-23 稽核：舊版寫死「已完成」，aborted_red_flag
+              // 場次也印成完成）。StatusBadge 已含五種狀態的語意色與五語標籤。
+              Row(children: [StatusBadge(s.status)]),
               const SizedBox(height: 8),
               Text(formatDateTime(s.createdAt), style: theme.textTheme.bodySmall),
               const SizedBox(height: 8),

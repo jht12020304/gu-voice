@@ -97,6 +97,9 @@ class ResearchAnalytics {
   final List<HistogramBucket> sttHistogram;
   final double? voiceTurnShare;
   // documentation
+  /// Documentation 區塊自己的分母（reports_generated）；與 History-Taking 的
+  /// reportsAnalyzed 是不同母體（subjective 為 null 時兩者會岔開）。
+  final int reportsGenerated;
   final NumericSummary aiConfidenceSummary;
   final Proportion icd10Verified, physicianAgreement;
   final List<Bucket> reviewOutcomes;
@@ -117,6 +120,7 @@ class ResearchAnalytics {
     this.patientTurns = const NumericSummary(),
     this.patientTurnChars = const NumericSummary(),
     this.reportsAnalyzed = 0,
+    this.reportsGenerated = 0,
     this.meanHpiCompleteness,
     this.hpiFieldFillRates = const [],
     this.alertSession = const Proportion(),
@@ -175,6 +179,7 @@ class ResearchAnalytics {
       lowConfidence: Proportion.fromJson(m(stt['lowConfidence'])),
       sttHistogram: _list(stt['histogram'], HistogramBucket.fromJson),
       voiceTurnShare: _d(stt['voiceTurnShare']),
+      reportsGenerated: _i(doc['reportsGenerated']),
       aiConfidenceSummary: NumericSummary.fromJson(m(doc['aiConfidenceSummary'])),
       icd10Verified: Proportion.fromJson(m(doc['icd10Verified'])),
       physicianAgreement: Proportion.fromJson(m(doc['physicianAgreement'])),

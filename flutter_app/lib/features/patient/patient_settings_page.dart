@@ -37,8 +37,10 @@ class _PatientSettingsPageState extends ConsumerState<PatientSettingsPage> {
   Future<void> _saveProfile() async {
     setState(() { _saving = true; _saveMsg = null; });
     try {
+      // email 是登入身分：後端 UpdateProfileRequest 本來就不收 email（會被
+      // pydantic 靜默丟棄），舊版卻照送＋報成功＝假儲存（2026-08-23 稽核）。
+      // 改 email 需要驗證流程，этот頁只存電話。
       await ref.read(authProvider.notifier).updateProfile({
-        'email': _emailCtrl.text.trim(),
         'phone': _phoneCtrl.text.trim(),
       });
       setState(() { _saveOk = true; _saveMsg = t('common.patient.settings.savedMessage'); });
@@ -91,7 +93,12 @@ class _PatientSettingsPageState extends ConsumerState<PatientSettingsPage> {
           ),
         ),
         const SizedBox(height: 12),
-        TextField(controller: _emailCtrl, decoration: InputDecoration(labelText: t('common.patient.settings.emailLabel'))),
+        // 唯讀：與姓名同理（登入身分不在此頁修改）。
+        TextField(
+          controller: _emailCtrl,
+          enabled: false,
+          decoration: InputDecoration(labelText: t('common.patient.settings.emailLabel')),
+        ),
         const SizedBox(height: 12),
         TextField(controller: _phoneCtrl, decoration: InputDecoration(labelText: t('common.patient.settings.phoneLabel'))),
         const SizedBox(height: 16),
