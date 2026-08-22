@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/i18n/loc.dart';
 import '../../core/router/lng.dart';
 import '../../data/api/sessions_api.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../shared/widgets/language_action.dart';
 import 'intake_payload.dart';
 
@@ -185,9 +186,11 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Text(t('intake.medicalInfo.patient.title'), style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 16),
-            TextField(
+            _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(t('intake.medicalInfo.patient.title'),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 16),
+              TextField(
               controller: _nameCtrl,
               maxLength: 100,
               onChanged: (_) => setState(() {}),
@@ -231,17 +234,26 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
               keyboardType: TextInputType.phone,
               decoration: InputDecoration(labelText: t('intake.medicalInfo.patient.phoneLabel')),
             ),
-            const Divider(height: 32),
-            _allergySection(context),
-            const Divider(height: 32),
-            _medicationSection(context),
-            const Divider(height: 32),
-            _historySection(context),
-            const Divider(height: 32),
-            _familySection(context),
+            ])),
+            _card(_allergySection(context)),
+            _card(_medicationSection(context)),
+            _card(_historySection(context)),
+            _card(_familySection(context)),
             if (_error != null) ...[
-              const SizedBox(height: 16),
-              Text(_error!, style: TextStyle(color: err)),
+              const SizedBox(height: 4),
+              // login 頁同款 inline 錯誤卡：比裸紅字醒目（kiosk 年長使用者），語意色只在真錯誤時出現
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).extension<AppTokens>()!.alertCriticalBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(children: [
+                  Icon(Icons.error_outline, size: 20, color: err),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_error!, style: TextStyle(color: err))),
+                ]),
+              ),
             ],
             const SizedBox(height: 24),
             FilledButton(
@@ -255,6 +267,11 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
       ),
     );
   }
+
+  Widget _card(Widget child) => Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        child: Padding(padding: const EdgeInsets.all(16), child: child),
+      );
 
   Widget _sectionHeader(BuildContext context, String title, String noneLabel, bool none, ValueChanged<bool> onNone) => Row(
         children: [

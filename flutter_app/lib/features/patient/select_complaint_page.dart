@@ -7,6 +7,8 @@ import '../../core/router/lng.dart';
 import '../../data/api/complaints_api.dart';
 import '../../data/models/session.dart';
 import '../../shared/widgets/language_action.dart';
+import '../../core/theme/app_tokens.dart';
+import '../../shared/widgets/ui_kit.dart';
 import 'intake_route.dart';
 
 // ── Pure helpers ───────────────────────────────────────────────────────────────
@@ -200,7 +202,7 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
         actions: const [LanguageAction()],
       ),
       body: _loading
-          ? Center(child: Text(t('intake.selectComplaint.loading')))
+          ? const SkeletonList()
           : Column(
               children: [
                 Expanded(
@@ -213,15 +215,21 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
                       for (final c in _complaints) _complaintTile(c),
                       if (_selected.isNotEmpty) ...[
                         const SizedBox(height: 16),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4, bottom: 6),
+                          child: Text(
+                            t(_hasOther
+                                ? 'intake.selectComplaint.customLabelRequired'
+                                : 'intake.selectComplaint.customLabel'),
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                        ),
                         TextField(
                           controller: _customCtrl,
                           maxLength: 200,
                           maxLines: 2,
                           onChanged: (_) => setState(() {}),
                           decoration: InputDecoration(
-                            labelText: t(_hasOther
-                                ? 'intake.selectComplaint.customLabelRequired'
-                                : 'intake.selectComplaint.customLabel'),
                             // Say WHY the button is dead. Previously the CTA just went grey
                             // with nothing on screen explaining it, so a patient who picked
                             // 「其他」 was simply stuck (TODO §G medium). Key already shipped.
@@ -253,16 +261,29 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
   Widget _complaintTile(Complaint c) {
     final idx = _selected.indexWhere((x) => x.id == c.id);
     final selected = idx >= 0;
+    final primary = Theme.of(context).colorScheme.primary;
+    final tk = Theme.of(context).extension<AppTokens>()!;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
+      // 已選＝primary 細邊框（比只有 leading 圓點強的 affordance；kiosk 年長使用者要一眼看出選了什麼）
+      shape: selected
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(color: primary, width: 1.5),
+            )
+          : null,
       child: ListTile(
         onTap: () => _toggle(c),
         leading: selected
-            ? CircleAvatar(radius: 12, child: Text('${idx + 1}', style: const TextStyle(fontSize: 12)))
-            : const Icon(Icons.circle_outlined),
+            ? CircleAvatar(
+                radius: 14,
+                backgroundColor: primary,
+                child: Text('${idx + 1}',
+                    style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w700)))
+            : Icon(Icons.circle_outlined, color: tk.inkMuted),
         title: Text(c.name),
         subtitle: c.description != null ? Text(c.description!) : null,
-        trailing: idx == 0 ? Text(t('intake.selectComplaint.primaryBadge')) : null,
+        trailing: idx == 0 ? PillTag(t('intake.selectComplaint.primaryBadge'), color: primary) : null,
       ),
     );
   }
