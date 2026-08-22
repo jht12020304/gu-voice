@@ -82,13 +82,16 @@ def _parse_iso_datetime(value: Any) -> Optional[datetime]:
 
 def _doctor_scope_id(current_user: Any) -> Optional[UUID]:
     """
-    回傳醫師範圍限制用的 doctor_id：
-    - DOCTOR → 自己的 id（query 須以 session.doctor_id == 此值 過濾）
-    - ADMIN / 其他 → None（不在此函式區分，由呼叫端決定 admin 看全部、
-      其他角色拒絕；與 get_list 既有慣例一致）。
+    回傳醫師範圍限制用的 doctor_id；**現行一律 None（不限縮）**。
+
+    2026-08-23 對齊「醫師＝管理員」拍板：kiosk 場次的 doctor_id 恆為 NULL
+    （無指派制），紅旗警示本來就 fan-out 給全體在職醫師，而場次/報告列表
+    端點也從不分醫師。舊行為（DOCTOR → 只看 session.doctor_id == 自己）
+    在這個模型下等於**醫師永遠看到空警示列表**：收到紅旗推播、點進警示頁
+    卻顯示「無警示」，警示 tab 徽章恆 0，警示詳情 404——2026-08-23 生產
+    實測（alerts total_count=0 而場次列表就有 aborted_red_flag）。
+    保留函式當未來真的引入指派制時的單一開關點。
     """
-    if _get_user_role(current_user) == UserRole.DOCTOR:
-        return getattr(current_user, "id", None)
     return None
 
 

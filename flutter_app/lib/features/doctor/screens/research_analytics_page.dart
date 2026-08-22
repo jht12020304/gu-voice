@@ -143,7 +143,9 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
               footnote: t('research.stt.footnote', args: {'count': '${d.turnsWithConfidence}'})),
           _figure(context, t('research.fig.seven'), id: 'fig7', t('research.documentation.title'), _documentation(context, d),
               caption: t('research.documentation.subtitle'),
-              footnote: t('research.documentation.footnote', args: {'count': '${d.reportsAnalyzed}'})),
+              // 分母用 Documentation 自己的 reports_generated，不是 History-Taking
+              // 的 reportsAnalyzed（subjective=null 時兩個母體不同，2026-08-23 稽核）
+              footnote: t('research.documentation.footnote', args: {'count': '${d.reportsGenerated}'})),
           _figure(context, t('research.fig.eight'), id: 'fig8', t('research.forest.title'), _forest(context, d),
               caption: t('research.forest.subtitle'),
               footnote: t('research.forest.footnote')),

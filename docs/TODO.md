@@ -2211,3 +2211,54 @@ sentinel 情境下當唯一來源；或取兩者聯集。任一改法都動到 �
 - [ ] **T6. 真麥克風下驗 gpt-transcribe**：§V1 仍未清——kiosk iPad 首次真麥克風驗證時，
   一併確認新 STT 對真實台灣腔（尤其年長者）的表現；如有問題 `OPENAI_STT_MODEL=whisper-1`
   即時回退。研究掃描指出年長男性錯誤率可達年輕語料數倍（WildElder），評估要分齡。
+
+## U — 資料鏈路稽核（2026-08-23，12 組頁面平行追蹤＋生產探針＋敵意複核）
+
+> 方法：每頁 UI 綁定 → dart model → 後端 schema 三方對照（12 個 agent 平行）＋
+> 真打生產的跨頁一致性探針；68 條 findings 逐條敵意複核（濾掉 dio snake→camel
+> interceptor 造成的整類誤報後）修掉 12 項。**REST 有全域 key 轉換層、WS 沒有**
+> ——这是本輪最重要的結構事實，查 WS 事件鏈路時別拿 REST 的經驗套。
+
+### 已修（PR 同 commit）
+- [x] **U1 醫師 scope 過時**（後端）：dashboard 月統計/今日統計與 alerts 列表/徽章/詳情
+  還留著「醫師只看自己被指派場次」——kiosk 場次 doctor_id 恆 NULL ⇒ 儀表板恆 0、
+  紅旗頁恆空（收到推播點進來卻「無警示」）。對齊醫師=管理員拍板：醫師視野=全院，
+  `test_alert_service_authz` 兩條測試改釘新語意。
+- [x] **U2 SOAP 頁整節蒸發**：渲染器按 React 舊版的巢狀物件 schema 寫，實際後端
+  LLM schema 是**扁平字串**（2026-08-23 生產真報告實測）——病史/用藥/系統回顧/
+  社會史/理學/檢驗/追蹤整節不顯示；過敏史/家族史/影像/建議用藥/整體 urgency
+  甚至沒被讀。全部改雙形容忍＋補漏（過敏/家族史標籤重用 intake 五語 key）。
+- [x] **U3 supervisor 指導橫幅從未亮過**：後端 WS 發 camelCase、解析器只讀
+  snake_case（WS 不經 dio 轉換層）。雙形容忍＋voice_kernel_test 釘 camel 主形。
+- [x] **U4 警示篩選失效**：前端送 `acknowledged`、後端收 `is_acknowledged`——
+  未處理/已處理 tab 等同全部。改送 isAcknowledged（dio 轉 snake）。
+- [x] **U5 actionTaken 讀不回**（後端）：DB 有寫、前端有讀、response schema 漏欄位。
+- [x] **U6 報告列表 ICD-10/修訂原因永遠空**（後端）：列表 schema 刻意精簡但列表 UI
+  按完整 schema 寫——兩個小標量欄位補進列表 schema。
+- [x] **U7 非中文病患衛教蒸發**：patient_facing_localized.patient_education 後端是
+  **str**、dart 只認 List → 在地化衛教永遠被丟。str 收成單元素清單（主報告
+  plan.patient_education 同款容忍）。
+- [x] **U8 狀態變更清空詳情頁**：PUT /status 窄回應（4 欄）被拿來覆蓋整個 _session
+  → 主訴/紅旗卡/時長當場消失。改重抓完整場次（React 版同病，僅修 Flutter）。
+- [x] **U9 系統健康誤報綠燈**：探測失敗回 'fail: <msg>'，全等比對判不出危急。前綴比對。
+- [x] **U10 email 假儲存**：病患設定頁送 email、後端 UpdateProfileRequest 沒這欄位
+  （pydantic 靜默丟棄）卻報成功。email 改唯讀（登入身分需驗證流程，不在此頁改）。
+- [x] **U11 病患場次詳情狀態寫死「已完成」**：aborted_red_flag 也印成完成。改綁
+  StatusBadge(s.status)。
+- [x] **U12 Fig7 分母綁錯**：Documentation footnote 用了 History-Taking 的
+  reportsAnalyzed；model 補接後端本來就回的 documentation.reports_generated。
+
+### 刻意不修（含理由）／待辦
+- [ ] U13 對話頁不渲染 sttConfidence 徽章與 ttsFailed 提示（controller 有解析、React 有
+  顯示——#18 兩端對稱缺口）。保護區 UI 追加，留待下一輪對話頁改動時一併（要跑真麥驗證）。
+- [ ] U14 admin 主訴管理在非中文 UI 編輯會把已解析的顯示文字覆寫回 canonical zh-TW 欄位
+  （beta 語系管理者操作會污染主資料）。修法要動編輯對話框的資料來源，另開工單。
+- [ ] U15 日期分組 key 用 UTC 前 10 碼、列內時間用 toLocal——跨午夜場次會分錯組
+  （patient_list/alert_list/audit_logs 同 pattern）。
+- [ ] U16 多處 silent catch 把「後端掛了」顯示成空狀態（dashboard/patient_list/
+  user_management）——已有 ErrorState 元件，逐頁補錯誤分支即可。
+- [ ] U17 警示詳情顯示原始 session UUID（無病患名、不可點）；audit 操作者同款。
+- [ ] U18 病患 history 無 aborted_red_flag 專屬 tab（「全部」看得到）；主訴模板
+  >100 筆靜默截斷；1900-01-01 佔位生日原樣顯示——皆低頻低害，集中列此待議。
+- 設計澄清（非缺陷）：紅旗通知無 alertId 時導 session 詳情屬合理退路；
+  redFlagReason 以場次語言儲存屬 #12 同款單語言權威設計。

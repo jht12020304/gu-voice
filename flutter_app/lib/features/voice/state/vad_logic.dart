@@ -55,13 +55,17 @@ class SupervisorGuidance {
   });
 }
 
-// payload is the backend snake_case supervisor_guidance WS event.
+// 2026-08-23 資料鏈路稽核：後端 `_emit_supervisor_guidance` 的 WS payload 是
+// **camelCase**（conversation_handler.py `nextFocus/missingHpi/hpiCompletionPercentage`），
+// 而 WS 不經過 dio 的 snake→camel 轉換層。舊版只讀 snake_case ＝ 指導橫幅在
+// Flutter 上**從未亮過**（#27 類缺陷：兩端手抄清單漂移）。雙形容忍：camel 為主
+// （後端現況）、snake 為備（防後端未來改口）。
 SupervisorGuidance? normalizeSupervisorGuidance(Map? payload) {
   if (payload == null) return null;
-  final missing = payload['missing_hpi'];
-  final pct = payload['hpi_completion_percentage'];
+  final missing = payload['missingHpi'] ?? payload['missing_hpi'];
+  final pct = payload['hpiCompletionPercentage'] ?? payload['hpi_completion_percentage'];
   return SupervisorGuidance(
-    nextFocus: (payload['next_focus'] as String?) ?? '',
+    nextFocus: (payload['nextFocus'] ?? payload['next_focus']) as String? ?? '',
     missingHpi: missing is List ? missing.cast<String>() : const [],
     hpiCompletionPercentage: pct is num ? pct : 0,
     fallback: (payload['fallback'] as bool?) ?? false,

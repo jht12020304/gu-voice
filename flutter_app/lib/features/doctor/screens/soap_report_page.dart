@@ -116,6 +116,11 @@ class _SoapReportPageState extends State<SoapReportPage> {
   // ---- defensive raw readers (the normalizer) ----
   static Map _map(dynamic v) => v is Map ? v : const {};
   static String _s(dynamic v) => v == null ? '' : v.toString();
+
+  /// 字串形欄位（現行後端 LLM schema：subjective/objective/plan 的多數欄位是
+  /// 「字串或 null」，不是 React 舊版預期的巢狀物件）。只認 String，
+  /// 避免把 Map.toString() 的字面量印給醫師。
+  static String _strOnly(dynamic v) => v is String ? v.trim() : '';
   static List<String> _arr(dynamic v) {
     if (v is List) return [for (final e in v) if (e != null && '$e'.trim().isNotEmpty) '$e'];
     if (v is String && v.trim().isNotEmpty) return [v];
@@ -410,10 +415,22 @@ class _SoapReportPageState extends State<SoapReportPage> {
   Widget _subjective(BuildContext context, Map s) {
     final cc = _s(s['chiefComplaint'] ?? s['chief_complaint']);
     final hpi = _map(s['hpi']);
-    final pmh = _map(s['pastMedicalHistory'] ?? s['past_medical_history']);
-    final meds = _map(s['medicationHistory'] ?? s['medication_history'] ?? s['medications']);
-    final sysReview = _map(s['systemReview'] ?? s['system_review'] ?? s['reviewOfSystems'] ?? s['review_of_systems']);
-    final social = _map(s['socialHistory'] ?? s['social_history']);
+    // 雙形容忍（2026-08-23 資料鏈路稽核）：現行後端 LLM schema 的這些欄位是
+    // **字串或 null**（2026-08-23 對生產真報告實測確認），巢狀物件形是 React
+    // 舊版的預期。舊寫法只認 Map → 字串內容整節蒸發（病史/用藥/系統回顧/社會史
+    // 醫師全看不到）。兩形都收：Map 走逐欄，字串走單行 _kv。
+    final pmhRaw = s['pastMedicalHistory'] ?? s['past_medical_history'];
+    final medsRaw = s['medicationHistory'] ?? s['medication_history'] ?? s['medications'];
+    final sysRaw = s['systemReview'] ?? s['system_review'] ?? s['reviewOfSystems'] ?? s['review_of_systems'];
+    final socialRaw = s['socialHistory'] ?? s['social_history'];
+    final pmh = _map(pmhRaw);
+    final meds = _map(medsRaw);
+    final sysReview = _map(sysRaw);
+    final social = _map(socialRaw);
+    // 過敏史/家族史：schema 有、舊渲染器整個沒讀（表單資料進了 SOAP 卻不顯示，
+    // 正是 #34 要保的那條鏈的最後一哩）。標籤重用 intake 的既有五語 key。
+    final allergies = _strOnly(s['allergies']);
+    final familyHistory = _strOnly(s['familyHistory'] ?? s['family_history']);
     return _card(context, t('soap.section.subjective.title'), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       if (cc.isNotEmpty) _kv(t('soap.subjective.chiefComplaint'), cc),
       for (final f in const ['onset', 'location', 'duration', 'severity', 'characteristics', 'timing', 'context'])
@@ -427,7 +444,18 @@ class _SoapReportPageState extends State<SoapReportPage> {
       _tagRow(context, t('soap.subjective.medicationHistory.current'), _arr(meds['current'])),
       _tagRow(context, t('soap.subjective.medicationHistory.past'), _arr(meds['past'])),
       _tagRow(context, t('soap.subjective.medicationHistory.otc'), _arr(meds['otc'])),
-      // Review of systems + social history: dynamic key/value maps.
+      // 字串形（現行 schema 的實際形狀）
+      if (pmh.isEmpty && _strOnly(pmhRaw).isNotEmpty)
+        _kv(t('soap.subjective.pastMedicalHistory.title'), _strOnly(pmhRaw)),
+      if (meds.isEmpty && _strOnly(medsRaw).isNotEmpty)
+        _kv(t('soap.subjective.medicationHistory.title'), _strOnly(medsRaw)),
+      if (allergies.isNotEmpty) _kv(t('intake.medicalInfo.allergy.title'), allergies),
+      if (familyHistory.isNotEmpty) _kv(t('intake.medicalInfo.family.title'), familyHistory),
+      if (sysReview.isEmpty && _strOnly(sysRaw).isNotEmpty)
+        _kv(t('soap.subjective.systemReview.title'), _strOnly(sysRaw)),
+      if (social.isEmpty && _strOnly(socialRaw).isNotEmpty)
+        _kv(t('soap.subjective.socialHistory.title'), _strOnly(socialRaw)),
+      // Review of systems + social history: dynamic key/value maps（巢狀形）.
       for (final e in sysReview.entries)
         if (_s(e.value).isNotEmpty) _kv(_fieldLabel(e.key.toString()), _s(e.value)),
       for (final e in social.entries)
@@ -442,9 +470,13 @@ class _SoapReportPageState extends State<SoapReportPage> {
   }
 
   Widget _objective(BuildContext context, Map o) {
-    final vitals = _map(o['vitalSigns'] ?? o['vital_signs']);
-    final physical = _map(o['physicalExam'] ?? o['physical_exam']);
+    final vitalsRaw = o['vitalSigns'] ?? o['vital_signs'];
+    final physicalRaw = o['physicalExam'] ?? o['physical_exam'];
+    final vitals = _map(vitalsRaw);
+    final physical = _map(physicalRaw);
     final labs = o['labResults'] ?? o['lab_results'];
+    // 影像結果：舊渲染器完全沒讀；語音問診常態為 null，但有值就得顯示。
+    final imaging = o['imagingResults'] ?? o['imaging_results'];
     final tk = Theme.of(context).extension<AppTokens>()!;
     bool abn(Map lab) => (lab['isAbnormal'] ?? lab['is_abnormal']) == true;
     return _card(context, t('soap.section.objective.title'), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -458,6 +490,18 @@ class _SoapReportPageState extends State<SoapReportPage> {
         for (final e in physical.entries)
           if (_s(e.value).isNotEmpty) _kv(_fieldLabel(e.key.toString()), _s(e.value)),
       ],
+      // 字串形（現行 schema 實際形狀）
+      if (vitals.isEmpty && _strOnly(vitalsRaw).isNotEmpty)
+        _kv(t('soap.objective.vitalSigns.title'), _strOnly(vitalsRaw)),
+      if (physical.isEmpty && _strOnly(physicalRaw).isNotEmpty)
+        _kv(t('soap.objective.physicalExam.title'), _strOnly(physicalRaw)),
+      if (_strOnly(labs).isNotEmpty)
+        _kv(t('soap.objective.labResults.title'), _strOnly(labs)),
+      // 影像掛在檢驗區塊語彙下（語音問診無獨立影像 i18n key；常態 null）
+      if (_strOnly(imaging).isNotEmpty)
+        _kv(t('soap.objective.labResults.title'), _strOnly(imaging)),
+      if (imaging is List)
+        for (final img in _arr(imaging)) _kv(t('soap.objective.labResults.title'), img),
       if (labs is List && labs.isNotEmpty) ...[
         const SizedBox(height: 4),
         Text(t('soap.objective.labResults.title'), style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -523,9 +567,17 @@ class _SoapReportPageState extends State<SoapReportPage> {
     final reasoning = _s(p['diagnosticReasoning'] ?? p['diagnostic_reasoning']);
     final tests = p['recommendedTests'] ?? p['recommended_tests'];
     final treatments = p['treatments'];
-    final followUp = _map(p['followUp'] ?? p['follow_up']);
+    final followUpRaw = p['followUp'] ?? p['follow_up'];
+    final followUp = _map(followUpRaw);
     final edu = _arr(p['patientEducation'] ?? p['patient_education']);
     final referrals = _arr(p['referrals']);
+    // 整體處置緊急度（後端 _enforce_red_flag_urgency 只升不降的那個值）：
+    // 舊渲染器只顯示逐項檢查的 urgency，整體值完全沒讀——這是醫師分流的
+    // 安全底線資訊，補成 Plan 卡頂部的 pill。
+    final overallUrgency = _strOnly(p['urgency']);
+    // AI 建議用藥（list[str]；與 subjective 的用藥史是不同欄位）：舊渲染器沒讀，
+    // 併入處置建議的條列（同屬處置語彙，不另開翻譯 key）。
+    final planMeds = _arr(p['medications']);
     final tk = Theme.of(context).extension<AppTokens>()!;
     Color urgColor(String u) => switch (u) {
           'er_now' => tk.alertCritical,
@@ -534,6 +586,13 @@ class _SoapReportPageState extends State<SoapReportPage> {
           _ => tk.statusWaiting,
         };
     return _card(context, t('soap.section.plan.title'), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (overallUrgency.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(children: [
+            PillTag(t('soap.plan.urgency.$overallUrgency'), color: urgColor(overallUrgency)),
+          ]),
+        ),
       if (reasoning.isNotEmpty) ...[
         _kv(t('soap.plan.diagnosticReasoning'), reasoning),
         const SizedBox(height: 4),
@@ -555,19 +614,28 @@ class _SoapReportPageState extends State<SoapReportPage> {
                   Text(_s(test['rationale']), style: Theme.of(context).textTheme.bodySmall),
               ]),
             ),
-      // Treatments: {type, name, instruction, note?} (or a bare string).
-      if (treatments is List && treatments.isNotEmpty) ...[
+      // Treatments: {type, name, instruction, note?} (or a bare string)；
+      // plan.medications（AI 建議用藥，list[str]）併入同一條列。
+      if ((treatments is List && treatments.isNotEmpty) || planMeds.isNotEmpty) ...[
         const SizedBox(height: 6),
         Text(t('soap.plan.treatments.title'), style: const TextStyle(fontWeight: FontWeight.w600)),
-        for (final tr in treatments)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: tr is Map
-                ? Text('• ${[_s(tr['type']), _s(tr['name']), _s(tr['instruction'])].where((x) => x.isNotEmpty).join(' — ')}')
-                : Text('• ${_s(tr)}'),
-          ),
+        if (treatments is List)
+          for (final tr in treatments)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: tr is Map
+                  ? Text('• ${[_s(tr['type']), _s(tr['name']), _s(tr['instruction'])].where((x) => x.isNotEmpty).join(' — ')}')
+                  : Text('• ${_s(tr)}'),
+            ),
+        for (final m in planMeds)
+          Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('• $m')),
       ],
-      // Follow-up.
+      // Follow-up：現行 schema 是**字串**；{interval, reason} 是舊巢狀形，雙形容忍。
+      if (followUp.isEmpty && _strOnly(followUpRaw).isNotEmpty) ...[
+        const SizedBox(height: 6),
+        Text(t('soap.plan.followUp.title'), style: const TextStyle(fontWeight: FontWeight.w600)),
+        Text(_strOnly(followUpRaw)),
+      ],
       if (_s(followUp['interval']).isNotEmpty || _s(followUp['reason']).isNotEmpty) ...[
         const SizedBox(height: 6),
         Text(t('soap.plan.followUp.title'), style: const TextStyle(fontWeight: FontWeight.w600)),
