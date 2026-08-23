@@ -237,7 +237,8 @@ kiosk iPad 跑病患語音問診、醫師/管理員同一顆 App、網頁走向�
 | `E2E_AUTO_LOGIN=true` | 冷啟動自動登入（用病患那組）。**獨立開關**——不帶就停在登入頁選角色 |
 
 - **KIOSK 模式（2026-08-23 起，產品功能非測試輔助）**：`KIOSK_EMAIL` /
-  `KIOSK_PASSWORD` define → 登入頁頂部出現「開始語音問診」大按鈕（72pt、mic icon），
+  `KIOSK_PASSWORD` define → 登入頁頂部出現「開始語音問診」按鈕（56pt、mic icon；
+  2026-08-23 由 72pt 收斂成與登入鈕同尺寸），
   按下＝以 kiosk 專用 **patient** 帳號登入並直進選症狀頁。鐵律不變：只准內嵌
   無真實資料的 patient 帳號。kiosk 帳號 `hsuchun0304+guvoice-kiosk@gmail.com`
   「候診 Kiosk（勿用真實資料）」，密碼隨機強密碼存 `/tmp/.guvoice_kioskpw`

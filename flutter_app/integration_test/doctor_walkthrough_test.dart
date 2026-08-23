@@ -223,7 +223,7 @@ void main() {
     expect(loginFields, findsAtLeast(2), reason: '登入頁應有 email / password');
     await _typeInto(tester, loginFields.at(0), _email);
     await _typeInto(tester, loginFields.at(1), _password);
-    await tester.tap(find.byType(FilledButton).first);
+    await tester.tap(find.byKey(const Key('login-submit')));
     await _pumpFor(tester, const Duration(seconds: 15), until: () => container.read(authProvider).user != null);
     await tester.pumpAndSettle();
     final user = container.read(authProvider).user;

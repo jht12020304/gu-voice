@@ -33,6 +33,7 @@ import 'package:gu_voice/data/api/dio_client.dart';
 import 'package:gu_voice/data/api/token_store.dart';
 import 'package:gu_voice/features/auth/auth_notifier.dart';
 import 'package:gu_voice/features/auth/login_page.dart';
+import 'package:gu_voice/shared/widgets/language_action.dart';
 import 'package:gu_voice/shared/widgets/language_bar.dart';
 
 // CJK 範圍：中文（含日文漢字共用區）+ 日文假名 + 韓文諺文音節。用來抓 en-US 頁面上
@@ -100,12 +101,18 @@ void main() {
       }
 
       // en-US 頁面上不該出現任何 CJK 字元（沒翻、或翻譯 fallback 鏈掉回中文都會露餡）。
-      // 排除 LanguageBar：語言選單本來就會用「該語言自己的名字」標示選項（例如 en-US
-      // 頁面上仍會看到「繁體中文」「日本語」這些原生語言名稱），這是設計行為，不是缺陷。
+      // 排除語言選單本身（登入頁 2026-08-23 起是 LanguageMenuButton 下拉，其他頁仍是
+      // LanguageBar 晶片列）：語言選單本來就會用「該語言自己的名字」標示選項（例如
+      // en-US 頁面上仍會看到「繁體中文」「日本語」這些原生語言名稱），這是設計行為，
+      // 不是缺陷。兩種都排除，才不會因為某頁換了呈現方式就漏掉或誤報。
       if (lng == 'en-US') {
         final allTextElements = find.byType(Text).evaluate().toSet();
-        final languageBarTextElements =
-            find.descendant(of: find.byType(LanguageBar), matching: find.byType(Text)).evaluate().toSet();
+        final languageBarTextElements = {
+          ...find.descendant(of: find.byType(LanguageBar), matching: find.byType(Text)).evaluate(),
+          ...find
+              .descendant(of: find.byType(LanguageMenuButton), matching: find.byType(Text))
+              .evaluate(),
+        };
         final outside = allTextElements.difference(languageBarTextElements);
         final allTexts = outside.map((e) => (e.widget as Text).data ?? '').join('\n');
         final hits = _cjk.allMatches(allTexts).map((m) => m.group(0)).toSet();

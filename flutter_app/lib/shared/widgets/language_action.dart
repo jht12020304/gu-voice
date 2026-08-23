@@ -162,6 +162,8 @@ class LanguageAction extends StatelessWidget {
     return PopupMenuButton<String>(
       icon: const Icon(Icons.language),
       tooltip: t('common.language.names.$currentLng'),
+      // 同 LanguageMenuButton：預設 256pt 上限對最長的語言標籤不夠。
+      constraints: const BoxConstraints(minWidth: 200, maxWidth: 340),
       // Router state is read at TAP time, not during build. Reading it in build makes the
       // widget unusable anywhere without a GoRouter ancestor — which broke the intake
       // widget tests, and is the same shape as the G11 crash
@@ -176,11 +178,75 @@ class LanguageAction extends StatelessWidget {
                 const Icon(Icons.check, size: 16),
                 const SizedBox(width: 6),
               ],
-              Text(t('common.language.names.$lng') +
-                  (betaLanguages.contains(lng) ? ' ${t('common.language.betaTag')}' : '')),
+              Flexible(
+                child: Text(
+                  t('common.language.names.$lng') +
+                      (betaLanguages.contains(lng) ? ' ${t('common.language.betaTag')}' : ''),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ]),
           ),
       ],
+    );
+  }
+}
+
+/// 語言下拉鈕（登入／註冊這類「整頁只有一欄內容、沒有 AppBar」的頁面用）。
+///
+/// 2026-08-23 使用者拍板：登入頁的五顆 `ChoiceChip`（`LanguageBar`）改成下拉，
+/// 呈現方式沿用上面 `LanguageAction` 的 PopupMenu——同一份選項、同一個打勾標示、
+/// 同一條切換入口（`switchLanguage`），差別只在觸發元件長什麼樣：AppBar 用地球
+/// 圖示，獨立頁面用「地球＋目前語言＋▾」的膠囊，因為那裡沒有 AppBar 給它站。
+///
+/// 與 `LanguageAction` 一樣：路由狀態只在**點下去**時才讀，build 期間不碰
+/// `GoRouterState`，否則沒有 GoRouter 祖先的地方（widget 測試）會直接爆。
+class LanguageMenuButton extends StatelessWidget {
+  const LanguageMenuButton({super.key});
+
+  String _label(String lng) =>
+      t('common.language.names.$lng') +
+      (betaLanguages.contains(lng) ? ' ${t('common.language.betaTag')}' : '');
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final border = theme.dividerColor;
+    return PopupMenuButton<String>(
+      tooltip: t('common.language.names.$currentLng'),
+      position: PopupMenuPosition.under,
+      // 預設選單上限 256pt 塞不下最長的那個標籤（「Tiếng Việt（beta）」＋打勾欄位
+      // 實測溢位 5.7px）。語言名稱不能截斷——截掉的正是要辨認它的人看不懂的那半，
+      // 所以放寬選單寬度，Flexible+ellipsis 只當翻譯再變長時的最後防線。
+      constraints: const BoxConstraints(minWidth: 200, maxWidth: 340),
+      onSelected: (lng) => switchLanguage(context, lng),
+      itemBuilder: (context) => [
+        for (final lng in supportedLanguages)
+          PopupMenuItem(
+            value: lng,
+            child: Row(children: [
+              SizedBox(
+                width: 22,
+                child: lng == currentLng ? const Icon(Icons.check, size: 16) : null,
+              ),
+              Flexible(child: Text(_label(lng), overflow: TextOverflow.ellipsis)),
+            ]),
+          ),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          border: Border.all(color: border),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.language, size: 18, color: theme.textTheme.bodyMedium?.color),
+          const SizedBox(width: 8),
+          Text(_label(currentLng), style: theme.textTheme.bodyMedium),
+          const SizedBox(width: 4),
+          Icon(Icons.expand_more, size: 18, color: theme.textTheme.bodyMedium?.color),
+        ]),
+      ),
     );
   }
 }

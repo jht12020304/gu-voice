@@ -151,7 +151,7 @@ Future<void> _login(WidgetTester tester, ProviderContainer container, String ema
   expect(fields, findsAtLeast(2), reason: '登入頁應有 email / password 兩個欄位');
   await _typeInto(tester, fields.at(0), email);
   await _typeInto(tester, fields.at(1), password);
-  await tester.tap(find.byType(FilledButton).first);
+  await tester.tap(find.byKey(const Key('login-submit')));
   await _pumpFor(tester, const Duration(seconds: 20),
       until: () => container.read(authProvider).user != null);
   await tester.pumpAndSettle();

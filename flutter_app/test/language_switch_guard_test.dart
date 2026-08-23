@@ -3,8 +3,10 @@
 //   - 誤判（不在問診頁卻擋）→ 一般頁面切語言被莫名其妙的確認框攔住
 // 另外驗確認框/錯誤訊息 5 語系齊備 —— 少一個語言，病患看到的就是 key 本身。
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:gu_voice/core/i18n/loc.dart';
 import 'package:gu_voice/core/i18n/locales_loader.dart';
 import 'package:gu_voice/core/router/lng.dart';
 import 'package:gu_voice/shared/widgets/language_action.dart';
@@ -116,6 +118,36 @@ void main() {
           }
         }
       }
+    });
+  });
+
+  // 登入頁 2026-08-23 把五顆語言晶片換成下拉（LanguageMenuButton），呈現方式沿用
+  // AppBar 那顆 LanguageAction。這組測試釘住「換了外觀但沒少掉語言」——晶片列時
+  // 五個選項一眼看得到，收進選單之後少一個沒人會發現。
+  group('LanguageMenuButton（登入頁的語言下拉）', () {
+    setUpAll(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      await Locales.loadAll();
+    });
+
+    testWidgets('觸發鈕顯示目前語言；展開後五語系都在，目前語言帶打勾', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: Center(child: LanguageMenuButton())),
+      ));
+
+      // 收合狀態：只露出目前語言（zh-TW 是預設值，不經 URL 也是它）
+      expect(find.text(t('common.language.names.$currentLng')), findsOneWidget);
+
+      await tester.tap(find.byType(LanguageMenuButton));
+      await tester.pumpAndSettle();
+
+      for (final lng in supportedLanguages) {
+        final label = t('common.language.names.$lng') +
+            (betaLanguages.contains(lng) ? ' ${t('common.language.betaTag')}' : '');
+        expect(find.text(label), findsWidgets, reason: '下拉選單裡少了 $lng');
+      }
+      expect(find.byIcon(Icons.check), findsOneWidget,
+          reason: '展開後應該只有目前語言帶打勾');
     });
   });
 }

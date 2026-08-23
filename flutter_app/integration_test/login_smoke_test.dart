@@ -64,7 +64,7 @@ void main() {
     await tester.enterText(fields.at(1), _password);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(FilledButton).first);
+    await tester.tap(find.byKey(const Key('login-submit')));
 
     // 真網路來回：pumpAndSettle 會在動畫停下就返回，所以額外給固定時間等 API。
     for (var i = 0; i < 20; i++) {
