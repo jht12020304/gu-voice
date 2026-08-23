@@ -2861,6 +2861,7 @@ async def _validate_session(
     try:
         from app.models.patient import Patient
         from app.models.session import Session
+        from app.services.session_visibility import session_not_deleted
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
 
@@ -2871,7 +2872,9 @@ async def _validate_session(
                 # #6：開場問診語要用「場次語言」的主訴名稱，需 eager-load 主訴記錄拿 name_by_lang。
                 selectinload(Session.chief_complaint),
             )
-            .where(Session.id == session_id)
+            # 已被 admin 軟刪除的場次一律當成不存在：WS 不得再讀它的病患資料，
+            # 也不得讓它繼續往逐字稿寫新的內容。
+            .where(Session.id == session_id, session_not_deleted())
         )
         result = await db.execute(stmt)
         session_obj = result.scalar_one_or_none()
@@ -2991,12 +2994,14 @@ async def _notify_doctors_red_flag(
                 return 0
         targets = [doctor_id]
     else:
-        # 未指派醫師 → 發給所有在職醫師。查詢自帶 try/except：查不到不可讓
-        # 已 commit 的狀態轉移連帶被外層 except 回滾稽核紀錄。
+        # 未指派醫師 → 發給所有在職臨床人員（doctor + admin）。查詢自帶 try/except：
+        # 查不到不可讓已 commit 的狀態轉移連帶被外層 except 回滾稽核紀錄。
+        # admin 納入的理由見 notification_service._doctor_targets 的註解：升成 admin
+        # 的醫師否則會無聲地收不到紅旗推播。
         try:
             result = await db.execute(
                 select(User.id).where(
-                    User.role == UserRole.DOCTOR,
+                    User.role.in_((UserRole.DOCTOR, UserRole.ADMIN)),
                     User.is_active.is_(True),
                 )
             )

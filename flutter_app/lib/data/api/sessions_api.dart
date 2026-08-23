@@ -32,6 +32,14 @@ class SessionsApi {
     return list.map((e) => Session.fromJson(e as Map)).toList();
   }
 
+  /// 軟刪除整場問診（**只有 admin 有權限**，後端 `require_role("admin")`）。
+  ///
+  /// 後端做的是軟刪除：row 與逐字稿/報告/紅旗都留著，只是所有讀取路徑一律過濾掉。
+  /// 前端不需要知道這件事——刪完就當它不存在（再 GET 會拿到 404）。
+  Future<void> deleteSession(String sessionId) async {
+    await _dio.delete('/sessions/$sessionId');
+  }
+
   Future<Session> assignDoctor(String sessionId, String doctorId) async {
     final res = await _dio.post('/sessions/$sessionId/assign', data: {'doctorId': doctorId});
     return Session.fromJson(res.data as Map);

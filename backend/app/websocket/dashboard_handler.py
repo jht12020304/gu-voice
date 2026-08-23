@@ -364,17 +364,20 @@ async def _get_queue_status(
     """
     try:
         from app.models.session import Session
+        from app.services.session_visibility import session_not_deleted
         from sqlalchemy import func, select
 
         # 統計等待中與進行中的場次（醫師範圍：僅自己負責的場次）
         waiting_stmt = (
             select(func.count())
             .select_from(Session)
+            .where(session_not_deleted())
             .where(Session.status == "waiting")
         )
         in_progress_stmt = (
             select(func.count())
             .select_from(Session)
+            .where(session_not_deleted())
             .where(Session.status == "in_progress")
         )
         if doctor_id:
@@ -390,6 +393,7 @@ async def _get_queue_status(
         # 取得排隊中的場次明細
         queue_stmt = (
             select(Session)
+            .where(session_not_deleted())
             .where(Session.status.in_(["waiting", "in_progress"]))
             .order_by(Session.created_at.asc())
             .limit(50)
@@ -449,10 +453,13 @@ async def _get_active_alerts(
     try:
         from app.models.red_flag_alert import RedFlagAlert
         from app.models.session import Session
+        from app.services.session_visibility import session_not_deleted, visible_session_ids
         from sqlalchemy import select
 
         stmt = (
             select(RedFlagAlert)
+            # 已軟刪除場次的警示對所有人（含 admin）都不再出現
+            .where(RedFlagAlert.session_id.in_(visible_session_ids()))
             .where(RedFlagAlert.acknowledged_at.is_(None))
             .order_by(RedFlagAlert.created_at.desc())
             .limit(50)
@@ -461,7 +468,10 @@ async def _get_active_alerts(
         if doctor_id:
             stmt = stmt.where(
                 RedFlagAlert.session_id.in_(
-                    select(Session.id).where(Session.doctor_id == doctor_id)
+                    select(Session.id).where(
+                        Session.doctor_id == doctor_id,
+                        session_not_deleted(),
+                    )
                 )
             )
         result = await db.execute(stmt)
@@ -519,6 +529,7 @@ async def _get_dashboard_stats(
 
         from app.models.red_flag_alert import RedFlagAlert
         from app.models.session import Session
+        from app.services.session_visibility import session_not_deleted, visible_session_ids
         from sqlalchemy import func, select
 
         today = date.today()
@@ -527,13 +538,15 @@ async def _get_dashboard_stats(
         doctor_session_subq = None
         if doctor_id:
             doctor_session_subq = select(Session.id).where(
-                Session.doctor_id == doctor_id
+                Session.doctor_id == doctor_id,
+                session_not_deleted(),
             )
 
         # 今日場次數
         sessions_today_stmt = (
             select(func.count())
             .select_from(Session)
+            .where(session_not_deleted())
             .where(func.date(Session.created_at) == today)
         )
         # 已完成場次數
@@ -541,20 +554,23 @@ async def _get_dashboard_stats(
             select(func.count())
             .select_from(Session)
             .where(
+                session_not_deleted(),
                 func.date(Session.created_at) == today,
                 Session.status == "completed",
             )
         )
-        # 紅旗數
+        # 紅旗數（警示表沒有 is_deleted，一律以「未刪場次」子查詢限縮——admin 也是）
         red_flags_stmt = (
             select(func.count())
             .select_from(RedFlagAlert)
+            .where(RedFlagAlert.session_id.in_(visible_session_ids()))
             .where(func.date(RedFlagAlert.created_at) == today)
         )
         # 待審閱數
         pending_stmt = (
             select(func.count())
             .select_from(RedFlagAlert)
+            .where(RedFlagAlert.session_id.in_(visible_session_ids()))
             .where(RedFlagAlert.acknowledged_at.is_(None))
         )
 

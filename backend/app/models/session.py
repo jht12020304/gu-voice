@@ -59,10 +59,25 @@ class Session(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"), nullable=False
     )
+    # ── Soft-delete（2026-08-23，管理員專屬）─────────────────────────
+    # 醫療記錄不硬刪（與 patients 同一條原則）：標記後所有讀取路徑一律過濾掉，
+    # 但 row 與對話/SOAP/紅旗的 FK 全部留著，誤刪可由 DB 救回、稽核軌跡不斷。
+    # ⚠️ 新增任何讀 Session 的 query 時必須套 `session_not_deleted()`
+    #    （app/services/session_visibility.py），否則已刪場次會從那條路徑漏回畫面。
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False, index=True
+    )
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
 
     # ── 關聯 ──────────────────────────────────────────
     patient: Mapped["Patient"] = relationship("Patient", back_populates="sessions")
     doctor: Mapped[Optional["User"]] = relationship("User", foreign_keys=[doctor_id])
+    deleter: Mapped[Optional["User"]] = relationship("User", foreign_keys=[deleted_by])
     chief_complaint: Mapped["ChiefComplaint"] = relationship(
         "ChiefComplaint", back_populates="sessions"
     )

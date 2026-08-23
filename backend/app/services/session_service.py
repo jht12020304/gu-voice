@@ -28,6 +28,8 @@ from app.core.config import settings
 from app.models.patient import Patient
 from app.models.session import Session
 from app.models.user import User
+from app.services.audit_log_service import AuditLogService
+from app.services.session_visibility import session_not_deleted
 from app.utils.datetime_utils import utc_now
 from app.utils.language import resolve_language
 
@@ -73,6 +75,36 @@ async def _broadcast_session_created(db: AsyncSession, session: Session) -> None
     except Exception as exc:  # pragma: no cover - 推播失敗非致命
         logger.warning(
             "場次建立後推播儀表板事件失敗（非致命） | session=%s, error=%s",
+            getattr(session, "id", None),
+            str(exc),
+        )
+
+
+async def _after_soft_delete(db: AsyncSession, session: Session) -> None:
+    """軟刪除之後的附帶效應（全部非致命，失敗不影響刪除本身）。
+
+    1. 清掉儀表板統計的 Redis 快取：`get_stats` 會把當日統計快取 300 秒，
+       不清的話刪掉的場次還會在醫師畫面的數字裡停留最多 5 分鐘（看起來像沒刪掉）。
+       key 帶日期與 doctor scope，刪的又可能是舊日期的場次，所以整個
+       `gu:dashboard:stats:*` 前綴一起清——這個 keyspace 很小，重算成本遠低於
+       「數字對不上」的困惑。
+    2. 重推 queue/stats：已開著儀表板的醫師立即看到更新後的排隊與統計。
+    """
+    try:
+        from app.cache.redis_client import get_redis
+        from app.websocket.dashboard_handler import broadcast_queue_and_stats
+
+        redis = await get_redis()
+        try:
+            keys = [key async for key in redis.scan_iter("gu:dashboard:stats:*")]
+            if keys:
+                await redis.delete(*keys)
+        except Exception as exc:  # pragma: no cover - 快取清除失敗非致命
+            logger.warning("清除儀表板統計快取失敗（非致命） | error=%s", str(exc))
+        await broadcast_queue_and_stats(db, redis)
+    except Exception as exc:  # pragma: no cover - 推播失敗非致命
+        logger.warning(
+            "軟刪除後推播儀表板事件失敗（非致命） | session=%s, error=%s",
             getattr(session, "id", None),
             str(exc),
         )
@@ -438,7 +470,11 @@ class SessionService:
         _cursor = _parse_cursor(cursor) if not isinstance(cursor, UUID) else cursor
         _sort_column, _sort_desc = _resolve_sort(sort_by, sort_order)
 
-        query = select(Session).options(selectinload(Session.patient))
+        query = (
+            select(Session)
+            .options(selectinload(Session.patient))
+            .where(session_not_deleted())
+        )
         query = _apply_sort(query, _sort_column, _sort_desc)
 
         # 條件篩選
@@ -456,7 +492,7 @@ class SessionService:
         # Cursor 分頁 — keyset 條件依排序方向套用
         if _cursor is not None:
             result = await db.execute(
-                select(Session).where(Session.id == _cursor)
+                select(Session).where(Session.id == _cursor, session_not_deleted())
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:
@@ -472,7 +508,7 @@ class SessionService:
             sessions = sessions[:limit]
 
         # 近似總筆數
-        count_query = select(func.count()).select_from(Session)
+        count_query = select(func.count()).select_from(Session).where(session_not_deleted())
         if status:
             count_query = count_query.where(Session.status == status)
         if doctor_id:
@@ -493,14 +529,20 @@ class SessionService:
         }
 
     @staticmethod
-    async def get_by_id(db: AsyncSession, session_id: UUID) -> Session:
+    async def get_by_id(
+        db: AsyncSession, session_id: UUID, include_deleted: bool = False
+    ) -> Session:
         """
         根據 ID 取得場次（含對話紀錄）
 
+        Args:
+            include_deleted: 只有軟刪除自己（要冪等）才傳 True。其餘一律 False——
+                已軟刪除的場次對所有讀取路徑都必須等同「不存在」。
+
         Raises:
-            SessionNotFoundException: 場次不存在
+            SessionNotFoundException: 場次不存在（已軟刪除也走這條）
         """
-        result = await db.execute(
+        query = (
             select(Session)
             .options(
                 selectinload(Session.conversations),
@@ -508,6 +550,9 @@ class SessionService:
             )
             .where(Session.id == session_id)
         )
+        if not include_deleted:
+            query = query.where(session_not_deleted())
+        result = await db.execute(query)
         session = result.scalar_one_or_none()
         if session is None:
             raise SessionNotFoundException()
@@ -1017,7 +1062,10 @@ class SessionService:
             query = (
                 select(Session)
                 .options(selectinload(Session.patient))
-                .where(Session.patient_id.in_(owned_patient_ids_subq))
+                .where(
+                    Session.patient_id.in_(owned_patient_ids_subq),
+                    session_not_deleted(),
+                )
             )
             query = _apply_sort(query, _sort_column, _sort_desc)
             if _patient_id is not None:
@@ -1032,7 +1080,7 @@ class SessionService:
             # Cursor 分頁 — keyset 條件依排序方向套用，與 sort 保持一致
             if _cursor is not None:
                 cursor_row = await db.execute(
-                    select(Session).where(Session.id == _cursor)
+                    select(Session).where(Session.id == _cursor, session_not_deleted())
                 )
                 cursor_record = cursor_row.scalar_one_or_none()
                 if cursor_record:
@@ -1050,7 +1098,10 @@ class SessionService:
             count_query = (
                 select(func.count())
                 .select_from(Session)
-                .where(Session.patient_id.in_(owned_patient_ids_subq))
+                .where(
+                    Session.patient_id.in_(owned_patient_ids_subq),
+                    session_not_deleted(),
+                )
             )
             if _status:
                 count_query = count_query.where(Session.status == _status)
@@ -1076,7 +1127,8 @@ class SessionService:
                 select(Session)
                 .options(selectinload(Session.patient))
                 .where(
-                    (Session.doctor_id == user_id) | (Session.doctor_id.is_(None))
+                    (Session.doctor_id == user_id) | (Session.doctor_id.is_(None)),
+                    session_not_deleted(),
                 )
             )
             query = _apply_sort(query, _sort_column, _sort_desc)
@@ -1091,7 +1143,7 @@ class SessionService:
 
             if _cursor is not None:
                 cursor_row = await db.execute(
-                    select(Session).where(Session.id == _cursor)
+                    select(Session).where(Session.id == _cursor, session_not_deleted())
                 )
                 cursor_record = cursor_row.scalar_one_or_none()
                 if cursor_record:
@@ -1109,7 +1161,8 @@ class SessionService:
                 select(func.count())
                 .select_from(Session)
                 .where(
-                    (Session.doctor_id == user_id) | (Session.doctor_id.is_(None))
+                    (Session.doctor_id == user_id) | (Session.doctor_id.is_(None)),
+                    session_not_deleted(),
                 )
             )
             if _status:
@@ -1240,3 +1293,63 @@ class SessionService:
         else:
             raise ForbiddenException("errors.assign_doctor_role_required")
         return await SessionService.assign_doctor_static(db, session_id, doctor_id)
+
+    async def soft_delete_session(
+        self,
+        db: AsyncSession,
+        session_id: UUID,
+        current_user: Any = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> Session:
+        """軟刪除一整場問診（2026-08-23 拍板的 admin 專屬「最高權限」）。
+
+        刪的是**病歷內容的可見性**，不是 row：標記 `is_deleted` 之後，場次清單、
+        場次詳情、逐字稿、SOAP 報告清單、儀表板統計與排隊、紅旗清單、研究分析、
+        以及病患自己的歷史全部看不到它；conversations / soap_reports /
+        red_flag_alerts 的 FK 一列都不刪，誤刪可由 DB 直接把旗標翻回來。
+
+        角色：router 已用 `require_role("admin")` 擋在門口，這裡不再放寬。
+        （醫師＝管理員的既有慣例**刻意不套用在這條路徑上**——刪病歷是不可由
+        一般醫師代行的動作，要刪就先把那個人升成 admin。）
+
+        冪等：已刪過的場次再刪一次回同一列、不重複寫稽核日誌。
+
+        稽核：成功刪除寫一筆 `AuditAction.DELETE`（resource_type="session"），
+        details 帶病患 id、場次狀態、建立時間——**日後要知道「刪掉的是什麼」
+        只剩這筆與 DB 裡那列**。
+        """
+        session = await SessionService.get_by_id(db, session_id, include_deleted=True)
+
+        if session.is_deleted:
+            # 冪等：第二次呼叫不改任何欄位、不再寫一筆稽核（避免同一動作灌爆日誌）
+            return session
+
+        actor_id = getattr(current_user, "id", None)
+        session.is_deleted = True
+        session.deleted_at = utc_now()
+        session.deleted_by = actor_id
+        await db.flush()
+
+        await AuditLogService.log(
+            db,
+            user_id=actor_id,
+            action=AuditAction.DELETE,
+            resource_type="session",
+            resource_id=str(session_id),
+            details={
+                "patient_id": str(session.patient_id),
+                "status": session.status.value
+                if hasattr(session.status, "value")
+                else str(session.status),
+                "language": session.language,
+                "created_at": session.created_at.isoformat() if session.created_at else None,
+                "soft_delete": True,
+            },
+            ip_address=ip_address,
+            user_agent=user_agent,
+            language=session.language,
+        )
+        await db.commit()
+        await _after_soft_delete(db, session)
+        return session

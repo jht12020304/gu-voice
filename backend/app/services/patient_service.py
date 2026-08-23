@@ -18,6 +18,7 @@ from app.core.exceptions import ForbiddenException, NotFoundException
 from app.models.enums import Gender, SessionStatus, UserRole
 from app.models.patient import Patient
 from app.models.session import Session
+from app.services.session_visibility import session_not_deleted
 from app.utils.datetime_utils import parse_iso
 from app.utils.datetime_utils import utc_now
 
@@ -205,6 +206,7 @@ class PatientService:
             active_subq = (
                 select(Session.id)
                 .where(Session.patient_id == Patient.id)
+                .where(session_not_deleted())
                 .where(Session.status.in_(_ACTIVE_SESSION_STATUSES))
             )
             if has_active_session:
@@ -449,6 +451,8 @@ class PatientService:
                     status_value = None
 
         def _apply_session_filters(q: Any) -> Any:
+            # 已軟刪除的場次不出現在病患歷史（清單與總筆數共用這支）
+            q = q.where(session_not_deleted())
             if status_value is not None:
                 q = q.where(Session.status == status_value)
             if date_from is not None:
@@ -467,7 +471,7 @@ class PatientService:
 
         if cursor:
             result = await db.execute(
-                select(Session).where(Session.id == cursor)
+                select(Session).where(Session.id == cursor, session_not_deleted())
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:

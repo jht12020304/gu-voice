@@ -50,6 +50,7 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
   String? _error;
   bool _assigning = false;
   bool _generating = false;
+  bool _deleting = false;
 
   @override
   void initState() {
@@ -142,6 +143,50 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
       if (mounted) setState(() => _generating = false);
       _toast(t('session.doctor.detail.generateReportError'));
     }
+  }
+
+  /// 軟刪除整場問診（2026-08-23 拍板的 admin「最高權限」）。
+  ///
+  /// 成功後**離開這一頁**：留在原地會立刻對一個已刪場次重抓資料而顯示錯誤，
+  /// 使用者看到的會像是刪除失敗。回場次清單，那裡已經看不到它。
+  Future<void> _deleteSession() async {
+    if (_session == null) return;
+    Navigator.of(context).pop(); // 關掉確認框
+    setState(() => _deleting = true);
+    try {
+      await _api.deleteSession(_session!.id);
+      if (!mounted) return;
+      setState(() => _deleting = false);
+      _toast(t('session.doctor.detail.deleteSuccess'));
+      context.go(prefixLngToPath('/sessions', currentLng));
+    } catch (_) {
+      if (mounted) setState(() => _deleting = false);
+      _toast(t('session.doctor.detail.deleteError'));
+    }
+  }
+
+  void _confirmDelete() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(t('session.doctor.detail.deleteSessionTitle')),
+        content: Text(t('session.doctor.detail.deleteSessionConfirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(t('session.doctor.detail.cancelAction')),
+          ),
+          // 破壞性動作用錯誤色，且**不是**預設焦點鈕——取消才是安全的預設。
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: _deleteSession,
+            child: Text(t('session.doctor.detail.deleteSession')),
+          ),
+        ],
+      ),
+    );
   }
 
   void _confirmStatus(String status) {
@@ -252,6 +297,28 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
                       child: Text(t('session.doctor.detail.viewReport')),
                     ),
                 ]),
+                // 刪除是破壞性動作：與上面那排一般操作用分隔線隔開、走文字鈕 + 錯誤色，
+                // 不與「指派給我 / 標記完成」同一個視覺層級（誤觸成本不對等）。
+                // 只有 admin 看得到——後端也只放行 admin（2026-08-23 拍板）。
+                if (user?.isAdmin ?? false) ...[
+                  const SizedBox(height: 12),
+                  Divider(color: tk.edge, height: 1),
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _deleting ? null : _confirmDelete,
+                      icon: Icon(Icons.delete_outline,
+                          size: 18, color: Theme.of(context).colorScheme.error),
+                      label: Text(
+                        t(_deleting
+                            ? 'session.doctor.detail.deleting'
+                            : 'session.doctor.detail.deleteSession'),
+                        style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      ),
+                    ),
+                  ),
+                ],
                 // Make an in-flight generation visible. Without this the doctor sees no
                 // button and no explanation — indistinguishable from "nothing happened".
                 if (_reportStatus == 'generating')

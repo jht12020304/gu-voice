@@ -34,6 +34,7 @@ from app.models.enums import (
 )
 from app.models.patient import Patient
 from app.models.session import Session
+from app.services.session_visibility import session_not_deleted, visible_session_ids
 from app.models.soap_report import SOAPReport
 from app.models.soap_report_revision import SOAPReportRevision
 from app.utils.datetime_utils import parse_iso, utc_now
@@ -116,7 +117,8 @@ async def _authorize_report_access(
     Row-level 權限校驗：current_user 是否能讀取此 SOAP 報告。
 
     報告本身不帶 patient_id / doctor_id，故透過其 session 對映：
-      - admin   → 無限制
+      - 場次已軟刪除 → 一律不可見（含 admin）
+      - admin   → 其餘無限制
       - doctor  → session.doctor_id == self 或 doctor_id 為空(未指派)
       - patient → session.patient → patient.user_id == self.id
       - 其餘/未知角色 / 無 current_user → 拒絕
@@ -127,20 +129,23 @@ async def _authorize_report_access(
     role = _get_user_role(current_user)
     user_id = getattr(current_user, "id", None)
 
-    if role == UserRole.ADMIN:
-        return
-
-    # 取出此報告對映 session 的 doctor_id / patient_id（明確 query 避免 lazy-load）
+    # 取出此報告對映 session 的 doctor_id / patient_id（明確 query 避免 lazy-load）。
+    # ⚠️ 這一段要在 admin 的早退**之前**：場次被軟刪除時，連 admin 也不該再讀到
+    # 它的報告（刪除的語意是「這場問診的內容不再出現」，不是「除了管理員以外」）。
     result = await db.execute(
         select(Session.doctor_id, Session.patient_id).where(
-            Session.id == report.session_id
+            Session.id == report.session_id,
+            session_not_deleted(),
         )
     )
     row = result.one_or_none()
     if row is None:
-        # session 不存在 → 視同報告不可見
+        # session 不存在或已軟刪除 → 視同報告不可見
         raise NotFoundException("errors.report_not_found")
     doctor_id, patient_id = row
+
+    if role == UserRole.ADMIN:
+        return
 
     if role == UserRole.DOCTOR:
         if doctor_id is None or doctor_id == user_id:
@@ -292,17 +297,20 @@ class ReportService:
         role = _get_user_role(current_user)
         user_id = getattr(current_user, "id", None)
 
-        scope_subquery = None  # None = admin（無限縮）
+        # 軟刪除場次的報告對**所有角色**都不可見，admin 也一樣——所以 admin 這格
+        # 不再是 None（無限縮），而是「所有未刪除場次」。
         if role == UserRole.ADMIN:
-            scope_subquery = None
+            scope_subquery = visible_session_ids()
         elif role == UserRole.DOCTOR:
             scope_subquery = select(Session.id).where(
-                (Session.doctor_id == user_id) | (Session.doctor_id.is_(None))
+                (Session.doctor_id == user_id) | (Session.doctor_id.is_(None)),
+                session_not_deleted(),
             )
         elif role == UserRole.PATIENT:
             owned_patient_ids = select(Patient.id).where(Patient.user_id == user_id)
             scope_subquery = select(Session.id).where(
-                Session.patient_id.in_(owned_patient_ids)
+                Session.patient_id.in_(owned_patient_ids),
+                session_not_deleted(),
             )
         else:
             # 無角色 / 未知角色：限縮成不可能命中的集合
@@ -329,7 +337,8 @@ class ReportService:
         patient_session_subquery = None
         if patient_id:
             patient_session_subquery = select(Session.id).where(
-                Session.patient_id == patient_id
+                Session.patient_id == patient_id,
+                session_not_deleted(),
             )
 
         if status:
@@ -462,7 +471,7 @@ class ReportService:
         """
         # 場次必須存在且處於可產報告的終態
         session_result = await db.execute(
-            select(Session.status).where(Session.id == session_id)
+            select(Session.status).where(Session.id == session_id, session_not_deleted())
         )
         session_status = session_result.scalar_one_or_none()
         if session_status is None:

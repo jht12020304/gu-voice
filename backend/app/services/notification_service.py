@@ -285,6 +285,7 @@ class NotificationService:
         """取 (場次的 doctor_id, 病患姓名)。查不到場次時回 (None, None)。"""
         from app.models.patient import Patient
         from app.models.session import Session
+        from app.services.session_visibility import session_not_deleted
 
         try:
             session_uuid = UUID(str(session_id))
@@ -296,7 +297,9 @@ class NotificationService:
             await db.execute(
                 select(Session.doctor_id, Patient.name)
                 .join(Patient, Patient.id == Session.patient_id, isouter=True)
-                .where(Session.id == session_uuid)
+                # 場次在報告生成途中被軟刪除時不再發通知——推播點開只會是 404，
+                # 而 body 還帶著剛被刪掉的那位病患姓名。
+                .where(Session.id == session_uuid, session_not_deleted())
             )
         ).first()
         if row is None:
@@ -307,10 +310,15 @@ class NotificationService:
     async def _doctor_targets(
         db: AsyncSession, doctor_id: Optional[UUID], session_id: Any
     ) -> list[UUID]:
-        """通知目標：有指派醫師就是他，否則全體在職醫師（未指派佇列 fan-out）。
+        """通知目標：有指派醫師就是他，否則全體在職臨床人員（未指派佇列 fan-out）。
 
         與 `conversation_handler._notify_doctors_red_flag` 同一套語意，
         查詢自帶 try/except：查不到不可讓呼叫端的第二段交易連帶炸掉。
+
+        2026-08-23：收件角色由 doctor 擴為 **doctor + admin**。沿用「醫師＝管理員」
+        的既有拍板，並修掉一個具體的坑——把一位醫師升成 admin（現在是取得刪除
+        問診權限的方式）會讓他從此收不到任何未指派場次的推播，而且完全無聲。
+        admin 本來就讀得到全部場次，收通知不會多暴露任何東西。
         """
         from app.models.enums import UserRole
         from app.models.user import User as _User
@@ -320,7 +328,7 @@ class NotificationService:
         try:
             result = await db.execute(
                 select(_User.id).where(
-                    _User.role == UserRole.DOCTOR,
+                    _User.role.in_((UserRole.DOCTOR, UserRole.ADMIN)),
                     _User.is_active.is_(True),
                 )
             )
