@@ -147,7 +147,8 @@ xcrun altool --upload-app  -f build/ios/ipa/gu_voice.ipa -t ios \
 | 群組 build 歷史 | 只有 1213 | 1528 → … → 0157 → 1321 |
 
 先行測試群組（id `645ac1e0-71c3-4e34-a4a4-4a7ada3d823f`，internal，ASC API 建）
-只有一位測試員；名單以 ASC 為準（個資不進公開 repo）。
+**2026-08-23 起共 4 位測試員**（全數 INSTALLED；名單以 ASC 為準，個資不進公開 repo）。
+4 人舊群組自此僅存歷史（成員已全數併入先行測試）。
 
 兩群組共通事實（仍然有效）：
 
