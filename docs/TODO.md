@@ -772,7 +772,7 @@ rollback deployment 已記錄。**Android 內部測試管道仍未建立**，另
 **iOS TestFlight 發佈管道另案追蹤：見 §V8。**（2026-08-21 拆出——它原本整段寫在這個
 **已勾選、標題是 Flutter Web、日期 08-17** 的 §V6 底下，掃 checkbox 的人會讀成已完成。）
 
-### [ ] V8. 🟡 iOS TestFlight 發佈管道 — 2026-08-21：**首顆 build 已上傳，TestFlight 狀態「準備測試」**；待建內部測試群組、加測試員、真機安裝與推播驗證
+### [ ] V8. 🟡 iOS TestFlight 發佈管道 — 2026-08-23 更新：**管道全通**（先行測試群組已建、4 位測試員全數 INSTALLED、build 迭代發佈已成日常）；殘留＝推播端到端驗證、年齡分級問卷、隱私政策 URL
 
 **✅ 2026-08-21 20:46 首次上傳完成。** 首顆 build（版本 1.0.0，號碼見總表 §7）已通過 ASC 自動處理，
 狀態**「準備測試」**，而且在 TestFlight 建置版本清單上標著「**內部**」。上傳前
@@ -784,8 +784,10 @@ rollback deployment 已記錄。**Android 內部測試管道仍未建立**，另
 [`ios_release_settings.md`](ios_release_settings.md) §7**——那份是 iOS 所有設定值的唯一權威來源，
 本節不重抄值，只留風險、理由與踩過的坑。
 
-**⬜ 還沒做的**：建內部測試群組、把自己加進去、真機安裝（確認不是白畫面）、推播端到端驗證、
-年齡分級問卷、隱私政策 URL。清單見總表 §9，操作步驟見 `deployment_guide.md` 二、。
+**⬜ 還沒做的（2026-08-23 收斂）**：推播端到端驗證、年齡分級問卷、隱私政策 URL。
+（建群組／加測試員／真機安裝已於 2026-08-22〜23 完成：4 位測試員全數 INSTALLED、
+build 已迭代十餘顆——名單與現況見 `ios_release_settings.md` §7。）清單見總表 §9，
+操作步驟見 `deployment_guide.md` 二、。
 
 **2026-08-21 20:26 打包端到端驗證通過。** 六關全跑真簽章，產出 `build/ios/ipa/gu_voice.ipa`
 （24MB），第 6 關全綠：`aps-environment = production`、`get-task-allow = false`、
