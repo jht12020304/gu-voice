@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/config/env.dart';
 import '../../core/i18n/loc.dart';
 import '../../core/router/lng.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../shared/widgets/language_bar.dart';
 import 'auth_notifier.dart';
@@ -86,13 +88,18 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   static const _radius = 12.0; // §4.4 shape lock：本頁唯一圓角
 
   InputDecoration _fieldDecoration(BuildContext context, {Widget? suffixIcon}) {
-    final tk = Theme.of(context).extension<AppTokens>()!;
+    // 本頁鎖淺色：直接取 light 常數。不能用 Theme.of(context)——helper 收到的是
+    // Theme 包裹**外面**的 context，深色模式下會拿到深色 tokens（白 8% 邊線畫在
+    // 白卡上＝輸入框隱形，2026-08-23 目視抓到）。
+    const tk = AppTokens.light;
     // 不帶 labelText / hintText：label 是欄位上方的獨立 Text（§4.6），
     // placeholder 不承載任何必要資訊。
     return InputDecoration(
       isDense: false,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       suffixIcon: suffixIcon,
+      filled: true,
+      fillColor: const Color(0xFFF5F7FB),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
         borderSide: BorderSide(color: tk.edge),
@@ -108,9 +115,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         padding: const EdgeInsets.only(bottom: 8),
         child: Text(
           text,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          // 同 _fieldDecoration：鎖 light 常數，不吃外層（可能是深色的）Theme。
+          style: AppTheme.light.textTheme.labelLarge?.copyWith(
                 fontWeight: FontWeight.w600,
-                color: Theme.of(context).extension<AppTokens>()!.inkBody,
+                color: AppTokens.light.inkBody,
               ),
         ),
       );
@@ -119,39 +127,74 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
     final error = _localError ?? auth.error;
-    final theme = Theme.of(context);
-    final tk = theme.extension<AppTokens>()!;
+    // 登入頁**鎖淺色**（2026-08-23 使用者拍板）：候診區迎賓頁不跟系統深色模式——
+    // 明亮診間裡深色登入頁像關機螢幕。整頁包 AppTheme.light，狀態列 icon 轉深。
+    final theme = AppTheme.light;
+    final tk = AppTokens.light;
 
-    return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: AutofillGroup(
-              child: Column(
+    return Theme(
+      data: theme,
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.dark,
+        child: Scaffold(
+          body: Container(
+            // 頂部極淡的品牌藍暈染 → 底色（單一 accent，刻意的淺色收尾）
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: [0.0, 0.45],
+                colors: [Color(0xFFEAF1FE), Color(0xFFF8F9FC)],
+              ),
+            ),
+            child: SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // ── 白卡：整個登入流程收進一張卡，浮在淺色底上 ──
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(_radius),
+                            border: Border.all(color: tk.edge),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x14203A66),
+                                blurRadius: 24,
+                                offset: Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: AutofillGroup(
+                            child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // ── 標誌區塊（§4.7：一個，不疊）。外層 Column 是 stretch，
-                  //    必須用 Align 收回固定尺寸，否則章被拉成整條橫幅。──────
-                  Align(
-                    alignment: Alignment.centerLeft,
+                  // ── 標誌區塊：置中（迎賓構圖——走到 iPad 前第一眼是牌與標題）──
+                  Center(
                     child: Container(
-                      width: 56,
-                      height: 56,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: .10),
-                        borderRadius: BorderRadius.circular(_radius + 4),
-                      ),
-                      child: Icon(Icons.health_and_safety_outlined,
-                          size: 30, color: theme.colorScheme.primary),
+                    width: 64,
+                    height: 64,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: .10),
+                      borderRadius: BorderRadius.circular(_radius + 4),
                     ),
+                    child: Icon(Icons.health_and_safety_outlined,
+                        size: 34, color: theme.colorScheme.primary),
                   ),
-                  const SizedBox(height: 20),
+                  ),
+                  const SizedBox(height: 16),
                   Text(
                     t('common.appTitle'),
+                    textAlign: TextAlign.center,
                     style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w700,
                       letterSpacing: -0.5,
@@ -161,10 +204,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   const SizedBox(height: 6),
                   Text(
                     t('common.login.prompt'),
+                    textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium
                         ?.copyWith(color: tk.inkSecondary),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 28),
 
                   // ── Kiosk 進場（產品功能；未帶 KIOSK define 時整段死碼）────
                   //    候診 iPad 的主要動作：72pt 高、mic icon，按下＝kiosk 帳號
@@ -339,9 +383,16 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 28),
-                  const LanguageBar(),
                 ],
+              ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        const LanguageBar(),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
