@@ -103,7 +103,13 @@
       "generateReportError": "Failed to generate report. Please try again later.",
       "confirm": "Confirm",
       "cancelAction": "Cancel",
-      "processing": "Processing..."
+      "processing": "Processing...",
+      "deleteSession": "Delete this consultation",
+      "deleteSessionTitle": "Delete this consultation?",
+      "deleteSessionConfirm": "Its transcript, SOAP report and red-flag alerts will no longer appear in any list, report or statistic. The data stays in the database and only a system administrator can restore it.",
+      "deleting": "Deleting...",
+      "deleteSuccess": "Consultation deleted",
+      "deleteError": "Could not delete. Please try again later."
     }
   },
   "patientHistory": {

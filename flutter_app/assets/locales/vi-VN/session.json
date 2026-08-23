@@ -103,7 +103,13 @@
       "generateReportError": "Tạo báo cáo thất bại. Vui lòng thử lại sau.",
       "confirm": "Xác nhận",
       "cancelAction": "Hủy",
-      "processing": "Đang xử lý..."
+      "processing": "Đang xử lý...",
+      "deleteSession": "Xóa buổi hỏi bệnh này",
+      "deleteSessionTitle": "Xóa buổi hỏi bệnh này?",
+      "deleteSessionConfirm": "Bản ghi hội thoại, báo cáo SOAP và cảnh báo cờ đỏ của buổi này sẽ không còn xuất hiện trong bất kỳ danh sách, báo cáo hay thống kê nào. Dữ liệu vẫn nằm trong cơ sở dữ liệu và chỉ quản trị viên hệ thống mới khôi phục được.",
+      "deleting": "Đang xóa...",
+      "deleteSuccess": "Đã xóa buổi hỏi bệnh",
+      "deleteError": "Xóa không thành công. Vui lòng thử lại sau."
     }
   },
   "patientHistory": {

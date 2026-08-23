@@ -28,6 +28,7 @@ from app.models.patient import Patient
 from app.models.red_flag_alert import RedFlagAlert
 from app.models.session import Session
 from app.models.soap_report import SOAPReport
+from app.services.session_visibility import session_not_deleted, visible_session_ids
 from app.schemas.dashboard import (
     DailyTrendItem,
     MonthlySummaryResponse,
@@ -218,6 +219,7 @@ class DashboardService:
         sessions_query = (
             select(func.count())
             .select_from(Session)
+            .where(session_not_deleted())
             .where(Session.created_at >= day_start)
             .where(Session.created_at < day_end)
         )
@@ -229,6 +231,7 @@ class DashboardService:
         completed_query = (
             select(func.count())
             .select_from(Session)
+            .where(session_not_deleted())
             .where(Session.created_at >= day_start)
             .where(Session.created_at < day_end)
             .where(Session.status == SessionStatus.COMPLETED)
@@ -241,6 +244,7 @@ class DashboardService:
         in_progress_query = (
             select(func.count())
             .select_from(Session)
+            .where(session_not_deleted())
             .where(Session.status == SessionStatus.IN_PROGRESS)
         )
         if effective_doctor_id:
@@ -251,6 +255,7 @@ class DashboardService:
         waiting_query = (
             select(func.count())
             .select_from(Session)
+            .where(session_not_deleted())
             .where(Session.status == SessionStatus.WAITING)
         )
         if effective_doctor_id:
@@ -261,13 +266,19 @@ class DashboardService:
         red_flags_query = (
             select(func.count())
             .select_from(RedFlagAlert)
+            # 警示表自己沒有 is_deleted，所以連 admin 這條路徑也要用「未刪場次」
+            # 子查詢限縮，否則已刪場次的紅旗還會灌進今日計數。
+            .where(RedFlagAlert.session_id.in_(visible_session_ids()))
             .where(RedFlagAlert.created_at >= day_start)
             .where(RedFlagAlert.created_at < day_end)
         )
         if effective_doctor_id:
             red_flags_query = red_flags_query.where(
                 RedFlagAlert.session_id.in_(
-                    select(Session.id).where(Session.doctor_id == effective_doctor_id)
+                    select(Session.id).where(
+                        Session.doctor_id == effective_doctor_id,
+                        session_not_deleted(),
+                    )
                 )
             )
         red_flags = (await db.execute(red_flags_query)).scalar() or 0
@@ -277,6 +288,7 @@ class DashboardService:
             select(func.count())
             .select_from(SOAPReport)
             .join(Session, SOAPReport.session_id == Session.id)
+            .where(session_not_deleted())
             .where(SOAPReport.review_status == ReviewStatus.PENDING)
             .where(SOAPReport.status == ReportStatus.GENERATED)
         )
@@ -293,6 +305,7 @@ class DashboardService:
         duration_query = (
             select(func.avg(duration_expr))
             .select_from(Session)
+            .where(session_not_deleted())
             .where(Session.created_at >= day_start)
             .where(Session.created_at < day_end)
             .where(Session.status == SessionStatus.COMPLETED)
@@ -344,6 +357,7 @@ class DashboardService:
         query = (
             select(Session, Patient.name.label("patient_name"))
             .join(Patient, Session.patient_id == Patient.id)
+            .where(session_not_deleted())
             .where(Session.status.in_(status_filters))
             .order_by(Session.created_at.asc())
         )
@@ -396,6 +410,7 @@ class DashboardService:
             select(RedFlagAlert, Patient.name.label("patient_name"))
             .join(Session, RedFlagAlert.session_id == Session.id)
             .join(Patient, Session.patient_id == Patient.id)
+            .where(session_not_deleted())
             # 只回未確認警示，與「近期未確認警示」語意一致
             .where(RedFlagAlert.acknowledged_by.is_(None))
             .order_by(RedFlagAlert.created_at.desc())
@@ -436,6 +451,7 @@ class DashboardService:
         query = (
             select(Session, Patient.name.label("patient_name"))
             .join(Patient, Session.patient_id == Patient.id)
+            .where(session_not_deleted())
             .order_by(Session.created_at.desc())
         )
         if effective_doctor_id:
@@ -474,6 +490,7 @@ class DashboardService:
         session_query = (
             select(Session, ChiefComplaint.category)
             .join(ChiefComplaint, Session.chief_complaint_id == ChiefComplaint.id, isouter=True)
+            .where(session_not_deleted())
             .where(Session.created_at >= month_start)
             .where(Session.created_at < month_end)
             .order_by(Session.created_at.asc())
@@ -484,6 +501,7 @@ class DashboardService:
         alert_query = (
             select(RedFlagAlert.severity, RedFlagAlert.created_at)
             .join(Session, RedFlagAlert.session_id == Session.id)
+            .where(session_not_deleted())
             .where(RedFlagAlert.created_at >= month_start)
             .where(RedFlagAlert.created_at < month_end)
         )
@@ -494,6 +512,7 @@ class DashboardService:
             select(func.count())
             .select_from(SOAPReport)
             .join(Session, SOAPReport.session_id == Session.id)
+            .where(session_not_deleted())
             .where(Session.created_at >= month_start)
             .where(Session.created_at < month_end)
             .where(SOAPReport.review_status == ReviewStatus.PENDING)

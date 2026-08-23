@@ -28,6 +28,7 @@ from app.models.enums import (
 from app.models.red_flag_alert import RedFlagAlert
 from app.models.red_flag_rule import RedFlagRule
 from app.models.session import Session
+from app.services.session_visibility import visible_session_ids
 from app.utils.datetime_utils import utc_now
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,9 @@ class AlertService:
         needs_session_join = doctor_scope_id is not None or patient_id is not None
 
         def _apply_session_filters(stmt):
+            # 已軟刪除場次的警示對所有角色（含 admin）都不可見。用子查詢而不是
+            # 加在 join 條件上：這條路徑在沒有 doctor/patient 篩選時根本不 join。
+            stmt = stmt.where(RedFlagAlert.session_id.in_(visible_session_ids()))
             if needs_session_join:
                 stmt = stmt.join(Session, RedFlagAlert.session_id == Session.id)
                 if doctor_scope_id is not None:
@@ -267,6 +271,7 @@ class AlertService:
         count_query = (
             select(func.count())
             .select_from(RedFlagAlert)
+            .where(RedFlagAlert.session_id.in_(visible_session_ids()))
             .where(RedFlagAlert.acknowledged_by.is_(None))
         )
 
@@ -297,7 +302,10 @@ class AlertService:
         Raises:
             NotFoundException: 警示不存在，或 doctor 無權存取此警示
         """
-        query = select(RedFlagAlert).where(RedFlagAlert.id == alert_id)
+        query = select(RedFlagAlert).where(
+            RedFlagAlert.id == alert_id,
+            RedFlagAlert.session_id.in_(visible_session_ids()),
+        )
 
         # 醫師範圍限制：join Session 並以 session.doctor_id == self.id 過濾。
         doctor_scope_id = _doctor_scope_id(current_user)

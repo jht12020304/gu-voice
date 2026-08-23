@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis, require_role
@@ -118,6 +118,40 @@ async def get_session(
         session_id=session_id,
         current_user=current_user,
     )
+
+
+@router.delete(
+    "/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="軟刪除場次（管理員）",
+    dependencies=[Depends(require_role("admin"))],
+)
+async def delete_session(
+    session_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> Response:
+    """軟刪除一整場問診——含逐字稿、SOAP 報告、紅旗在所有畫面上一起消失。
+
+    **僅限 admin。** 這是刻意不套用「醫師＝管理員」慣例的少數端點之一：
+    刪病歷不是一般醫師可代行的動作，要給誰就把那個帳號升成 admin。
+
+    醫療記錄不硬刪（同 `DELETE /patients/{id}`）：row 與所有子表 FK 都留著，
+    只是讀取路徑一律過濾掉；誤刪可由 DB 把 `is_deleted` 翻回 false 救回。
+    另寫一筆 `AuditAction.DELETE` 稽核日誌（誰、何時、刪了哪一場、病患是誰）。
+
+    冪等：重複刪同一場一樣回 204。場次不存在回 404。
+    """
+    await session_service.soft_delete_session(
+        db,
+        session_id=session_id,
+        current_user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.put(

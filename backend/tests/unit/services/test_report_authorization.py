@@ -4,7 +4,7 @@ Unit tests for SOAP report row-level ownership / authorization logic.
 守護 REPORTS-1 / REPORTS-7 / REPORTS-10 資安阻斷：
 - patient 只能讀取自己名下 Patient → session 的報告
 - doctor 只能讀取 doctor_id == self 或 doctor_id IS NULL(未指派)的 session 報告
-- admin 無限制
+- admin ownership 無限制，但場次被軟刪除時一樣看不到（2026-08-23）
 - 未知角色 / 缺 current_user → 拒絕（以 NotFound 避免洩漏存在與否）
 
 測試採純 Python stub（無真 DB），只驗 `_authorize_report_access` 與
@@ -121,7 +121,7 @@ def test_get_user_role_unknown_string_is_none():
 
 
 # ──────────────────────────────────────────────────────
-# admin: 無限制（不查 session/patient）
+# admin: ownership 無限制，但仍受「場次是否被軟刪除」拘束
 # ──────────────────────────────────────────────────────
 
 def test_admin_can_access_any_report():
@@ -129,7 +129,20 @@ def test_admin_can_access_any_report():
     report = _make_report()
     db = _FakeDB(session_row=_Row(uuid.uuid4(), uuid.uuid4()))
     _run(_authorize_report_access(db, report, admin))
-    assert db.execute_calls == 0  # admin 短路，不查 DB
+    # 2026-08-23 起 admin **不再短路**：那一次 query 帶著 is_deleted = false，
+    # 是「admin 也看不到已刪場次的報告」唯一的攔截點（軟刪除的語意是內容消失，
+    # 不是「除了管理員以外」）。ownership 本身對 admin 仍然沒有限制。
+    assert db.execute_calls == 1
+
+
+def test_admin_cannot_access_report_of_deleted_or_missing_session():
+    """場次查不到（已軟刪除，或 row 不存在）→ 連 admin 都回 NotFound。"""
+    admin = _make_user(UserRole.ADMIN)
+    report = _make_report()
+    db = _FakeDB(session_row=None)  # is_deleted = false 的條件撈不到 → None
+    with pytest.raises(NotFoundException):
+        _run(_authorize_report_access(db, report, admin))
+    assert db.execute_calls == 1
 
 
 # ──────────────────────────────────────────────────────

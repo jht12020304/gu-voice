@@ -27,6 +27,7 @@ from app.models.conversation import Conversation
 from app.models.patient import Patient
 from app.models.red_flag_alert import RedFlagAlert
 from app.models.session import Session
+from app.services.session_visibility import session_not_deleted
 from app.models.soap_report import SOAPReport
 from app.models.soap_report_revision import SOAPReportRevision
 from app.schemas.research import (
@@ -261,7 +262,9 @@ class ResearchService:
             Session.started_at,
             Session.completed_at,
             Session.duration_seconds,
-        )
+        ).where(session_not_deleted())
+        # Q1 是整份分析的母體：Q2〜Q6 全部以這裡取到的 session_ids 限縮，
+        # 所以軟刪除只要擋在這一條，整份研究統計就不會算進已刪場次。
         if date_from is not None:
             stmt = stmt.where(Session.created_at >= date_from)
         if date_to is not None:

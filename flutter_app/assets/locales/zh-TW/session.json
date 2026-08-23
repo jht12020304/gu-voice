@@ -103,7 +103,13 @@
       "generateReportError": "報告生成失敗，請稍後再試",
       "confirm": "確認",
       "cancelAction": "取消",
-      "processing": "處理中..."
+      "processing": "處理中...",
+      "deleteSession": "刪除此問診",
+      "deleteSessionTitle": "刪除這一場問診？",
+      "deleteSessionConfirm": "這場問診的對話紀錄、SOAP 報告與紅旗警示，將不再出現在任何清單、報表或統計中。資料仍保留在資料庫，需由系統管理者才能救回。",
+      "deleting": "刪除中...",
+      "deleteSuccess": "問診已刪除",
+      "deleteError": "刪除失敗，請稍後再試"
     }
   },
   "patientHistory": {

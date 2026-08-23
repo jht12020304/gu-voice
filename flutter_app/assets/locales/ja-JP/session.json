@@ -103,7 +103,13 @@
       "generateReportError": "レポートの生成に失敗しました。後でもう一度お試しください。",
       "confirm": "確認",
       "cancelAction": "キャンセル",
-      "processing": "処理中..."
+      "processing": "処理中...",
+      "deleteSession": "この問診を削除",
+      "deleteSessionTitle": "この問診を削除しますか？",
+      "deleteSessionConfirm": "この問診の会話記録・SOAPレポート・レッドフラグ警告は、一覧・レポート・統計のいずれにも表示されなくなります。データはデータベースに残り、復元できるのはシステム管理者のみです。",
+      "deleting": "削除中...",
+      "deleteSuccess": "問診を削除しました",
+      "deleteError": "削除に失敗しました。しばらくしてからもう一度お試しください。"
     }
   },
   "patientHistory": {
