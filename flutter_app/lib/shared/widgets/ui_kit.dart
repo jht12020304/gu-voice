@@ -212,6 +212,11 @@ class SkeletonList extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       physics: const NeverScrollableScrollPhysics(),
+      // shrinkWrap：本來就不滾動（physics 已是 Never），加上它才能被塞進**另一個**
+      // ListView 裡——沒有它，巢狀時 vertical viewport 拿到無界高度直接拋
+      // 「Vertical viewport was given unbounded height」整頁白掉
+      // （2026-08-23 日曆頁的載入狀態實測踩到）。列數固定為個位數，成本可忽略。
+      shrinkWrap: true,
       children: [
         for (var i = 0; i < rows; i++)
           Card(

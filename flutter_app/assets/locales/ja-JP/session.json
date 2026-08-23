@@ -110,6 +110,34 @@
       "deleting": "削除中...",
       "deleteSuccess": "問診を削除しました",
       "deleteError": "削除に失敗しました。しばらくしてからもう一度お試しください。"
+    },
+    "calendar": {
+      "viewCalendar": "カレンダー表示に切り替え",
+      "viewList": "リスト表示に切り替え",
+      "previousMonth": "前の月",
+      "nextMonth": "次の月",
+      "monthSessions": "今月の問診",
+      "daysWithSessions": "問診があった日数",
+      "dayTitle": "{{month}} 月 {{day}} 日（{{weekday}}）",
+      "sessionsCount": "{{count}} 件",
+      "busyTime": "問診の合計時間",
+      "averageDuration": "1 件あたり",
+      "clinicWindow": "最初〜最後",
+      "gap": "空き {{minutes}} 分",
+      "ongoing": "進行中",
+      "minutesShort": "{{minutes}} 分",
+      "hoursMinutes": "{{hours}} 時間 {{minutes}} 分",
+      "emptyDayTitle": "この日の問診はありません",
+      "emptyDayMessage": "他の日付を選んでください。問診があった日には点が付いています。",
+      "weekday": {
+        "sun": "日",
+        "mon": "月",
+        "tue": "火",
+        "wed": "水",
+        "thu": "木",
+        "fri": "金",
+        "sat": "土"
+      }
     }
   },
   "patientHistory": {

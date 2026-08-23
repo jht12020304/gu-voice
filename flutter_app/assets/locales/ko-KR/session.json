@@ -110,6 +110,34 @@
       "deleting": "삭제 중...",
       "deleteSuccess": "문진을 삭제했습니다",
       "deleteError": "삭제하지 못했습니다. 잠시 후 다시 시도해 주세요."
+    },
+    "calendar": {
+      "viewCalendar": "달력 보기로 전환",
+      "viewList": "목록 보기로 전환",
+      "previousMonth": "이전 달",
+      "nextMonth": "다음 달",
+      "monthSessions": "이번 달 문진",
+      "daysWithSessions": "문진이 있던 날",
+      "dayTitle": "{{month}}월 {{day}}일 ({{weekday}})",
+      "sessionsCount": "{{count}}건",
+      "busyTime": "문진 총 시간",
+      "averageDuration": "건당 평균",
+      "clinicWindow": "처음~마지막",
+      "gap": "공백 {{minutes}}분",
+      "ongoing": "진행 중",
+      "minutesShort": "{{minutes}}분",
+      "hoursMinutes": "{{hours}}시간 {{minutes}}분",
+      "emptyDayTitle": "이 날은 문진이 없습니다",
+      "emptyDayMessage": "다른 날짜를 선택해 보세요. 문진이 있던 날에는 점이 표시됩니다.",
+      "weekday": {
+        "sun": "일",
+        "mon": "월",
+        "tue": "화",
+        "wed": "수",
+        "thu": "목",
+        "fri": "금",
+        "sat": "토"
+      }
     }
   },
   "patientHistory": {

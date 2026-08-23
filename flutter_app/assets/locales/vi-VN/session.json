@@ -110,6 +110,34 @@
       "deleting": "Đang xóa...",
       "deleteSuccess": "Đã xóa buổi hỏi bệnh",
       "deleteError": "Xóa không thành công. Vui lòng thử lại sau."
+    },
+    "calendar": {
+      "viewCalendar": "Chuyển sang lịch",
+      "viewList": "Chuyển sang danh sách",
+      "previousMonth": "Tháng trước",
+      "nextMonth": "Tháng sau",
+      "monthSessions": "Buổi hỏi bệnh trong tháng",
+      "daysWithSessions": "Số ngày có hỏi bệnh",
+      "dayTitle": "{{day}}/{{month}} ({{weekday}})",
+      "sessionsCount": "{{count}} buổi",
+      "busyTime": "Tổng thời gian hỏi bệnh",
+      "averageDuration": "Trung bình mỗi buổi",
+      "clinicWindow": "Đầu đến cuối",
+      "gap": "Trống {{minutes}} phút",
+      "ongoing": "Đang diễn ra",
+      "minutesShort": "{{minutes}} phút",
+      "hoursMinutes": "{{hours}} giờ {{minutes}} phút",
+      "emptyDayTitle": "Ngày này không có buổi hỏi bệnh",
+      "emptyDayMessage": "Hãy chọn ngày khác — những ngày có hỏi bệnh được đánh dấu chấm.",
+      "weekday": {
+        "sun": "CN",
+        "mon": "T2",
+        "tue": "T3",
+        "wed": "T4",
+        "thu": "T5",
+        "fri": "T6",
+        "sat": "T7"
+      }
     }
   },
   "patientHistory": {

@@ -110,6 +110,34 @@
       "deleting": "Deleting...",
       "deleteSuccess": "Consultation deleted",
       "deleteError": "Could not delete. Please try again later."
+    },
+    "calendar": {
+      "viewCalendar": "Switch to calendar",
+      "viewList": "Switch to list",
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month",
+      "monthSessions": "Consultations this month",
+      "daysWithSessions": "Days with consultations",
+      "dayTitle": "{{month}}/{{day}} ({{weekday}})",
+      "sessionsCount": "{{count}} consultations",
+      "busyTime": "Time in consultations",
+      "averageDuration": "Average each",
+      "clinicWindow": "First to last",
+      "gap": "{{minutes}} min gap",
+      "ongoing": "In progress",
+      "minutesShort": "{{minutes}} min",
+      "hoursMinutes": "{{hours}} h {{minutes}} min",
+      "emptyDayTitle": "No consultations that day",
+      "emptyDayMessage": "Pick another date — days with consultations are marked with a dot.",
+      "weekday": {
+        "sun": "Sun",
+        "mon": "Mon",
+        "tue": "Tue",
+        "wed": "Wed",
+        "thu": "Thu",
+        "fri": "Fri",
+        "sat": "Sat"
+      }
     }
   },
   "patientHistory": {
