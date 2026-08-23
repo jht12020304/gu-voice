@@ -4,6 +4,14 @@ import 'dio_client.dart';
 
 // Port of frontend/src/services/api/sessions.ts (subset). Request/response keys are
 // converted camel<->snake by the Dio interceptors.
+/// 一頁場次 + 游標（`fetchRange` 用它翻完整個區間）。
+class SessionsPage {
+  const SessionsPage({required this.sessions, this.nextCursor, this.hasMore = false});
+  final List<Session> sessions;
+  final String? nextCursor;
+  final bool hasMore;
+}
+
 class SessionsApi {
   // Lazy on purpose: `ApiClient.instance.dio` needs platform channels, so an eager
   // field initializer makes this class unconstructible in plain `flutter test`
@@ -21,15 +29,91 @@ class SessionsApi {
   }
 
   // Cursor-paginated list; patient token is auto-scoped to own sessions.
-  Future<List<Session>> getSessions({int? limit, String? patientId, String? status}) async {
+  Future<List<Session>> getSessions({
+    int? limit,
+    String? patientId,
+    String? status,
+    String? dateFrom,
+    String? dateTo,
+    String? cursor,
+    String? sortBy,
+    String? sortOrder,
+  }) async {
+    final page = await getSessionsPage(
+      limit: limit,
+      patientId: patientId,
+      status: status,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      cursor: cursor,
+      sortBy: sortBy,
+      sortOrder: sortOrder,
+    );
+    return page.sessions;
+  }
+
+  /// 同 [getSessions]，但把游標一起帶回來——呼叫端要走完整個區間時需要它。
+  ///
+  /// `dateFrom` / `dateTo` 是 ISO-8601 字串，**必須帶時區位移**
+  /// （例：`2026-08-01T00:00:00.000+08:00`）。後端拿 `datetime.fromisoformat`
+  /// 解析後與 `sessions.created_at`（timestamptz）比對：不帶位移的裸字串會被
+  /// 當成 UTC，在 +08:00 的診間就是把一天切在早上八點——日曆上的「那一天」
+  /// 會少掉清晨、多出前一天的傍晚。日界線由呼叫端的裝置時區決定。
+  Future<SessionsPage> getSessionsPage({
+    int? limit,
+    String? patientId,
+    String? status,
+    String? dateFrom,
+    String? dateTo,
+    String? cursor,
+    String? sortBy,
+    String? sortOrder,
+  }) async {
     final res = await _dio.get('/sessions', queryParameters: {
       'limit': ?limit,
       'patientId': ?patientId,
       'status': ?status,
+      'dateFrom': ?dateFrom,
+      'dateTo': ?dateTo,
+      'cursor': ?cursor,
+      'sortBy': ?sortBy,
+      'sortOrder': ?sortOrder,
     });
     final data = res.data;
     final list = (data is Map ? data['data'] : data) as List? ?? const [];
-    return list.map((e) => Session.fromJson(e as Map)).toList();
+    final pagination = (data is Map ? data['pagination'] : null) as Map?;
+    return SessionsPage(
+      sessions: list.map((e) => Session.fromJson(e as Map)).toList(),
+      nextCursor: pagination?['nextCursor'] as String?,
+      hasMore: (pagination?['hasMore'] as bool?) ?? false,
+    );
+  }
+
+  /// 走完一個日期區間的**所有**場次（自動翻頁）。
+  ///
+  /// 日曆一次要看一整個月，而單頁上限是 100（後端 `Query(le=100)`）。
+  /// [maxPages] 是保險絲：後端若因為某個 bug 一直回同一個游標，這裡不能變成
+  /// 無限迴圈把 App 卡死；停下來時寧可少顯示幾場，也不要轉圈到天荒地老。
+  Future<List<Session>> fetchRange({
+    required String dateFrom,
+    required String dateTo,
+    int pageSize = 100,
+    int maxPages = 10,
+  }) async {
+    final all = <Session>[];
+    String? cursor;
+    for (var page = 0; page < maxPages; page++) {
+      final res = await getSessionsPage(
+        limit: pageSize,
+        dateFrom: dateFrom,
+        dateTo: dateTo,
+        cursor: cursor,
+      );
+      all.addAll(res.sessions);
+      if (!res.hasMore || res.nextCursor == null || res.nextCursor == cursor) break;
+      cursor = res.nextCursor;
+    }
+    return all;
   }
 
   /// 軟刪除整場問診（**只有 admin 有權限**，後端 `require_role("admin")`）。

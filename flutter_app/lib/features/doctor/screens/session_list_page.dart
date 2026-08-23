@@ -10,6 +10,7 @@ import '../../../shared/format.dart';
 import '../../../shared/widgets/status_badge.dart';
 import '../../../shared/widgets/ui_kit.dart';
 import '../state/sessions_list_controller.dart';
+import 'session_calendar_view.dart';
 
 // Port of SessionListPage.tsx — WS-driven reload, client-side status filter + search.
 class SessionListPage extends ConsumerStatefulWidget {
@@ -22,6 +23,10 @@ class SessionListPage extends ConsumerStatefulWidget {
 class _SessionListPageState extends ConsumerState<SessionListPage> {
   String _statusFilter = '';
   String _search = '';
+  /// 清單 ↔ 日曆。預設清單（既有行為不變）；日曆是「場次一多就翻不到」時的入口，
+  /// 由使用者自己切過去（2026-08-23 需求）。刻意不持久化：本來就是一個切換鈕，
+  /// 記住它反而會讓下次開 App 的人納悶為什麼看不到熟悉的清單。
+  bool _calendarMode = false;
 
   List<Session> _visible(List<Session> all) {
     final q = _search.trim().toLowerCase();
@@ -39,23 +44,38 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
     final visible = _visible(st.sessions);
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('session.doctor.list.title'))),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: TextField(
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
-                hintText: t('session.doctor.list.searchPlaceholder'),
-              ),
-              onChanged: (v) => setState(() => _search = v),
-            ),
+      appBar: AppBar(
+        title: Text(t('session.doctor.list.title')),
+        actions: [
+          IconButton(
+            icon: Icon(_calendarMode ? Icons.view_list_outlined : Icons.calendar_month_outlined),
+            tooltip: t(_calendarMode
+                ? 'session.doctor.calendar.viewList'
+                : 'session.doctor.calendar.viewCalendar'),
+            onPressed: () => setState(() => _calendarMode = !_calendarMode),
           ),
-          _filterTabs(),
-          Expanded(child: _body(context, st, visible)),
         ],
       ),
+      // 日曆模式自己管資料（依日期抓整個月），不吃上面的搜尋/狀態篩選——
+      // 那兩個是「在最新 50 筆裡找」的工具，與「跳到某一天」是不同的動作。
+      body: _calendarMode
+          ? const SessionCalendarView()
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: TextField(
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search),
+                      hintText: t('session.doctor.list.searchPlaceholder'),
+                    ),
+                    onChanged: (v) => setState(() => _search = v),
+                  ),
+                ),
+                _filterTabs(),
+                Expanded(child: _body(context, st, visible)),
+              ],
+            ),
     );
   }
 

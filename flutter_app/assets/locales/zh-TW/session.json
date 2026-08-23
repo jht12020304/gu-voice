@@ -110,6 +110,34 @@
       "deleting": "刪除中...",
       "deleteSuccess": "問診已刪除",
       "deleteError": "刪除失敗，請稍後再試"
+    },
+    "calendar": {
+      "viewCalendar": "改用日曆檢視",
+      "viewList": "改用清單檢視",
+      "previousMonth": "上個月",
+      "nextMonth": "下個月",
+      "monthSessions": "本月問診",
+      "daysWithSessions": "有問診的天數",
+      "dayTitle": "{{month}} 月 {{day}} 日（{{weekday}}）",
+      "sessionsCount": "{{count}} 場",
+      "busyTime": "問診總時長",
+      "averageDuration": "平均一場",
+      "clinicWindow": "第一場～最後一場",
+      "gap": "空檔 {{minutes}} 分",
+      "ongoing": "進行中",
+      "minutesShort": "{{minutes}} 分",
+      "hoursMinutes": "{{hours}} 小時 {{minutes}} 分",
+      "emptyDayTitle": "這天沒有問診",
+      "emptyDayMessage": "點日曆上其他日期看看，有問診的日子會標上圓點。",
+      "weekday": {
+        "sun": "日",
+        "mon": "一",
+        "tue": "二",
+        "wed": "三",
+        "thu": "四",
+        "fri": "五",
+        "sat": "六"
+      }
     }
   },
   "patientHistory": {
