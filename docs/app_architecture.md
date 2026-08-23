@@ -457,6 +457,28 @@ critical 紅旗中止、硬上限前遲到 critical、**遲到 critical 的 drai
 - 即時監看：可即時查看進行中的對話內容
 - 統計概覽：當日問診數、完成數、紅旗數
 
+**場次頁的兩種檢視（2026-08-23）：**
+
+| 檢視 | 用途 | 資料來源 |
+|---|---|---|
+| 清單（預設） | 在最新 50 筆裡用狀態 tab 與關鍵字找 | `GET /sessions?limit=50` + dashboard WS 事件觸發重抓 |
+| 日曆 | **以日期為索引**：點一天＝那天的問診，並疊一層時間管理（總時長／平均／第一場～最後一場／每場起訖與時長／兩場之間的空檔） | `GET /sessions?date_from&date_to`（游標翻完整月），前端依**裝置本地日期**分桶 |
+
+⚠️ **日界線**：後端 `/dashboard/*` 的日／月區間是 **UTC 切日**（`dashboard_service._parse_day_range`
+／`_parse_month_range`），在 +08:00 的診間等於把一天切在早上八點。日曆刻意**不用**那支
+月統計來畫格子——格子上的數字會跟點進去的清單對不起來。兩者共用同一份場次資料、在前端
+依本地日期分桶（`flutter_app/lib/features/doctor/screens/session_calendar_view.dart` 的
+`sessionLocalDay` / `bucketByLocalDay`），分桶錨點是 `created_at`（與後端日期篩選比對的
+欄位一致），顯示時間用 `started_at ?? created_at`。同一個坑在其他頁面仍未修——
+見 `docs/TODO.md` §U15。
+
+**軟刪除問診（2026-08-23，admin 專屬）：** `DELETE /api/v1/sessions/{id}`（`require_role("admin")`，
+**刻意不套用「醫師＝管理員」**）標記 `sessions.is_deleted`，之後所有讀取路徑一律過濾掉；
+資料不硬刪，可救回；另寫一筆 `AuditAction.DELETE` 稽核。可見性條件的單一來源是
+`app/services/session_visibility.py`，覆蓋範圍與測試見 `docs/session_data_inventory.md` §2
+與 CLAUDE.md 對應鐵律。**新增任何讀 Session 的 query 都要套上它**，漏一條就會讓
+已刪除的病歷內容從那條路徑漏回畫面。
+
 ---
 
 ## 3. 系統架構圖
@@ -607,6 +629,7 @@ Session（問診場次）
 ├── status: waiting | in_progress | completed | aborted_red_flag
 ├── red_flag: boolean
 ├── red_flag_reason: string?
+├── is_deleted / deleted_at / deleted_by（軟刪除，admin 專屬；見下方說明）
 ├── created_at
 └── updated_at
 

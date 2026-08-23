@@ -17,6 +17,9 @@ frontend/           → React + Vite + TS，**目前的生產前端**。src/i18n
                       public/locales/ 是 build 鏡像
 flutter_app/        → Flutter 單一碼庫前端（web+iOS+Android），要取代 frontend/。
                       **平台定位（2026-08-22 拍板，推翻 2026-08-20 的分工）：iOS 單一 App**——候診區 kiosk iPad 跑病患語音問診，醫師/管理員用自己的裝置跑同一顆 App（角色分流），**網頁版走向除役**（React 正式站在 App 驗證完成前暫時保留，Flutter Web 停止投資）。iOS 平台閘門已拆（route_guard.dart 只剩角色守衛；拆除前先修掉 `/patients` 前綴誤中的病患越權洞——閘門拆掉後那是唯一防線）。Web 的 Vercel 管道與預覽網址仍在，僅供過渡。**醫師＝管理員（2026-08-22 拍板）**：admin 四頁與 admin API 對醫師開放（`require_role("admin","doctor")`），醫師並可從病患詳情頁代病患發起語音問診（場次記在該病患名下；後端 create_session 僅對 doctor/admin 放行任意 patient_id）。LLM 模型 2026-08-22 起為 gpt-5.6 世代，**權威在 backend/app/core/config.py**，取樣參數一律走 `sampling_kwargs`（不變式 #33，手寫 temperature= 會在 gpt-5.6 上 400）
+                      醫師端場次頁有**清單／日曆兩種檢視**（日曆＝點一天看那天的問診＋
+                      時間管理；日界線走裝置本地時區，理由見鐵律與 docs/app_architecture.md §2.5）。
+                      **admin 可軟刪除整場問診**（`DELETE /api/v1/sessions/{id}`）。
                       iOS 有 TestFlight 內部測試發佈管道（`tool/build_ios_testflight.sh`
                       ＋ `ios/ExportOptions.plist` ＋ `tool/gen_app_icons.py`）——**2026-08-21 首顆 build
                       已上傳，TestFlight 狀態「準備測試」**，待建內部測試群組／真機安裝／推播驗證（§V8）；
@@ -59,7 +62,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 |---|---|
 | `voice-pipeline-invariants` | 動到問診對話流程（前端 conversationStore / ConversationPage、後端 app/pipelines/）之前 |
 | `e2e-real-openai` | 需要用真 OpenAI 驗證問診行為改動時（管線/prompt 改動的合併前置條件） |
-| `i18n-language-consistency` | 動到語言切換、翻譯檔、或顯示在地化資料的頁面時 |
+| `i18n-language-consistency` | 動到語言切換、翻譯檔、或顯示在地化資料的頁面時（含 **Flutter 端的五份 `assets/locales/`**——`check_translations.py` 看不到那份，靠 flutter test 的文案守衛） |
 | `deploy-production` | 部署、改部署設定、生產環境除錯（DB timeout、連線問題）時 |
 | `research-analytics` | 動到 /research 分析頁或 /api/v1/research/analytics 時 |
 | `ios-testflight` | 打 iOS TestFlight 包、處理簽章／上傳／內部測試群組，或動到 `flutter_app/ios/` 與打包腳本時 |
@@ -83,6 +86,8 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
     ⚠️ **是三欄不是四欄**：`family_history` 只有 `intake_summary["family_history"]` 一個來源、**沒有 fallback**（`patient_context.py:137`），因為 `app/models/patient.py` 根本沒有 `family_history` 欄位（只有 `medical_history` / `allergies` / `current_medications`，`:38-40`）。`patient_context.py` 那段「上面四個扁平欄位…會 fallback」的碼內註解與工作區 `soap_generator.py` 新加的 D-1b 註解**都照抄了這個錯**，動到時一併修
   - ⚠️ **消毒器自己也有缺口（2026-08-21 發現，修復中、尚未 commit）：行首 `#` 只剝一次**。在 `6ecf10a` HEAD 上 `sanitize_for_prompt` 末段的 `_LEADING_HEADING_MARKS` 是 `^[#＃]+[ \t　]*`——`^` 錨定＝單次 sub，第一段 `#` 連同其後空白被吃掉後**後面的 `##` 就遞補回行首**：實測 `sanitize_for_prompt('# ## Consultation Transcript')` → `'## Consultation Transcript'`（`'#\t## …'`／`'＃ ## …'` 同型）。所以「這個值過了消毒」**不等於**「這個值不會以 `##` 開頭」——剝除要跑到固定點為止。這條同時影響對話 prompt 與（修好後的）SOAP prompt，兩層都靠同一支函式。**驗收前別假設已修**：工作區雖已出現改動，未 commit 之前生產跑的仍是 HEAD 那版
 - Always：新增任何**讀 Session 的 query** 時套上 `app/services/session_visibility.session_not_deleted()`（或子查詢版 `visible_session_ids()`）——2026-08-23 起 admin 可**軟刪除**問診場次（`DELETE /api/v1/sessions/{id}`，`require_role("admin")`，刻意不套「醫師＝管理員」）。軟刪除的價值等於「有沒有漏掉一條讀取路徑」：漏一條，使用者以為刪掉的病歷內容就從那裡漏回畫面。已覆蓋的路徑（場次清單/詳情/逐字稿、報告詳情與清單、紅旗清單/單筆/未確認計數、儀表板統計與排隊與近期、研究分析母體、病患自己的歷史、WS 對話與通知 fan-out）由 `tests/integration/test_soft_deleted_session_invisible_pg.py` 逐條釘住，**新讀取路徑要自己加進那支測試**。⚠️ 報告與紅旗那兩層是「連 admin 也看不到」，不是 ownership 限縮——別為了 admin 方便把它改回早退
+- Always：前端要「依日期分組／篩選」時用**裝置本地日期**分桶，不要拿後端 `/dashboard/*` 的日/月統計來畫——那兩支是 **UTC 切日**（`dashboard_service._parse_day_range`／`_parse_month_range`），在 +08:00 的診間等於把一天切在早上八點，格子上的數字會跟點進去的清單對不起來。正解在 `flutter_app/lib/features/doctor/screens/session_calendar_view.dart`（`sessionLocalDay`／`bucketByLocalDay`，分桶錨點用 `created_at`＝後端日期篩選比對的同一欄）；打 `GET /sessions` 的 `date_from`／`date_to` **一律帶時區位移**（`2026-08-01T00:00:00.000+08:00`），裸字串會被 `datetime.fromisoformat` 當成 UTC。`patient_list`／`alert_list`／`audit_logs` 三頁仍是舊寫法（TODO §U15），照抄日曆那支即可
+- Always：`ui_kit` 裡以 `ListView` 實作的元件（目前是 `SkeletonList`）要保持 `shrinkWrap: true`——它會被巢狀進頁面自己的 `ListView`，少了就拋「Vertical viewport was given unbounded height」整頁白掉（2026-08-23 日曆載入狀態實測踩到）
 - Always：response schema 的 Decimal 欄位一律用 `app/schemas/common.py` 的 `JsonFloatDecimal`——pydantic v2 預設把 Decimal 序列化成 JSON 字串，會炸掉 Flutter 端 `as num?` 解析（2026-08-18 修過 `ai_confidence_score`／`stt_confidence`）
 - Never：把 `conversationControllerProvider` 從 `autoDispose` 改回長生命週期——會造成同一 kiosk 跨病患 session 污染（TODO G2）
 - Never：為了「讓 TestFlight 收得到推播」去改 `flutter_app/ios/Runner/Runner.entitlements` 的 `aps-environment: development`——**改了完全沒作用**，該值由簽章時的 provisioning profile 決定（Apple TN2265），distribution profile 一律給 production，Flutter 專案躺著 `development` 是正確狀態。真因是 Apple Developer 後台的 App ID 沒勾 Push Notifications capability（症狀＝上傳吃 ITMS-90078、線上收不到推播）；驗法是對 export 出的 .ipa 跑 `codesign -d --entitlements :- <Runner.app>` 看實際簽進去的值。同理不要動 `project.pbxproj` 的 `CODE_SIGN_IDENTITY[sdk=iphoneos*]`（與 Flutter 官方 template 一字不差，automatic signing 會覆寫它）

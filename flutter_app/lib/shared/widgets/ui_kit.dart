@@ -13,6 +13,10 @@ import '../../core/theme/app_tokens.dart';
 //   - 語意色（alert*/status*）只用來表達狀態，不當裝飾（不做彩色頂邊）。
 //   - 單一 accent（theme primary）；icon 色塊統一 12% alpha 底。
 //
+//   - 這裡以 `ListView` 實作的元件（目前只有 `SkeletonList`）一律帶 `shrinkWrap: true`：
+//     它會被巢狀進頁面自己的 `ListView`，少了就拋「Vertical viewport was given
+//     unbounded height」整頁白掉（2026-08-23 日曆載入狀態實測踩到）。
+//
 // 頁面只從這裡拿元件，不要各自複製樣式——樣式分叉就是這次重排要解掉的病。
 
 /// 36×36 圓角 8 的染色 icon 方塊（列表列 leading／區塊圖示）。
