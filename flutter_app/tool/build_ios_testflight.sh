@@ -635,15 +635,16 @@ printf '    API_BASE = %s\n    WS_BASE  = %s\n' "${api_base}" "${ws_base}"
 # 由環境變數傳入、逐項可選；一項都沒設＝正式版行為（整段在編譯期是死碼）。
 # 值不印到畫面（密碼），只印「帶了哪幾個 define」讓第 5 關前的人工檢查看得到。
 extra_defines=()
-for e2e_var in E2E_EMAIL E2E_PASSWORD E2E_DOCTOR_EMAIL E2E_DOCTOR_PASSWORD E2E_AUTO_LOGIN; do
+for e2e_var in E2E_EMAIL E2E_PASSWORD E2E_DOCTOR_EMAIL E2E_DOCTOR_PASSWORD E2E_AUTO_LOGIN KIOSK_EMAIL KIOSK_PASSWORD; do
   if [[ -n "${!e2e_var:-}" ]]; then
     extra_defines+=(--dart-define="${e2e_var}=${!e2e_var}")
   fi
 done
 if (( ${#extra_defines[@]} > 0 )); then
-  printf '    ⚠ 測試期 dart-define：'
-  for d in "${extra_defines[@]}"; do printf '%s ' "${d%%=*}"; done
-  printf '（僅限 TestFlight 內測；生產有真病歷前停用，見 §8.6）\n'
+  printf '    ⚠ 測試期/kiosk dart-define：'
+  # 元素形如 --dart-define=VAR=value；取第二段（VAR），不印值
+  for d in "${extra_defines[@]}"; do v="${d#--dart-define=}"; printf '%s ' "${v%%=*}"; done
+  printf '（E2E 僅限 TestFlight 內測、生產有真病歷前停用；KIOSK 為產品功能，見 §8.6）\n'
 else
   printf '    測試期 dart-define：無（正式版行為）\n'
 fi

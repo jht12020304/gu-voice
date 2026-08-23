@@ -26,7 +26,8 @@
     "submit": "Sign in",
     "submitting": "Signing in...",
     "emailRequired": "Email is required",
-    "passwordRequired": "Password is required"
+    "passwordRequired": "Password is required",
+    "kioskStart": "Start voice consultation"
   },
   "roles": {
     "patient": "Patient",

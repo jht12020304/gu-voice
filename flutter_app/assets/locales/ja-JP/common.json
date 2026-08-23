@@ -26,7 +26,8 @@
     "submit": "ログイン",
     "submitting": "ログイン中...",
     "emailRequired": "メールアドレスを入力してください",
-    "passwordRequired": "パスワードを入力してください"
+    "passwordRequired": "パスワードを入力してください",
+    "kioskStart": "音声問診を開始"
   },
   "roles": {
     "patient": "患者",

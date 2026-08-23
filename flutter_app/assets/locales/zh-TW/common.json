@@ -26,7 +26,8 @@
     "submit": "登入",
     "submitting": "登入中...",
     "emailRequired": "請輸入電子郵件",
-    "passwordRequired": "請輸入密碼"
+    "passwordRequired": "請輸入密碼",
+    "kioskStart": "開始語音問診"
   },
   "roles": {
     "patient": "病患",

@@ -35,6 +35,17 @@ class Env {
 
   static const hasE2eDoctorCredentials = e2eDoctorEmail != '' && e2eDoctorPassword != '';
 
+  /// Kiosk 模式（2026-08-23，產品功能而非測試輔助）：登入頁的「開始語音問診」
+  /// 大按鈕。按下＝以 kiosk 專用 **patient** 帳號登入並直接進入選症狀頁——
+  /// 候診區共用 iPad 的病患走這顆，不需要知道任何帳密。
+  ///
+  /// ⚠️ 鐵律不變：只准內嵌**無真實資料的 patient 帳號**（patient 角色只讀得到
+  /// 自己名下場次，無病歷面）。沒帶這兩個 define 時按鈕在編譯期就是死碼。
+  static const kioskEmail = String.fromEnvironment('KIOSK_EMAIL');
+  static const kioskPassword = String.fromEnvironment('KIOSK_PASSWORD');
+
+  static const hasKioskCredentials = kioskEmail != '' && kioskPassword != '';
+
   /// 冷啟動自動登入（2026-08-22 拆成獨立開關）。
   ///
   /// 帶入鈕與自動登入本來共用 E2E_EMAIL 的存在與否，結果「登入頁選角色」與

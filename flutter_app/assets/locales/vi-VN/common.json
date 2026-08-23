@@ -26,7 +26,8 @@
     "submit": "Đăng nhập",
     "submitting": "Đang đăng nhập...",
     "emailRequired": "Vui lòng nhập email",
-    "passwordRequired": "Vui lòng nhập mật khẩu"
+    "passwordRequired": "Vui lòng nhập mật khẩu",
+    "kioskStart": "Bắt đầu hỏi bệnh bằng giọng nói"
   },
   "roles": {
     "patient": "Bệnh nhân",
