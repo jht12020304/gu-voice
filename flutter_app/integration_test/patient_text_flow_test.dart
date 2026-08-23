@@ -98,7 +98,7 @@ void main() {
     await tester.enterText(fields.at(0), _email);
     await tester.enterText(fields.at(1), _password);
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(FilledButton).first);
+    await tester.tap(find.byKey(const Key('login-submit')));
     await _pumpFor(tester, const Duration(seconds: 15),
         until: () => container.read(authProvider).user != null);
     await tester.pumpAndSettle();

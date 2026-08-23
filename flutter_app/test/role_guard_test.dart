@@ -146,7 +146,8 @@ void main() {
   group('未登入', () {
     test('公開頁放行，其餘導登入', () {
       expect(go('/zh-TW/login', authed: false), isNull);
-      // 登入頁上有「建立新帳號」按鈕；register 不公開的話那顆按鈕就是死路。
+      // register / forgot-password 仍是公開路由（可深連、信件連結會回到這裡）——
+      // 2026-08-23 起登入頁不再擺這兩個入口，但路由本身不公開的話深連就是死路。
       expect(go('/zh-TW/register', authed: false), isNull);
       expect(go('/zh-TW/forgot-password', authed: false), isNull);
       expect(go('/zh-TW/reset-password?x=1', authed: false, native: true), isNull);

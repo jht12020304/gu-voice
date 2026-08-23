@@ -8,20 +8,28 @@ import '../../core/i18n/loc.dart';
 import '../../core/router/lng.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_tokens.dart';
-import '../../shared/widgets/language_bar.dart';
+import '../../shared/widgets/language_action.dart' show LanguageMenuButton;
 import 'auth_notifier.dart';
 
-// 2026-08-22 重設計，依 .claude/skills/design-taste-frontend（taste-skill）。
+// 2026-08-22 重設計、2026-08-23 精簡（使用者拍板），依
+// .claude/skills/design-taste-frontend（taste-skill）。
 //
 // Design read：醫療機構雙情境登入（kiosk 病患＋醫師個人裝置），trust-first 受監管
 // 情境 → 沿用既有 token 系統（品牌藍為唯一 accent；skill 對受監管情境明文允許
-// Inter/中性字體），calm-clinical 極簡。這一版修掉的 skill 硬規則違規：
-//   §4.6  label 一律在輸入框上方，不得用 placeholder 當 label
-//   §4.5  完整互動狀態：loading 保持版面形狀、:active 按壓回饋（scale .98）、
-//         行內錯誤（不是 toast）
-//   §4.4  圓角統一一套（12）——原版 8/6/pill 混用
-//   §4.2  單一 accent 鎖定（品牌藍），錯誤紅只用於錯誤語意
-//   §4.7  疊層紀律：標誌區塊（一個）→ 表單 → 輔助動作，不塞多餘小字
+// Inter/中性字體），calm-clinical 極簡。
+//
+// 2026-08-23 這一輪（使用者逐條指定）：
+//   - 拿掉頂部標誌方塊——App 圖示已在主畫面與啟動畫面出現過，登入頁再放一次
+//     是重複的品牌噪音（§4.7 疊層紀律：一個標誌區塊即可，這裡由標題承擔）
+//   - 拿掉「忘記密碼」「建立新帳號」——路由仍公開可深連，只是登入頁不再擺入口
+//     （院內情境：帳號由 admin 開，不走自助註冊）
+//   - 語言從 5 顆晶片列改成下拉選單（沿用 LanguageAction 的 PopupMenu 呈現方式），
+//     底部只剩一顆按鈕，不再有一整片跟主流程搶注意力的色塊
+//   - 「開始語音問診」72pt → 56pt，與登入鈕同一組尺寸（§4.4 形狀一致鎖）
+//   - 去掉白卡＋陰影＋漸層底，改為平底 + hairline 分隔（§4.4：卡片只在「層級真的
+//     需要抬升」時用；這頁只有一欄內容，卡片是純裝飾）
+// 保留的 skill 硬規則：§4.6 label 在輸入框上方、§4.5 完整互動狀態（loading 保形、
+// 按壓 scale .98、行內錯誤）、§4.4 單一圓角 12、§4.2 單一 accent。
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
 
@@ -86,6 +94,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   static const _radius = 12.0; // §4.4 shape lock：本頁唯一圓角
+  static const _buttonHeight = 56.0; // 兩顆動作鈕同一尺寸（kiosk 觸控仍達標）
 
   InputDecoration _fieldDecoration(BuildContext context, {Widget? suffixIcon}) {
     // 本頁鎖淺色：直接取 light 常數。不能用 Theme.of(context)——helper 收到的是
@@ -99,7 +108,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: const Color(0xFFF5F7FB),
+      fillColor: Colors.white,
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
         borderSide: BorderSide(color: tk.edge),
@@ -137,258 +146,232 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.dark,
         child: Scaffold(
-          body: Container(
-            // 頂部極淡的品牌藍暈染 → 底色（單一 accent，刻意的淺色收尾）
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                stops: [0.0, 0.45],
-                colors: [Color(0xFFEAF1FE), Color(0xFFF8F9FC)],
-              ),
-            ),
-            child: SafeArea(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 440),
+          body: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: AutofillGroup(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // ── 白卡：整個登入流程收進一張卡，浮在淺色底上 ──
-                        Container(
-                          padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(_radius),
-                            border: Border.all(color: tk.edge),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x14203A66),
-                                blurRadius: 24,
-                                offset: Offset(0, 8),
+                        // ── 標題（迎賓構圖——走到 iPad 前第一眼是名字，不是圖示）──
+                        Text(
+                          t('common.appTitle'),
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.5,
+                            color: tk.inkHeading,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          t('common.login.prompt'),
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium
+                              ?.copyWith(color: tk.inkSecondary),
+                        ),
+                        const SizedBox(height: 36),
+
+                        // ── Kiosk 進場（產品功能；未帶 KIOSK define 時整段死碼）────
+                        //    候診 iPad 的主要動作：按下＝kiosk 帳號登入→直進選症狀。
+                        //    放在表單之上——對走到 iPad 前的病患，這顆就是整頁的目的。
+                        if (Env.hasKioskCredentials) ...[
+                          _PressableScale(
+                            child: FilledButton.icon(
+                              onPressed: auth.isLoading ? null : _startKiosk,
+                              style: FilledButton.styleFrom(
+                                minimumSize:
+                                    const Size.fromHeight(_buttonHeight),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(_radius)),
+                                textStyle: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.w600),
                               ),
-                            ],
+                              icon: const Icon(Icons.mic, size: 20),
+                              label: Text(t('common.login.kioskStart')),
+                            ),
                           ),
-                          child: AutofillGroup(
-                            child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // ── 標誌區塊：置中（迎賓構圖——走到 iPad 前第一眼是牌與標題）──
-                  Center(
-                    child: Container(
-                    width: 64,
-                    height: 64,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary.withValues(alpha: .10),
-                      borderRadius: BorderRadius.circular(_radius + 4),
-                    ),
-                    child: Icon(Icons.health_and_safety_outlined,
-                        size: 34, color: theme.colorScheme.primary),
-                  ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    t('common.appTitle'),
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.5,
-                      color: tk.inkHeading,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    t('common.login.prompt'),
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: tk.inkSecondary),
-                  ),
-                  const SizedBox(height: 28),
+                          const SizedBox(height: 28),
+                          Divider(color: tk.edge, height: 1),
+                          const SizedBox(height: 28),
+                        ],
 
-                  // ── Kiosk 進場（產品功能；未帶 KIOSK define 時整段死碼）────
-                  //    候診 iPad 的主要動作：72pt 高、mic icon，按下＝kiosk 帳號
-                  //    登入→直進選症狀。放在表單之上——對走到 iPad 前的病患，
-                  //    這顆就是整頁的目的。
-                  if (Env.hasKioskCredentials) ...[
-                    SizedBox(
-                      height: 72,
-                      child: FilledButton.icon(
-                        onPressed: auth.isLoading ? null : _startKiosk,
-                        style: FilledButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(_radius)),
-                          textStyle: theme.textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w700),
+                        // ── 表單（§4.6：label 在上、錯誤在下、行內）──────────
+                        _fieldLabel(context, t('common.login.emailLabel')),
+                        TextField(
+                          controller: _email,
+                          keyboardType: TextInputType.emailAddress,
+                          autofillHints: const [AutofillHints.email],
+                          textInputAction: TextInputAction.next,
+                          onSubmitted: (_) => _passwordFocus.requestFocus(),
+                          decoration: _fieldDecoration(context),
                         ),
-                        icon: const Icon(Icons.mic, size: 26),
-                        label: Text(t('common.login.kioskStart')),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Divider(color: tk.edge, height: 1),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // ── 表單（§4.6：label 在上、錯誤在下、行內）──────────
-                  _fieldLabel(context, t('common.login.emailLabel')),
-                  TextField(
-                    controller: _email,
-                    keyboardType: TextInputType.emailAddress,
-                    autofillHints: const [AutofillHints.email],
-                    textInputAction: TextInputAction.next,
-                    onSubmitted: (_) => _passwordFocus.requestFocus(),
-                    decoration: _fieldDecoration(context),
-                  ),
-                  const SizedBox(height: 20),
-                  _fieldLabel(context, t('common.login.passwordLabel')),
-                  TextField(
-                    controller: _password,
-                    focusNode: _passwordFocus,
-                    obscureText: _obscure,
-                    autofillHints: const [AutofillHints.password],
-                    onSubmitted: (_) => _submit(),
-                    decoration: _fieldDecoration(
-                      context,
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscure
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                          size: 20,
-                          color: tk.inkMuted,
-                        ),
-                        onPressed: () => setState(() => _obscure = !_obscure),
-                      ),
-                    ),
-                  ),
-                  if (error != null) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: tk.alertCriticalBg,
-                        borderRadius: BorderRadius.circular(_radius),
-                      ),
-                      child: Row(children: [
-                        Icon(Icons.error_outline,
-                            size: 18, color: tk.alertCritical),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(error,
-                              style: TextStyle(
-                                  color: tk.alertCritical, fontSize: 13.5)),
-                        ),
-                      ]),
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-
-                  // ── 主 CTA（§4.5：loading 保形、按壓回饋；56pt 高 = kiosk 觸控）─
-                  _PressableScale(
-                    child: FilledButton(
-                      onPressed: auth.isLoading ? null : _submit,
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(56),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(_radius),
-                        ),
-                        textStyle: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                      child: auth.isLoading
-                          ? const SizedBox(
-                              height: 22,
-                              width: 22,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2.5, color: Colors.white),
-                            )
-                          : Text(t('common.login.submit')),
-                    ),
-                  ),
-
-                  // ── 測試帶入（僅測試建置存在；§4.5 CTA 意圖不重複：
-                  //    「帶入」是填表意圖，與「登入」CTA 分離）──────────
-                  if (Env.hasE2eCredentials || Env.hasE2eDoctorCredentials) ...[
-                    const SizedBox(height: 20),
-                    Row(children: [
-                      Expanded(child: Divider(color: tk.edge)),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text(
-                          '測試帳號',
-                          style: theme.textTheme.labelSmall
-                              ?.copyWith(color: tk.inkMuted),
-                        ),
-                      ),
-                      Expanded(child: Divider(color: tk.edge)),
-                    ]),
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      if (Env.hasE2eDoctorCredentials)
-                        Expanded(
-                          child: _TestFillButton(
-                            key: const Key('fill-doctor-credentials'),
-                            icon: Icons.medical_services_outlined,
-                            label: '帶入醫師帳號',
-                            enabled: !auth.isLoading,
-                            onTap: () => _fill(
-                                Env.e2eDoctorEmail, Env.e2eDoctorPassword),
+                        const SizedBox(height: 20),
+                        _fieldLabel(context, t('common.login.passwordLabel')),
+                        TextField(
+                          controller: _password,
+                          focusNode: _passwordFocus,
+                          obscureText: _obscure,
+                          autofillHints: const [AutofillHints.password],
+                          onSubmitted: (_) => _submit(),
+                          decoration: _fieldDecoration(
+                            context,
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscure
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                                size: 20,
+                                color: tk.inkMuted,
+                              ),
+                              onPressed: () =>
+                                  setState(() => _obscure = !_obscure),
+                            ),
                           ),
                         ),
-                      if (Env.hasE2eCredentials &&
-                          Env.hasE2eDoctorCredentials)
-                        const SizedBox(width: 12),
-                      if (Env.hasE2eCredentials)
-                        Expanded(
-                          child: _TestFillButton(
-                            key: const Key('fill-e2e-credentials'),
-                            icon: Icons.person_outline,
-                            label: '帶入病患帳號',
-                            enabled: !auth.isLoading,
-                            onTap: () => _fill(Env.e2eEmail, Env.e2ePassword),
+                        if (error != null) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: tk.alertCriticalBg,
+                              borderRadius: BorderRadius.circular(_radius),
+                            ),
+                            child: Row(children: [
+                              Icon(Icons.error_outline,
+                                  size: 18, color: tk.alertCritical),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(error,
+                                    style: TextStyle(
+                                        color: tk.alertCritical,
+                                        fontSize: 13.5)),
+                              ),
+                            ]),
                           ),
-                        ),
-                    ]),
-                  ],
-
-                  const SizedBox(height: 16),
-                  // Flexible + ellipsis：兩顆文字鈕在長字語系（vi/ja）合計可超過
-                  // 354pt——固定寬 Row 溢位 3.1px（lng_deep_link 五語掃描抓到的）。
-                  // 讓兩側可收縮，超長時截斷而不是溢位。
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Flexible(
-                        child: TextButton(
-                          onPressed: () => context.go(
-                            prefixLngToPath('/forgot-password', currentLng),
-                          ),
-                          child: Text(t('common.login.forgotPassword'),
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                        ),
-                      ),
-                      Flexible(
-                        child: TextButton(
-                          onPressed: () => context
-                              .go(prefixLngToPath('/register', currentLng)),
-                          child: Text(t('auth.register.title'),
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-                          ),
-                        ),
+                        ],
                         const SizedBox(height: 24),
-                        const LanguageBar(),
+
+                        // ── 登入 CTA（§4.5：loading 保形、按壓回饋）──────────
+                        //    kiosk 鈕在場時這顆走描邊：整頁只留一塊實心藍
+                        //    （§4.2 單一 accent 不等於兩顆一樣重的實心鈕——病患走
+                        //    kiosk、醫師走登入，實心的那顆才是這台 iPad 的主動作）。
+                        //    沒有 kiosk 鈕的建置（正式版）它就是唯一 CTA，回實心。
+                        _PressableScale(
+                          child: Env.hasKioskCredentials
+                              ? OutlinedButton(
+                                  key: const Key('login-submit'),
+                                  onPressed: auth.isLoading ? null : _submit,
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize:
+                                        const Size.fromHeight(_buttonHeight),
+                                    foregroundColor: theme.colorScheme.primary,
+                                    side: BorderSide(
+                                        color: theme.colorScheme.primary
+                                            .withValues(alpha: .45)),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius:
+                                          BorderRadius.circular(_radius),
+                                    ),
+                                    textStyle: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600),
+                                  ),
+                                  child: auth.isLoading
+                                      ? SizedBox(
+                                          height: 22,
+                                          width: 22,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2.5,
+                                              color:
+                                                  theme.colorScheme.primary),
+                                        )
+                                      : Text(t('common.login.submit')),
+                                )
+                              : FilledButton(
+                                  key: const Key('login-submit'),
+                                  onPressed: auth.isLoading ? null : _submit,
+                                  style: FilledButton.styleFrom(
+                                    minimumSize:
+                                        const Size.fromHeight(_buttonHeight),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius:
+                                          BorderRadius.circular(_radius),
+                                    ),
+                                    textStyle: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600),
+                                  ),
+                                  child: auth.isLoading
+                                      ? const SizedBox(
+                                          height: 22,
+                                          width: 22,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2.5,
+                                              color: Colors.white),
+                                        )
+                                      : Text(t('common.login.submit')),
+                                ),
+                        ),
+
+                        // ── 測試帶入（僅測試建置存在；§4.5 CTA 意圖不重複：
+                        //    「帶入」是填表意圖，與「登入」CTA 分離）──────────
+                        if (Env.hasE2eCredentials ||
+                            Env.hasE2eDoctorCredentials) ...[
+                          const SizedBox(height: 20),
+                          Row(children: [
+                            Expanded(child: Divider(color: tk.edge)),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
+                              child: Text(
+                                '測試帳號',
+                                style: theme.textTheme.labelSmall
+                                    ?.copyWith(color: tk.inkMuted),
+                              ),
+                            ),
+                            Expanded(child: Divider(color: tk.edge)),
+                          ]),
+                          const SizedBox(height: 12),
+                          Row(children: [
+                            if (Env.hasE2eDoctorCredentials)
+                              Expanded(
+                                child: _TestFillButton(
+                                  key: const Key('fill-doctor-credentials'),
+                                  icon: Icons.medical_services_outlined,
+                                  label: '帶入醫師帳號',
+                                  enabled: !auth.isLoading,
+                                  onTap: () => _fill(Env.e2eDoctorEmail,
+                                      Env.e2eDoctorPassword),
+                                ),
+                              ),
+                            if (Env.hasE2eCredentials &&
+                                Env.hasE2eDoctorCredentials)
+                              const SizedBox(width: 12),
+                            if (Env.hasE2eCredentials)
+                              Expanded(
+                                child: _TestFillButton(
+                                  key: const Key('fill-e2e-credentials'),
+                                  icon: Icons.person_outline,
+                                  label: '帶入病患帳號',
+                                  enabled: !auth.isLoading,
+                                  onTap: () =>
+                                      _fill(Env.e2eEmail, Env.e2ePassword),
+                                ),
+                              ),
+                          ]),
+                        ],
+
+                        // ── 語言：下拉（沿用 LanguageAction 的 PopupMenu 呈現）──
+                        //    收成一顆按鈕，不再是五顆晶片的色塊。
+                        const SizedBox(height: 32),
+                        const Center(child: LanguageMenuButton()),
                       ],
                     ),
                   ),

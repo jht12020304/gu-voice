@@ -73,7 +73,7 @@ Future<void> _login(WidgetTester tester, ProviderContainer c, String email, Stri
   await tester.pump();
   await tester.enterText(fields.at(1), pw);
   await tester.pumpAndSettle();
-  await tester.tap(find.byType(FilledButton).first);
+  await tester.tap(find.byKey(const Key('login-submit')));
   for (var i = 0; i < 80 && c.read(authProvider).user == null; i++) {
     await tester.pump(const Duration(milliseconds: 250));
   }
