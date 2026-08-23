@@ -26,7 +26,8 @@
     "submit": "로그인",
     "submitting": "로그인 중...",
     "emailRequired": "이메일을 입력해 주세요",
-    "passwordRequired": "비밀번호를 입력해 주세요"
+    "passwordRequired": "비밀번호를 입력해 주세요",
+    "kioskStart": "음성 문진 시작"
   },
   "roles": {
     "patient": "환자",

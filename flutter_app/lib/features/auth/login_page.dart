@@ -62,6 +62,21 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     }
   }
 
+  /// Kiosk 進場（2026-08-23）：以 kiosk 專用 patient 帳號登入後直接進選症狀頁。
+  /// 錯誤沿用下方既有的 error 卡（authProvider.error）。
+  Future<void> _startKiosk() async {
+    setState(() => _localError = null);
+    try {
+      await ref.read(authProvider.notifier).login(Env.kioskEmail, Env.kioskPassword);
+      if (!mounted) return;
+      if (ref.read(authProvider).user != null) {
+        context.go(prefixLngToPath('/patient/start', currentLng));
+      }
+    } catch (_) {
+      // error surfaced via authProvider.error below
+    }
+  }
+
   void _fill(String email, String password) {
     _email.text = email;
     _password.text = password;
@@ -150,6 +165,30 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         ?.copyWith(color: tk.inkSecondary),
                   ),
                   const SizedBox(height: 32),
+
+                  // ── Kiosk 進場（產品功能；未帶 KIOSK define 時整段死碼）────
+                  //    候診 iPad 的主要動作：72pt 高、mic icon，按下＝kiosk 帳號
+                  //    登入→直進選症狀。放在表單之上——對走到 iPad 前的病患，
+                  //    這顆就是整頁的目的。
+                  if (Env.hasKioskCredentials) ...[
+                    SizedBox(
+                      height: 72,
+                      child: FilledButton.icon(
+                        onPressed: auth.isLoading ? null : _startKiosk,
+                        style: FilledButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(_radius)),
+                          textStyle: theme.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        icon: const Icon(Icons.mic, size: 26),
+                        label: Text(t('common.login.kioskStart')),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Divider(color: tk.edge, height: 1),
+                    const SizedBox(height: 24),
+                  ],
 
                   // ── 表單（§4.6：label 在上、錯誤在下、行內）──────────
                   _fieldLabel(context, t('common.login.emailLabel')),
