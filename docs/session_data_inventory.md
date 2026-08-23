@@ -71,6 +71,7 @@ Key `gu:session:{session_id}:context` 的 `conversation_history` 欄（JSON，�
 | `completed_at` | 轉任一終態時 | 結束時 |
 | `duration_seconds` | ✅ REST 與 WS 兩路徑皆寫：WS 終態轉移時以 `EXTRACT(EPOCH FROM now() − started_at)` 補寫（`started_at` 為 NULL 則保持 NULL）；儀表板平均時長仍以 `completed_at − started_at` 為優先來源 | 結束時 |
 | `created_at` / `updated_at` | 時間戳 | 自動 |
+| `is_deleted` / `deleted_at` / `deleted_by` | **軟刪除**（2026-08-23，admin 專屬）：`DELETE /api/v1/sessions/{id}` 標記後，所有讀取路徑一律過濾掉這一場——場次清單/詳情/逐字稿、SOAP 報告詳情與清單、紅旗清單與計數、儀表板統計/排隊/近期、研究分析母體、病患自己的歷史、WS 對話與通知 fan-out 全部看不到它。**子表一列都不刪**（`conversations` / `soap_reports` / `red_flag_alerts` 的 FK 全留），把旗標翻回 `false` 即可救回。刪除另寫一筆 `AuditAction.DELETE` 稽核（誰、何時、哪一場、病患是誰）。條件的單一來源是 `app/services/session_visibility.py`，逐條讀取路徑由 `tests/integration/test_soft_deleted_session_invisible_pg.py` 釘住 | admin 刪除時 |
 
 ### 2.1 `intake_data` JSONB 結構（`schemas/session.py` `SessionIntake`）
 
@@ -250,7 +251,8 @@ Key `gu:session:{session_id}:context` 的 `conversation_history` 欄（JSON，�
 
 | 目的 | 端點 |
 |---|---|
-| 場次列表 / 詳情（含 intake、紅旗旗標、時間） | `GET /api/v1/sessions`、`GET /api/v1/sessions/{id}`（detail 含 conversations） |
+| 場次列表 / 詳情（含 intake、紅旗旗標、時間） | `GET /api/v1/sessions`、`GET /api/v1/sessions/{id}`（detail 含 conversations）。日期區間篩選走 `date_from` / `date_to`（ISO-8601，**要帶時區位移**，比對的是 `created_at`；不帶位移會被當成 UTC，日界線就切在當地早上八點） |
+| **軟刪除一整場問診**（admin only） | `DELETE /api/v1/sessions/{id}` — 冪等回 204，資料不硬刪（見 §2） |
 | **問答原文逐輪**（cursor 分頁） | `GET /api/v1/sessions/{id}/conversations` |
 | 報告列表 / 詳情（四段 JSONB + `raw_transcript` + ICD-10 + 信心分數） | `GET /api/v1/reports`、`GET /api/v1/reports/{report_id}` |
 | 報告版本歷史（append-only） | `GET /api/v1/reports/{report_id}/revisions` |

@@ -31,6 +31,25 @@ description: GU Voice 前端語言一致性不變式（URL 為唯一語言權威
 4. `npm run build` — 重生 `public/locales/`
 5. src + public 一起 commit
 
+## Flutter 端（**現行產品**，2026-08-23 補）
+
+上面那套是 React 的流程。iOS 單一 App 拍板之後，新功能幾乎都只落在 Flutter：
+
+1. 五份翻譯在 `flutter_app/assets/locales/<locale>/*.json`（zh-TW / en-US / ja-JP /
+   ko-KR / vi-VN），**五個一起補**，別只補 zh-TW。
+2. `scripts/check_translations.py` **不涵蓋這一份**——它只檢查 React 那兩份。
+   Flutter 這邊靠 `flutter test` 裡的文案守衛（例：
+   `test/session_calendar_test.dart` 與 `test/session_delete_admin_only_test.dart`
+   逐 key 斷言五語系齊備、佔位符沒掉）。**新增一組面向使用者的字串就順手補一支
+   同型測試**，成本很低，缺字是直接面向病患/醫師的。
+3. **Flutter-only 的功能不必回頭補 React 的 locales**（React 走除役）。
+   反向仍成立：改 `frontend/src/i18n/locales/` 的 key 時要同步 flutter 那份
+   （CLAUDE.md 鐵律），因為切換期兩邊還並存。
+4. ⚠️ `t()` 查不到 key 時**原樣回傳 key**（`core/i18n/loc.dart` 的刻意設計，
+   讓缺字看得見）。所以「畫面上出現一串英文駝峰」就是缺 key 的徵兆——
+   而且 **`t()` 的第一個 dot 段是 namespace**（＝檔名），裸字串（沒有 dot）
+   永遠查不到。活例：登入頁的 `errorGeneric`（TODO §W-A）。
+
 ## Common Rationalizations
 
 | 藉口 | 現實 |
@@ -38,6 +57,7 @@ description: GU Voice 前端語言一致性不變式（URL 為唯一語言權威
 | 「public/locales 是 build 產物，不用 commit」 | 它是 tracked 鏡像，生產直接吃它；只 commit src 等於生產缺字 |
 | 「client.ts 這段 Accept-Language 邏輯很怪，順手重構」 | URL-first 是刻意設計（語言一致性事故的修復），重構前先讀本 skill 與 memory |
 | 「先補 zh-TW，其他語言之後再說」 | check_translations 會抓，且 kiosk 有真實外語病患，缺字直接面向病患 |
+| 「Flutter 的字串加了就好，測試不用寫」 | `check_translations.py` 看不到 `flutter_app/assets/locales/`——沒有那支測試，缺一個語系不會有任何東西變紅 |
 
 ## Verification
 

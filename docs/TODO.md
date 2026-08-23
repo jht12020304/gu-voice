@@ -2256,7 +2256,9 @@ sentinel 情境下當唯一來源；或取兩者聯集。任一改法都動到 �
 - [ ] U14 admin 主訴管理在非中文 UI 編輯會把已解析的顯示文字覆寫回 canonical zh-TW 欄位
   （beta 語系管理者操作會污染主資料）。修法要動編輯對話框的資料來源，另開工單。
 - [ ] U15 日期分組 key 用 UTC 前 10 碼、列內時間用 toLocal——跨午夜場次會分錯組
-  （patient_list/alert_list/audit_logs 同 pattern）。
+  （patient_list/alert_list/audit_logs 同 pattern）。**正解已經有了**：場次日曆
+  （§W）用 `sessionLocalDay` / `bucketByLocalDay` 依裝置本地日期分桶，這三頁照抄
+  同一支即可；後端 `/dashboard/*` 的 UTC 切日是同一類問題的另一半（見 §W）。
 - [ ] U16 多處 silent catch 把「後端掛了」顯示成空狀態（dashboard/patient_list/
   user_management）——已有 ErrorState 元件，逐頁補錯誤分支即可。
 - [ ] U17 警示詳情顯示原始 session UUID（無病患名、不可點）；audit 操作者同款。
@@ -2264,3 +2266,62 @@ sentinel 情境下當唯一來源；或取兩者聯集。任一改法都動到 �
   >100 筆靜默截斷；1900-01-01 佔位生日原樣顯示——皆低頻低害，集中列此待議。
 - 設計澄清（非缺陷）：紅旗通知無 alertId 時導 session 詳情屬合理退路；
   redFlagReason 以場次語言儲存屬 #12 同款單語言權威設計。
+
+
+## W — 2026-08-23 晚間三項使用者需求（皆已上線＋發 TestFlight）
+
+> 一輪三件事，全部經 PR → merge → 部署／打包 → 掛先行測試群組（4 人）。
+> build 對照見 `docs/ios_release_settings.md` §7；這裡只記**決策與留下的坑**。
+
+| # | 需求（使用者原話） | 落地 | build |
+|---|---|---|---|
+| W-1 | 「不用最上面的圖示、不用忘記密碼和建立新帳號、語言變成可以下拉的按鈕、開始語音問診的鈕太大了、頁面更簡約」 | PR #87 | `202608231728` |
+| W-2 | 「要有一個最高權限可以刪除問答內容，這三個帳號都要有」 | PR #89 ＋ 三帳號升 admin | `202608231805` |
+| W-3 | 「太多問診對話，要一個日曆點下去就是那天的問診（加上時間管理）」 | PR #91 | `202608231850` |
+
+### 拍板紀錄（之後別重新討論）
+
+- **W-2 的三個選擇**（使用者逐項選定）：刪除單位＝**整場問診**（不是單則問答）、
+  **軟刪除可救回**（不是硬刪）、權限綁 **admin 角色**（不是「所有醫師」、也不是
+  email 白名單）。因此「把醫師升成 admin」成為日常操作。
+- **W-2 刻意不套用「醫師＝管理員」**：admin 區的**頁面**對醫師開放沒問題，但
+  刪病歷不是一般醫師可代行的動作。守衛寫在
+  `tests/unit/routers/test_session_delete_admin_only.py`（隔壁每一支 router 都是
+  `require_role("admin","doctor")`，很容易被順手放寬）。
+- **W-3 的日界線**：不用後端 `/dashboard/monthly-summary` 畫日曆，理由與正解見
+  `docs/app_architecture.md` §2.5。
+
+### 同輪修掉的真缺陷（都不是需求本身）
+
+- **推播 fan-out 只發 `role == doctor`**：未指派場次的 `report_ready` 與紅旗通知
+  收件人查詢只認 doctor——把醫師升成 admin（＝W-2 取得刪除權限的方式）會讓他
+  **無聲**收不到任何推播（沒有錯誤、沒有 log）。兩處已擴成 doctor + admin，
+  由 `tests/integration/test_notification_targets_include_admin_pg.py` 釘住。
+  **教訓**：日後再動角色，先 `grep UserRole.DOCTOR` 看有沒有別的收件人查詢。
+- **`ui_kit.SkeletonList` 沒有 `shrinkWrap`**：巢狀進另一個 `ListView` 會拋
+  「Vertical viewport was given unbounded height」整頁白掉。日曆的載入狀態實測踩到
+  （把版面渲染成 golden 圖時抓到的，不是靠讀碼猜的）。
+- **`PopupMenu` 預設 256pt 上限**塞不下最長的語言標籤（「Tiếng Việt（beta）」＋
+  打勾欄位實測溢位 5.7px）——語言下拉與 AppBar 那顆一起放寬。
+- **五支 integration test 用 `find.byType(FilledButton).first` 點登入**，在帶
+  `KIOSK_*` define 的建置上會點到 kiosk 那顆（改動前就存在）。登入鈕加了
+  `Key('login-submit')`。
+
+### 未結案（本輪看到但沒修）
+
+- [ ] **W-A 🟡 登入的網路層失敗顯示成字面 `errorGeneric`**（根因已定位）：
+  `flutter_app/lib/features/auth/auth_notifier.dart:217` 的 `_errorMessage()`
+  在拿不到後端錯誤 body 時 `return 'errorGeneric'`——那個字串**從來沒經過 `t()`**，
+  而 `assets/locales/**` 裡也沒有這個 key。後端有回錯誤時走的是後端的在地化訊息
+  （正常），所以只有**網路層**失敗會露餡：斷網、DNS、逾時、web 版的 CORS。
+  2026-08-23 用 Chrome 打生產（localhost 被 CORS 擋）時目視到。
+  病患與醫師都會撞到，而且是登入這種第一眼的畫面。
+  修法：改回一個真的 key（`common.unknownError` 已存在五語系，或另補
+  `common.errors.network` 五份），並注意 `t()` 的第一個 dot 段是 namespace——
+  裸字串永遠查不到、會原樣顯示（`core/i18n/loc.dart` 的刻意設計：讓缺字看得見）。
+- [ ] **W-B 🟢 日曆只涵蓋「使用者看得到的場次」**：醫師＝自己負責＋未指派，
+  admin＝全部。這是既有的 scope 語意，不是缺陷；但若日後要給醫師「全院日曆」，
+  記得那是 scope 決策不是 UI 決策。
+- [ ] **W-C 🟢 日曆一次抓一個月、單頁 100 筆、最多 10 頁**（`fetchRange` 的
+  `maxPages` 保險絲）。診所量級遠低於此；量真的變大時要改成後端依本地時區分桶的
+  聚合端點（同時能一併解掉 §U15 與 `/dashboard/*` 的 UTC 切日）。

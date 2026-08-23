@@ -126,7 +126,7 @@ codesign -d --entitlements :- <Payload/Runner.app>   # 期望 aps-environment = 
 - 上傳後仍要通過 ASC 的**自動處理**（簽章、entitlements、圖示、出口合規），通常數分鐘
 - ⚠️ **到期與相容性門檻**（build 90 天到期不可延長、build 不能刪只能過期、測試裝置要 iOS 16+ 而本專案 deployment target 是 15.0）：細節與處置一律見 [`docs/deployment_guide.md`](../../../docs/deployment_guide.md) 二、〈到期與相容性門檻〉。**唯一要在這裡記住的動作**：上傳當天就把 90 天到期日排進行事曆——寫進文件不會提醒任何人
 - ⚠️ **第一次上傳的錯誤是永久的**：bundle id 與 SKU 建立後不可更改，App name 要全球唯一
-- ✅ **2026-08-21 首顆 build 已上傳完成**，通過自動處理、狀態「準備測試」、標示「內部」，**沒有**卡 Missing Compliance。**內部測試群組與測試員都還沒建**——目前狀態一律以 [`docs/ios_release_settings.md`](../../../docs/ios_release_settings.md) §7 為準
+- ✅ **管道全通**（2026-08-23 更新）：內部測試群組「先行測試」已建、4 位測試員全數 INSTALLED、build 迭代發佈已是日常（打包 → `--validate-app` → `--upload-app` → 用 `~/.appstoreconnect/asc_api.py wait/attach` 等處理完再掛群組）。首顆 build 是 2026-08-21 上傳的，通過自動處理、標示「內部」、沒有卡 Missing Compliance。**目前上線的 build、群組與測試員狀態一律以 [`docs/ios_release_settings.md`](../../../docs/ios_release_settings.md) §7 為準**（那裡是唯一權威，這裡不重抄）
 
 ## Common Rationalizations
 
