@@ -266,6 +266,7 @@ from app.routers import (  # noqa: E402
     auth,
     complaints,
     dashboard,
+    exam_orders,
     notifications,
     patients,
     reports,
@@ -284,6 +285,7 @@ app.include_router(research.router)
 app.include_router(notifications.router)
 app.include_router(admin.router)
 app.include_router(audit_logs.router)
+app.include_router(exam_orders.router)
 
 
 # ── WebSocket 路由 ────────────────────────────────────────

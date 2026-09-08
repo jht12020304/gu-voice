@@ -249,5 +249,27 @@
     "success": "Đã tạo lại báo cáo",
     "error": "Tạo lại báo cáo thất bại. Vui lòng thử lại sau.",
     "disabledGenerating": "Đang tạo báo cáo, vui lòng đợi hoàn tất rồi mới tạo lại"
+  },
+  "quickOrders": {
+    "title": "Chỉ định nhanh",
+    "summaryTitle": "Tóm tắt hỏi bệnh",
+    "noSummary": "Báo cáo này chưa có phần tóm tắt.",
+    "testsTitle": "Xét nghiệm AI đề xuất",
+    "noTests": "Lần này AI không đề xuất xét nghiệm nào. Bạn vẫn có thể gửi — điều đó ghi nhận \"đã xem, không chỉ định\".",
+    "selectAll": "Chọn tất cả",
+    "clearAll": "Bỏ chọn tất cả",
+    "noteTitle": "Ghi chú (tùy chọn)",
+    "noteHint": "Ghi chú cho bản thân hoặc người tiếp nhận sau…",
+    "submit": "Xác nhận và gửi",
+    "submitting": "Đang gửi…",
+    "submitted": "Đã gửi chỉ định.",
+    "submitError": "Gửi thất bại. Vui lòng thử lại sau.",
+    "emptySelectionHint": "Chưa chọn mục nào; gửi đi sẽ ghi nhận là không chỉ định xét nghiệm.",
+    "previouslyOrdered": "Đã chỉ định trước đó",
+    "lastOrdered": "Lần gửi gần nhất lúc {{time}}. Bạn có thể chọn lại và gửi tiếp — lần mới nhất được tính.",
+    "viewFullReport": "Xem báo cáo đầy đủ",
+    "reportGenerating": "Báo cáo đang được tạo; xét nghiệm đề xuất sẽ xuất hiện sau",
+    "loadError": "Không tải được. Kiểm tra kết nối rồi thử lại.",
+    "retry": "Thử lại"
   }
 }

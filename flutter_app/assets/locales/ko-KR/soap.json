@@ -249,5 +249,27 @@
     "success": "보고서를 다시 생성했습니다",
     "error": "보고서 다시 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.",
     "disabledGenerating": "보고서를 생성하는 중입니다. 완료된 후 다시 생성해 주세요"
+  },
+  "quickOrders": {
+    "title": "빠른 검사 처방",
+    "summaryTitle": "문진 요약",
+    "noSummary": "이 보고서에는 아직 요약이 없습니다.",
+    "testsTitle": "AI 권장 검사",
+    "noTests": "이번에는 AI가 권장한 검사가 없습니다. 그대로 제출하면 '확인함, 검사 없음'으로 기록됩니다.",
+    "selectAll": "전체 선택",
+    "clearAll": "전체 해제",
+    "noteTitle": "메모(선택)",
+    "noteHint": "본인이나 다음 담당자를 위한 보충 설명…",
+    "submit": "확인 후 제출",
+    "submitting": "제출 중…",
+    "submitted": "검사 처방을 제출했습니다.",
+    "submitError": "제출에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+    "emptySelectionHint": "선택한 항목이 없습니다. 제출하면 검사 없음으로 기록됩니다.",
+    "previouslyOrdered": "이전 처방",
+    "lastOrdered": "마지막 제출: {{time}}. 다시 선택해 제출할 수 있으며 최신 항목이 적용됩니다.",
+    "viewFullReport": "전체 보고서 보기",
+    "reportGenerating": "보고서 생성 중이며 권장 검사는 이후에 표시됩니다",
+    "loadError": "불러오지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요.",
+    "retry": "다시 시도"
   }
 }

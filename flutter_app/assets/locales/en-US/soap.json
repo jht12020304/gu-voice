@@ -249,5 +249,27 @@
     "success": "Report regenerated",
     "error": "Failed to regenerate report. Please try again later.",
     "disabledGenerating": "Report is being generated — please wait until it finishes before regenerating"
+  },
+  "quickOrders": {
+    "title": "Quick orders",
+    "summaryTitle": "Consultation summary",
+    "noSummary": "This report has no summary yet.",
+    "testsTitle": "AI-suggested tests",
+    "noTests": "The AI suggested no tests this time. You can still submit — that records \"reviewed, no tests ordered\".",
+    "selectAll": "Select all",
+    "clearAll": "Clear all",
+    "noteTitle": "Note (optional)",
+    "noteHint": "Anything you want on record for yourself or the next clinician…",
+    "submit": "Confirm and submit",
+    "submitting": "Submitting…",
+    "submitted": "Orders submitted.",
+    "submitError": "Submission failed. Please try again.",
+    "emptySelectionHint": "Nothing is selected; submitting records that no tests were ordered.",
+    "previouslyOrdered": "Previously ordered",
+    "lastOrdered": "Last submitted at {{time}}. You can reselect and submit again — the latest one counts.",
+    "viewFullReport": "View full report",
+    "reportGenerating": "Report is still generating; suggested tests will appear later",
+    "loadError": "Could not load. Check your connection and try again.",
+    "retry": "Retry"
   }
 }

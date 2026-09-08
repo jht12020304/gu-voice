@@ -337,11 +337,11 @@ void main() {
       );
     });
 
-    test('報告完成推播 → /reports/:sessionId（後端沒帶 type，靠 report_id 判定）', () {
+    test('報告完成推播 → /orders/:sessionId（後端沒帶 type，靠 report_id 判定）', () {
       expect(
         pushRouteFor({'session_id': 's-1', 'report_id': 'r-1'}),
-        '/reports/s-1',
-        reason: '掉回 /sessions 就等於醫師點推播看不到報告',
+        '/orders/s-1',
+        reason: '掉回 /sessions 就等於醫師點推播看不到報告；2026-09-09 起落點是快速開單頁',
       );
     });
 
@@ -369,7 +369,7 @@ void main() {
       backend.opened.add({'session_id': 's-42', 'report_id': 'r-42'});
       await pumpEventQueue();
 
-      expect(routes, ['/reports/s-42']);
+      expect(routes, ['/orders/s-42']);
     });
 
     test('getInitialMessage（由推播冷啟動）也導頁', () async {
