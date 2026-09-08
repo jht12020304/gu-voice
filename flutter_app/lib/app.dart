@@ -17,6 +17,16 @@ Locale _toLocale(String tag) {
   return Locale(parts[0], parts.length > 1 ? parts[1] : null);
 }
 
+Widget _scaledText(BuildContext context, Widget child, double preference) {
+  final systemScale = MediaQuery.textScalerOf(context).scale(16) / 16;
+  return MediaQuery(
+    data: MediaQuery.of(
+      context,
+    ).copyWith(textScaler: TextScaler.linear(systemScale * preference)),
+    child: child,
+  );
+}
+
 class App extends ConsumerWidget {
   const App({super.key});
 
@@ -44,21 +54,29 @@ class App extends ConsumerWidget {
 
   // Same MaterialApp configuration for both branches — theme, locale and delegates are
   // identical, so flipping `booted` swaps only what is below the app, not the app's look.
-  MaterialApp _shell(WidgetRef ref, String lng, {required Widget home}) => MaterialApp(
-        title: 'UroSense',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
-        themeMode: ref.watch(settingsProvider.select((v) => v.themeMode)),
-        locale: _toLocale(lng),
-        supportedLocales: supportedLanguages.map(_toLocale),
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: home,
-      );
+  MaterialApp _shell(WidgetRef ref, String lng, {required Widget home}) {
+    final settings = ref.watch(settingsProvider);
+    return MaterialApp(
+      title: 'UroSense',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: settings.themeMode,
+      builder: (context, child) => _scaledText(
+        context,
+        child ?? const SizedBox.shrink(),
+        settings.textScale,
+      ),
+      locale: _toLocale(lng),
+      supportedLocales: supportedLanguages.map(_toLocale),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      home: home,
+    );
+  }
 
   // `routerProvider` is only read on this branch, so GoRouter — and therefore every
   // route's builder — is not constructed until boot has resolved. That ordering is
@@ -67,20 +85,25 @@ class App extends ConsumerWidget {
   // take a 401, and burn the refresh token racing bootstrap's own getMe().
   Widget _routed(WidgetRef ref, String lng) {
     final router = ref.watch(routerProvider);
+    final settings = ref.watch(settingsProvider);
     return MaterialApp.router(
       title: 'UroSense',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       // Driven by the doctor settings page; defaults to system.
-      themeMode: ref.watch(settingsProvider.select((v) => v.themeMode)),
+      themeMode: settings.themeMode,
       routerConfig: router,
       // Above the Navigator but below MaterialApp, so ScaffoldMessenger is in scope
       // and the red-flag toast survives route changes (TODO G12).
-      builder: (context, child) => KioskIdleGuard(
-        child: DoctorAlertWatcher(
-          child: DoctorPushWatcher(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) => _scaledText(
+        context,
+        KioskIdleGuard(
+          child: DoctorAlertWatcher(
+            child: DoctorPushWatcher(child: child ?? const SizedBox.shrink()),
+          ),
         ),
+        settings.textScale,
       ),
       locale: _toLocale(lng),
       supportedLocales: supportedLanguages.map(_toLocale),

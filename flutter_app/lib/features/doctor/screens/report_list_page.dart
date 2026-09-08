@@ -7,15 +7,23 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/reports_api.dart';
 import '../../../data/api/sessions_api.dart';
 import '../../../data/models/soap_report.dart';
+import '../../../shared/format.dart';
 import '../../../shared/widgets/ui_kit.dart';
 import '../../../shared/widgets/dashboard_back_button.dart';
 
 class _Meta {
   final String patientName;
+  final String? doctorName;
   final String complaint;
   final bool redFlag;
   final String? sessionStatus;
-  const _Meta(this.patientName, this.complaint, this.redFlag, this.sessionStatus);
+  const _Meta(
+    this.patientName,
+    this.doctorName,
+    this.complaint,
+    this.redFlag,
+    this.sessionStatus,
+  );
 }
 
 // Port of ReportListPage.tsx: paginated review inbox + separate limit=100 summary counts +
@@ -46,7 +54,9 @@ class _ReportListPageState extends State<ReportListPage> {
   void initState() {
     super.initState();
     _scroll.addListener(() {
-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) _fetchMore();
+      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) {
+        _fetchMore();
+      }
     });
     Future.microtask(() {
       _fetchReports(reset: true);
@@ -65,7 +75,10 @@ class _ReportListPageState extends State<ReportListPage> {
   Future<void> _fetchReports({required bool reset}) async {
     setState(() => _loading = true);
     try {
-      final page = await _reportsApi.list(cursor: reset ? null : _cursor, reviewStatus: _filterParam);
+      final page = await _reportsApi.list(
+        cursor: reset ? null : _cursor,
+        reviewStatus: _filterParam,
+      );
       setState(() {
         _reports = reset ? page.data : [..._reports, ...page.data];
         _cursor = page.nextCursor;
@@ -103,13 +116,17 @@ class _ReportListPageState extends State<ReportListPage> {
         _reportsApi.list(limit: 1, reviewStatus: 'revision_needed'),
       ]);
       if (!mounted) return;
-      setState(() => _counts = (
-            total: counts[0].totalCount,
-            pending: counts[1].totalCount,
-            approved: counts[2].totalCount,
-            revisionNeeded: counts[3].totalCount,
-          ));
-    } catch (_) {/* cards fall back to counting what is loaded — see _summaryCards */}
+      setState(
+        () => _counts = (
+          total: counts[0].totalCount,
+          pending: counts[1].totalCount,
+          approved: counts[2].totalCount,
+          revisionNeeded: counts[3].totalCount,
+        ),
+      );
+    } catch (_) {
+      /* cards fall back to counting what is loaded — see _summaryCards */
+    }
   }
 
   /// Per-row patient name / chief complaint / red flag.
@@ -130,30 +147,48 @@ class _ReportListPageState extends State<ReportListPage> {
         .toSet()
         .difference(_meta.keys.toSet());
     if (missing.isEmpty) return;
-    await Future.wait(missing.map((id) async {
-      try {
-        final s = await _sessionsApi.getSession(id);
-        _meta[id] = _Meta(s.patientName ?? s.id, s.chiefComplaintText ?? t('dashboard.reportList.complaintEmpty'), s.redFlag, s.status);
-      } catch (_) {
-        _meta[id] = _Meta(id, t('dashboard.reportList.complaintFetchFailed'), false, null);
-      }
-    }));
+    await Future.wait(
+      missing.map((id) async {
+        try {
+          final s = await _sessionsApi.getSession(id);
+          _meta[id] = _Meta(
+            s.patientName ?? s.id,
+            s.doctorName ?? s.doctorId,
+            s.chiefComplaintText ?? t('dashboard.reportList.complaintEmpty'),
+            s.redFlag,
+            s.status,
+          );
+        } catch (_) {
+          _meta[id] = _Meta(
+            id,
+            null,
+            t('dashboard.reportList.complaintFetchFailed'),
+            false,
+            null,
+          );
+        }
+      }),
+    );
     if (mounted) setState(() {});
   }
 
-  int _countByStatus(List<SoapReport> list, String status) => list.where((r) => r.reviewStatus == status).length;
+  int _countByStatus(List<SoapReport> list, String status) =>
+      list.where((r) => r.reviewStatus == status).length;
 
-  // Timestamp precedence generatedAt -> updatedAt -> createdAt (read from raw), grouped by
-  // YYYY-MM-DD, newest day first (mirrors ReportListPage.tsx).
+  // Timestamp precedence generatedAt -> updatedAt -> createdAt (read from raw).
   String _ts(SoapReport r) =>
-      (r.raw['generatedAt'] ?? r.raw['updatedAt'] ?? r.raw['createdAt'] ?? '') as String;
+      (r.raw['generatedAt'] ?? r.raw['updatedAt'] ?? r.raw['createdAt'] ?? '')
+          as String;
 
   List<MapEntry<String, List<SoapReport>>> _grouped(List<SoapReport> reports) {
     final sorted = [...reports]..sort((a, b) => _ts(b).compareTo(_ts(a)));
     final groups = <String, List<SoapReport>>{};
     for (final r in sorted) {
-      final ts = _ts(r);
-      groups.putIfAbsent(ts.length >= 10 ? ts.substring(0, 10) : 'unknown', () => []).add(r);
+      final doctor = _metaFor(r)?.doctorName?.trim();
+      final key = doctor == null || doctor.isEmpty
+          ? t('dashboard.reportList.unassignedDoctor')
+          : doctor;
+      groups.putIfAbsent(key, () => []).add(r);
     }
     return groups.entries.toList();
   }
@@ -166,7 +201,9 @@ class _ReportListPageState extends State<ReportListPage> {
       // matching for exactly the rows whose name came from the report itself, i.e. all
       // of them once the backend is deployed.
       final m = _metaFor(r);
-      return '${m?.patientName ?? ''} ${m?.complaint ?? ''} ${r.sessionId}'.toLowerCase().contains(q);
+      return '${m?.patientName ?? ''} ${m?.doctorName ?? ''} ${m?.complaint ?? ''} ${r.sessionId}'
+          .toLowerCase()
+          .contains(q);
     }).toList();
   }
 
@@ -184,7 +221,9 @@ class _ReportListPageState extends State<ReportListPage> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: const DashboardBackButton(),title: Text(t('dashboard.sidebar.nav.soapReports'))),
+        leading: const DashboardBackButton(),
+        title: Text(t('dashboard.sidebar.nav.soapReports')),
+      ),
       body: _loading && _reports.isEmpty
           ? const SkeletonList()
           : ListView(
@@ -195,7 +234,10 @@ class _ReportListPageState extends State<ReportListPage> {
                 const SizedBox(height: 12),
                 _filterTabs(),
                 TextField(
-                  decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: t('dashboard.reportList.searchPlaceholder')),
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: t('dashboard.reportList.searchPlaceholder'),
+                  ),
                   onChanged: (v) => setState(() => _search = v),
                 ),
                 const SizedBox(height: 8),
@@ -207,11 +249,25 @@ class _ReportListPageState extends State<ReportListPage> {
                   )
                 else
                   for (final g in _grouped(filtered)) ...[
-                    GroupHeader('${g.key}  ·  ${t('dashboard.reportList.groupCount', args: {'count': g.value.length})}'),
+                    GroupHeader(
+                      '${g.key}  ·  ${t('dashboard.reportList.groupCount', args: {'count': g.value.length})}',
+                    ),
                     for (final r in g.value) _row(context, r),
                   ],
-                if (_loading && _reports.isNotEmpty) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
-                if (!_hasMore) Center(child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded')))),
+                if (_loading && _reports.isNotEmpty)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                if (!_hasMore)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(t('common.pagination.allLoaded')),
+                    ),
+                  ),
               ],
             ),
     );
@@ -222,7 +278,8 @@ class _ReportListPageState extends State<ReportListPage> {
     // Until the counts land (or if that request failed) fall back to counting the page
     // that is already on screen, so the cards show something truthful-for-what-is-loaded
     // rather than four zeroes.
-    final c = _counts ??
+    final c =
+        _counts ??
         (
           total: _reports.length,
           pending: _countByStatus(_reports, 'pending'),
@@ -230,25 +287,51 @@ class _ReportListPageState extends State<ReportListPage> {
           revisionNeeded: _countByStatus(_reports, 'revision_needed'),
         );
     Widget card(String label, int n, Color color) => Expanded(
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(children: [
-                Text('$n', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: color, fontWeight: FontWeight.w700)),
-                Text(label, style: Theme.of(context).textTheme.bodySmall, textAlign: TextAlign.center),
-              ]),
-            ),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Text(
+                '$n',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.bodySmall,
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
-        );
-    return Row(children: [
-      card(t('dashboard.reportList.summaryTotal'), c.total, tk.statusInProgress),
-      const SizedBox(width: 8),
-      card(t('dashboard.reportList.tabs.pending'), c.pending, tk.alertMedium),
-      const SizedBox(width: 8),
-      card(t('dashboard.reportList.tabs.approved'), c.approved, tk.statusCompleted),
-      const SizedBox(width: 8),
-      card(t('dashboard.reportList.tabs.revisionNeeded'), c.revisionNeeded, tk.alertCritical),
-    ]);
+        ),
+      ),
+    );
+    return Row(
+      children: [
+        card(
+          t('dashboard.reportList.summaryTotal'),
+          c.total,
+          tk.statusInProgress,
+        ),
+        const SizedBox(width: 8),
+        card(t('dashboard.reportList.tabs.pending'), c.pending, tk.alertMedium),
+        const SizedBox(width: 8),
+        card(
+          t('dashboard.reportList.tabs.approved'),
+          c.approved,
+          tk.statusCompleted,
+        ),
+        const SizedBox(width: 8),
+        card(
+          t('dashboard.reportList.tabs.revisionNeeded'),
+          c.revisionNeeded,
+          tk.alertCritical,
+        ),
+      ],
+    );
   }
 
   Widget _filterTabs() {
@@ -260,20 +343,22 @@ class _ReportListPageState extends State<ReportListPage> {
     };
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      child: Row(children: [
-        for (final e in filters.entries)
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ChoiceChip(
-              selected: _reviewFilter == e.key,
-              label: Text(t(e.value)),
-              onSelected: (_) {
-                setState(() => _reviewFilter = e.key);
-                _fetchReports(reset: true);
-              },
+      child: Row(
+        children: [
+          for (final e in filters.entries)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                selected: _reviewFilter == e.key,
+                label: Text(t(e.value)),
+                onSelected: (_) {
+                  setState(() => _reviewFilter = e.key);
+                  _fetchReports(reset: true);
+                },
+              ),
             ),
-          ),
-      ]),
+        ],
+      ),
     );
   }
 
@@ -284,6 +369,7 @@ class _ReportListPageState extends State<ReportListPage> {
     if (r.hasSessionContext) {
       return _Meta(
         r.patientName ?? r.sessionId,
+        r.doctorName,
         r.chiefComplaintText ?? t('dashboard.reportList.complaintEmpty'),
         r.sessionRedFlag ?? false,
         r.sessionStatus,
@@ -296,47 +382,115 @@ class _ReportListPageState extends State<ReportListPage> {
     final tk = Theme.of(context).extension<AppTokens>()!;
     final m = _metaFor(r);
     final (badgeLabel, badgeColor) = switch (r.reviewStatus) {
-      'approved' => (t('dashboard.reportList.tabs.approved'), tk.statusCompleted),
-      'revision_needed' => (t('dashboard.reportList.tabs.revisionNeeded'), tk.alertCritical),
+      'approved' => (
+        t('dashboard.reportList.tabs.approved'),
+        tk.statusCompleted,
+      ),
+      'revision_needed' => (
+        t('dashboard.reportList.tabs.revisionNeeded'),
+        tk.alertCritical,
+      ),
       _ => (t('dashboard.reportList.tabs.pending'), tk.alertMedium),
     };
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
-        onTap: () => context.go(prefixLngToPath('/reports/${r.sessionId}', currentLng)),
+        onTap: () =>
+            context.go(prefixLngToPath('/reports/${r.sessionId}', currentLng)),
         child: Padding(
           padding: const EdgeInsets.all(14),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Expanded(child: Text(m?.patientName ?? r.sessionId, style: const TextStyle(fontWeight: FontWeight.w600))),
-              if (m?.redFlag ?? false) ...[
-                PillTag(t('dashboard.reportList.redFlagBadge'), color: tk.alertCritical),
-                const SizedBox(width: 6),
-              ],
-              PillTag(badgeLabel, color: badgeColor),
-            ]),
-            if (m != null) Text(t('dashboard.reportList.chiefComplaintLabel', args: {'value': m.complaint}), style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 4),
-            Text(r.summary ?? t('dashboard.reportList.summaryEmpty'), maxLines: 3, overflow: TextOverflow.ellipsis),
-            if (r.icd10Codes.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Wrap(spacing: 6, children: [for (final c in r.icd10Codes.take(3)) Chip(label: Text(c), visualDensity: VisualDensity.compact)]),
-            ],
-            if (r.aiConfidenceScore != null)
-              Text(t('dashboard.reportList.aiConfidence', args: {'percent': (r.aiConfidenceScore! * 100).round()}), style: Theme.of(context).textTheme.bodySmall),
-            if (r.reviewStatus == 'revision_needed' && r.reviewNotes != null) ...[
-              const SizedBox(height: 6),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: tk.alertCriticalBg, borderRadius: BorderRadius.circular(6)),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(t('dashboard.reportList.revisionReason'), style: TextStyle(color: tk.alertCritical, fontWeight: FontWeight.w600, fontSize: 12)),
-                  Text(r.reviewNotes!, style: TextStyle(color: tk.alertCritical)),
-                ]),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      m?.patientName ?? r.sessionId,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  if (m?.redFlag ?? false) ...[
+                    PillTag(
+                      t('dashboard.reportList.redFlagBadge'),
+                      color: tk.alertCritical,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  PillTag(badgeLabel, color: badgeColor),
+                ],
               ),
+              if (m != null)
+                Text(
+                  t(
+                    'dashboard.reportList.chiefComplaintLabel',
+                    args: {'value': m.complaint},
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              if (m != null)
+                Text(
+                  '${t('dashboard.reportList.assignedDoctorLabel', args: {'name': m.doctorName ?? t('dashboard.reportList.unassignedDoctor')})} · ${formatDateTime(_ts(r))}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              const SizedBox(height: 4),
+              Text(
+                r.summary ?? t('dashboard.reportList.summaryEmpty'),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (r.icd10Codes.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  children: [
+                    for (final c in r.icd10Codes.take(3))
+                      Chip(
+                        label: Text(c),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                  ],
+                ),
+              ],
+              if (r.aiConfidenceScore != null)
+                Text(
+                  t(
+                    'dashboard.reportList.aiConfidence',
+                    args: {'percent': (r.aiConfidenceScore! * 100).round()},
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              if (r.reviewStatus == 'revision_needed' &&
+                  r.reviewNotes != null) ...[
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: tk.alertCriticalBg,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        t('dashboard.reportList.revisionReason'),
+                        style: TextStyle(
+                          color: tk.alertCritical,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                      Text(
+                        r.reviewNotes!,
+                        style: TextStyle(color: tk.alertCritical),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
-          ]),
+          ),
         ),
       ),
     );
