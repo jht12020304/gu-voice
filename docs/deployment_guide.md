@@ -119,22 +119,20 @@ vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.a
 > ⚠️ 2026-08-22 平台分工推翻：iOS 不再是「醫師端」，是唯一的 App——kiosk iPad 跑
 > 病患語音問診、醫師/管理員同一顆。所以**從這一天之後的 build 起，裝了 App 的
 > 測試員都能進到病患問診入口**；加測試員前的 PHI 檢查（§V8）比以前更要緊。
-> kiosk iPad 部署方式：用櫃檯發的 patient 帳號登入即可，閒置登出 180 秒自動生效，
-> 不需要特別的 kiosk build。
+> 現行內測包帶 KIOSK define：登入頁直接按「開始語音問診」便會以候診專用 patient
+> 帳號自動登入，無須輸入帳密；閒置登出 180 秒照常生效。
 
-> 平台分工（2026-08-20 拍板）：**Web＝病患語音問診 kiosk，iOS＝醫師端查看報告與通知**。
+> 已作廢的 2026-08-20 平台分工曾是「Web＝病患 kiosk、iOS＝醫師端」；現況以同一顆 iOS App 為準。
 > iOS 這條線只走 TestFlight **內部測試**，不上架。管道現況與未解風險見 `docs/TODO.md` §V8（iOS 醫師端功能面見 §V7）。
 
 > ⚠️⚠️ **內測包打的是生產後端，本專案沒有 staging**（本手冊只有 production 一組）。
-> 唯一會打到測試者手機的是**「SOAP 報告已生成」通知**：body 帶**真實病患姓名**，而且在
-> `sessions.doctor_id IS NULL`（實測全院都是）時**fan-out 給全體在職醫師**；「報告生成失敗」
-> 同樣帶姓名同樣 fan-out。iOS 上刪病患／停用帳號／重設密碼的 API 也可達。
-> **拍板：第一版只裝自己一台。**
+> 2026-09-02 起病患在基本資料頁必須選醫師；已指派場次的問診完成、紅旗、報告成功／失敗
+> 通知與 dashboard 即時事件都只送該醫師。doctor 與帶執照的臨床 admin 也只讀自己的
+> 病患、場次、報告與紅旗；無執照的 system admin 保留全院稽核視野。
 >
-> ⚠️ **遮蔽推播文案不會降低 PHI 暴露**——測試者拿的是真實醫師帳號，登進去就能讀到全部病患姓名
-> 與完整 SOAP 報告（後端沒有 tenant／scope 隔離）。**加第 2 個測試人員之前**要走的兩條路與估時、
-> 以及逐條佐證（含 file:line、含目前休眠但會自動解封的紅旗推播）**一律見 `docs/TODO.md` §V8**——
-> 那裡是唯一持有這組行號的地方，本手冊刻意不抄。
+> ⚠️ 推播與報告仍含**被指派病患的 PHI**，system admin 仍可讀全院資料；這是臨床 scope，
+> 不是 tenant 隔離。未獲授權的人不得加入 production 內測，工程／PM 測試仍須獨立 staging。
+> 詳細邊界與 legacy 未指派場次的相容 fallback 見 `docs/TODO.md` §V8。
 
 ### 設定值一律看總表
 
@@ -345,24 +343,27 @@ bundle id 正確。archive 耗時 497s、export 53s。
    **內部測試不需要 Beta App Review**（外部測試才需要），上限 100 人。
 3. 測試者必須**先是 App Store Connect 的使用者**：Users and Access → 寄「使用者邀請」信 →
    對方建帳號並完成 2FA。⚠️ 這與 TestFlight 那封邀請信是**兩封不同的信**，順序不能顛倒。
-4. ⚠️ 依現行拍板，**第一版只加使用者自己**；`docs/TODO.md` §V8 的前置條件補完前不要加第 2 個人。
-   **這個結論沒有因為旗標被證實有效而放寬一分。**
+4. ⚠️ production 群組只加**已獲授權接觸病歷的院內人員**；工程／PM 使用獨立 staging。
    ✅ `ExportOptions.plist` 的 `testFlightInternalTestingOnly=true` **確實有生效**——2026-08-21
    上傳的那顆 build 在 TestFlight 清單上標著「內部」（詳見上一節的 ⓘ 框）。
    🛑 **但它擋的是「散佈」，不是「資料」**：它讓這顆包不能拿去做 external TestFlight／上架，
-   **對任何一個被加進 internal 群組的人完全沒有作用**——那個人拿的是真實醫師帳號，
-   登進去就讀得到全部真實病患姓名與完整 SOAP 報告（後端沒有 tenant／scope 隔離）。
-   ⇒ **它不是 PHI 護欄。擋 PHI 的仍然只有「第一版只裝自己一台」這個人為拍板**，
-   加第 2 個人之前一定要走完 `docs/TODO.md` §V8 的前置條件。「旗標有效」≠「PHI 有護欄」。
+   **對任何一個被加進 internal 群組的人完全沒有作用**。臨床帳號雖只看自己被指派的
+   病患資料，仍會接觸真實 PHI；system admin 仍可全院稽核。
+   ⇒ **它不是 PHI 護欄**；帳號授權、臨床 scope 與 staging 才是。「旗標有效」≠「PHI 有護欄」。
 
-### 第一次上機驗證推播（沒人做過，照這個順序走）
+### 推播上機驗證（2026-09-02 已通過；換裝置時照這個順序重驗）
 
-「裝上去打得開」不等於「推播會到」。這條線上有四個獨立的斷點，任何一個沒過，
+2026-09-03 複驗發現 FCM 回報成功不等於 iPhone 收到。build `202609030649` 會把原生
+APNs token 與 FCM token 一起登記；後端有 APNs token 時優先直送 Apple，失敗才回退 FCM。
+Apple 已標為 VALID 且掛入先行測試群組，待醫師手機更新並登入後複驗。
+「裝上去打得開」仍不等於新裝置一定能收到推播；這條線上有四個獨立斷點，任何一個沒過，
 症狀都是**手機一片安靜、後端 log 一切正常**：
 
 1. **生產 Railway 的 `FCM_CREDENTIALS_JSON` 要有值。**
    沒設時 `backend/app/core/firebase.py:39` 只 `logger.warning`、**API 照常起**，
    推播全部靜默。查法：`railway variables list` 看有沒有這個變數（**不要把值印出來**）。
+   直接 APNs 備援另需 `APNS_AUTH_KEY_BASE64`、`APNS_KEY_ID`、`APNS_TEAM_ID`、`APNS_TOPIC`；
+   `.p8` 只可透過 Railway secret 設定，不得寫進 repo 或 log。
 2. **`RUN_CELERY_IN_API` 要是 `true`。**
    推播是丟給 Celery 的（`notification_service.py:712` 的 `send_push_notification_task.delay()`），
    **worker 沒跑＝任務沒人消費，而錯誤會被吞掉**。啟動 log 裡要看得到 celery banner。
@@ -370,8 +371,8 @@ bundle id 正確。archive 耗時 497s、export 53s。
    公開註冊一律降級成 `PATIENT`（`auth_service.py:234` 的 AUTH-3），而**病患帳號在 iOS 上會被導到
    `/patient-unsupported`**——拿病患帳號裝上去，整個 App 只看得到一頁「不支援」。
    沒有醫師帳號就照「五、Supabase」用 SQL 改一個既有帳號的 `role`。
-4. **怎麼觸發第一則推播**：唯一會打到手機的是 **report_ready 的 fan-out**，
-   所以**必須有人在 Web kiosk 真的跑完一場問診並產出 SOAP 報告**，光登入 App 不會有任何推播。
+4. **怎麼觸發驗證推播**：在病患基本資料頁選定要驗證的醫師，跑完一場問診並產出 SOAP；
+   已指派場次的通知只送該醫師，光登入 App 不會產生推播。
    ✅ **建議用一個名字明顯是假的病患跑這一場**（例如「測試 勿用」）——這樣第一則推播的鎖定畫面上
    就是假名，**同時解決「要驗證」與「不要把真實 PHI 推到手機上」兩個需求**。
 
@@ -379,7 +380,8 @@ bundle id 正確。archive 耗時 497s、export 53s。
 TestFlight build 上看不到任何輸出。**唯一可靠的驗法是查 DB 的 `fcm_devices` 表**有沒有這台裝置的 token：
 
 ```sql
-SELECT user_id, platform, created_at, updated_at FROM fcm_devices ORDER BY updated_at DESC LIMIT 5;
+SELECT user_id, platform, apns_token IS NOT NULL AS has_apns_token, created_at, updated_at
+FROM fcm_devices ORDER BY updated_at DESC LIMIT 5;
 ```
 
 ⚠️ **`flutter build ipa` 失敗時仍會回 exit 0**（Flutter 原始碼註解自陳 "Still count this as success"）。

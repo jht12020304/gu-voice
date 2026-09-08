@@ -12,6 +12,9 @@
 ```
 病患端                                          後端
 ──────                                          ────
+[0] 登入頁「開始語音問診」
+    KIOSK build 自動登入候診 patient 帳號，不要求使用者輸入帳密
+        ▼
 [1] 選主訴 SelectComplaintPage
     多選≤5、selected[0]=primary、其餘併入自述文字
     「其他」sentinel(..ff)→自述必填、剝離「其他」字樣
@@ -19,8 +22,9 @@
         ▼ (URL query 帶到下一頁)
 [1b] 填基本資料 MedicalInfoPage
     身分(name/gender/dob/phone)+ intake(過敏/用藥/病史/家族史)
+    GET /sessions/doctors → 必選一位醫師（姓名＋科別）
     language = i18n.resolvedLanguage
-        │ POST /sessions
+        │ POST /sessions（含 doctorId）
         ▼                                       ──►  [2] create_session
                                                      get_or_create patients 列
                                                      INSERT sessions(status=waiting, red_flag=false, language, intake_data)
@@ -58,7 +62,12 @@
 
 ## 1b. 填基本資料 + 建場次（前端）
 
-**畫面**：`frontend/src/screens/patient/MedicalInfoPage.tsx`
+**現行 TestFlight 畫面**：`flutter_app/lib/features/patient/medical_info_page.dart`。
+頁面載入時由 `SessionsApi.getDoctors()` 呼叫 `GET /sessions/doctors`，以下拉選單顯示姓名與科別；
+未選、清單仍載入或載入失敗時都不能開始問診。建立 payload 會帶 `doctorId`，所以該場次後續
+只進入被選醫師的臨床 scope 與通知目標。
+
+**舊 React 畫面（保留作 Web 相容參考）**：`frontend/src/screens/patient/MedicalInfoPage.tsx`
 
 - 從 URL 讀 `complaintId/complaintName/complaintText`（`:139-141`），收集身分（name/gender/dob/phone）+ intake（過敏/用藥/病史/家族史）。
 - `handleSubmit()`（`:220-297`）：`sessionLanguage = i18n.resolvedLanguage`（fallback `zh-TW`，`:236-240`），呼叫 `POST /sessions`（`services/api/sessions.ts:24-27`）payload：
@@ -74,13 +83,20 @@
 
 **Router**：`backend/app/routers/sessions.py` `create_session()`（`:33-63`）。語言優先序 = `payload.language > user.preferred_language > Accept-Language > default`（`:49-51`）。
 
-**Schema**：`backend/app/schemas/session.py` `SessionCreate`（`:72-100`）：`chief_complaint_id: UUID` 必填、`chief_complaint_text: Optional[str] max_length=200`、`language` 對 `SUPPORTED_LANGUAGES` 做 BCP-47 正規化、`patient_info` + `intake`。
+**Schema**：`backend/app/schemas/session.py` `SessionCreate`：`chief_complaint_id: UUID` 必填、
+`doctor_id: Optional[UUID]`（只為 legacy 客戶端相容；現行 Flutter 必填）、
+`chief_complaint_text: Optional[str] max_length=200`、`language` 對 `SUPPORTED_LANGUAGES`
+做 BCP-47 正規化、`patient_info` + `intake`。
 
 **Service**：`backend/app/services/session_service.py` `create_session()`（`:628-762`）：
 1. 以 `(user_id, name, dob, phone)` `get_or_create` **`patients` 列**（`:672-713`）；fallback 到第一個 patient 或自動建 placeholder（name "Unknown"、dob 1900-01-01）（`:715-740`）。
-2. `SessionService.create()`（`:254-281`）INSERT **`sessions`**：`patient_id, doctor_id?, chief_complaint_id, chief_complaint_text, status=WAITING, red_flag=False, language, intake_data(JSONB), intake_completed_at`。
-3. `commit` + 重取（eager `conversations`+`patient`）。
-4. `_broadcast_session_created()`（`:37-75`）→ dashboard WS `session_created` + `queue_updated`/`stats_updated`（同行程、僅在有 dashboard client 連線時）。
+2. 若有 `doctor_id`，先以 `_selectable_doctor_filter()` 驗證為 active、科別非空的 doctor，
+   或有執照的臨床 admin；不信任前端任意 UUID。
+3. `SessionService.create()` INSERT **`sessions`**：`patient_id, doctor_id?, chief_complaint_id, chief_complaint_text, status=WAITING, red_flag=False, language, intake_data(JSONB), intake_completed_at`。
+4. `commit` + 重取（eager `conversations`+`patient`）。
+5. `_broadcast_session_created()` → dashboard WS；含病患內容的 `session_created` 帶
+   `targetUserId=doctor_id`，只送被選醫師。全域 queue/stats 訊號不夾帶病患內容，客戶端收到後
+   重抓已套 REST scope 的清單。
 
 **`_validate_session` 的 chiefComplaintText fallback** 其實在 **WS handler**：`conversation_handler.py:2494-2631`。fallback 鏈（防 E8-2：ORM relationship 物件洩進 substring 比較）：
 ```

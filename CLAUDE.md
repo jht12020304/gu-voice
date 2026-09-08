@@ -52,7 +52,15 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 - 後端：⚠️ CLI 5.41.2 起 `railway up` 一律上傳 git root（在 `backend/` 裡跑也一樣→FAILED），必須先 `git archive HEAD:backend | tar -x -C <非git臨時目錄>`，在該目錄 `railway link -p gu-voice-api -s gu-voice-app -e production && railway up --detach` → 驗 `curl <host>/api/v1/healthz/deep`（完整流程見 `docs/deployment_guide.md` 一、）
 - React 前端：`cd frontend && npm run build && vercel --prod`，然後 **手動** `vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.app`（正式 alias 不會隨 --prod 自動移動）
 - Flutter Web：`cd flutter_app && ./tool/build_vercel_output.sh && vercel deploy --prebuilt --prod --skip-domain --scope chuns-projects-068de742`；正式切換前照 `docs/flutter_web_cutover.md` 驗語音並保留 React rollback
-- iOS TestFlight（Flutter 醫師端，只做內部測試）：`cd flutter_app && ./tool/build_ios_testflight.sh` → 產出已簽章 .ipa → 由人看過六關驗證結果後手動上傳（現行走 ASC API key ＋ `xcrun altool`，先 `--validate-app` 再 `--upload-app`；腳本刻意不代勞）。**所有設定值（Team ID、bundle ID、SKU、ExportOptions、金鑰位置、上傳指令、目前上線的 build）只留在 `docs/ios_release_settings.md`，別在其他地方重抄**；前置條件、驗收斷言、內部測試群組、90 天到期與「TestFlight 要 iOS 16+ 但本 App 目標 15.0」都在 `docs/deployment_guide.md` 二、。⚠️ 第一次跑第 5 關必定被 macOS **鑰匙圈授權對話框**擋一次（錯誤訊息會誤導成 codesign 壞了），按「允許」後 `xcodebuild -exportArchive -allowProvisioningUpdates` 即可；`flutter build ipa` export 失敗仍回 exit 0，**唯一判準是 `.ipa` 存不存在**。⚠️ 內測包打的是**生產後端**（無 staging），`report_ready` 推播 body 帶真實病患姓名且 fan-out 給全體在職醫師，測試者拿的又是真實醫師帳號（後端無 tenant/scope 隔離，登進去就讀得到全部病歷）——**加第 2 個測試人員之前先看 `docs/TODO.md` §V8 的兩條路，光遮推播文案不會降低 PHI 暴露**。`ExportOptions.plist` 的 `testFlightInternalTestingOnly=true` **已證實生效**（2026-08-21 上傳的 build 在 ASC 標「內部」），**但它擋散佈不擋資料、不是 PHI 護欄**——擋 PHI 的仍然只有「第一版只裝自己一台」這個拍板；且走 Xcode Organizer 上傳仍會整份繞過 ExportOptions
+- iOS TestFlight（Flutter 單一 App，只做內部測試）：`cd flutter_app && ./tool/build_ios_testflight.sh` →
+  產出已簽章 .ipa → 由人看過六關驗證結果後手動上傳（ASC API key ＋ `xcrun altool`，
+  先 `--validate-app` 再 `--upload-app`；腳本刻意不代勞）。所有設定值與目前 build 只留在
+  `docs/ios_release_settings.md`；操作與到期門檻見 `docs/deployment_guide.md` 二、。第一次跑第 5 關
+  會被 macOS 鑰匙圈授權對話框擋一次；`flutter build ipa` export 失敗仍可能回 exit 0，唯一判準是
+  `.ipa` 存在。⚠️ 內測包打生產後端（無 staging）：現行問診必選醫師，doctor／臨床 admin
+  只讀與接收自己被指派的病患資料，system admin 保留全院稽核；未指派 legacy 報告通知仍有
+  全體在職醫護 fallback。production 測試員只能是獲授權院內人員，未授權工程／PM 用 staging。
+  `testFlightInternalTestingOnly=true` 已證實有效，但只擋散佈、不擋資料；Organizer 仍會繞過整份 ExportOptions。
 
 活後端域名 = `gu-voice-app-production.up.railway.app`（`api-` 是死域名）。正式 React 網址仍為 `gu-voice-chuns-projects-068de742.vercel.app`；Flutter Web 固定驗證網址為 `gu-voice-flutter-preview.vercel.app`（2026-08-17 已驗 build、78 tests、五語 deep link、CORS、病患測試登入，**實體麥克風/STT/TTS/VAD 尚待人工驗證，未通過前不得 promote**）。React rollback deployment 是 `gu-voice-ktox9rgon-chuns-projects-068de742.vercel.app`。測試登入按鈕只可使用無真實資料的 patient 帳號，禁止內嵌 doctor/admin 憑證。生產 DB = Supabase `gu-voice-prod`（ref `xobxnlvtilezridrekdm`，ap-southeast-1）；環境變數真相 = Railway。細節見 `docs/flutter_web_cutover.md`、`deploy-production` skill 與 [docs/AGENTS.md](docs/AGENTS.md)。
 
