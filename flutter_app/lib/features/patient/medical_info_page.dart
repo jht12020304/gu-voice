@@ -7,6 +7,7 @@ import '../../core/router/lng.dart';
 import '../../data/api/sessions_api.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../shared/widgets/language_action.dart';
+import '../auth/auth_notifier.dart';
 import 'intake_payload.dart';
 
 // Port of MedicalInfoPage.tsx — identity + intake (allergies / medications / past history)
@@ -14,6 +15,10 @@ import 'intake_payload.dart';
 // bar / next-prev / summary card) and family history are folded to a single scroll page,
 // but the clinical intake DATA is collected and sent (no more all-negative hardcode).
 class _Allergy {
+  _Allergy([String initialValue = '']) {
+    ctrl.text = initialValue;
+  }
+
   final ctrl = TextEditingController();
   bool hospitalized = false;
 }
@@ -24,6 +29,10 @@ class _Medication {
 }
 
 class _History {
+  _History([String initialValue = '']) {
+    ctrl.text = initialValue;
+  }
+
   final ctrl = TextEditingController();
   String yearsAgo = 'unsure';
   bool stillHas = true;
@@ -50,6 +59,10 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
   bool _creating = false;
   String? _error;
   bool _showErrors = false;
+  List<DoctorOption> _doctors = const [];
+  String? _doctorId;
+  bool _loadingDoctors = true;
+  bool _doctorLoadFailed = false;
 
   // These four are the ONLY source of the backend's `no_*` flags. A flag means "the
   // patient explicitly denied it" (backend puts the topic on the §3b do-not-ask list and
@@ -77,8 +90,71 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
     'maternalGrandmother',
   ];
 
-  static const _frequencyKeys = ['onceDaily', 'twiceDaily', 'thriceDaily', 'asNeeded', 'weekly', 'other'];
+  static const _frequencyKeys = [
+    'onceDaily',
+    'twiceDaily',
+    'thriceDaily',
+    'asNeeded',
+    'weekly',
+    'other',
+  ];
   static const _yearsAgoKeys = ['within1', 'oneToFive', 'overFive', 'unsure'];
+  static const _commonAllergyKeys = [
+    'penicillin',
+    'aspirin',
+    'nsaid',
+    'sulfa',
+    'seafood',
+    'peanut',
+    'milk',
+    'dust',
+    'pollen',
+  ];
+  static const _commonConditionKeys = [
+    'hypertension',
+    'diabetes',
+    'heartDisease',
+    'stroke',
+    'kidneyDisease',
+    'gout',
+    'bph',
+    'urinaryStones',
+    'cancer',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_loadDoctors);
+  }
+
+  Future<void> _loadDoctors() async {
+    setState(() {
+      _loadingDoctors = true;
+      _doctorLoadFailed = false;
+    });
+    try {
+      final doctors = await SessionsApi().getDoctors();
+      if (!mounted) return;
+      final userId = ref.read(authProvider).user?.id;
+      setState(() {
+        _doctors = doctors;
+        _doctorId = doctors.any((d) => d.id == userId)
+            ? userId
+            : doctors.length == 1
+            ? doctors.single.id
+            : null;
+        _loadingDoctors = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loadingDoctors = false;
+          _doctorLoadFailed = true;
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -99,7 +175,12 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
     super.dispose();
   }
 
-  bool get _valid => _nameCtrl.text.trim().isNotEmpty && _gender != null && _dob != null;
+  bool get _valid =>
+      _nameCtrl.text.trim().isNotEmpty &&
+      _gender != null &&
+      _dob != null &&
+      !_loadingDoctors &&
+      _doctorId != null;
 
   // Args now arrive as URL query params (see intake_route.dart), where "missing" reads
   // back as '' rather than null. Collapse both to null so the `??` fallbacks still work.
@@ -109,7 +190,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
     return v.trim().isEmpty ? null : v;
   }
 
-  String _sessionLanguage() => supportedLanguages.contains(currentLng) ? currentLng : 'zh-TW';
+  String _sessionLanguage() =>
+      supportedLanguages.contains(currentLng) ? currentLng : 'zh-TW';
 
   Future<void> _submit() async {
     setState(() => _showErrors = true);
@@ -127,6 +209,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
       // 傳給後端，場次記在該病患名下。病患自己走 kiosk 流程時本欄缺席，
       // 後端照舊由登入者解析——兩條路互不影響。
       if ((_arg('patientId') ?? '').isNotEmpty) 'patientId': _arg('patientId'),
+      if (_doctorId != null) 'doctorId': _doctorId,
       // The AI/SOAP-facing text; fall back to the display name only when it is genuinely
       // absent (an empty query param is "not provided", not an empty complaint).
       'chiefComplaintText': _arg('complaintText') ?? _arg('complaintName'),
@@ -134,34 +217,45 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
       'patientInfo': {
         'name': _nameCtrl.text.trim(),
         'gender': _gender,
-        'dateOfBirth': '${dob.year.toString().padLeft(4, '0')}-${two(dob.month)}-${two(dob.day)}',
+        'dateOfBirth':
+            '${dob.year.toString().padLeft(4, '0')}-${two(dob.month)}-${two(dob.day)}',
         'phone': _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
       },
       // Pure projection (intake_payload.dart) so the exact JSON is unit-testable.
       'intake': buildIntakePayload(
         noAllergies: _noAllergies,
         allergies: [
-          for (final a in _allergies) AllergyEntry(allergen: a.ctrl.text, hospitalized: a.hospitalized),
+          for (final a in _allergies)
+            AllergyEntry(allergen: a.ctrl.text, hospitalized: a.hospitalized),
         ],
         noMedications: _noMedications,
         medications: [
-          for (final m in _medications) MedicationEntry(name: m.ctrl.text, frequencyKey: m.frequency),
+          for (final m in _medications)
+            MedicationEntry(name: m.ctrl.text, frequencyKey: m.frequency),
         ],
         noHistory: _noHistory,
         histories: [
           for (final h in _histories)
-            HistoryEntry(condition: h.ctrl.text, yearsAgoKey: h.yearsAgo, stillHas: h.stillHas),
+            HistoryEntry(
+              condition: h.ctrl.text,
+              yearsAgoKey: h.yearsAgo,
+              stillHas: h.stillHas,
+            ),
         ],
         noFamilyHistory: _noFamilyHistory,
         families: [
-          for (final f in _families) FamilyEntry(relationKey: f.relation, condition: f.ctrl.text),
+          for (final f in _families)
+            FamilyEntry(relationKey: f.relation, condition: f.ctrl.text),
         ],
       ),
     };
     try {
       final session = await SessionsApi().createSession(payload);
       if (!mounted) return;
-      context.go(prefixLngToPath('/conversation/${session.id}', currentLng), extra: session);
+      context.go(
+        prefixLngToPath('/conversation/${session.id}', currentLng),
+        extra: session,
+      );
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -177,8 +271,16 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
     final err = Theme.of(context).colorScheme.error;
     return Scaffold(
       appBar: AppBar(
-        title: Text(t('intake.medicalInfo.complaintLabel',
-            args: {'name': _arg('complaintName') ?? t('intake.medicalInfo.complaintUnset')})),
+        title: Text(
+          t(
+            'intake.medicalInfo.complaintLabel',
+            args: {
+              'name':
+                  _arg('complaintName') ??
+                  t('intake.medicalInfo.complaintUnset'),
+            },
+          ),
+        ),
         actions: const [LanguageAction()],
       ),
       body: AbsorbPointer(
@@ -186,55 +288,137 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(t('intake.medicalInfo.patient.title'),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 16),
-              TextField(
-              controller: _nameCtrl,
-              maxLength: 100,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                labelText: t('intake.medicalInfo.patient.nameLabel'),
-                errorText: _showErrors && _nameCtrl.text.trim().isEmpty ? t('intake.medicalInfo.patient.nameError') : null,
+            _card(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    t('intake.medicalInfo.patient.title'),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    key: ValueKey('${_doctors.length}:$_doctorId'),
+                    initialValue: _doctorId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: t('intake.medicalInfo.patient.doctorLabel'),
+                      helperText: t(
+                        _doctorLoadFailed
+                            ? 'intake.medicalInfo.patient.doctorLoadFailed'
+                            : 'intake.medicalInfo.patient.doctorHint',
+                      ),
+                      errorText:
+                          _showErrors && !_doctorLoadFailed && _doctorId == null
+                          ? t('intake.medicalInfo.patient.doctorError')
+                          : null,
+                      suffixIcon: _loadingDoctors
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : null,
+                    ),
+                    hint: Text(
+                      t('intake.medicalInfo.patient.doctorPlaceholder'),
+                    ),
+                    items: [
+                      for (final doctor in _doctors)
+                        DropdownMenuItem(
+                          value: doctor.id,
+                          child: Text(
+                            [
+                              doctor.name,
+                              if (doctor.department?.isNotEmpty == true)
+                                doctor.department!,
+                            ].join(' · '),
+                          ),
+                        ),
+                    ],
+                    onChanged: _loadingDoctors
+                        ? null
+                        : (value) => setState(() => _doctorId = value),
+                  ),
+                  if (_doctorLoadFailed)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: _loadDoctors,
+                        icon: const Icon(Icons.refresh),
+                        label: Text(t('common.retry')),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _nameCtrl,
+                    maxLength: 100,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: t('intake.medicalInfo.patient.nameLabel'),
+                      errorText: _showErrors && _nameCtrl.text.trim().isEmpty
+                          ? t('intake.medicalInfo.patient.nameError')
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(t('intake.medicalInfo.patient.genderLabel')),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final g in const ['male', 'female', 'other'])
+                        ChoiceChip(
+                          selected: _gender == g,
+                          label: Text(
+                            t(
+                              'intake.medicalInfo.patient.gender${g[0].toUpperCase()}${g.substring(1)}',
+                            ),
+                          ),
+                          onSelected: (_) => setState(() => _gender = g),
+                        ),
+                    ],
+                  ),
+                  if (_showErrors && _gender == null)
+                    Text(
+                      t('intake.medicalInfo.patient.genderError'),
+                      style: TextStyle(color: err),
+                    ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.calendar_today),
+                    label: Text(
+                      _dob == null
+                          ? t('intake.medicalInfo.patient.dobLabel')
+                          : '${_dob!.year}-${_dob!.month}-${_dob!.day}',
+                    ),
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        firstDate: DateTime(1900),
+                        lastDate: DateTime.now(),
+                        initialDate: DateTime(1980),
+                      );
+                      if (picked != null) setState(() => _dob = picked);
+                    },
+                  ),
+                  if (_showErrors && _dob == null)
+                    Text(
+                      t('intake.medicalInfo.patient.dobError'),
+                      style: TextStyle(color: err),
+                    ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _phoneCtrl,
+                    maxLength: 20,
+                    keyboardType: TextInputType.phone,
+                    decoration: InputDecoration(
+                      labelText: t('intake.medicalInfo.patient.phoneLabel'),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            Text(t('intake.medicalInfo.patient.genderLabel')),
-            Wrap(spacing: 8, children: [
-              for (final g in const ['male', 'female', 'other'])
-                ChoiceChip(
-                  selected: _gender == g,
-                  label: Text(t('intake.medicalInfo.patient.gender${g[0].toUpperCase()}${g.substring(1)}')),
-                  onSelected: (_) => setState(() => _gender = g),
-                ),
-            ]),
-            if (_showErrors && _gender == null) Text(t('intake.medicalInfo.patient.genderError'), style: TextStyle(color: err)),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.calendar_today),
-              label: Text(_dob == null
-                  ? t('intake.medicalInfo.patient.dobLabel')
-                  : '${_dob!.year}-${_dob!.month}-${_dob!.day}'),
-              onPressed: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  firstDate: DateTime(1900),
-                  lastDate: DateTime.now(),
-                  initialDate: DateTime(1980),
-                );
-                if (picked != null) setState(() => _dob = picked);
-              },
-            ),
-            if (_showErrors && _dob == null) Text(t('intake.medicalInfo.patient.dobError'), style: TextStyle(color: err)),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _phoneCtrl,
-              maxLength: 20,
-              keyboardType: TextInputType.phone,
-              decoration: InputDecoration(labelText: t('intake.medicalInfo.patient.phoneLabel')),
-            ),
-            ])),
             _card(_allergySection(context)),
             _card(_medicationSection(context)),
             _card(_historySection(context)),
@@ -245,21 +429,31 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).extension<AppTokens>()!.alertCriticalBg,
+                  color: Theme.of(
+                    context,
+                  ).extension<AppTokens>()!.alertCriticalBg,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Row(children: [
-                  Icon(Icons.error_outline, size: 20, color: err),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(_error!, style: TextStyle(color: err))),
-                ]),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline, size: 20, color: err),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(_error!, style: TextStyle(color: err)),
+                    ),
+                  ],
+                ),
               ),
             ],
             const SizedBox(height: 24),
             FilledButton(
-              onPressed: _creating ? null : _submit,
+              onPressed: _creating || _loadingDoctors ? null : _submit,
               child: _creating
-                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : Text(t('intake.medicalInfo.nav.submit')),
             ),
           ],
@@ -269,135 +463,230 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
   }
 
   Widget _card(Widget child) => Card(
-        margin: const EdgeInsets.only(bottom: 12),
-        child: Padding(padding: const EdgeInsets.all(16), child: child),
-      );
+    margin: const EdgeInsets.only(bottom: 12),
+    child: Padding(padding: const EdgeInsets.all(16), child: child),
+  );
 
-  Widget _sectionHeader(BuildContext context, String title, String noneLabel, bool none, ValueChanged<bool> onNone) => Row(
+  Widget _sectionHeader(
+    BuildContext context,
+    String title,
+    String noneLabel,
+    bool none,
+    ValueChanged<bool> onNone,
+  ) => Row(
+    children: [
+      Expanded(
+        child: Text(title, style: Theme.of(context).textTheme.titleSmall),
+      ),
+      Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(child: Text(title, style: Theme.of(context).textTheme.titleSmall)),
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            Checkbox(value: none, onChanged: (v) => onNone(v ?? false)),
-            Text(noneLabel),
-          ]),
+          Checkbox(value: none, onChanged: (v) => onNone(v ?? false)),
+          Text(noneLabel),
         ],
-      );
+      ),
+    ],
+  );
 
-  Widget _allergySection(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _sectionHeader(context, t('intake.medicalInfo.allergy.title'), t('intake.medicalInfo.allergy.noneLabel'), _noAllergies,
-            (v) => setState(() {
-                  _noAllergies = v;
-                  // Clear, don't just hide (React does the same). Rows kept alive behind
-                  // a ticked box are invisible data that submit() silently drops, and the
-                  // payload would then claim the patient denied what they had typed.
-                  if (v) _allergies.clear();
-                })),
-        if (!_noAllergies) ...[
-          for (var i = 0; i < _allergies.length; i++)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(children: [
+  Widget _allergySection(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _sectionHeader(
+        context,
+        t('intake.medicalInfo.allergy.title'),
+        t('intake.medicalInfo.allergy.noneLabel'),
+        _noAllergies,
+        (v) => setState(() {
+          _noAllergies = v;
+          // Clear, don't just hide (React does the same). Rows kept alive behind
+          // a ticked box are invisible data that submit() silently drops, and the
+          // payload would then claim the patient denied what they had typed.
+          if (v) _allergies.clear();
+        }),
+      ),
+      if (!_noAllergies) ...[
+        _quickAddChips(
+          context,
+          label: t('intake.medicalInfo.allergy.quickAddLabel'),
+          keys: _commonAllergyKeys,
+          valueForKey: (key) => t('intake.medicalInfo.commonAllergies.$key'),
+          isAdded: (value) =>
+              _allergies.any((a) => a.ctrl.text.trim() == value),
+          onAdd: (value) => setState(() => _allergies.add(_Allergy(value))),
+          keyPrefix: 'quick-allergy',
+        ),
+        const SizedBox(height: 8),
+        for (var i = 0; i < _allergies.length; i++)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
                 Expanded(
                   child: TextField(
                     controller: _allergies[i].ctrl,
                     maxLength: 100,
-                    decoration: InputDecoration(labelText: t('intake.medicalInfo.allergy.placeholder'), counterText: ''),
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: t('intake.medicalInfo.allergy.placeholder'),
+                      counterText: '',
+                    ),
                   ),
                 ),
-                Column(mainAxisSize: MainAxisSize.min, children: [
-                  Checkbox(value: _allergies[i].hospitalized, onChanged: (v) => setState(() => _allergies[i].hospitalized = v ?? false)),
-                  Text(t('intake.medicalInfo.allergy.hospitalized'), style: Theme.of(context).textTheme.labelSmall),
-                ]),
-                IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => setState(() => _allergies.removeAt(i))),
-              ]),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Checkbox(
+                      value: _allergies[i].hospitalized,
+                      onChanged: (v) => setState(
+                        () => _allergies[i].hospitalized = v ?? false,
+                      ),
+                    ),
+                    Text(
+                      t('intake.medicalInfo.allergy.hospitalized'),
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.remove_circle_outline),
+                  onPressed: () => setState(() => _allergies.removeAt(i)),
+                ),
+              ],
             ),
-          TextButton.icon(
-            icon: const Icon(Icons.add),
-            label: Text(t('intake.medicalInfo.allergy.add')),
-            onPressed: () => setState(() => _allergies.add(_Allergy())),
           ),
-        ],
-      ]);
+        TextButton.icon(
+          icon: const Icon(Icons.add),
+          label: Text(t('intake.medicalInfo.allergy.add')),
+          onPressed: () => setState(() => _allergies.add(_Allergy())),
+        ),
+      ],
+    ],
+  );
 
-  Widget _medicationSection(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _sectionHeader(context, t('intake.medicalInfo.medication.title'), t('intake.medicalInfo.medication.noneLabel'), _noMedications,
-            (v) => setState(() {
-                  _noMedications = v;
-                  if (v) _medications.clear();
-                })),
-        if (!_noMedications) ...[
-          for (var i = 0; i < _medications.length; i++)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(children: [
+  Widget _medicationSection(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _sectionHeader(
+        context,
+        t('intake.medicalInfo.medication.title'),
+        t('intake.medicalInfo.medication.noneLabel'),
+        _noMedications,
+        (v) => setState(() {
+          _noMedications = v;
+          if (v) _medications.clear();
+        }),
+      ),
+      if (!_noMedications) ...[
+        for (var i = 0; i < _medications.length; i++)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
                 Expanded(
                   child: TextField(
                     controller: _medications[i].ctrl,
                     maxLength: 100,
-                    decoration: InputDecoration(labelText: t('intake.medicalInfo.medication.placeholder'), counterText: ''),
+                    decoration: InputDecoration(
+                      labelText: t('intake.medicalInfo.medication.placeholder'),
+                      counterText: '',
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 DropdownButton<String>(
                   value: _medications[i].frequency,
-                  items: [for (final f in _frequencyKeys) DropdownMenuItem(value: f, child: Text(t('intake.medicalInfo.frequency.$f')))],
-                  onChanged: (v) => setState(() => _medications[i].frequency = v ?? 'onceDaily'),
+                  items: [
+                    for (final f in _frequencyKeys)
+                      DropdownMenuItem(
+                        value: f,
+                        child: Text(t('intake.medicalInfo.frequency.$f')),
+                      ),
+                  ],
+                  onChanged: (v) => setState(
+                    () => _medications[i].frequency = v ?? 'onceDaily',
+                  ),
                 ),
-                IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => setState(() => _medications.removeAt(i))),
-              ]),
+                IconButton(
+                  icon: const Icon(Icons.remove_circle_outline),
+                  onPressed: () => setState(() => _medications.removeAt(i)),
+                ),
+              ],
             ),
-          TextButton.icon(
-            icon: const Icon(Icons.add),
-            label: Text(t('intake.medicalInfo.medication.add')),
-            onPressed: () => setState(() => _medications.add(_Medication())),
           ),
-        ],
-      ]);
+        TextButton.icon(
+          icon: const Icon(Icons.add),
+          label: Text(t('intake.medicalInfo.medication.add')),
+          onPressed: () => setState(() => _medications.add(_Medication())),
+        ),
+      ],
+    ],
+  );
 
   // Optional, collapsible-free (kept flat to match the other sections here). Relation
   // dropdown + free-text condition; empty rows are dropped on submit.
-  Widget _familySection(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 8, bottom: 4),
-          // Same "none" affordance as the other three sections: without it the patient
-          // has no way to say 「沒有家族病史」 and §3b keeps asking (D-10).
-          child: Row(children: [
+  Widget _familySection(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 4),
+        // Same "none" affordance as the other three sections: without it the patient
+        // has no way to say 「沒有家族病史」 and §3b keeps asking (D-10).
+        child: Row(
+          children: [
             Expanded(
-              child: Row(children: [
-                Flexible(
-                  child: Text(t('intake.medicalInfo.family.title'),
-                      style: Theme.of(context).textTheme.titleSmall),
-                ),
-                const SizedBox(width: 8),
-                Text(t('intake.medicalInfo.family.optional'),
-                    style: Theme.of(context).textTheme.bodySmall),
-              ]),
-            ),
-            Row(mainAxisSize: MainAxisSize.min, children: [
-              Checkbox(
-                value: _noFamilyHistory,
-                onChanged: (v) => setState(() {
-                  _noFamilyHistory = v ?? false;
-                  if (_noFamilyHistory) _families.clear();
-                }),
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      t('intake.medicalInfo.family.title'),
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    t('intake.medicalInfo.family.optional'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
               ),
-              Text(t('intake.medicalInfo.family.noneLabel')),
-            ]),
-          ]),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Checkbox(
+                  value: _noFamilyHistory,
+                  onChanged: (v) => setState(() {
+                    _noFamilyHistory = v ?? false;
+                    if (_noFamilyHistory) _families.clear();
+                  }),
+                ),
+                Text(t('intake.medicalInfo.family.noneLabel')),
+              ],
+            ),
+          ],
         ),
-        Text(t('intake.medicalInfo.family.hint'), style: Theme.of(context).textTheme.bodySmall),
-        if (!_noFamilyHistory) ...[
-          for (var i = 0; i < _families.length; i++)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(children: [
+      ),
+      Text(
+        t('intake.medicalInfo.family.hint'),
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      if (!_noFamilyHistory) ...[
+        for (var i = 0; i < _families.length; i++)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
                 DropdownButton<String>(
                   value: _families[i].relation,
                   items: [
                     for (final r in _relationKeys)
-                      DropdownMenuItem(value: r, child: Text(t('intake.medicalInfo.relations.$r')))
+                      DropdownMenuItem(
+                        value: r,
+                        child: Text(t('intake.medicalInfo.relations.$r')),
+                      ),
                   ],
-                  onChanged: (v) => setState(() => _families[i].relation = v ?? 'father'),
+                  onChanged: (v) =>
+                      setState(() => _families[i].relation = v ?? 'father'),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -405,7 +694,9 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                     controller: _families[i].ctrl,
                     maxLength: 100,
                     decoration: InputDecoration(
-                      labelText: t('intake.medicalInfo.family.conditionPlaceholder'),
+                      labelText: t(
+                        'intake.medicalInfo.family.conditionPlaceholder',
+                      ),
                       counterText: '',
                     ),
                   ),
@@ -414,39 +705,71 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                   icon: const Icon(Icons.remove_circle_outline),
                   onPressed: () => setState(() => _families.removeAt(i)),
                 ),
-              ]),
+              ],
             ),
-          TextButton.icon(
-            icon: const Icon(Icons.add),
-            label: Text(t('intake.medicalInfo.family.add')),
-            onPressed: () => setState(() => _families.add(_Family())),
           ),
-        ],
-      ]);
+        TextButton.icon(
+          icon: const Icon(Icons.add),
+          label: Text(t('intake.medicalInfo.family.add')),
+          onPressed: () => setState(() => _families.add(_Family())),
+        ),
+      ],
+    ],
+  );
 
-  Widget _historySection(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _sectionHeader(context, t('intake.medicalInfo.history.title'), t('intake.medicalInfo.history.noneLabel'), _noHistory,
-            (v) => setState(() {
-                  _noHistory = v;
-                  if (v) _histories.clear();
-                })),
-        if (!_noHistory) ...[
-          for (var i = 0; i < _histories.length; i++)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(children: [
+  Widget _historySection(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _sectionHeader(
+        context,
+        t('intake.medicalInfo.history.title'),
+        t('intake.medicalInfo.history.noneLabel'),
+        _noHistory,
+        (v) => setState(() {
+          _noHistory = v;
+          if (v) _histories.clear();
+        }),
+      ),
+      if (!_noHistory) ...[
+        _quickAddChips(
+          context,
+          label: t('intake.medicalInfo.history.quickAddLabel'),
+          keys: _commonConditionKeys,
+          valueForKey: (key) => t('intake.medicalInfo.commonConditions.$key'),
+          isAdded: (value) =>
+              _histories.any((h) => h.ctrl.text.trim() == value),
+          onAdd: (value) => setState(() => _histories.add(_History(value))),
+          keyPrefix: 'quick-condition',
+        ),
+        const SizedBox(height: 8),
+        for (var i = 0; i < _histories.length; i++)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
                 Expanded(
                   child: TextField(
                     controller: _histories[i].ctrl,
                     maxLength: 100,
-                    decoration: InputDecoration(labelText: t('intake.medicalInfo.history.placeholder'), counterText: ''),
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: t('intake.medicalInfo.history.placeholder'),
+                      counterText: '',
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 DropdownButton<String>(
                   value: _histories[i].yearsAgo,
-                  items: [for (final y in _yearsAgoKeys) DropdownMenuItem(value: y, child: Text(t('intake.medicalInfo.yearsAgo.$y')))],
-                  onChanged: (v) => setState(() => _histories[i].yearsAgo = v ?? 'unsure'),
+                  items: [
+                    for (final y in _yearsAgoKeys)
+                      DropdownMenuItem(
+                        value: y,
+                        child: Text(t('intake.medicalInfo.yearsAgo.$y')),
+                      ),
+                  ],
+                  onChanged: (v) =>
+                      setState(() => _histories[i].yearsAgo = v ?? 'unsure'),
                 ),
                 // `stillHas` was hardcoded true with no way to say otherwise, so every
                 // resolved condition reached the doctor as ongoing — silently wrong
@@ -456,17 +779,58 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                   message: t('intake.medicalInfo.history.stillHas'),
                   child: Checkbox(
                     value: _histories[i].stillHas,
-                    onChanged: (v) => setState(() => _histories[i].stillHas = v ?? true),
+                    onChanged: (v) =>
+                        setState(() => _histories[i].stillHas = v ?? true),
                   ),
                 ),
-                IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => setState(() => _histories.removeAt(i))),
-              ]),
+                IconButton(
+                  icon: const Icon(Icons.remove_circle_outline),
+                  onPressed: () => setState(() => _histories.removeAt(i)),
+                ),
+              ],
             ),
-          TextButton.icon(
-            icon: const Icon(Icons.add),
-            label: Text(t('intake.medicalInfo.history.add')),
-            onPressed: () => setState(() => _histories.add(_History())),
           ),
-        ],
-      ]);
+        TextButton.icon(
+          icon: const Icon(Icons.add),
+          label: Text(t('intake.medicalInfo.history.add')),
+          onPressed: () => setState(() => _histories.add(_History())),
+        ),
+      ],
+    ],
+  );
+
+  Widget _quickAddChips(
+    BuildContext context, {
+    required String label,
+    required List<String> keys,
+    required String Function(String key) valueForKey,
+    required bool Function(String value) isAdded,
+    required ValueChanged<String> onAdd,
+    required String keyPrefix,
+  }) {
+    final available = [
+      for (final key in keys)
+        if (!isAdded(valueForKey(key))) (key: key, value: valueForKey(key)),
+    ];
+    if (available.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final option in available)
+              ActionChip(
+                key: ValueKey('$keyPrefix-${option.key}'),
+                label: Text(option.value),
+                onPressed: () => onAdd(option.value),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
 }

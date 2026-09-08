@@ -30,32 +30,32 @@ class DoctorSettingsPage extends ConsumerWidget {
     // section 標題移到卡外用 GroupHeader（對齊儀表板「管理區」寫法），
     // 卡內只留內容——兩形系統：容器=8（Card 預設）、這裡沒有標籤故不涉及 pill。
     Widget section(List<Widget> children) => Card(
-          margin: const EdgeInsets.only(bottom: 16),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: children,
-            ),
-          ),
-        );
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: children,
+        ),
+      ),
+    );
 
     Widget row(String label, String? value) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(label, style: text.bodyMedium),
-              Flexible(
-                child: Text(
-                  value == null || value.isEmpty ? '—' : value,
-                  style: text.bodyMedium,
-                  textAlign: TextAlign.end,
-                ),
-              ),
-            ],
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: text.bodyMedium),
+          Flexible(
+            child: Text(
+              value == null || value.isEmpty ? '—' : value,
+              style: text.bodyMedium,
+              textAlign: TextAlign.end,
+            ),
           ),
-        );
+        ],
+      ),
+    );
 
     return Scaffold(
       appBar: AppBar(title: Text(t('common.doctor.settings.title'))),
@@ -95,8 +95,27 @@ class DoctorSettingsPage extends ConsumerWidget {
               onSelectionChanged: (v) => notifier.setThemeMode(v.first),
             ),
             const SizedBox(height: 16),
-            Text(t('common.doctor.settings.languageLabel'), style: text.bodyMedium),
-            Text(t('common.doctor.settings.languageHint'), style: text.bodySmall),
+            Text(t('common.fontSize'), style: text.bodyMedium),
+            Text(t('common.fontSizeHint'), style: text.bodySmall),
+            const SizedBox(height: 8),
+            SegmentedButton<double>(
+              segments: const [
+                ButtonSegment(value: 1.0, label: Text('100%')),
+                ButtonSegment(value: 1.2, label: Text('120%')),
+                ButtonSegment(value: 1.4, label: Text('140%')),
+              ],
+              selected: {settings.textScale},
+              onSelectionChanged: (v) => notifier.setTextScale(v.first),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              t('common.doctor.settings.languageLabel'),
+              style: text.bodyMedium,
+            ),
+            Text(
+              t('common.doctor.settings.languageHint'),
+              style: text.bodySmall,
+            ),
             const SizedBox(height: 8),
             // Same authority as everywhere else: switching navigates to the URL under the
             // new lng. Doctors previously only had zh/en chips on the patient page.
@@ -113,9 +132,7 @@ class DoctorSettingsPage extends ConsumerWidget {
             ),
           ]),
           GroupHeader(t('common.doctor.settings.systemInfo')),
-          section([
-            row(t('common.doctor.settings.apiEndpoint'), Env.apiBase),
-          ]),
+          section([row(t('common.doctor.settings.apiEndpoint'), Env.apiBase)]),
         ],
       ),
     );

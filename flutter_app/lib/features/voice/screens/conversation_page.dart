@@ -8,6 +8,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/sessions_api.dart';
 import '../../../data/models/session.dart';
 import '../../../shared/widgets/language_action.dart';
+import '../../../shared/widgets/ui_kit.dart';
 import '../models/chat_message.dart';
 import '../services/audio_stream_service.dart';
 import '../services/ws_manager.dart';
@@ -39,7 +40,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   }
 
   Future<void> _init() async {
-    final session = widget.session ?? await SessionsApi().getSession(widget.sessionId);
+    final session =
+        widget.session ?? await SessionsApi().getSession(widget.sessionId);
     if (!mounted) return;
     await ref.read(conversationControllerProvider.notifier).start(session);
   }
@@ -47,6 +49,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(conversationControllerProvider);
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     // On completion, route to the thank-you page (red-flag variant carried via extra).
     //
@@ -58,12 +61,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     // here" (voice-pipeline-invariants #11). Reading both off the same emission
     // makes that stale read structurally impossible.
     ref.listen(
-      conversationControllerProvider.select((v) => (v.completed, v.abortedRedFlag)),
+      conversationControllerProvider.select(
+        (v) => (v.completed, v.abortedRedFlag),
+      ),
       (_, next) {
         final (completed, abortedRedFlag) = next;
         if (completed) {
           context.go(
-            prefixLngToPath('/patient/session/${widget.sessionId}/thank-you', currentLng),
+            prefixLngToPath(
+              '/patient/session/${widget.sessionId}/thank-you',
+              currentLng,
+            ),
             extra: {'abortedRedFlag': abortedRedFlag},
           );
         }
@@ -80,7 +88,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
           // WS 與收音都不受影響（autoDispose 的 controller 只在真的離頁時才拆）。
           const LanguageAction(),
           TextButton(
-            onPressed: () => ref.read(conversationControllerProvider.notifier).endSession(),
+            onPressed: () =>
+                ref.read(conversationControllerProvider.notifier).endSession(),
             child: Text(t('conversation.endSession')),
           ),
         ],
@@ -89,8 +98,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         children: [
           if (s.connection != WsConnState.open) _banner(context, s.connection),
           if (s.redFlags.isNotEmpty) _redFlagBanner(context, s),
-          if (s.supervisorDegraded || s.guidance != null) _supervisorBanner(context, s),
-          if (s.voiceUnavailable != null) _voiceUnavailableBanner(context, s.voiceUnavailable!),
+          if (s.supervisorDegraded || s.guidance != null)
+            _supervisorBanner(context, s, compact: keyboardOpen),
+          if (s.voiceUnavailable != null)
+            _voiceUnavailableBanner(context, s.voiceUnavailable!),
           if (s.error != null) _errorBanner(context, s.error!),
           Expanded(child: _transcript(context, s)),
           _statusBar(context, s),
@@ -103,33 +114,94 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   // Stacked, severity-colored, acknowledge-able red-flag banner (≤3 sorted, then overflow
   // count) — safety-UI parity with the React ConversationPage.
-  Widget _supervisorBanner(BuildContext context, ConversationState s) {
+  Widget _supervisorBanner(
+    BuildContext context,
+    ConversationState s, {
+    required bool compact,
+  }) {
     final tk = Theme.of(context).extension<AppTokens>()!;
     final g = s.guidance;
+    if (compact) {
+      final summary = s.supervisorDegraded && (g == null || g.nextFocus.isEmpty)
+          ? t('conversation.supervisor.degraded')
+          : '${t('conversation.supervisor.hintLabel')}: ${g?.nextFocus ?? ''}';
+      return Container(
+        key: const ValueKey('supervisor-guidance-compact'),
+        width: double.infinity,
+        color: tk.alertMediumBg,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          children: [
+            Icon(Icons.lightbulb_outline, size: 18, color: tk.alertMedium),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                summary,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: tk.alertMedium,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (g != null && g.missingHpi.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              PillTag(
+                t(
+                  'conversation.supervisor.remainingCount',
+                  args: {'count': g.missingHpi.length},
+                ),
+                color: tk.alertMedium,
+              ),
+            ],
+          ],
+        ),
+      );
+    }
     return Container(
+      key: const ValueKey('supervisor-guidance-expanded'),
       width: double.infinity,
       color: tk.alertMediumBg,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (s.supervisorDegraded)
-          Text(t('conversation.supervisor.degraded'), style: TextStyle(color: tk.alertMedium)),
-        if (g != null && g.nextFocus.isNotEmpty)
-          Text('${t('conversation.supervisor.hintLabel')}: ${g.nextFocus}',
-              style: TextStyle(color: tk.alertMedium, fontWeight: FontWeight.w600)),
-        if (g != null && g.missingHpi.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Wrap(spacing: 6, runSpacing: 4, children: [
-              Text('${t('conversation.supervisor.missingLabel')}:', style: TextStyle(color: tk.alertMedium)),
-              for (final h in g.missingHpi)
-                Chip(
-                  label: Text(t('conversation.supervisor.hpi.$h')),
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-            ]),
-          ),
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (s.supervisorDegraded)
+            Text(
+              t('conversation.supervisor.degraded'),
+              style: TextStyle(color: tk.alertMedium),
+            ),
+          if (g != null && g.nextFocus.isNotEmpty)
+            Text(
+              '${t('conversation.supervisor.hintLabel')}: ${g.nextFocus}',
+              style: TextStyle(
+                color: tk.alertMedium,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          if (g != null && g.missingHpi.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  Text(
+                    '${t('conversation.supervisor.missingLabel')}:',
+                    style: TextStyle(color: tk.alertMedium),
+                  ),
+                  for (final h in g.missingHpi)
+                    Chip(
+                      label: Text(t('conversation.supervisor.hpi.$h')),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -170,71 +242,106 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     final tk = Theme.of(context).extension<AppTokens>()!;
     const rank = {'critical': 0, 'high': 1, 'medium': 2};
     // Unacknowledged first, then by severity, newest last; show up to 3 + overflow count.
-    final sorted = [...s.redFlags]..sort((a, b) {
-        if (a.isAcknowledged != b.isAcknowledged) return a.isAcknowledged ? 1 : -1;
+    final sorted = [...s.redFlags]
+      ..sort((a, b) {
+        if (a.isAcknowledged != b.isAcknowledged) {
+          return a.isAcknowledged ? 1 : -1;
+        }
         return (rank[a.severity] ?? 3).compareTo(rank[b.severity] ?? 3);
       });
     final shown = sorted.take(3).toList();
     final overflow = sorted.length - shown.length;
-    Color sev(String s) => switch (s) { 'critical' => tk.alertCritical, 'high' => tk.alertHigh, _ => tk.alertMedium };
+    Color sev(String s) => switch (s) {
+      'critical' => tk.alertCritical,
+      'high' => tk.alertHigh,
+      _ => tk.alertMedium,
+    };
 
     return Container(
       width: double.infinity,
       color: tk.alertCriticalBg,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        for (final f in shown)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Icon(Icons.warning_amber_rounded, color: sev(f.severity), size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                // 病患橫幅只呈現「症狀名（title，後端依場次語言解析）」＋下方固定的
-                // kiosk 指引。醫師向欄位（description / suggestedActions）一律不渲染：
-                // 實測 description 是臨床推理文字（含鑑別診斷、「建議立即急診評估」），
-                // suggestedActions 是醫囑處置（「立即安排急診評估」），對已坐在候診區
-                // 的病患既看不懂又造成恐慌，且違反 kiosk 措辭鐵律。
-                // 與 React ConversationPage.tsx 的紅旗橫幅行為一致。
-                //
-                // 2026-07-27 Gate：結構性防線已補齊——RedFlagEvent 型別不再有
-                // description / suggestedActions，conversation_controller._onRedFlag
-                // 也不 ingest，所以 store 裡根本沒有值可印（與 React 同構）。
-                // title 為空（後端解析不到 canonical 顯示名）時退回中性的在地化說法，
-                // 否則橫幅只剩一個驚嘆號圖示，病患不知道發生什麼事。
-                child: Text(
-                  f.title.trim().isEmpty ? t('conversation.redFlag.generic') : f.title,
-                  style: TextStyle(color: sev(f.severity), fontWeight: FontWeight.w600),
-                ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final f in shown)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: sev(f.severity),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    // 病患橫幅只呈現「症狀名（title，後端依場次語言解析）」＋下方固定的
+                    // kiosk 指引。醫師向欄位（description / suggestedActions）一律不渲染：
+                    // 實測 description 是臨床推理文字（含鑑別診斷、「建議立即急診評估」），
+                    // suggestedActions 是醫囑處置（「立即安排急診評估」），對已坐在候診區
+                    // 的病患既看不懂又造成恐慌，且違反 kiosk 措辭鐵律。
+                    // 與 React ConversationPage.tsx 的紅旗橫幅行為一致。
+                    //
+                    // 2026-07-27 Gate：結構性防線已補齊——RedFlagEvent 型別不再有
+                    // description / suggestedActions，conversation_controller._onRedFlag
+                    // 也不 ingest，所以 store 裡根本沒有值可印（與 React 同構）。
+                    // title 為空（後端解析不到 canonical 顯示名）時退回中性的在地化說法，
+                    // 否則橫幅只剩一個驚嘆號圖示，病患不知道發生什麼事。
+                    child: Text(
+                      f.title.trim().isEmpty
+                          ? t('conversation.redFlag.generic')
+                          : f.title,
+                      style: TextStyle(
+                        color: sev(f.severity),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (!f.isAcknowledged)
+                    TextButton(
+                      onPressed: () => ref
+                          .read(conversationControllerProvider.notifier)
+                          .acknowledgeRedFlag(f.id),
+                      child: Text(t('dashboard.alert.acknowledge')),
+                    )
+                  else
+                    Icon(
+                      Icons.check_circle,
+                      color: tk.statusCompleted,
+                      size: 18,
+                    ),
+                ],
               ),
-              if (!f.isAcknowledged)
-                TextButton(
-                  onPressed: () => ref.read(conversationControllerProvider.notifier).acknowledgeRedFlag(f.id),
-                  child: Text(t('dashboard.alert.acknowledge')),
-                )
-              else
-                Icon(Icons.check_circle, color: tk.statusCompleted, size: 18),
-            ]),
+            ),
+          if (overflow > 0)
+            Text(
+              t('conversation.redFlag.more', args: {'count': overflow}),
+              style: TextStyle(color: tk.alertCritical, fontSize: 12),
+            ),
+          // 病患面唯一的行動指引：院內候診 kiosk，病患已在現場 →「原處稍候、
+          // 告知現場醫護」，不得出現「盡速就醫／立即急診」這類含糊指引。
+          //
+          // 優先用後端下發的 patientNotice：只有後端知道這則紅旗有沒有**真的**建立
+          // 醫師通知（未指派場次要 fan-out 給在職醫師，可能 0 位或寫入失敗），
+          // 前端自己拼就會對病患說謊。只有在所有顯示中的紅旗 notice 完全一致時才
+          // 當共用結尾，否則退回本地保守版 fallback（＝後端 _flagged 的同一句話，
+          // 由 test/red_flag_banner_wording_test.dart 逐字釘住）。
+          // 退回方向是 under-claim（少宣稱一層），不會說謊。
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              _sharedPatientNotice(shown) ??
+                  t('conversation.redFlag.patientNotice'),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+              ),
+            ),
           ),
-        if (overflow > 0)
-          Text(t('conversation.redFlag.more', args: {'count': overflow}), style: TextStyle(color: tk.alertCritical, fontSize: 12)),
-        // 病患面唯一的行動指引：院內候診 kiosk，病患已在現場 →「原處稍候、
-        // 告知現場醫護」，不得出現「盡速就醫／立即急診」這類含糊指引。
-        //
-        // 優先用後端下發的 patientNotice：只有後端知道這則紅旗有沒有**真的**建立
-        // 醫師通知（未指派場次要 fan-out 給在職醫師，可能 0 位或寫入失敗），
-        // 前端自己拼就會對病患說謊。只有在所有顯示中的紅旗 notice 完全一致時才
-        // 當共用結尾，否則退回本地保守版 fallback（＝後端 _flagged 的同一句話，
-        // 由 test/red_flag_banner_wording_test.dart 逐字釘住）。
-        // 退回方向是 under-claim（少宣稱一層），不會說謊。
-        Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            _sharedPatientNotice(shown) ?? t('conversation.redFlag.patientNotice'),
-            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
-          ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 
@@ -242,25 +349,33 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     final online = s.connection == WsConnState.open;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Row(children: [
-        Expanded(
-          child: TextField(
-            controller: _textCtrl,
-            enabled: online,
-            textInputAction: TextInputAction.send,
-            onSubmitted: online ? (_) => _sendText() : null,
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: t(online ? 'conversation.input.textPlaceholder' : 'conversation.input.sendOffline'),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              key: const ValueKey('conversation-text-input'),
+              controller: _textCtrl,
+              enabled: online,
+              textInputAction: TextInputAction.send,
+              onSubmitted: online ? (_) => _sendText() : null,
+              onTapOutside: (_) => _dismissKeyboard(),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: t(
+                  online
+                      ? 'conversation.input.textPlaceholder'
+                      : 'conversation.input.sendOffline',
+                ),
+              ),
             ),
           ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.send),
-          tooltip: t('conversation.input.send'),
-          onPressed: online ? _sendText : null,
-        ),
-      ]),
+          IconButton(
+            icon: const Icon(Icons.send),
+            tooltip: t('conversation.input.send'),
+            onPressed: online ? _sendText : null,
+          ),
+        ],
+      ),
     );
   }
 
@@ -269,21 +384,30 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     if (text.trim().isEmpty) return;
     ref.read(conversationControllerProvider.notifier).sendText(text);
     _textCtrl.clear();
+    _dismissKeyboard();
   }
+
+  void _dismissKeyboard() => FocusManager.instance.primaryFocus?.unfocus();
 
   /// 語音降級提示。刻意不是紅色的 `_errorBanner`：問診沒有壞掉，只是要改用打字。
   /// 全部用既有的 i18n key（五語都有），不新增翻譯字串。
-  Widget _voiceUnavailableBanner(BuildContext context, MicUnavailableReason reason) {
+  Widget _voiceUnavailableBanner(
+    BuildContext context,
+    MicUnavailableReason reason,
+  ) {
     final key = switch (reason) {
-      MicUnavailableReason.permissionDenied => 'conversation.error.micPermission',
+      MicUnavailableReason.permissionDenied =>
+        'conversation.error.micPermission',
       _ => 'conversation.error.micNotFound',
     };
     return Container(
       width: double.infinity,
       color: Theme.of(context).colorScheme.secondaryContainer,
       padding: const EdgeInsets.all(8),
-      child: Text('${t(key)}\n${t('conversation.input.textPlaceholder')}',
-          textAlign: TextAlign.center),
+      child: Text(
+        '${t(key)}\n${t('conversation.input.textPlaceholder')}',
+        textAlign: TextAlign.center,
+      ),
     );
   }
 
@@ -307,40 +431,84 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       reverse: true,
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       itemCount: s.messages.length,
       itemBuilder: (context, ri) {
         final i = s.messages.length - 1 - ri;
         final m = s.messages[i];
         final isPatient = m.sender == 'patient';
         final isSystem = m.sender == 'system';
+        final isAssistant = m.sender == 'assistant';
         final align = isSystem
             ? Alignment.center
             : isPatient
-                ? Alignment.centerRight
-                : Alignment.centerLeft;
-        final bg = isSystem ? tk.chatBg : (isPatient ? tk.chatPatientBg : tk.chatAiBg);
-        return Align(
-          alignment: align,
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
-            decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(16)),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(child: Text(m.content.isEmpty && m.isStreaming ? '…' : m.content)),
-                if (m.sender == 'assistant' && m.ttsAudioChunks.isNotEmpty) ...[
-                  const SizedBox(width: 6),
-                  InkWell(
-                    onTap: () => ref.read(conversationControllerProvider.notifier).replay(m.id),
-                    child: const Icon(Icons.replay, size: 18),
-                  ),
-                ],
+            ? Alignment.centerRight
+            : Alignment.centerLeft;
+        final bg = isSystem
+            ? tk.chatBg
+            : (isPatient ? tk.chatPatientBg : tk.chatAiBg);
+        final bubble = Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          constraints: BoxConstraints(
+            maxWidth:
+                MediaQuery.sizeOf(context).width * (isAssistant ? 0.66 : 0.78),
+          ),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  m.content.isEmpty && m.isStreaming ? '…' : m.content,
+                ),
+              ),
+              if (isAssistant && m.ttsAudioChunks.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: () => ref
+                      .read(conversationControllerProvider.notifier)
+                      .replay(m.id),
+                  child: const Icon(Icons.replay, size: 18),
+                ),
               ],
-            ),
+            ],
           ),
         );
+
+        if (isAssistant) {
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.asset(
+                      'assets/images/urosense_mascot.png',
+                      key: ValueKey('urosense-avatar-${m.id}'),
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.cover,
+                      cacheWidth: 96,
+                      semanticLabel: 'UroSense',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(child: bubble),
+              ],
+            ),
+          );
+        }
+
+        return Align(alignment: align, child: bubble);
       },
     );
   }
@@ -370,8 +538,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       child: Column(
         children: [
           if (s.isRecording) _waveform(context, s.waveform),
-          Text(t(key, args: {'duration': s.recordingDuration.toStringAsFixed(0)}),
-              style: Theme.of(context).textTheme.bodySmall),
+          Text(
+            t(key, args: {'duration': s.recordingDuration.toStringAsFixed(0)}),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ],
       ),
     );
@@ -390,7 +560,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               width: 3,
               height: (4 + b * 32).clamp(4, 36),
               margin: const EdgeInsets.symmetric(horizontal: 1),
-              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
         ],
       ),
@@ -401,37 +574,64 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     final settings = ref.watch(settingsProvider);
     final ctrl = ref.read(conversationControllerProvider.notifier);
     return SafeArea(
+      top: false,
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _iconBtn(
-              icon: s.userPaused ? Icons.play_arrow : Icons.pause,
-              label: t(s.userPaused ? 'conversation.voiceControl.resume' : 'conversation.voiceControl.pause'),
-              onTap: () => s.userPaused ? ctrl.resume() : ctrl.pause(),
-            ),
-            _iconBtn(
-              icon: settings.ttsMuted ? Icons.volume_off : Icons.volume_up,
-              label: t(settings.ttsMuted ? 'conversation.tts.unmuteLabel' : 'conversation.tts.muteLabel'),
-              onTap: () {
-                ref.read(settingsProvider.notifier).toggleTtsMuted();
-                ctrl.onTtsMuteToggled(ref.read(settingsProvider).ttsMuted);
-              },
-            ),
-            _iconBtn(
-              icon: Icons.speed,
-              label: t('conversation.tts.speedLabel', args: {'rate': settings.ttsSpeed}),
-              onTap: () => ref.read(settingsProvider.notifier).cycleSpeed(),
-            ),
-            // "我說完了" — skip the 2s silence window. Only useful while actually
-            // recording, so it is disabled otherwise rather than silently doing nothing.
-            _iconBtn(
-              icon: Icons.done_all,
-              label: t('conversation.voiceControl.finishSpeaking'),
-              onTap: s.isRecording && !s.userPaused ? ctrl.finishSpeaking : null,
-            ),
-          ],
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+        child: SizedBox(
+          height: 64,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _iconBtn(
+                  icon: s.userPaused ? Icons.play_arrow : Icons.pause,
+                  label: t(
+                    s.userPaused
+                        ? 'conversation.voiceControl.resume'
+                        : 'conversation.voiceControl.pause',
+                  ),
+                  onTap: () => s.userPaused ? ctrl.resume() : ctrl.pause(),
+                ),
+              ),
+              Expanded(
+                child: _iconBtn(
+                  icon: settings.ttsMuted ? Icons.volume_off : Icons.volume_up,
+                  label: t(
+                    settings.ttsMuted
+                        ? 'conversation.tts.unmuteLabel'
+                        : 'conversation.tts.muteLabel',
+                  ),
+                  onTap: () {
+                    ref.read(settingsProvider.notifier).toggleTtsMuted();
+                    ctrl.onTtsMuteToggled(ref.read(settingsProvider).ttsMuted);
+                  },
+                ),
+              ),
+              Expanded(
+                child: _iconBtn(
+                  key: const ValueKey('tts-speed-control'),
+                  icon: Icons.speed,
+                  label: '${settings.ttsSpeed}x',
+                  semanticLabel: t(
+                    'conversation.tts.speedLabel',
+                    args: {'rate': settings.ttsSpeed},
+                  ),
+                  onTap: () => ref.read(settingsProvider.notifier).cycleSpeed(),
+                ),
+              ),
+              // "我說完了" — skip the 2s silence window. Only useful while actually
+              // recording, so it is disabled otherwise rather than silently doing nothing.
+              Expanded(
+                child: _iconBtn(
+                  icon: Icons.done_all,
+                  label: t('conversation.voiceControl.finishSpeaking'),
+                  onTap: s.isRecording && !s.userPaused
+                      ? ctrl.finishSpeaking
+                      : null,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -439,7 +639,44 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   /// `onTap: null` renders the button disabled (Material greys it out) — used for
   /// "我說完了", which only makes sense mid-utterance.
-  Widget _iconBtn({required IconData icon, required String label, VoidCallback? onTap}) {
-    return TextButton.icon(onPressed: onTap, icon: Icon(icon), label: Text(label));
+  Widget _iconBtn({
+    Key? key,
+    required IconData icon,
+    required String label,
+    String? semanticLabel,
+    VoidCallback? onTap,
+  }) {
+    final accessibleLabel = semanticLabel ?? label;
+    return Tooltip(
+      message: accessibleLabel,
+      child: Semantics(
+        key: key,
+        button: true,
+        enabled: onTap != null,
+        label: accessibleLabel,
+        excludeSemantics: true,
+        child: TextButton(
+          onPressed: onTap,
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+            minimumSize: const Size(48, 56),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 22),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
