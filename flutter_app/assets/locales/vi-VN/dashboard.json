@@ -137,6 +137,8 @@
     "emptyMessage": "Không có báo cáo SOAP nào khớp với điều kiện",
     "redFlagBadge": "Phiên cờ đỏ",
     "chiefComplaintLabel": "Lý do khám: {{value}}",
+    "assignedDoctorLabel": "Bác sĩ phụ trách: {{name}}",
+    "unassignedDoctor": "Chưa phân công bác sĩ",
     "sessionStatusLabel": "Trạng thái phiên: {{value}}",
     "complaintEmpty": "Chưa nhập lý do khám",
     "complaintFetchFailed": "Không lấy được lý do khám",
