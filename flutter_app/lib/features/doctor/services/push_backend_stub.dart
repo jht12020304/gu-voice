@@ -19,7 +19,13 @@ class NoopPushBackend implements PushBackend {
   Future<bool> requestPermission() async => false;
 
   @override
+  Future<void> enableForegroundPresentation() async {}
+
+  @override
   Future<String?> getToken() async => null;
+
+  @override
+  Future<String?> getApnsToken() async => null;
 
   @override
   Stream<String> get onTokenRefresh => const Stream<String>.empty();

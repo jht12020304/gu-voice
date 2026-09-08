@@ -143,6 +143,7 @@ async def register_fcm_token(
         db,
         user_id=current_user.id,
         token=payload.device_token,
+        apns_token=payload.apns_token,
         platform=payload.platform,
         device_name=payload.device_name,
     )
