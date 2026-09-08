@@ -92,6 +92,7 @@ flutter:
 
   # Locale JSON copied verbatim from frontend/src/i18n/locales (single source of truth).
   assets:
+    - assets/images/
     - assets/locales/zh-TW/
     - assets/locales/en-US/
     - assets/locales/ja-JP/

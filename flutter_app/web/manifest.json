@@ -1,6 +1,6 @@
 {
-    "name": "GU Voice 泌尿科 AI 問診助手",
-    "short_name": "GU Voice",
+    "name": "UroSense 泌尿科 AI 問診助手",
+    "short_name": "UroSense",
     "start_url": "/",
     "display": "standalone",
     "background_color": "#F8FAFC",

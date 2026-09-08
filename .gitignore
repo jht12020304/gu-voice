@@ -53,6 +53,9 @@ Thumbs.db
 !flutter_app/ios/Runner/Assets.xcassets/**/*.png
 !flutter_app/android/app/src/main/res/**/*.png
 !flutter_app/web/icons/*.png
+# Exact, reviewed patient-facing mascot asset. Keep the exception narrow so clinical
+# screenshots elsewhere under flutter_app/ remain ignored by default.
+!flutter_app/assets/images/urosense_mascot.png
 
 # Apple 簽章金鑰與憑證——一旦 commit 就等於外洩，且 git 歷史清不乾淨。
 # 目前這些檔案放在 repo 外的 ../firebase-secrets/，這幾行是防手滑複製進來。
