@@ -137,6 +137,8 @@
     "emptyMessage": "条件に一致する SOAP レポートはありません",
     "redFlagBadge": "レッドフラグのセッション",
     "chiefComplaintLabel": "主訴：{{value}}",
+    "assignedDoctorLabel": "担当医：{{name}}",
+    "unassignedDoctor": "担当医未設定",
     "sessionStatusLabel": "セッション状態：{{value}}",
     "complaintEmpty": "主訴の記入なし",
     "complaintFetchFailed": "主訴を取得できません",
