@@ -32,6 +32,11 @@ GU-Voice 是一套**以語音對話為核心**的醫療遠端問診系統，協�
 
 角色判斷透過前端 `RoleGuard` HOC 搭配 `useAuthStore`，後端依 JWT claim 授權。
 
+> 2026-09-02 起不能只用 role 推斷病歷視野：doctor 與有 `license_number` 的 admin
+> 都是「臨床帳號」，只看 `sessions.doctor_id` 指派給自己的病患／場次／報告／紅旗；
+> 沒有執照欄位的 system admin 才保留全院稽核視野。病患在現行 Flutter 問診流程建立場次前
+> 必須先選醫師。
+
 ---
 
 ## 三、系統架構
