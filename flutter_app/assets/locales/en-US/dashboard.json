@@ -137,6 +137,8 @@
     "emptyMessage": "No SOAP reports match the current filters",
     "redFlagBadge": "Red-flag session",
     "chiefComplaintLabel": "Chief complaint: {{value}}",
+    "assignedDoctorLabel": "Responsible doctor: {{name}}",
+    "unassignedDoctor": "Unassigned",
     "sessionStatusLabel": "Session status: {{value}}",
     "complaintEmpty": "No chief complaint",
     "complaintFetchFailed": "Chief complaint unavailable",

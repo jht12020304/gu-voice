@@ -48,6 +48,7 @@
   "supervisor": {
     "hintLabel": "Sắp hỏi tiếp",
     "missingLabel": "Còn cần tìm hiểu:",
+    "remainingCount": "Còn {{count}}",
     "degraded": "Hướng dẫn trực tiếp tạm thời không khả dụng, nhưng phiên khám của quý vị vẫn tiếp tục bình thường.",
     "hpi": {
       "onset": "Thời điểm khởi phát",

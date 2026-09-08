@@ -48,6 +48,7 @@
   "supervisor": {
     "hintLabel": "Coming up next",
     "missingLabel": "Still to cover:",
+    "remainingCount": "{{count}} left",
     "degraded": "Live guidance is temporarily unavailable, but your consultation continues as usual.",
     "hpi": {
       "onset": "Onset",
