@@ -483,6 +483,36 @@ critical 紅旗中止、硬上限前遲到 critical、**遲到 critical 的 drai
 與 CLAUDE.md 對應鐵律。**新增任何讀 Session 的 query 都要套上它**，漏一條就會讓
 已刪除的病歷內容從那條路徑漏回畫面。
 
+### 2.6 快速開單（醫師端，2026-09-09）
+
+醫師點「SOAP 報告已生成」推播的當下，要做的決定通常只有一個：**要不要開檢查**。
+因此推播落點是 `/orders/:sessionId`（`AppNotification.route()`）——摘要 → 勾選 AI 建議檢查
+→ 確認送出；頁底一條連回完整報告頁。
+
+這是與既有 `SoapReportPage`（S/O/A/P 四張卡＋逐字稿＋PDF＋審閱）**並行**的流程，不是取代：
+完整報告頁與審閱流程未動。
+
+| 端 | 位置 |
+|---|---|
+| 頁面 | `flutter_app/lib/features/doctor/screens/quick_orders_page.dart` |
+| 端點 | `POST /api/v1/sessions/{id}/exam-orders`、`GET .../exam-orders/latest` |
+| 資料 | `exam_orders`（append-only，見 [session_data_inventory.md](session_data_inventory.md) §5.4） |
+
+三個刻意的取捨（改這頁之前先讀，都不是風格問題）：
+
+1. **預設一項都不勾。** 預先勾好等於把 AI 建議變成預設醫囑；醫師可能在沒讀摘要的情況下
+   按下送出。要全開有「全選」，成本一次點擊。
+2. **空的送出是合法的**，代表「看過摘要、這次不開檢查」——與「還沒看」必須分得出來。
+3. **上一張單裡、AI 現在不再建議的項目仍然列出**（標記「先前開立」）。報告可被重新生成、
+   `plan` 整個換掉；只畫當下的 AI 清單，醫師重送時會**無聲地**把上次開的項目取消掉。
+
+授權不自己重寫：兩支端點都先過 `SessionService.get_session()`（軟刪除 ＋
+`get_clinician_scope_id()` 的 row-level 隔離的單一來源），角色閘門用
+`require_role("doctor", "admin")`。
+
+⚠️ `AppNotification.route()` 同時是**通知中心點擊**的來源，所以站內清單點 `report_ready`
+也會落在快速開單頁——刻意一致。要拆開必須改成兩支函式。
+
 ---
 
 ## 3. 系統架構圖
@@ -613,7 +643,7 @@ critical 紅旗中止、硬上限前遲到 critical、**遲到 critical 的 drai
 | Database | PostgreSQL | 主資料庫 |
 | Cache | Redis | 對話狀態快取 |
 | 即時通訊 | WebSocket | 對話串流 + 紅旗推播 |
-| 推播 | Firebase Cloud Messaging | 紅旗通知 |
+| 推播 | **Apple 原生 APNs 直送，FCM 備援** | 紅旗、問診完成、報告完成／失敗。2026-09-03 起 iOS 走直送（`app/tasks/notification_retry.py`），僅在缺 APNs token 或直送失敗時回退 FCM |
 
 ---
 
@@ -656,6 +686,17 @@ SOAPReport（報告）
 ├── generated_at
 └── reviewed_by_doctor: boolean
 
+ExamOrder（檢查醫囑，2026-09-09）
+├── id
+├── session_id → Session（ON DELETE CASCADE）
+├── report_id → SOAPReport?（弱關聯；報告刪除只置 NULL，不連坐醫囑）
+├── ordered_by → User（開單醫師）
+├── items: JSONB [{test_name, urgency, rationale}]  ← 勾選當下的快照
+├── note: text?
+└── created_at
+    ⚠️ append-only：每次送出寫新列，讀取取最新一列。
+       重新勾選再送＝新增一列，舊的留著可回查，不 UPDATE。
+
 ChiefComplaint（主訴清單）
 ├── id
 ├── name
@@ -663,6 +704,15 @@ ChiefComplaint（主訴清單）
 ├── created_by: doctor_id?
 └── category
 ```
+
+### 6.1 為什麼 `ExamOrder.items` 是快照而不是外鍵
+
+AI 建議的檢查項目是 LLM 生成的**自由字串**，院內沒有代碼表可綁（2026-09-09 拍板先不綁）。
+報告可以被重新生成、`plan.recommended_tests` 整個換掉——若醫囑只存「指向報告某一項」的
+參照，報告一重生就再也還原不出醫師當時到底勾了什麼。把名稱、緊急度與理由一起凍結在
+`items` 裡，是唯一能事後交代臨床決策的作法。
+
+日後若要接院內 HIS 代碼表，是在 `items` 的元素上**增加** `code` 欄位，不是把快照換成外鍵。
 
 ---
 

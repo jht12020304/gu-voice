@@ -18,6 +18,7 @@
 | 部署方法（手動兩步） | [deployment_guide.md](deployment_guide.md) 一、＋ `.claude/skills/deploy-production`；env/dashboard 操作細節見 [AGENTS.md](AGENTS.md) |
 | env 變數 / dashboard 操作 | [deployment_guide.md](deployment_guide.md) |
 | **iOS／TestFlight 設定值（唯一權威來源）** | [ios_release_settings.md](ios_release_settings.md)——Team ID、bundle ID、SKU、ExportOptions、憑證與金鑰位置、上傳指令、目前上線的 build。**值只留這一份**；操作流程見 [deployment_guide.md](deployment_guide.md) 二、，決策與踩過的坑見 `.claude/skills/ios-testflight`，現況與 PHI 風險見 [TODO.md](TODO.md) §V8 |
+| **推播不通的診斷 runbook** | [push_troubleshooting.md](push_troubleshooting.md)——六個斷點的查法。⚠️「App 內有跳、鎖定畫面沒有」**不代表推播壞了**：站內走 WebSocket，與推播完全獨立 |
 | DB 連線與事故 runbook | [supabase_connection_guide.md](supabase_connection_guide.md) |
 | Celery worker/beat 建置 | [railway_celery_runbook.md](railway_celery_runbook.md) |
 | 本機開發環境 | [full_setup_guide.md](full_setup_guide.md) |

@@ -11,10 +11,10 @@
 
 | 層 | 存放處 | 內容 | 壽命 |
 |---|---|---|---|
-| **永久持久化** | PostgreSQL（Supabase） | `sessions`、`conversations`（問答原文逐輪）、`soap_reports`（含 `raw_transcript` 合併逐字稿）、`soap_report_revisions`、`red_flag_alerts`、`audit_logs`、`patients` | 永久（audit 有保留期任務；音檔 90 天——目前實際未上傳，見 §6） |
+| **永久持久化** | PostgreSQL（Supabase） | `sessions`、`conversations`（問答原文逐輪）、`soap_reports`（含 `raw_transcript` 合併逐字稿）、`soap_report_revisions`、`red_flag_alerts`、`exam_orders`（醫師勾選的檢查醫囑）、`audit_logs`、`patients` | 永久（audit 有保留期任務；音檔 90 天——目前實際未上傳，見 §6） |
 | **暫存** | Redis | 對話歷史（LLM context）、場次狀態、紅旗去重記錄、Supervisor 指導 | TTL 30 分鐘～1 小時 |
 | **即時廣播（不落地）** | WebSocket | 病患端事件（STT 結果、AI 回覆逐句文字+TTS base64 音訊、紅旗、場次狀態）、醫師儀表板事件 | 僅當下連線 |
-| **推播** | FCM（Firebase） | 紅旗警示推播給負責醫師 | 送出即結束 |
+| **推播** | **APNs 直送（FCM 備援）** | 紅旗、問診完成、報告完成／失敗，送給負責醫師 | 送出即結束 |
 | **觀測性** | Prometheus / 後端 log / Sentry（前端） | 計數器、延遲直方圖、結構化 log | 依各平台保留設定 |
 
 ---
@@ -207,6 +207,23 @@ Key `gu:session:{session_id}:context` 的 `conversation_history` 欄（JSON，�
 透過 `_doctor_targets()` fallback 給全部在職 doctor/admin。現行 Flutter UI 已把醫師選擇設為必填，
 正常流程不會使用 fallback。FCM 推播（`notification_retry.py`）照舊並行，推播失敗會把無效
 device token 標記 inactive；站內通知的已讀狀態同時驅動底部紅色未讀徽章。
+
+### 5.4 `exam_orders` 表（檢查醫囑，2026-09-09）
+
+醫師在「快速開單」頁看完摘要後，從 SOAP `plan.recommended_tests` 勾選要開立的檢查並確認送出，
+一次送出寫成一列。欄位：`session_id`、`report_id?`、`ordered_by`、`items`(JSONB)、`note?`、`created_at`。
+
+- **append-only，以最新一列為準。** 醫師可以重新勾選再送；舊列全部留著可回查。臨床決策的
+  變更軌跡不覆寫——與 `soap_report_revisions`、場次軟刪除同一種保守作法。
+- **`items` 是快照**：`[{test_name, urgency, rationale}]`，凍結勾選當下的原文。報告被重新生成後
+  `plan` 會整個換掉，只有這份快照還原得出醫師當時勾了什麼。院內代碼表尚未接（2026-09-09 拍板）。
+- **空陣列是合法值**：「醫師看過摘要、這次不開任何檢查」與「還沒看」在臨床上是兩件事，
+  必須分得出來，所以不用「沒有列」表示前者。
+- **稽核**：每次送出寫一筆 `AuditAction.CREATE` / `resource_type=exam_order`，`details` 含
+  `item_count` 與 `test_names`。
+- ⚠️ **軟刪除覆蓋**：`exam_orders` 沒有自己的 `is_deleted`。它的可見性完全跟著場次——讀取一律
+  先過 `SessionService.get_session()`（軟刪除的場次會丟 404），所以場次一軟刪除，其醫囑也
+  同時消失。FK 是 `ON DELETE CASCADE`，硬刪場次時一併帶走。
 
 ---
 
