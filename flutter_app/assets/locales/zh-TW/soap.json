@@ -249,5 +249,27 @@
     "success": "報告已重新產生",
     "error": "報告重新產生失敗，請稍後再試",
     "disabledGenerating": "報告產生中，請待完成後再重新產生"
+  },
+  "quickOrders": {
+    "title": "快速開單",
+    "summaryTitle": "問診摘要",
+    "noSummary": "這份報告尚無摘要。",
+    "testsTitle": "AI 建議檢查",
+    "noTests": "AI 這次沒有建議任何檢查項目。仍可直接送出，代表「已看過、這次不開檢查」。",
+    "selectAll": "全選",
+    "clearAll": "全部取消",
+    "noteTitle": "備註（選填）",
+    "noteHint": "給自己或後續人員的補充說明…",
+    "submit": "確認送出",
+    "submitting": "送出中…",
+    "submitted": "檢查單已送出。",
+    "submitError": "送出失敗，請稍後再試。",
+    "emptySelectionHint": "目前未勾選任何項目；送出代表這次不開檢查。",
+    "previouslyOrdered": "先前開立",
+    "lastOrdered": "上次於 {{time}} 送出，可重新勾選再送，以最新一次為準。",
+    "viewFullReport": "查看完整報告",
+    "reportGenerating": "報告生成中，建議檢查稍後才會出現",
+    "loadError": "載入失敗，請確認網路後重試。",
+    "retry": "重試"
   }
 }

@@ -21,6 +21,7 @@ import '../../features/doctor/screens/doctor_shell.dart';
 import '../../features/doctor/screens/notification_page.dart';
 import '../../features/doctor/screens/patient_detail_page.dart';
 import '../../features/doctor/screens/patient_list_page.dart';
+import '../../features/doctor/screens/quick_orders_page.dart';
 import '../../features/doctor/screens/report_list_page.dart';
 import '../../features/doctor/screens/research_analytics_page.dart';
 import '../../features/doctor/screens/session_detail_page.dart';
@@ -213,6 +214,13 @@ final routerProvider = Provider<GoRouter>((ref) {
                 DoctorShell(index: 0, child: SoapReportPage(sessionId: state.pathParameters['sessionId']!))),
           ),
         ],
+      ),
+      // 快速開單（2026-09-09）：推播「SOAP 報告已生成」的落點。與 /reports/:sessionId
+      // 並存——那頁是完整報告與審閱，這頁只做「看摘要 → 勾檢查 → 送出」。
+      GoRoute(
+        path: '/:lng/orders/:sessionId',
+        builder: (context, state) => _lngKeyed(
+            DoctorShell(index: 0, child: QuickOrdersPage(sessionId: state.pathParameters['sessionId']!))),
       ),
       GoRoute(path: '/:lng/research', builder: (context, state) => _lngKeyed(const DoctorShell(index: 0, child: ResearchAnalyticsPage()))),
       // ---- admin（RoleGuard：admin/doctor）----

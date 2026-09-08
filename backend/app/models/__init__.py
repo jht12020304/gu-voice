@@ -21,6 +21,7 @@ from app.models.enums import (
     SessionStatus,
     UserRole,
 )
+from app.models.exam_order import ExamOrder
 from app.models.fcm_device import FCMDevice
 from app.models.notification import Notification
 from app.models.notification_preference import NotificationPreference
@@ -47,6 +48,7 @@ __all__ = [
     "NotificationPreference",
     "AuditLog",
     "FCMDevice",
+    "ExamOrder",
     # Enums
     "UserRole",
     "SessionStatus",

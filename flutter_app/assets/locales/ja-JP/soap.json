@@ -249,5 +249,27 @@
     "success": "レポートを再生成しました",
     "error": "レポートの再生成に失敗しました。後でもう一度お試しください。",
     "disabledGenerating": "レポートを生成中です。完了してから再生成してください"
+  },
+  "quickOrders": {
+    "title": "クイックオーダー",
+    "summaryTitle": "問診サマリー",
+    "noSummary": "このレポートにはまだサマリーがありません。",
+    "testsTitle": "AI の推奨検査",
+    "noTests": "今回 AI からの推奨検査はありません。そのまま送信すると「確認済み・検査なし」として記録されます。",
+    "selectAll": "すべて選択",
+    "clearAll": "すべて解除",
+    "noteTitle": "備考（任意）",
+    "noteHint": "自分や次の担当者への補足…",
+    "submit": "確認して送信",
+    "submitting": "送信中…",
+    "submitted": "オーダーを送信しました。",
+    "submitError": "送信に失敗しました。時間をおいて再試行してください。",
+    "emptySelectionHint": "何も選択されていません。送信すると検査なしとして記録されます。",
+    "previouslyOrdered": "前回オーダー済み",
+    "lastOrdered": "前回の送信は {{time}}。選び直して再送信でき、最新のものが有効です。",
+    "viewFullReport": "レポート全文を見る",
+    "reportGenerating": "レポート生成中です。推奨検査は後ほど表示されます",
+    "loadError": "読み込みに失敗しました。通信状況を確認して再試行してください。",
+    "retry": "再試行"
   }
 }
