@@ -54,6 +54,12 @@ def test_chief_complaint_text_clinical_content_preserved() -> None:
     assert payload.chief_complaint_text == "發燒38度、血尿約 50%"
 
 
+def test_session_create_accepts_doctor_id_alias() -> None:
+    doctor_id = uuid.uuid4()
+    payload = SessionCreate(chiefComplaintId=uuid.uuid4(), doctorId=doctor_id)
+    assert payload.doctor_id == doctor_id
+
+
 @pytest.mark.parametrize(
     ("model", "field", "kwargs"),
     [

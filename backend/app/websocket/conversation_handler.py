@@ -2253,6 +2253,11 @@ async def _handle_text_message(
                 "severity": alert["severity"],
                 "title": resolved_title,
                 "description": alert["description"],
+                "targetUserId": (
+                    str(_session_doctor_id)
+                    if _session_doctor_id is not None
+                    else None
+                ),
             },
         )
         # A5 [D3]：record-on-success — DB 持久化 + 廣播皆未拋例外才記錄去重身份。

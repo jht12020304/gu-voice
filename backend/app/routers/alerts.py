@@ -143,7 +143,9 @@ async def acknowledge_all_alerts(
     ⚠️ 本路由必須註冊在 `/{alert_id}` 之前：FastAPI 依註冊順序匹配，
     否則 'acknowledge-all' 會被當成 UUID 解析而 422。
     """
-    count = await alert_service.acknowledge_all(db, user_id=current_user.id)
+    count = await alert_service.acknowledge_all(
+        db, user_id=current_user.id, current_user=current_user
+    )
     return {"acknowledged": count}
 
 
@@ -187,6 +189,7 @@ async def acknowledge_alert(
         acknowledged_by=current_user.id,
         acknowledge_notes=acknowledge_notes,
         action_taken=action_taken,
+        current_user=current_user,
     )
 
 

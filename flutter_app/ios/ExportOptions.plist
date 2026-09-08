@@ -114,9 +114,9 @@
        branches, and other builds that are not suitable for external
        distribution."
 
-    設為 true 的動機：本 App 的推播 body 會帶真實病患姓名，且後端目前是明文
-    fan-out 給全體在職醫師（逐條佐證見 docs/TODO.md §V8）。在補上去識別化之前，
-    這個 build 不應該外流到 external TestFlight 或商店。
+    設為 true 的動機：本 App 會處理真實病歷。現行已指派通知只送負責醫師、臨床帳號
+    也依 doctor_id 限縮，但推播與報告仍含被指派病患的 PHI，system admin 仍可全院稽核
+    （完整邊界見 docs/TODO.md §V8）。這個 build 不應外流到 external TestFlight 或商店。
 
     ✅【2026-08-21 已證實生效】。證據：build 202608211213（版本 1.0.0）就是用
     本檔（destination = export）產出、再以 `xcrun altool --upload-app` 上傳的，
@@ -138,14 +138,12 @@
       (b) 【它擋的是「散佈」，不是「資料」——它不是 PHI 護欄。】
           xcodebuild -help 原文只說 "cannot be distributed via external TestFlight
           or the App Store"：它擋的是這顆包流到外部測試員與商店，
-          【擋不了任何一個被加進「內部」測試群組的人】。而內部測試員登入拿的是
-          真實醫師帳號，後端沒有 tenant／scope 隔離，全院病歷與帶真實姓名的推播
-          照樣看得到。
+          【擋不了任何一個被加進「內部」測試群組的人】。現行臨床帳號雖已依
+          sessions.doctor_id 限縮，仍會讀到自己被指派病患的 PHI；system admin
+          仍有全院稽核視野。
           → 精確的說法是：【旗標有效 ≠ PHI 有護欄】。
-          → 「加第 2 個測試人員前要走完 docs/TODO.md §V8 的前置條件」這個結論
-            完全不受本次證實影響，一個字都不改。
-          → 目前實際在限制 PHI 暴露面的，仍然是【第一版只裝自己一台】這個人為
-            決定（2026-08-21 拍板）。
+          → production 內測只給獲授權院內人員；未授權工程／PM 走 staging，
+            詳細邊界見 docs/TODO.md §V8。
 
     另註：打包腳本的第 6 關【仍然檢查不到它】——這個 key 是給 xcodebuild 的匯出
     指示，不會在 .ipa 的 bundle 或 entitlements 裡留下痕跡。所以「產物驗證全綠」
