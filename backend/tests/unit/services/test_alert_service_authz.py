@@ -203,12 +203,10 @@ def _stmt_sql(stmt: Any) -> str:
     return str(stmt).lower()
 
 
-def test_doctor_scope_id_doctor_returns_none_clinic_wide():
-    # 2026-08-23 拍板：kiosk 場次 doctor_id 恆 NULL、紅旗 fan-out 全體醫師，
-    # 醫師視野＝全院。舊行為（回自己的 id）讓醫師的警示列表/徽章恆空——
-    # 這條測試釘住「不得回退到自動限縮」。
+def test_doctor_scope_id_returns_current_doctor():
+    # 問診開始前已選醫師，紅旗清單與徽章只屬於被指派者。
     doctor = _make_user(UserRole.DOCTOR)
-    assert _doctor_scope_id(doctor) is None
+    assert _doctor_scope_id(doctor) == doctor.id
 
 
 def test_doctor_scope_id_admin_returns_none():
@@ -221,9 +219,7 @@ def test_count_signature_accepts_current_user_kwarg():
     assert "current_user" in sig.parameters
 
 
-def test_count_no_doctor_filter_for_doctor_clinic_wide():
-    # 醫師與 admin 同視野（2026-08-23 拍板）：不得 join sessions 做 doctor_id
-    # 限縮——限縮的結果是徽章恆 0（kiosk 場次無指派醫師）。
+def test_count_filters_to_current_doctor():
     doctor = _make_user(UserRole.DOCTOR)
     db = _CountCapturingDB(count=3)
 
@@ -232,7 +228,7 @@ def test_count_no_doctor_filter_for_doctor_clinic_wide():
     assert count == 3
     assert db.execute_calls == 1
     sql = _stmt_sql(db.executed_stmt)
-    assert "doctor_id" not in sql
+    assert "doctor_id" in sql
     assert "acknowledged_by is null" in sql
 
 

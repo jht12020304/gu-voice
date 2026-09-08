@@ -48,6 +48,7 @@
   "supervisor": {
     "hintLabel": "接下來會問",
     "missingLabel": "尚待了解：",
+    "remainingCount": "剩 {{count}} 項",
     "degraded": "即時引導暫時無法使用，但您的問診仍照常進行。",
     "hpi": {
       "onset": "發生時間",

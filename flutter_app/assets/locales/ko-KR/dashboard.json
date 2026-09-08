@@ -137,6 +137,8 @@
     "emptyMessage": "조건에 맞는 SOAP 보고서가 없습니다",
     "redFlagBadge": "레드플래그 세션",
     "chiefComplaintLabel": "주호소: {{value}}",
+    "assignedDoctorLabel": "담당 의사: {{name}}",
+    "unassignedDoctor": "담당 의사 미지정",
     "sessionStatusLabel": "세션 상태: {{value}}",
     "complaintEmpty": "주호소 미입력",
     "complaintFetchFailed": "주호소를 가져올 수 없습니다",

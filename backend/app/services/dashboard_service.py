@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache.redis_client import get_redis
+from app.core.authz import get_clinician_scope_id
 from app.core.exceptions import ValidationException
 from app.models.chief_complaint import ChiefComplaint
 from app.models.enums import (
@@ -63,14 +64,8 @@ ALERT_SEVERITY_LABELS = {
 
 
 def _resolve_doctor_scope(current_user: Any, doctor_id: Optional[UUID]) -> Optional[UUID]:
-    """儀表板統計的醫師範圍：**預設全院，query 參數可顯式指定**。
-
-    2026-08-23 對齊「醫師＝管理員」拍板（詳見 alert_service._doctor_scope_id 的
-    同款註解）：kiosk 場次 doctor_id 恆 NULL，舊的「醫師自動限縮到自己」讓
-    儀表板月統計/今日統計對每一位醫師恆為 0，與場次列表頁（從不限縮）自相
-    矛盾——2026-08-23 生產實測（summary total_sessions=0 而八月場次一大串）。
-    """
-    return doctor_id
+    """臨床帳號強制看自己；system admin 可看全院或指定醫師。"""
+    return get_clinician_scope_id(current_user) or doctor_id
 
 
 def _parse_day_range(date_value: Optional[str]) -> tuple[datetime, datetime]:

@@ -13,7 +13,10 @@ from uuid import UUID
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.authz import get_user_role as _get_user_role
+from app.core.authz import (
+    get_clinician_scope_id,
+    get_user_role as _get_user_role,
+)
 from app.core.exceptions import (
     AlertAlreadyAcknowledgedException,
     NotFoundException,
@@ -82,18 +85,8 @@ def _parse_iso_datetime(value: Any) -> Optional[datetime]:
 
 
 def _doctor_scope_id(current_user: Any) -> Optional[UUID]:
-    """
-    回傳醫師範圍限制用的 doctor_id；**現行一律 None（不限縮）**。
-
-    2026-08-23 對齊「醫師＝管理員」拍板：kiosk 場次的 doctor_id 恆為 NULL
-    （無指派制），紅旗警示本來就 fan-out 給全體在職醫師，而場次/報告列表
-    端點也從不分醫師。舊行為（DOCTOR → 只看 session.doctor_id == 自己）
-    在這個模型下等於**醫師永遠看到空警示列表**：收到紅旗推播、點進警示頁
-    卻顯示「無警示」，警示 tab 徽章恆 0，警示詳情 404——2026-08-23 生產
-    實測（alerts total_count=0 而場次列表就有 aborted_red_flag）。
-    保留函式當未來真的引入指派制時的單一開關點。
-    """
-    return None
+    """臨床帳號只看被指派給自己的紅旗；system admin 不限縮。"""
+    return get_clinician_scope_id(current_user)
 
 
 class AlertService:
@@ -232,6 +225,7 @@ class AlertService:
         db: AsyncSession,
         user_id: UUID,
         notes: Optional[str] = None,
+        current_user: Any = None,
     ) -> int:
         """一鍵確認所有未確認警示（2026-08-23，U 系列後續）。
 
@@ -247,6 +241,16 @@ class AlertService:
             .where(RedFlagAlert.acknowledged_by.is_(None))
             .values(acknowledged_by=user_id, acknowledged_at=now, acknowledge_notes=notes)
         )
+        doctor_scope_id = _doctor_scope_id(current_user)
+        if doctor_scope_id is not None:
+            stmt = stmt.where(
+                RedFlagAlert.session_id.in_(
+                    select(Session.id).where(
+                        Session.doctor_id == doctor_scope_id,
+                        Session.id.in_(visible_session_ids()),
+                    )
+                )
+            )
         result = await db.execute(stmt)
         await db.commit()
         return int(result.rowcount or 0)
@@ -456,6 +460,7 @@ class AlertService:
         user_id: UUID,
         notes: Optional[str] = None,
         action_taken: Optional[str] = None,
+        current_user: Any = None,
     ) -> RedFlagAlert:
         """
         確認警示
@@ -470,7 +475,9 @@ class AlertService:
             NotFoundException: 警示不存在
             AlertAlreadyAcknowledgedException: 警示已被確認
         """
-        alert = await AlertService.get_by_id(db, alert_id)
+        alert = await AlertService.get_by_id(
+            db, alert_id, current_user=current_user
+        )
 
         if alert.acknowledged_by is not None:
             raise AlertAlreadyAcknowledgedException()
@@ -692,9 +699,10 @@ class AlertService:
         return await self.get_by_id(db, alert_id, current_user=current_user)
 
     async def acknowledge_alert(self, db, alert_id, acknowledged_by, acknowledge_notes=None,
-                                action_taken=None):
+                                action_taken=None, current_user=None):
         return await self.acknowledge(db, alert_id=alert_id, user_id=acknowledged_by,
-                                      notes=acknowledge_notes, action_taken=action_taken)
+                                      notes=acknowledge_notes, action_taken=action_taken,
+                                      current_user=current_user)
 
     async def list_rules(self, db, cursor=None, limit=20, severity=None,
                          is_active=None, category=None):

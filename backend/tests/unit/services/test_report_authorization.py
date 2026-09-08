@@ -3,7 +3,7 @@ Unit tests for SOAP report row-level ownership / authorization logic.
 
 守護 REPORTS-1 / REPORTS-7 / REPORTS-10 資安阻斷：
 - patient 只能讀取自己名下 Patient → session 的報告
-- doctor 只能讀取 doctor_id == self 或 doctor_id IS NULL(未指派)的 session 報告
+- doctor 只能讀取 doctor_id == self 的 session 報告
 - admin ownership 無限制，但場次被軟刪除時一樣看不到（2026-08-23）
 - 未知角色 / 缺 current_user → 拒絕（以 NotFound 避免洩漏存在與否）
 
@@ -146,7 +146,7 @@ def test_admin_cannot_access_report_of_deleted_or_missing_session():
 
 
 # ──────────────────────────────────────────────────────
-# doctor: 自己負責 + 未指派 → ok；其他醫師 → 拒絕
+# doctor: 只限自己負責；未指派與其他醫師都拒絕
 # ──────────────────────────────────────────────────────
 
 def test_doctor_can_access_own_assigned_report():
@@ -157,11 +157,12 @@ def test_doctor_can_access_own_assigned_report():
     assert db.execute_calls == 1
 
 
-def test_doctor_can_access_unassigned_report():
+def test_doctor_cannot_access_unassigned_report():
     doctor = _make_user(UserRole.DOCTOR)
     report = _make_report()
     db = _FakeDB(session_row=_Row(None, uuid.uuid4()))
-    _run(_authorize_report_access(db, report, doctor))
+    with pytest.raises(NotFoundException):
+        _run(_authorize_report_access(db, report, doctor))
 
 
 def test_doctor_cannot_access_other_doctor_report():

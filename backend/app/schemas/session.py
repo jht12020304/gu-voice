@@ -100,6 +100,7 @@ class SessionCreate(BaseModel):
     """建立場次"""
 
     patient_id: Optional[UUID] = Field(None, alias="patientId")
+    doctor_id: Optional[UUID] = Field(None, alias="doctorId")
     chief_complaint_id: UUID = Field(..., alias="chiefComplaintId")
     chief_complaint_text: Optional[str] = Field(
         None, max_length=200, alias="chiefComplaintText"
@@ -175,6 +176,7 @@ class SessionResponse(BaseModel):
     patient_id: UUID
     patient_name: Optional[str] = None
     doctor_id: Optional[UUID] = None
+    doctor_name: Optional[str] = None
     chief_complaint_id: UUID
     chief_complaint_text: Optional[str] = None
     status: SessionStatus
@@ -193,27 +195,22 @@ class SessionResponse(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _populate_patient_name(cls, data: Any) -> Any:
-        # 當從 ORM 物件載入時，若 patient 關聯已被 eager-load，
-        # 則把 patient.name 複製到 patient_name 屬性上，
-        # 讓 from_attributes=True 的 pydantic 能讀到。
+    def _populate_related_names(cls, data: Any) -> Any:
+        # 關聯只有在 eager-load 後才從 __dict__ 讀取，避免 async lazy load。
         if data is None or isinstance(data, dict):
-            return data
-        existing = getattr(data, "patient_name", None)
-        if existing:
             return data
         try:
             patient = data.__dict__.get("patient") if hasattr(data, "__dict__") else None
+            doctor = data.__dict__.get("doctor") if hasattr(data, "__dict__") else None
         except Exception:
-            patient = None
-        if patient is None:
-            return data
-        name = getattr(patient, "name", None)
-        if name:
-            try:
-                data.patient_name = name
-            except Exception:
-                pass
+            patient = doctor = None
+        try:
+            if patient is not None:
+                data.patient_name = getattr(patient, "name", None)
+            if doctor is not None:
+                data.doctor_name = getattr(doctor, "name", None)
+        except Exception:
+            pass
         return data
 
 
@@ -231,6 +228,16 @@ class SessionListResponse(BaseModel):
 class SessionAssignRequest(BaseModel):
     """指派醫師"""
     doctor_id: UUID
+
+
+class DoctorOptionResponse(BaseModel):
+    """問診開始前可選擇的在職醫師；不暴露 email、電話等帳號資料。"""
+
+    id: UUID
+    name: str
+    department: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SessionStatusResponse(BaseModel):

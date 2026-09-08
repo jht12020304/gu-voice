@@ -48,6 +48,7 @@
   "supervisor": {
     "hintLabel": "次にお伺いすること",
     "missingLabel": "これから確認する項目：",
+    "remainingCount": "残り{{count}}件",
     "degraded": "リアルタイムのガイドは一時的にご利用いただけませんが、問診は通常どおり続行します。",
     "hpi": {
       "onset": "発症時期",

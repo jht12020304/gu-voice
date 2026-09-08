@@ -28,8 +28,14 @@ abstract class PushBackend {
   /// 請求通知權限。回傳是否取得（含 provisional）。
   Future<bool> requestPermission();
 
+  /// 讓 App 在前景時也由系統顯示通知橫幅、徽章與音效。
+  Future<void> enableForegroundPresentation();
+
   /// 取得 FCM registration token。**simulator 上沒有 APNS token 時會拋**，呼叫端必須容錯。
   Future<String?> getToken();
+
+  /// Apple 原生裝置 token；後端用它在 Firebase 投遞失常時直接走 APNs。
+  Future<String?> getApnsToken();
 
   /// FCM 主動輪替 token 時的通知流。
   Stream<String> get onTokenRefresh;
@@ -71,7 +77,13 @@ String? pushRouteFor(Map<String, dynamic> raw) {
       ? declared
       : (data['reportId'] is String ? 'report_ready' : 'system');
   // 只借 route()；id/title/createdAt 在這條路上沒有意義。
-  return AppNotification(id: '', type: type, title: '', createdAt: '', data: data).route();
+  return AppNotification(
+    id: '',
+    type: type,
+    title: '',
+    createdAt: '',
+    data: data,
+  ).route();
 }
 
 typedef PushNavigate = void Function(String route);
@@ -84,9 +96,9 @@ class PushService {
     required PushBackend backend,
     required PushNavigate navigate,
     NotificationsApi? api,
-  })  : _backend = backend,
-        _navigate = navigate,
-        _api = api ?? NotificationsApi();
+  }) : _backend = backend,
+       _navigate = navigate,
+       _api = api ?? NotificationsApi();
 
   final PushBackend _backend;
   final PushNavigate _navigate;
@@ -118,6 +130,7 @@ class PushService {
     // 而且使用者之後在系統設定打開就會直接生效，不必重登。
     try {
       await _backend.requestPermission();
+      await _backend.enableForegroundPresentation();
     } catch (e) {
       debugPrint('[push] 通知權限請求失敗：$e');
     }
@@ -180,9 +193,16 @@ class PushService {
 
   Future<void> _register(String token) async {
     if (token.isEmpty) return;
+    String? apnsToken;
+    try {
+      apnsToken = await _backend.getApnsToken();
+    } catch (e) {
+      debugPrint('[push] 取不到 APNs token，維持 FCM 推播：$e');
+    }
     try {
       await _api.registerFcmToken(
         token: token,
+        apnsToken: apnsToken,
         platform: kPushPlatformIos,
         deviceName: _backend.deviceName,
       );

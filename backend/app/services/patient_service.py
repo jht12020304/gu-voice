@@ -13,7 +13,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.authz import get_user_role as _get_user_role
+from app.core.authz import (
+    get_clinician_scope_id,
+    get_user_role as _get_user_role,
+)
 from app.core.exceptions import ForbiddenException, NotFoundException
 from app.models.enums import Gender, SessionStatus, UserRole
 from app.models.patient import Patient
@@ -34,32 +37,44 @@ _PATIENT_SORT_COLUMNS = {
 }
 
 
-def _authorize_patient_access(patient: Patient, current_user: Any) -> None:
+async def _authorize_patient_access(
+    db: AsyncSession, patient: Patient, current_user: Any
+) -> None:
     """
     校驗 current_user 是否能存取此 patient。無權限則 raise ForbiddenException。
 
-    Ownership: 病患透過 patient.user_id 連結到建立 / 負責的醫師。
+    臨床帳號可讀自己建立的病患，或至少有一場被指派給自己的問診病患。
     角色規則:
-      - admin         → 無限制
-      - doctor        → 只能存取 patient.user_id == self 的病患
+      - system admin  → 無限制
+      - clinician     → 僅自己建立或被指派的病患
       - 其餘/未知角色 → 拒絕
     """
     if current_user is None:
         raise ForbiddenException("errors.patient_access_no_principal")
 
     role = _get_user_role(current_user)
-    user_id = getattr(current_user, "id", None)
-
-    if role == UserRole.ADMIN:
-        return
-
-    if role == UserRole.DOCTOR:
-        if patient.user_id == user_id:
+    clinician_id = get_clinician_scope_id(current_user)
+    if clinician_id is not None:
+        if patient.user_id == clinician_id:
+            return
+        assigned = await db.execute(
+            select(Session.id)
+            .where(
+                Session.patient_id == patient.id,
+                Session.doctor_id == clinician_id,
+                session_not_deleted(),
+            )
+            .limit(1)
+        )
+        if assigned.scalar_one_or_none() is not None:
             return
         raise ForbiddenException(
             "errors.patient_forbidden_other_doctor",
             details={"patient_id": str(patient.id)},
         )
+
+    if role == UserRole.ADMIN:
+        return
 
     # patient / 未知角色 — 保守拒絕（病患資料僅供醫師 / 管理員存取）
     raise ForbiddenException(
@@ -183,7 +198,14 @@ class PatientService:
 
         # 醫師篩選
         if doctor_id:
-            query = query.where(Patient.user_id == doctor_id)
+            assigned_session = select(Session.id).where(
+                Session.patient_id == Patient.id,
+                Session.doctor_id == doctor_id,
+                session_not_deleted(),
+            )
+            query = query.where(
+                (Patient.user_id == doctor_id) | assigned_session.exists()
+            )
 
         # 建立日期篩選
         if created_from:
@@ -438,7 +460,8 @@ class PatientService:
 
         # 確認病患存在（軟刪除者視為不存在）並校驗存取權限
         patient = await PatientService.get_by_id(db, patient_id)
-        _authorize_patient_access(patient, current_user)
+        await _authorize_patient_access(db, patient, current_user)
+        clinician_id = get_clinician_scope_id(current_user)
 
         status_value: Optional[SessionStatus] = None
         if status is not None:
@@ -453,6 +476,8 @@ class PatientService:
         def _apply_session_filters(q: Any) -> Any:
             # 已軟刪除的場次不出現在病患歷史（清單與總筆數共用這支）
             q = q.where(session_not_deleted())
+            if clinician_id is not None:
+                q = q.where(Session.doctor_id == clinician_id)
             if status_value is not None:
                 q = q.where(Session.status == status_value)
             if date_from is not None:
@@ -518,11 +543,8 @@ class PatientService:
                             created_from=None, created_to=None,
                             gender=None, age_from=None, age_to=None,
                             has_active_session=None, sort_by='created_at', sort_order='desc'):
-        # 醫師僅能看自己名下病患（doctor_id 即 patient.user_id），admin 全部
-        role = _get_user_role(current_user)
-        doctor_id = None
-        if role == UserRole.DOCTOR:
-            doctor_id = getattr(current_user, "id", None)
+        # 臨床帳號依被指派的 session 看病患；system admin 看全部。
+        doctor_id = get_clinician_scope_id(current_user)
         return await self.get_list(
             db,
             cursor=cursor,
@@ -541,12 +563,12 @@ class PatientService:
 
     async def get_patient(self, db, patient_id, current_user=None):
         patient = await self.get_by_id(db, patient_id)
-        _authorize_patient_access(patient, current_user)
+        await _authorize_patient_access(db, patient, current_user)
         return patient
 
     async def update_patient(self, db, patient_id, data, current_user=None):
         patient = await self.get_by_id(db, patient_id)
-        _authorize_patient_access(patient, current_user)
+        await _authorize_patient_access(db, patient, current_user)
         return await self.update(db, patient_id, data.model_dump(exclude_unset=True) if hasattr(data, 'model_dump') else data)
 
     async def soft_delete_patient(self, db, patient_id, deleted_by=None, current_user=None):
@@ -561,7 +583,7 @@ class PatientService:
         if current_user is not None:
             # include_deleted=True 維持冪等：已軟刪除者仍可通過 ownership 校驗
             patient = await self.get_by_id(db, patient_id, include_deleted=True)
-            _authorize_patient_access(patient, current_user)
+            await _authorize_patient_access(db, patient, current_user)
         patient = await self.soft_delete(db, patient_id)
         await db.commit()
         return patient

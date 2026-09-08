@@ -137,6 +137,8 @@
     "emptyMessage": "目前沒有符合條件的 SOAP 報告",
     "redFlagBadge": "紅旗場次",
     "chiefComplaintLabel": "主訴：{{value}}",
+    "assignedDoctorLabel": "負責醫師：{{name}}",
+    "unassignedDoctor": "尚未指派醫師",
     "sessionStatusLabel": "場次狀態：{{value}}",
     "complaintEmpty": "未填寫主訴",
     "complaintFetchFailed": "未取得主訴",

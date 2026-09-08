@@ -48,6 +48,7 @@
   "supervisor": {
     "hintLabel": "다음에 여쭤볼 내용",
     "missingLabel": "아직 확인할 항목:",
+    "remainingCount": "{{count}}개 남음",
     "degraded": "실시간 안내를 일시적으로 사용할 수 없지만, 문진은 평소와 같이 계속됩니다.",
     "hpi": {
       "onset": "발생 시점",

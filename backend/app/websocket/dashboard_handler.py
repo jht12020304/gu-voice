@@ -80,7 +80,9 @@ async def dashboard_websocket(
             return
 
         # ── 步驟 2：建立連線（authenticate_websocket 已 accept） ──
-        await manager.connect_dashboard(websocket, already_accepted=True)
+        await manager.connect_dashboard(
+            websocket, already_accepted=True, user_id=user_id
+        )
 
         logger.info(
             "儀表板 WebSocket 已連線 | user=%s, role=%s",
@@ -89,6 +91,8 @@ async def dashboard_websocket(
         )
 
         # ── 步驟 3：發送初始狀態 ────────────────────────
+        # 初始 WS snapshot 一律限縮到本人；system admin 若需全院資料仍由有完整
+        # 授權判斷的 REST 端點取得，避免在共用事件通道意外帶出他人主訴。
         initial_state = await _build_initial_state(db, redis, user_id)
         await websocket.send_json(
             manager._create_envelope(
@@ -270,7 +274,9 @@ async def broadcast_queue_and_stats(
         await manager.broadcast_queue_updated(
             total_waiting=queue_data.get("total_waiting", 0),
             total_in_progress=queue_data.get("total_in_progress", 0),
-            queue=_to_camel_queue_items(queue_data.get("queue", [])),
+            # 所有連線只把這個事件當成「重新 GET」訊號；全院 queue 明細含
+            # 主訴，不應透過全域頻道送給未指派醫師。
+            queue=[],
         )
     except Exception as exc:
         logger.warning("推播 queue_updated 失敗（非致命） | error=%s", str(exc))

@@ -746,16 +746,18 @@ TestFlight 發佈管道（**見 §V8**——2026-08-21 從 §V6 拆成獨立條�
 
 **2026-08-21 進度**：TestFlight 打包管道已備妥（圖示、出口合規、ExportOptions、六關腳本），
 簽章憑證補齊後**首顆 build 已上傳、TestFlight 狀態「準備測試」**（見 §V8）；
-還沒建內部測試群組、還沒在真機上裝過、推播也還沒端到端驗過。
+當時還沒建內部測試群組、沒在真機上裝過、推播也沒端到端驗過；這三項已於
+2026-09-02 前全部完成，現況以 §V8／§X 為準。
 APNs 推播金鑰（.p8）存在於 **repo 之外**——**絕對不得複製進 repo**，`.gitignore` 已補上
 `*.p8`／`*.p12`／`*.cer`／`*.certSigningRequest`／`*.mobileprovision`／`AuthKey_*` 排除。
 
-⚠️ **發佈管道現況、送測前未解的資料風險（含逐條 file:line）、以及「加第 2 個測試人員之前」
-的完整前置條件，一律見 §V8**（2026-08-21 從 §V6 拆出的獨立條目）；設定值見
-[`ios_release_settings.md`](ios_release_settings.md)。**拍板：第一版只裝使用者自己一台。**
+⚠️ **發佈管道現況、送測前未解的資料風險與測試員前置條件，一律見 §V8**
+（2026-08-21 從 §V6 拆出的獨立條目）；設定值見
+[`ios_release_settings.md`](ios_release_settings.md)。現行拍板為 production 只給獲授權院內人員，
+未授權工程／PM 使用 staging。
 ⚠️ `ExportOptions.plist` 的 `testFlightInternalTestingOnly=true` **已證實生效**（2026-08-21，
 build 在 ASC 上標「內部」），但它擋的是**散佈**不是**資料**，**不是 PHI 護欄**——
-擋 PHI 的仍然只有那個拍板本身（理由見 §V8）。
+PHI 護欄仍是帳號授權、臨床 row-level scope 與 staging（理由見 §V8）。
 
 ### [ ] V5. 🟡 Android 完全沒碰
 
@@ -772,7 +774,23 @@ rollback deployment 已記錄。**Android 內部測試管道仍未建立**，另
 **iOS TestFlight 發佈管道另案追蹤：見 §V8。**（2026-08-21 拆出——它原本整段寫在這個
 **已勾選、標題是 Flutter Web、日期 08-17** 的 §V6 底下，掃 checkbox 的人會讀成已完成。）
 
-### [ ] V8. 🟡 iOS TestFlight 發佈管道 — 2026-08-23 更新：**管道全通**（先行測試群組已建、4 位測試員全數 INSTALLED、build 迭代發佈已成日常）；殘留＝推播端到端驗證、年齡分級問卷、隱私政策 URL
+### [ ] V8. 🟡 iOS TestFlight 發佈管道 — 2026-09-03 更新：**管道已驗證；直接 APNs 待真機複驗**；殘留＝年齡分級問卷、隱私政策 URL、未授權測試者用 staging
+
+**✅ 2026-09-03 現況更新（取代本節較早的全院 fan-out／全院可讀風險結論）：**
+
+- TestFlight `1.0.0 (202609030649)` 已通過 Apple 驗證與處理，掛入 4 人先行測試群組。
+- 醫師手機已在未開啟 App 時收到推播；點入並讀取／處理後，底部紅色未讀徽章會清除。
+- 2026-09-03 實測出現「App 內有、iOS 通知中心／鎖定畫面沒有」：醫師指派、worker、
+  FCM token 的 iOS bundle、production entitlement 與手機通知設定皆正確，但 FCM 只證明接受、
+  無法證明 APNs 投遞。build `202609030649` 新增 Apple 原生 token 登記；後端優先直送 APNs，
+  失敗才回退 FCM，待楊佳倫手機更新並登入後複驗。
+- 病患基本資料頁必須從 `GET /sessions/doctors` 的動態清單選醫師；已指派場次的通知與
+  dashboard 即時事件只送該醫師。
+- doctor 與帶 `license_number` 的臨床 admin 都依 `sessions.doctor_id` 隔離病患、場次、
+  SOAP、紅旗與 dashboard；無執照的 system admin 才保留全院稽核視野。
+- legacy／非現行 App 客戶端仍可建立 `doctor_id IS NULL` 場次，這類報告通知保留全體在職
+  doctor/admin fallback。現行 TestFlight UI 不允許略過醫師選擇；若未來要開其他客戶端，
+  應先決定是否把後端 schema 的 `doctor_id` 一併改成必填。
 
 **✅ 2026-08-21 20:46 首次上傳完成。** 首顆 build（版本 1.0.0，號碼見總表 §7）已通過 ASC 自動處理，
 狀態**「準備測試」**，而且在 TestFlight 建置版本清單上標著「**內部**」。上傳前
@@ -784,7 +802,8 @@ rollback deployment 已記錄。**Android 內部測試管道仍未建立**，另
 [`ios_release_settings.md`](ios_release_settings.md) §7**——那份是 iOS 所有設定值的唯一權威來源，
 本節不重抄值，只留風險、理由與踩過的坑。
 
-**⬜ 還沒做的（2026-08-23 收斂）**：推播端到端驗證、年齡分級問卷、隱私政策 URL。
+**⬜ 還沒做的（2026-09-03 收斂）**：年齡分級問卷、隱私政策 URL，以及供未授權工程／PM
+測試的獨立 staging。推播端到端已由 2026-09-02 實機回報結案。
 （建群組／加測試員／真機安裝已於 2026-08-22〜23 完成：4 位測試員全數 INSTALLED、
 build 已迭代十餘顆——名單與現況見 `ios_release_settings.md` §7。）清單見總表 §9，
 操作步驟見 `deployment_guide.md` 二、。
@@ -904,39 +923,24 @@ automatic signing 會覆寫它）③ 把 iOS build 加進 `.github/workflows/ci.
 ①② 已寫進 CLAUDE.md 鐵律，驗法（`codesign -d --entitlements :-`）見
 [`deployment_guide.md`](deployment_guide.md) 二、。
 
-#### ⚠️ 送測前未解的資料風險（2026-08-21 逐行核實；唯一持有 file:line 的地方）
+#### ⚠️ 送測前未解的資料風險（2026-09-03 更新）
 
 這是醫療系統，**內測包打的是生產後端**，本專案沒有 staging（`deployment_guide.md` 只有 production 一組）。
 
-> ❌ **先更正一條被證實錯誤的引用（本輪之前四份文件與打包腳本 banner 都照抄它）**：
-> 舊敘述寫「`backend/app/utils/i18n_messages.py:587` 的 `notifications.session_complete.body`
-> 會把病患姓名推到測試者的鎖定畫面」——**錯的**。`notification_service.notify_session_complete`
-> 的 docstring 明文寫「**這一條刻意不 fan-out**」，且呼叫端（`conversation_handler`）本來就只在
-> **有 `doctor_id` 時**才呼叫；碼內自陳「實測 DB 內 `sessions.doctor_id` 全為 NULL」
-> → **session_complete 目前根本不會發出去**。照舊敘述去「補去識別化 587」只會改到一條不會觸發的
-> 文案，**真正的外洩通道原封不動**。下面第 1–3 條才是會打到手機的。
+1. **已指派通知仍含 PHI。** `session_complete`／`report_ready`／`report_failed` 會帶病患姓名，
+   紅旗推播會帶 LLM 生成的醫師向臨床描述；現在只送 `session.doctor_id` 指向的醫師，
+   但鎖定畫面本身仍是敏感資料呈現面。
+2. **臨床 scope 不是 tenant 隔離。** `get_clinician_scope_id()` 將 doctor 與有執照的 admin
+   限縮到自己被指派的病患、場次、報告、紅旗與 dashboard；無執照的 system admin 仍可全院稽核。
+3. **legacy 未指派 fallback 尚在。** `NotificationService._doctor_targets()` 對
+   `doctor_id IS NULL` 的報告成功／失敗通知仍 fan-out 給全部在職 doctor/admin。現行 TestFlight
+   的基本資料頁已把選醫師設為必填，所以正常 App 流程不會走這格；直接打 API 的舊客戶端仍可能。
+4. **iOS admin 仍可達破壞性 API。** 臨床 admin 的場次軟刪除已限自己負責的場次；system admin
+   仍可刪除全院場次、停用帳號與重設密碼，符合稽核角色但必須限制帳號發放。
+5. **登出 token 清理仍無重試。** `push_service.dart` 的 `unregister()` 失敗只記錄 log；
+   token 可能暫留，但後端通知目標已依被指派使用者 ID，不再因此收到其他醫師的已指派場次。
 
-1. **真實病患姓名會出現在測試者的鎖定畫面上——通道是 report_ready，不是 session_complete。**
-   `backend/app/utils/i18n_messages.py:601` 的 `notifications.report_ready.body`
-   （zh-TW＝「病患 {patient_name} 的 SOAP 報告已生成，請審閱。」）原封不動送進 FCM。
-2. **而且這一條是 fan-out 給全體在職醫師。** `backend/app/services/notification_service.py:205`
-   （`notify_report_ready` 的 fan-out 迴圈）在 `sessions.doctor_id IS NULL` 時對**每一位在職醫師**
-   各建一則通知＋一次推播（docstring 自陳「實測 DB 內 `sessions.doctor_id` 全為 NULL」）
-   → 測試者一登入註冊 FCM token，就成為**全院每一位病患**報告的收件人。
-3. **第二條會打到手機的文案**：`backend/app/services/notification_service.py:729` 的
-   `_REPORT_FAILED_COPY`（report_failed，body 帶 `{patient_name}`，**同樣走 fan-out**）。
-4. **休眠地雷（目前不觸發，但「開始指派醫師」那天會自動解封）**：
-   `backend/app/services/alert_service.py:403` 的紅旗推播，body ＝ `data["description"]`
-   ＝ **LLM 生成的醫師向臨床描述**（比姓名更敏感）。它走 `session.doctor_id`，因為目前全 NULL
-   所以不觸發——**一旦開始指派醫師，這條會直接把臨床描述送上鎖定畫面，沒有人需要改任何一行碼**。
-5. **iOS 端可達破壞性 API**：`flutter_app/lib/data/api/patients_api.dart:35` 刪病患、
-   `admin_api.dart:40/51` 停用帳號與重設密碼（`route_guard` 只擋 `/patient` 問診子樹，
-   `/patients` 是刻意開著的醫師端清單）。
-6. **另一條休眠地雷**：`flutter_app/lib/features/doctor/services/push_service.dart:161` 的
-   `unregister()` 失敗只 `debugPrint`、**不重試**——登出後那台手機的 token 可能還留在
-   `fcm_devices` 裡，繼續收全院推播。
-
-**拍板（2026-08-21）：第一版 TestFlight 只裝使用者自己一台**，用途純粹是驗證發佈管道。
+**現行拍板：production TestFlight 只給獲授權院內人員；未授權工程／PM 必須走 staging。**
 
 ✅ **`testFlightInternalTestingOnly` 已證實生效（2026-08-21 實查，這條推翻了先前的立場）**：
 上傳後的那顆 build 在 App Store Connect 的 TestFlight 建置版本清單上標著「**內部**」。
@@ -947,10 +951,9 @@ automatic signing 會覆寫它）③ 把 iOS build 加進 `.github/workflows/ci.
 ⚠️ 但有兩件事**沒有**被推翻，而且是這一整段的重點：
 
 - **(a) 它擋的是「散佈」，不是「資料」。** 它讓這顆包不能拿去做 external TestFlight／上架，
-  但**對任何一個被加進 internal 群組的人完全沒有作用**——那個人拿到的是真實醫師帳號，
-  登進去就讀得到全部真實病患姓名與完整 SOAP 報告（上面第 1–6 條）。
-  ⇒ **它不是 PHI 護欄。** 擋 PHI 的仍然只有「第一版只裝自己一台」這個人為拍板，
-  **下面〈加第 2 個測試人員之前的前置條件〉一個字都沒有因此放寬**。
+  但**對任何一個被加進 internal 群組的人完全沒有作用**。臨床帳號雖已依指派隔離，
+  仍會讀到自己被指派病患的完整資料；system admin 仍可讀全院。
+  ⇒ **它不是 PHI 護欄。** 護欄是帳號授權、臨床 scope 與未授權者使用 staging。
   🛑 **「旗標有效」≠「PHI 有護欄」**，把這兩件事混在一起就是這一段最容易犯的錯。
 - **(b) 走 Xcode Organizer 上傳仍然會自己重新 export**，整份 `ExportOptions.plist` 連同這個 key
   一起被繞過，而且沒有任何機制會發現。腳本收尾段已把 Organizer 標成不建議路徑
@@ -963,24 +966,20 @@ automatic signing 會覆寫它）③ 把 iOS build 加進 `.github/workflows/ci.
 
 #### 加第 2 個測試人員之前的前置條件（不是選配）
 
-> ⚠️ **已查證的關鍵事實：遮蔽推播文案不會降低 PHI 暴露。**
-> 測試者拿到的是**真實醫師帳號**，登進去就能在 `/patients`、`/reports/:id`、`/sessions/:id`
-> 讀到**全部真實病患姓名與完整 SOAP 報告**；**後端沒有 tenant／scope 隔離**。
-> 推播文案只是鎖定畫面那一行——把它遮掉，帳號本身的存取面**一點都沒有變**。
-> 任何「先把姓名遮掉再多發一個人」的計畫都建立在這個誤解上。
+> ⚠️ 臨床帳號已有 row-level scope，但仍會讀到**自己被指派病患**的完整 SOAP 與通知內容；
+> system admin 仍可全院稽核。遮蔽推播文案只能降低鎖定畫面暴露，不能取代帳號授權。
 
 依第 2 人的**授權狀態**二選一，不要混：
 
-- **A) 第 2 人已獲授權接觸真實病歷**（院內醫護）：遮蔽推播文案（report_ready 與 report_failed
-  的 body 拿掉 `{patient_name}`）＋ 關掉 iOS 端破壞性入口（刪病患／停用帳號／重設密碼）
-  ＋ 書面記錄授權依據。**估時約 3 小時。**
-- **B) 第 2 人未獲授權**（工程師／PM）：**任何程度的文案遮蔽都不足以合法化**——他一登入就看得到全部。
-  唯一的最小安全集是**開 staging 環境**：獨立 Railway service ＋ 空的 Supabase DB ＋ 3–5 筆
+- **A) 第 2 人已獲授權接觸真實病歷**（院內醫護）：建立臨床帳號、補正執照／科別，
+  由病患在問診前明確指派；另以書面記錄授權依據。若鎖定畫面不得顯示姓名，再做通知去識別化。
+- **B) 第 2 人未獲授權**（工程師／PM）：**不得給 production 帳號**。最小安全集是
+  **開 staging 環境**：獨立 Railway service ＋ 空的 Supabase DB ＋ 3–5 筆
   明顯假名的病患資料，內測包改打 staging。**估時 4–8 小時。** 附帶好處：同時解鎖 V1／V4 的
   實體麥克風驗證（不必拿生產資料練習）與日後的 external TestFlight。
 
-⚠️ **本輪刻意不實作**（使用者已拍板「第一版只裝自己一台」）：後端去識別化、route guard 擋 `/admin`、
-`unregister()` 失敗重試。這三項在這裡是**前置條件的記錄**，不是本輪待辦——動手前先確認要走 A 還是 B。
+⚠️ **尚未實作**：鎖定畫面去識別化、`unregister()` 失敗重試、staging。臨床 row-level scope
+已於 2026-09-02 上線，不要再把它列成未完成。
 
 #### 兩條沒人提過、但第一次上傳就定生死的風險
 
@@ -2226,6 +2225,8 @@ sentinel 情境下當唯一來源；或取兩者聯集。任一改法都動到 �
   還留著「醫師只看自己被指派場次」——kiosk 場次 doctor_id 恆 NULL ⇒ 儀表板恆 0、
   紅旗頁恆空（收到推播點進來卻「無警示」）。對齊醫師=管理員拍板：醫師視野=全院，
   `test_alert_service_authz` 兩條測試改釘新語意。
+  **2026-09-02 被 §X-2 取代**：現行問診已強制先選醫師，臨床帳號恢復為只看精確指派；
+  只有無執照的 system admin 保留全院視野。
 - [x] **U2 SOAP 頁整節蒸發**：渲染器按 React 舊版的巢狀物件 schema 寫，實際後端
   LLM schema 是**扁平字串**（2026-08-23 生產真報告實測）——病史/用藥/系統回顧/
   社會史/理學/檢驗/追蹤整節不顯示；過敏史/家族史/影像/建議用藥/整體 urgency
@@ -2319,9 +2320,41 @@ sentinel 情境下當唯一來源；或取兩者聯集。任一改法都動到 �
   修法：改回一個真的 key（`common.unknownError` 已存在五語系，或另補
   `common.errors.network` 五份），並注意 `t()` 的第一個 dot 段是 namespace——
   裸字串永遠查不到、會原樣顯示（`core/i18n/loc.dart` 的刻意設計：讓缺字看得見）。
-- [ ] **W-B 🟢 日曆只涵蓋「使用者看得到的場次」**：醫師＝自己負責＋未指派，
-  admin＝全部。這是既有的 scope 語意，不是缺陷；但若日後要給醫師「全院日曆」，
+- [ ] **W-B 🟢 日曆只涵蓋「使用者看得到的場次」**：doctor／臨床 admin＝自己精確負責，
+  system admin＝全部。這是現行 scope 語意，不是缺陷；但若日後要給醫師「全院日曆」，
   記得那是 scope 決策不是 UI 決策。
 - [ ] **W-C 🟢 日曆一次抓一個月、單頁 100 筆、最多 10 頁**（`fetchRange` 的
   `maxPages` 保險絲）。診所量級遠低於此；量真的變大時要改成後端依本地時區分桶的
   聚合端點（同時能一併解掉 §U15 與 `/dashboard/*` 的 UTC 切日）。
+
+
+## X — 2026-09-02 使用者需求（已上線＋TestFlight）
+
+> Backend 已手動部署 Railway；TestFlight `1.0.0 (202609030649)` 已通過 Apple 處理並掛入
+> 4 人先行測試群組。build 設定值與到期日只記在 `ios_release_settings.md` §7。
+
+| # | 需求 | 現行行為 |
+|---|---|---|
+| X-1 | 手機桌面推播、點開查看、已讀後紅色徽章消失 | build `202609030649` 已改成 Apple 原生 APNs 直送、FCM 備援；待醫師手機更新並登入後複驗鎖定畫面與通知中心 |
+| X-2 | 問診前選醫師，只有指定醫師看得到並收到通知 | `GET /sessions/doctors` 動態列出完整臨床帳號；基本資料頁醫師必選；session／patient／report／alert／dashboard 與 WS 事件依 `doctor_id` 限縮 |
+| X-3 | 增加字體放大 | 醫師與病患設定頁提供 100%／120%／140%，在 App 根層疊加系統 Dynamic Type，限制最高 140% 避免版面失控 |
+| X-4 | 未登入前就能開始語音問診 | 登入頁顯示「開始語音問診」；按下以候診專用 patient 帳號自動登入並直進選症狀頁，不要求使用者輸入帳密 |
+
+### 權限邊界
+
+- 可選醫師＝active、科別非空，且角色為 doctor，或角色為 admin 且有 `license_number`；
+  測試帳號與未完成臨床資料者不列入。2026-09-02 生產探針回傳 3 個可選帳號。
+- doctor 與帶執照的臨床 admin 都由 `get_clinician_scope_id()` 視為臨床帳號，只能讀／刪
+  自己被指派的資料。無執照的 system admin 不套此限制，用於全院稽核。
+- 已指派場次的 `session_created`、紅旗與報告完成／失敗 WS 事件帶 `targetUserId`，
+  dashboard connection manager 只送目標使用者；其他醫師收到全域狀態訊號時只會重新抓取
+  已經過 REST scope 的清單，不會取得該病患內容。
+- legacy `doctor_id IS NULL` 的報告通知 fan-out 仍為相容 fallback；現行 App UI 不允許建立
+  未選醫師的新場次。
+
+### 驗收紀錄
+
+- 生產 `GET /api/v1/sessions/doctors`：HTTP 200，回傳 3 個可選臨床帳號。
+- 相關 backend 單元測試 120 passed；Flutter `analyze` 無問題、完整測試 273 passed。
+- 全 backend unit run 另有 25 個 JWT 測試因本機 RSA key 環境未設定而失敗；與本次 scope／
+  推播邏輯無關，未把它誤記成全綠。

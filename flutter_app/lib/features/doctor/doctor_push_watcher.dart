@@ -19,10 +19,8 @@ import 'services/push_service.dart';
 /// 共用 iPad 不得註冊成任何人的推播端點，紅旗警示打到候診機上是給錯人看。
 /// web 上同樣不跑（FCM 註冊只在原生有意義）。
 ///
-/// **前景推播刻意不處理**：通知頁與分頁 badge 已經由 dashboard WebSocket 即時更新
-/// （notifications_controller.dart 的 `_wsEvents`），而 App 在前景時 WS 本來就連著，
-/// 再掛一條 `onMessage` 只會對同一件事重複 refetch。iOS 前景預設也不顯示系統橫幅，
-/// 所以「什麼都不做」在使用者眼裡與現況完全一致。
+/// 前景時由 Firebase 的原生 presentation options 顯示系統橫幅；通知頁與 badge
+/// 仍沿用 dashboard WebSocket 更新，不另訂閱 onMessage，避免同一事件重抓兩次。
 class DoctorPushWatcher extends ConsumerStatefulWidget {
   const DoctorPushWatcher({super.key, required this.child});
 
@@ -54,7 +52,10 @@ class _DoctorPushWatcherState extends ConsumerState<DoctorPushWatcher> {
   void _sync(User? user) {
     if (shouldEnablePush(user: user, nativeMobile: isNativeMobile)) {
       if (_service != null) return; // 已在跑（例如只是換語言重建）
-      final service = PushService(backend: createPushBackend(), navigate: _navigate);
+      final service = PushService(
+        backend: createPushBackend(),
+        navigate: _navigate,
+      );
       _service = service;
       AuthNotifier.preLogoutHooks.add(service.unregister);
       unawaited(service.start());

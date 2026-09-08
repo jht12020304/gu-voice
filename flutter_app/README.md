@@ -58,7 +58,9 @@ release build、78 tests、五語 deep link、CORS 與測試病患登入已過�
 產物斷言：`aps-environment = production`（這一行同時證明 App ID 有 Push Notifications capability）、
 `get-task-allow = false`、`Assets.car` 2,285,304 bytes、`CFBundleIconName = AppIcon`（巢狀路徑）、
 `ITSAppUsesNonExemptEncryption = false`。`flutter clean` 後重跑 `pod install` 對 `ios/Podfile.lock` **零變動**。
-**仍未驗**：真機安裝、醫師端實際操作、APNs 推播端到端（見上表）。
+build `202609030649` 已發到先行測試群組：App 會把 Apple 原生 APNs token 一併登記，
+後端優先直送 Apple、失敗才回退 FCM；用來修正 FCM 回報成功但 iPhone 沒顯示的實機問題。
+待楊佳倫手機更新、登入後複驗鎖定畫面、通知中心與前景橫幅。
 
 ## 開機路徑（2026-08-22 改過，動 `main.dart` 前先讀）
 
@@ -148,12 +150,13 @@ regulated medical device 申報、隱私政策 URL）、驗收斷言逐條、上
 ⚠️ 這條線的三個地雷：**碰到 iOS 一律用 `fvm flutter`**（`.fvmrc` 釘 3.41.3；PATH 上的裸 `flutter` 是
 homebrew 3.47.0，SPM 預設開，會動到 `ios/Podfile.lock`）、
 **不要改 `ios/Runner/Runner.entitlements` 的 `aps-environment`**（值由 provisioning profile 決定，改了沒用）、
-**內測包打的是生產後端**（唯一會打到手機的是「SOAP 報告已生成」通知，body 帶真實病患姓名
-且 fan-out 給全體在職醫師 → 去識別化補完前只裝自己一台）。
+**內測包打的是生產後端**。現行問診在基本資料頁必選醫師；已指派場次的通知只送該醫師，
+doctor／臨床 admin 也只讀自己被指派的病患資料。system admin 仍可全院稽核，legacy
+未指派報告通知仍保留全體在職醫護 fallback。
 
-⚠️ **遮蔽推播文案不會降低 PHI 暴露**：測試者拿到的是真實醫師帳號，登進去就能讀到全部真實
-病患姓名與 SOAP 報告（後端沒有 tenant/scope 隔離）。推播文案只是鎖定畫面那一行——
-完整的兩條路與估時見 [`docs/TODO.md`](../docs/TODO.md) §V8。
+⚠️ 推播與報告仍含被指派病患的 PHI；`testFlightInternalTestingOnly` 也只限制散佈，
+不能取代帳號授權。production 只給獲授權院內人員，未授權工程／PM 使用 staging；
+完整邊界見 [`docs/TODO.md`](../docs/TODO.md) §V8。
 
 ## 測試分層
 

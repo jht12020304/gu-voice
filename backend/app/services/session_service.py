@@ -10,11 +10,14 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.authz import get_user_role as _get_user_role
+from app.core.authz import (
+    get_clinician_scope_id,
+    get_user_role as _get_user_role,
+)
 from app.core.exceptions import (
     ForbiddenException,
     InvalidStatusTransitionException,
@@ -34,6 +37,22 @@ from app.utils.datetime_utils import utc_now
 from app.utils.language import resolve_language
 
 logger = logging.getLogger(__name__)
+
+
+def _selectable_doctor_filter():
+    """可被病患指派的完整臨床帳號（測試／未完成科別設定者不列入）。"""
+    return and_(
+        User.is_active.is_(True),
+        User.department.is_not(None),
+        User.department != "",
+        or_(
+            User.role == UserRole.DOCTOR,
+            and_(
+                User.role == UserRole.ADMIN,
+                User.license_number.is_not(None),
+            ),
+        ),
+    )
 
 
 async def _broadcast_session_created(db: AsyncSession, session: Session) -> None:
@@ -67,6 +86,11 @@ async def _broadcast_session_created(db: AsyncSession, session: Session) -> None
                 session.status.value
                 if hasattr(session.status, "value")
                 else str(session.status)
+            ),
+            target_user_id=(
+                str(getattr(session, "doctor_id", ""))
+                if getattr(session, "doctor_id", None) is not None
+                else None
             ),
         )
         # 順帶刷新 queue/stats（沿用 conversation_handler 既有的全域廣播語意）
@@ -282,16 +306,17 @@ async def _authorize_session_access(
     role = _get_user_role(current_user)
     user_id = getattr(current_user, "id", None)
 
-    if role == UserRole.ADMIN:
-        return
-
-    if role == UserRole.DOCTOR:
-        if session.doctor_id is None or session.doctor_id == user_id:
+    clinician_id = get_clinician_scope_id(current_user)
+    if clinician_id is not None:
+        if session.doctor_id == clinician_id:
             return
         raise ForbiddenException(
             "errors.session_forbidden_other_doctor",
             details={"session_id": str(session.id)},
         )
+
+    if role == UserRole.ADMIN:
+        return
 
     if role == UserRole.PATIENT:
         # 取出 patient.user_id。避免 lazy-load 錯誤,用明確 query 核對。
@@ -472,7 +497,7 @@ class SessionService:
 
         query = (
             select(Session)
-            .options(selectinload(Session.patient))
+            .options(selectinload(Session.patient), selectinload(Session.doctor))
             .where(session_not_deleted())
         )
         query = _apply_sort(query, _sort_column, _sort_desc)
@@ -547,6 +572,7 @@ class SessionService:
             .options(
                 selectinload(Session.conversations),
                 selectinload(Session.patient),
+                selectinload(Session.doctor),
             )
             .where(Session.id == session_id)
         )
@@ -873,6 +899,7 @@ class SessionService:
         data_dict = data.model_dump(exclude_none=True)
         patient_info = data_dict.pop("patient_info", None)
         requested_patient_id = data_dict.get("patient_id")
+        requested_doctor_id = data_dict.get("doctor_id")
 
         # 解析語言：payload > user.preferred_language > Accept-Language > default
         data_dict["language"] = resolve_language(
@@ -882,6 +909,16 @@ class SessionService:
         )
 
         current_user_id = current_user.id if current_user else None
+
+        # doctor_id 來自病患端選擇，不能只信前端：僅接受仍在職的醫師帳號。
+        if requested_doctor_id is not None:
+            doctor_result = await db.execute(
+                select(User).where(
+                    User.id == requested_doctor_id, _selectable_doctor_filter()
+                )
+            )
+            if doctor_result.scalar_one_or_none() is None:
+                raise NotFoundException("errors.user_not_found")
 
         def _generate_mrn() -> str:
             return f"P-{utc_now().year}-{random.randint(100000, 999999)}"
@@ -999,6 +1036,7 @@ class SessionService:
             .options(
                 selectinload(Session.conversations),
                 selectinload(Session.patient),
+                selectinload(Session.doctor),
             )
             .where(Session.id == session.id)
         )
@@ -1007,6 +1045,16 @@ class SessionService:
         # 與最新 queue/stats。helper 不可拋例外，不影響回傳。
         await _broadcast_session_created(db, created)
         return created
+
+    @staticmethod
+    async def list_doctors(db: AsyncSession) -> list[User]:
+        """列出可供病患選擇的在職醫師。"""
+        result = await db.execute(
+            select(User)
+            .where(_selectable_doctor_filter())
+            .order_by(User.name.asc(), User.id.asc())
+        )
+        return list(result.scalars().all())
 
     async def list_sessions(
         self,
@@ -1025,7 +1073,7 @@ class SessionService:
         """
         依角色限縮可見場次。
           - admin   → 全部
-          - doctor  → 自己負責 + 未指派(doctor_id IS NULL)
+          - clinician → 只限自己負責
           - patient → 自己名下 Patient 底下的所有 session
           - 無角色  → 403
         傳入的 doctor_id / patient_id 過濾條件會與角色限制做 AND;
@@ -1061,7 +1109,7 @@ class SessionService:
             # 改在這裡手動查完整 query,以 patient_id IN subquery 強制限縮。
             query = (
                 select(Session)
-                .options(selectinload(Session.patient))
+                .options(selectinload(Session.patient), selectinload(Session.doctor))
                 .where(
                     Session.patient_id.in_(owned_patient_ids_subq),
                     session_not_deleted(),
@@ -1119,15 +1167,16 @@ class SessionService:
                 },
             }
 
-        if role == UserRole.DOCTOR:
-            # 醫師: 自己負責 + 未指派。呼叫端傳的 doctor_id 會被強制覆寫為 self.id,
+        clinician_id = get_clinician_scope_id(current_user)
+        if clinician_id is not None:
+            # 臨床帳號只看自己負責的場次；未指派場次留給 system admin 處理。
             # 避免透過 query 參數窺探其他醫師負責的場次。
             effective_limit = min(limit, 100)
             query = (
                 select(Session)
-                .options(selectinload(Session.patient))
+                .options(selectinload(Session.patient), selectinload(Session.doctor))
                 .where(
-                    (Session.doctor_id == user_id) | (Session.doctor_id.is_(None)),
+                    Session.doctor_id == clinician_id,
                     session_not_deleted(),
                 )
             )
@@ -1161,7 +1210,7 @@ class SessionService:
                 select(func.count())
                 .select_from(Session)
                 .where(
-                    (Session.doctor_id == user_id) | (Session.doctor_id.is_(None)),
+                    Session.doctor_id == clinician_id,
                     session_not_deleted(),
                 )
             )
@@ -1320,6 +1369,7 @@ class SessionService:
         只剩這筆與 DB 裡那列**。
         """
         session = await SessionService.get_by_id(db, session_id, include_deleted=True)
+        await _authorize_session_access(db, session, current_user)
 
         if session.is_deleted:
             # 冪等：第二次呼叫不改任何欄位、不再寫一筆稽核（避免同一動作灌爆日誌）

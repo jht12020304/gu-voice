@@ -212,6 +212,7 @@ async def _announce_report_failure(db, session_id: str) -> None:
 
     report_id = ""
     patient_name = ""
+    doctor_id = None
     try:
         row = (
             await db.execute(
@@ -222,6 +223,8 @@ async def _announce_report_failure(db, session_id: str) -> None:
         ).scalar_one_or_none()
         if row is not None and row.patient is not None:
             patient_name = getattr(row.patient, "name", "") or ""
+        if row is not None:
+            doctor_id = getattr(row, "doctor_id", None)
         report = (
             await db.execute(
                 select(SOAPReport).where(SOAPReport.session_id == session_id)
@@ -240,6 +243,7 @@ async def _announce_report_failure(db, session_id: str) -> None:
             session_id=session_id,
             patient_name=patient_name,
             status="failed",
+            doctor_id=doctor_id,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -458,6 +462,7 @@ async def _async_generate(session_id: str) -> dict:
                     session_id=session_id,
                     patient_name=patient_name,
                     status="generated",
+                    doctor_id=getattr(session_obj, "doctor_id", None),
                 )
             except Exception as exc:  # noqa: BLE001 — 推播失敗不可影響任務結果
                 logger.warning(
@@ -589,6 +594,7 @@ async def _publish_report_generated(
     session_id: str,
     patient_name: str,
     status: str,
+    doctor_id=None,
 ) -> None:
     """把 ``report_generated`` 事件 publish 到 Redis 儀表板頻道（跨行程）。
 
@@ -605,6 +611,7 @@ async def _publish_report_generated(
             "sessionId": session_id,
             "patientName": patient_name or "",
             "status": status,
+            "targetUserId": str(doctor_id) if doctor_id is not None else None,
         },
     )
 

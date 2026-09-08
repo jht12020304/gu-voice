@@ -58,7 +58,7 @@ Key `gu:session:{session_id}:context` 的 `conversation_history` 欄（JSON，�
 | 欄位 | 內容 | 寫入時機 |
 |---|---|---|
 | `id` | 場次 UUID | 建立時 |
-| `patient_id` / `doctor_id` | 病患 / 指派醫師 | 建立 / 指派時 |
+| `patient_id` / `doctor_id` | 病患 / 指派醫師。DB 與 API schema 為 legacy 相容仍允許 NULL；現行 Flutter 基本資料頁必須先從 `GET /sessions/doctors` 選醫師才可建立場次 | 建立 / 指派時 |
 | `chief_complaint_id` | 主訴 FK（選「其他」時指向 sentinel UUID `...00ff`） | 建立時 |
 | `chief_complaint_text` | 病患自述主訴（≤200 字，「其他」時為實際主訴） | 建立時 |
 | `status` | `waiting` → `in_progress` → `completed` / `aborted_red_flag` / `cancelled`（CAS 轉移，終態不可被降級） | 全程 |
@@ -72,6 +72,10 @@ Key `gu:session:{session_id}:context` 的 `conversation_history` 欄（JSON，�
 | `duration_seconds` | ✅ REST 與 WS 兩路徑皆寫：WS 終態轉移時以 `EXTRACT(EPOCH FROM now() − started_at)` 補寫（`started_at` 為 NULL 則保持 NULL）；儀表板平均時長仍以 `completed_at − started_at` 為優先來源 | 結束時 |
 | `created_at` / `updated_at` | 時間戳 | 自動 |
 | `is_deleted` / `deleted_at` / `deleted_by` | **軟刪除**（2026-08-23，admin 專屬）：`DELETE /api/v1/sessions/{id}` 標記後，所有讀取路徑一律過濾掉這一場——場次清單/詳情/逐字稿、SOAP 報告詳情與清單、紅旗清單與計數、儀表板統計/排隊/近期、研究分析母體、病患自己的歷史、WS 對話與通知 fan-out 全部看不到它。**子表一列都不刪**（`conversations` / `soap_reports` / `red_flag_alerts` 的 FK 全留），把旗標翻回 `false` 即可救回。刪除另寫一筆 `AuditAction.DELETE` 稽核（誰、何時、哪一場、病患是誰）。條件的單一來源是 `app/services/session_visibility.py`，逐條讀取路徑由 `tests/integration/test_soft_deleted_session_invisible_pg.py` 釘住 | admin 刪除時 |
+
+**臨床存取範圍（2026-09-02）**：doctor 與有 `license_number` 的 admin 都視為臨床帳號，
+只能讀取 `doctor_id` 精確等於自己的病患、場次、SOAP、紅旗與 dashboard 聚合；病患歷史也只回
+該醫師負責的場次。沒有執照欄位的 system admin 才保留全院稽核視野。
 
 ### 2.1 `intake_data` JSONB 結構（`schemas/session.py` `SessionIntake`）
 
@@ -194,12 +198,15 @@ Key `gu:session:{session_id}:context` 的 `conversation_history` 欄（JSON，�
 - 醫師審閱 / acknowledge 等操作（各 service）
 
 ### 5.3 `notifications` 表（站內通知）
-✅ 三類通知已實際接上（皆發給場次負責醫師 `doctor_id`，標題/內文按醫師 `preferred_language` 解析，i18n 覆蓋 5 語系）：
+✅ 三類通知已實際接上（已指派場次皆只發給負責醫師 `doctor_id`，標題/內文按醫師 `preferred_language` 解析，i18n 覆蓋 5 語系）：
 - `RED_FLAG`：紅旗警示持久化時與 FCM 推播並行建立（病安關鍵，不受偏好抑制）
 - `SESSION_COMPLETE`：WS 場次轉 `completed` 時（受偏好 `session_complete_enabled` 抑制）
 - `REPORT_READY`：兩條 SOAP 生成路徑（WS / Celery）完成時，data 含 report_id + session_id（受偏好 `report_ready_enabled` 抑制）
 
-場次未指派醫師時三者皆 no-op。FCM 推播（`notification_retry.py`）照舊並行，推播失敗會把無效 device token 標記 inactive。
+未指派的 legacy 場次中，`SESSION_COMPLETE`／`RED_FLAG` 不送；`REPORT_READY` 與報告失敗通知
+透過 `_doctor_targets()` fallback 給全部在職 doctor/admin。現行 Flutter UI 已把醫師選擇設為必填，
+正常流程不會使用 fallback。FCM 推播（`notification_retry.py`）照舊並行，推播失敗會把無效
+device token 標記 inactive；站內通知的已讀狀態同時驅動底部紅色未讀徽章。
 
 ---
 

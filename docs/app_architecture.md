@@ -144,13 +144,17 @@
   `soap_reports.session_id` UNIQUE → 任何結束路徑都不會重複報告。
 - **2026-07-19 架構修復（P0 三件）**：
   - **WS row-level 授權**：問診 WS 於 `_validate_session` 後、connect 前必過
-    `_authorize_ws_session_access`（與 REST `_authorize_session_access` 同模型：admin／
-    指派醫師或未指派／本人病患），未授權回與不存在相同的 4004（不洩漏場次存在性）。
+    `_authorize_ws_session_access`。2026-09-02 起 doctor 與有執照的臨床 admin 只可連線
+    `session.doctor_id == current_user.id` 的場次；無執照 system admin 可稽核全部，病患只可連
+    自己的場次。未授權回與不存在相同的 4004（不洩漏場次存在性）。
     先前 WS 只驗 JWT 不驗擁有權（IDOR）。
   - **紅旗與場次狀態事件跨行程橋接**：`new_red_flag` 與 `broadcast_localized_dashboard`
     （session_status_changed 等）改走 `broadcast_dashboard_event`（Redis publish→各行程
     subscriber→本地 fan-out）。生產 4 個 uvicorn worker 行程，舊 in-memory broadcast 只有
     同行程醫師收得到即時紅旗（3/4 機率漏接）。
+    2026-09-02 再加 dashboard user connection index：含病患內容的 `session_created`、
+    `new_red_flag`、`report_generated` 事件帶 `targetUserId`，只送場次指定醫師；全域 queue
+    更新不夾帶主訴，其他醫師只會重抓自己 scope 的 REST 資料。
   - **SOAP 生成單一路徑（耐久）**：`_generate_soap_report_async` 改為「建 GENERATING row →
     派 Celery `generate_soap_report`」純觸發器；生成本體只在 `tasks/report_queue`
     （acks_late + retry ×2 + on_failure 標 FAILED + `report_generated` 事件 + REPORT_READY

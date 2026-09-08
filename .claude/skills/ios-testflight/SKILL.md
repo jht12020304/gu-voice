@@ -1,6 +1,6 @@
 ---
 name: ios-testflight
-description: GU Voice iOS 醫師端上 TestFlight 內部測試的完整管道（Apple 側前置、fvm 工具鏈、打包腳本、產物驗證）與已被實測推翻的常見錯誤修法。Use when 要把 iOS 包送 TestFlight／App Store Connect、動到 flutter_app/ios/ 底下任何檔案（Info.plist、Runner.entitlements、project.pbxproj、ExportOptions.plist、Podfile）、處理簽章／憑證／provisioning profile 問題、設定或除錯 APNs 推播、產生 App Icon 資產、或決定內測要發給誰時。
+description: GU Voice iOS 單一 App 上 TestFlight 內部測試的完整管道（Apple 側前置、fvm 工具鏈、打包腳本、產物驗證）與已被實測推翻的常見錯誤修法。Use when 要把 iOS 包送 TestFlight／App Store Connect、動到 flutter_app/ios/ 底下任何檔案（Info.plist、Runner.entitlements、project.pbxproj、ExportOptions.plist、Podfile）、處理簽章／憑證／provisioning profile 問題、設定或除錯 APNs 推播、產生 App Icon 資產、或決定內測要發給誰時。
 ---
 
 # iOS TestFlight 內部測試
@@ -11,7 +11,8 @@ description: GU Voice iOS 醫師端上 TestFlight 內部測試的完整管道（
 
 打包本身**不要手打指令**，一律走 [`flutter_app/tool/build_ios_testflight.sh`](../../../flutter_app/tool/build_ios_testflight.sh)（六道關卡，含產物驗證）。
 
-> ⚠️ 這是醫療系統，內測包連的是**生產後端**（沒有 staging）。送測前務必先讀本文件的〈資料風險〉一節——**已拍板：第一版只裝使用者自己一台**。
+> ⚠️ 這是醫療系統，內測包連的是**生產後端**（沒有 staging）。production 內測只給
+> 獲授權院內人員；未授權工程／PM 使用 staging。送測前先讀〈資料風險〉。
 
 ## When to Use
 
@@ -36,21 +37,29 @@ description: GU Voice iOS 醫師端上 TestFlight 內部測試的完整管道（
 
 內測包打的是**生產資料庫**。逐行核實過的現況（**file:line 逐條佐證只放在 `docs/TODO.md` §V8**，這裡不重抄，避免兩邊漂移）：
 
-1. **真實病患姓名會出現在測試者的 iPhone 鎖定畫面上——通道是 `report_ready`。** 「SOAP 報告已生成」通知的 body 帶 `{patient_name}`，原封不動送進 FCM。
-   ❌ **不要再引用「`i18n_messages.py:587` 的 `session_complete`」那條說法**：`notify_session_complete` 的 docstring 明文寫「刻意不 fan-out」，呼叫端只在有 `doctor_id` 時才呼叫，而實測 DB 內 `sessions.doctor_id` 全為 NULL ⇒ **它目前根本不會發出去**。照那條去「補去識別化」會改到一條不會觸發的文案，真正的外洩通道原封不動。
-2. **測試者會收到全院每一位病患的通知。** `report_ready` 在 `sessions.doctor_id IS NULL`（實測全院都是）時 **fan-out 給全體在職醫師**；「報告生成失敗」文案同樣帶姓名、同樣 fan-out。測試者一登入註冊 FCM token 就進入這個收件名單。
-3. **休眠地雷：紅旗推播的 body 是 LLM 生成的醫師向臨床描述**（比姓名更敏感）。它走 `session.doctor_id`，目前全 NULL 所以不觸發——**「開始指派醫師」那天會自動解封，不需要任何人改碼**。
-4. **iOS 端可達破壞性 API**：刪病患、停用帳號、重設密碼都可達（route_guard 只擋 `/patient` 問診子樹，`/patients` 醫師端清單是刻意開著的）。
+1. **已指派場次的推播仍可能在鎖定畫面顯示 PHI。** `session_complete`、報告成功／失敗
+   會帶病患姓名，紅旗會帶 LLM 生成的醫師向臨床描述；現行通知只送 `session.doctor_id`。
+2. **現行 App 強制選醫師。** 病患基本資料頁由 `GET /sessions/doctors` 載入完整臨床帳號，
+   未選醫師不能開始問診。doctor 與有執照的臨床 admin 只讀／接收自己被指派的病患資料；
+   沒有執照的 system admin 才保留全院稽核視野。
+3. **legacy 未指派 fallback 還在。** 非現行 App 客戶端若直接建立 `doctor_id IS NULL` 報告，
+   `report_ready`／`report_failed` 仍會 fan-out 給全體在職 doctor/admin。要開其他客戶端前，
+   先決定後端 `doctor_id` 是否也改成必填。
+4. **system admin 可達破壞性 API。** 臨床 admin 只可軟刪自己負責的場次；system admin
+   可全院刪除場次、停用帳號與重設密碼，必須限制帳號發放。
 
-> ⚠️ **遮蔽推播文案不會降低 PHI 暴露。** 測試者拿到的是**真實醫師帳號**，登進去就能讀到全部真實病患姓名與完整 SOAP 報告（後端**沒有 tenant／scope 隔離**）。推播文案只是鎖定畫面那一行。
+> ⚠️ 遮蔽推播文案只能降低鎖定畫面暴露，不能取代帳號授權與 row-level scope。
 
-**已拍板的處置：第一版只裝使用者自己一台，用途是驗證發佈管道。** 要加第 2 個測試人員之前，**先看 `docs/TODO.md` §V8 的兩條路**（第 2 人已獲授權接觸真實病歷 ⇒ 遮文案＋關破壞性入口＋記錄授權依據，約 3 小時；**未獲授權 ⇒ 唯一最小安全集是開 staging 環境**，4–8 小時）——**不要憑「先把姓名遮掉」就加人**。
+**現行拍板：production TestFlight 只給獲授權院內人員；未授權工程／PM 使用 staging。**
+完整邊界與 legacy fallback 見 `docs/TODO.md` §V8。
 ✅ **`ios/ExportOptions.plist` 的 `testFlightInternalTestingOnly=true` 已證實會生效**（2026-08-21）：即使走 `destination=export` ＋ `xcrun altool` 上傳，那顆 build 在 App Store Connect 的 TestFlight 清單上還是標著「**內部**」。先前寫的「未經驗證／不可當技術護欄／要上傳後才知道」已經過期，**不必再用懷疑的語氣講它，也不要把那個 key 拿掉**。
 
 🛑 **但這不改變 PHI 的結論，兩件事要分開講：**
 - **它擋的是「散佈」**——external TestFlight 與上架這條路被 Apple 擋死了。
-- **它擋不了「資料」**——對**任何一個被加進 internal 群組的人完全沒有作用**。那個人拿的是真實醫師帳號，登進去就讀得到全部真實病患姓名與完整 SOAP 報告。
-⇒ **它不是 PHI 護欄。**擋 PHI 的仍然只有「第一版只裝自己一台」這個人為拍板，**加第 2 個人前要走完 `docs/TODO.md` §V8 的前置條件這件事一個字都沒放寬**。「旗標有效」≠「PHI 有護欄」。
+- **它擋不了「資料」**——對任何被加進 internal 群組的人沒有資料授權效果；臨床帳號仍會接觸
+  自己被指派病患的 PHI，system admin 仍可全院稽核。
+⇒ **它不是 PHI 護欄。** PHI 護欄是帳號授權、臨床 row-level scope 與 staging。
+「旗標有效」≠「PHI 有護欄」。
 ⚠️ 唯一仍然成立的技術破口：**走 Xcode Organizer 上傳會自己重新 export，整份 ExportOptions（含這個 key）一起被繞過**，而且沒有任何機制會發現。這一條沒有被推翻——用 Organizer 就等於沒設。
 
 ## Apple 側前置（沒做會怎麼壞）
@@ -142,8 +151,8 @@ codesign -d --entitlements :- <Payload/Runner.app>   # 期望 aps-environment = 
 | 「`xcodebuild -help \| grep -A40 exportOptionsPlist` 查 key 清單」 | 查不到。那個 grep 只命中第 81 行的旗標說明。真正的清單在 -help 輸出**最末段**（共 212 行，標題「Available keys for -exportOptionsPlist:」），正確查法是 `xcodebuild -help \| tail -80`。`man xcodebuild` 沒有清單 |
 | 「用 `--export-method app-store` 就好，不必弄 ExportOptions.plist」 | Flutter 3.41.3 的 `--export-method` 只列 `app-store/ad-hoc/development/enterprise`，**全是 Xcode 26.6 已標 deprecated 的舊名**（正名是 `app-store-connect` / `release-testing` / `debugging`）。走 `--export-options-plist` |
 | 「Xcode Organizer 按 Distribute 就等於傳了驗過的那包」 | Organizer 會**自己重新 export 一次**，用的不是腳本驗過的 .ipa。要嚴格對應就用 Transporter 拖腳本產出的那顆 |
-| 「先發給團隊兩三個人一起測比較快」 | **已拍板：第一版只裝使用者自己一台。** 而且**遮蔽推播文案不足以放行**——測試者拿的是真實醫師帳號，登進去就能讀到全部病患姓名與完整 SOAP（後端無 tenant／scope 隔離）。未獲授權者要加人**只有開 staging 一條路**（見〈資料風險〉與 `docs/TODO.md` §V8） |
-| 「`testFlightInternalTestingOnly` 已經證實生效了，Apple 會擋外流，可以多加一個人」 | **把兩件事混在一起了。** 那個旗標擋的是**散佈**（external TestFlight／上架），**擋不了資料**——被加進 internal 群組的人拿的是真實醫師帳號，登進去就讀得到全部病患姓名與完整 SOAP。**「旗標有效」≠「PHI 有護欄」**，加第 2 個人前照樣要走完 `docs/TODO.md` §V8 的前置條件 |
+| 「先發給團隊兩三個人一起測比較快」 | 先看授權：獲授權院內人員可用 production 臨床帳號並由問診明確指派；未授權工程／PM 只能使用 staging。遮蔽文案不能取代授權（見〈資料風險〉與 `docs/TODO.md` §V8） |
+| 「`testFlightInternalTestingOnly` 已經證實生效了，Apple 會擋外流，可以多加一個人」 | **把兩件事混在一起了。** 旗標只擋 external TestFlight／上架，沒有資料授權效果。臨床 scope 與 system admin 邊界仍要遵守；**「旗標有效」≠「PHI 有護欄」** |
 | 「把 `AuthKey_*.p8` 複製進 repo 比較好管理」 | 絕對不要。`.gitignore` 已排除 `*.p8 *.p12 *.cer *.certSigningRequest *.mobileprovision AuthKey_*`，但那是最後一道防線不是許可。金鑰留在 `../firebase-secrets/`，內容不寫進任何檔案、不貼進任何對話 |
 
 ## Verification
@@ -166,7 +175,7 @@ codesign -d --entitlements :- <Payload/Runner.app>   # 期望 aps-environment = 
 上傳之後：
 
 - [ ] ASC 自動處理跑完，build 狀態不是 "Missing Compliance" 也不是 Invalid Binary
-- [ ] 內部測試員清單**只有使用者自己**（`docs/TODO.md` §V8 的前置條件補完前不加人）
+- [ ] production 內部測試員都已獲授權接觸相應病歷；未授權工程／PM 不在群組、改用 staging
 - [ ] App Store Connect → TestFlight → 該 build 旁邊有「**內部**」標記（＝`testFlightInternalTestingOnly`
       有生效；**2026-08-21 首顆 build 已確認有**）。⚠️ **有標記不代表 PHI 有護欄**——它擋散佈不擋資料，
       加人的門檻完全不變，見〈資料風險〉
@@ -176,9 +185,7 @@ codesign -d --entitlements :- <Payload/Runner.app>   # 期望 aps-environment = 
 - [ ] FCM token 有註冊成功：`push_service.dart` 的失敗路徑全是 `debugPrint`，TestFlight build 上
       看不到，**唯一驗法是查生產 DB 的 `fcm_devices` 表**有沒有這台裝置
 - [ ] 測試裝置是 **iOS 16+**（deployment target 15.0，但 TestFlight App 要 16+）
-- [ ] 裝上去後實際驗一次：登入 → 收得到推播 → 開得了 SOAP 報告
-      （⚠️ 用**病患帳號**登入只會看到 `/patient-unsupported` 一頁；**唯一會打到手機的推播是 report_ready**，
-      必須有人在 Web kiosk 真的跑完一場問診——**建議用明顯假名的病患**跑那一場。
-      完整步驟與四個靜默斷點見 `docs/deployment_guide.md` 二、〈第一次上機驗證推播〉）
+- [ ] 換裝置後實際驗一次：病患問診前指定該醫師 → App 未開啟時收到推播 → 點入可查看 →
+      讀取／處理後紅色徽章清除。2026-09-02 原測試裝置已通過；換裝置仍要重驗。
 - [ ] token 有沒有註冊成功**只能查 DB 的 `fcm_devices` 表**（`push_service.dart` 失敗路徑只有 `debugPrint`，TestFlight build 上看不到）
 - [ ] 記下這顆 build 的 **90 天到期日**，**當場排進行事曆**

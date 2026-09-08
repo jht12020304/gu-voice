@@ -198,7 +198,8 @@ def test_queue_and_stats_published_even_with_zero_local_connections(
     queue_payload = next(p for t, p in published if t == "queue_updated")
     assert queue_payload["totalWaiting"] == 3
     assert queue_payload["totalInProgress"] == 1
-    assert queue_payload["queue"][0]["sessionId"] == "s-1"
+    # 全域事件只當重新 GET 訊號，不帶含主訴的全院 queue 明細。
+    assert queue_payload["queue"] == []
 
     stats_payload = next(p for t, p in published if t == "stats_updated")
     assert stats_payload["sessionsToday"] == 7

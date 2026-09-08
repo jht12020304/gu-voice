@@ -11,11 +11,11 @@ import 'package:gu_voice/data/models/soap_report.dart';
 // 逐列補值路徑；若旗標判斷錯邊，症狀是整頁顯示 UUID 而且沒有任何錯誤訊息。
 void main() {
   Map<String, dynamic> base() => {
-        'id': 'r1',
-        'sessionId': 's1',
-        'status': 'generated',
-        'reviewStatus': 'pending',
-      };
+    'id': 'r1',
+    'sessionId': 's1',
+    'status': 'generated',
+    'reviewStatus': 'pending',
+  };
 
   group('SoapReport 的場次上下文', () {
     test('舊後端（沒帶這幾欄）→ hasSessionContext false，欄位全 null', () {
@@ -23,15 +23,17 @@ void main() {
 
       expect(r.hasSessionContext, isFalse);
       expect(r.patientName, isNull);
+      expect(r.doctorName, isNull);
       expect(r.chiefComplaintText, isNull);
       expect(r.sessionStatus, isNull);
       expect(r.sessionRedFlag, isNull);
     });
 
-    test('新後端 → 四欄都解得出來', () {
+    test('新後端 → 場次欄位都解得出來', () {
       final r = SoapReport.fromJson({
         ...base(),
         'patientName': '王小明',
+        'doctorName': '陳醫師',
         'chiefComplaintText': '血尿三天',
         'sessionStatus': 'completed',
         'sessionRedFlag': true,
@@ -39,6 +41,7 @@ void main() {
 
       expect(r.hasSessionContext, isTrue);
       expect(r.patientName, '王小明');
+      expect(r.doctorName, '陳醫師');
       expect(r.chiefComplaintText, '血尿三天');
       expect(r.sessionStatus, 'completed');
       expect(r.sessionRedFlag, isTrue);
@@ -64,7 +67,13 @@ void main() {
       // 呼叫端要自己決定退路。模型層把「後端沒說」壓成 false 等於對醫師宣告
       // 這個場次沒有紅旗，而那是這份 App 裡最不能說錯的一句話。
       expect(SoapReport.fromJson(base()).sessionRedFlag, isNull);
-      expect(SoapReport.fromJson({...base(), 'sessionRedFlag': false}).sessionRedFlag, isFalse);
+      expect(
+        SoapReport.fromJson({
+          ...base(),
+          'sessionRedFlag': false,
+        }).sessionRedFlag,
+        isFalse,
+      );
     });
 
     test('型別不對時不炸掉整頁（後端回了非預期形狀）', () {

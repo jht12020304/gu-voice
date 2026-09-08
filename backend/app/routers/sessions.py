@@ -15,6 +15,7 @@ from app.core.metrics import record_session_created
 from app.core.sentry import set_language_scope
 from app.schemas.session import (
     ConversationListResponse,
+    DoctorOptionResponse,
     SessionAssignRequest,
     SessionCreate,
     SessionDetail,
@@ -61,6 +62,20 @@ async def create_session(
     record_session_created(resolved_language or "unknown")
     set_language_scope(resolved_language)
     return session
+
+
+@router.get(
+    "/doctors",
+    response_model=list[DoctorOptionResponse],
+    status_code=status.HTTP_200_OK,
+    summary="取得可選擇的醫師",
+)
+async def list_doctors(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> list[DoctorOptionResponse]:
+    """問診開始前使用；只回傳在職醫師的顯示名稱與科別。"""
+    return await session_service.list_doctors(db)
 
 
 @router.get(

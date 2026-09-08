@@ -411,6 +411,11 @@ class Settings(BaseSettings):
     # base64 編碼的 service account JSON（Railway 無法掛檔，只能用 env 傳）。
     # 未設時 lifespan 啟動只會 log warning，不阻擋本機開發。
     FCM_CREDENTIALS_JSON: Optional[str] = None
+    # iOS 直接 APNs 備援；未設定時維持走 FCM。
+    APNS_AUTH_KEY_BASE64: Optional[str] = None
+    APNS_KEY_ID: Optional[str] = None
+    APNS_TEAM_ID: Optional[str] = None
+    APNS_TOPIC: str = "com.guvoice.guVoice"
 
     # ── SENTRY ──────────────────────────────────────────
     SENTRY_DSN: Optional[str] = None

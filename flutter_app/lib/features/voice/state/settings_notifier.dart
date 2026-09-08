@@ -11,12 +11,14 @@ class VoiceSettings {
   // version — persisting them needs a real preferences endpoint.
   final ThemeMode themeMode;
   final bool soundAlerts;
+  final double textScale;
 
   const VoiceSettings({
     this.ttsMuted = false,
     this.ttsSpeed = 1.0,
     this.themeMode = ThemeMode.system,
     this.soundAlerts = true,
+    this.textScale = 1.0,
   });
 
   VoiceSettings copyWith({
@@ -24,13 +26,14 @@ class VoiceSettings {
     double? ttsSpeed,
     ThemeMode? themeMode,
     bool? soundAlerts,
-  }) =>
-      VoiceSettings(
-        ttsMuted: ttsMuted ?? this.ttsMuted,
-        ttsSpeed: ttsSpeed ?? this.ttsSpeed,
-        themeMode: themeMode ?? this.themeMode,
-        soundAlerts: soundAlerts ?? this.soundAlerts,
-      );
+    double? textScale,
+  }) => VoiceSettings(
+    ttsMuted: ttsMuted ?? this.ttsMuted,
+    ttsSpeed: ttsSpeed ?? this.ttsSpeed,
+    themeMode: themeMode ?? this.themeMode,
+    soundAlerts: soundAlerts ?? this.soundAlerts,
+    textScale: textScale ?? this.textScale,
+  );
 }
 
 class SettingsNotifier extends Notifier<VoiceSettings> {
@@ -41,13 +44,20 @@ class SettingsNotifier extends Notifier<VoiceSettings> {
 
   void setThemeMode(ThemeMode m) => state = state.copyWith(themeMode: m);
 
-  void toggleSoundAlerts() => state = state.copyWith(soundAlerts: !state.soundAlerts);
+  void toggleSoundAlerts() =>
+      state = state.copyWith(soundAlerts: !state.soundAlerts);
+
+  void setTextScale(double scale) =>
+      state = state.copyWith(textScale: scale.clamp(1.0, 1.4));
 
   void cycleSpeed() {
     const presets = [1.0, 1.25, 1.5];
-    final next = presets[(presets.indexOf(state.ttsSpeed) + 1) % presets.length];
+    final next =
+        presets[(presets.indexOf(state.ttsSpeed) + 1) % presets.length];
     state = state.copyWith(ttsSpeed: next);
   }
 }
 
-final settingsProvider = NotifierProvider<SettingsNotifier, VoiceSettings>(SettingsNotifier.new);
+final settingsProvider = NotifierProvider<SettingsNotifier, VoiceSettings>(
+  SettingsNotifier.new,
+);

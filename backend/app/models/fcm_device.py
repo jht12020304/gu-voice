@@ -27,6 +27,7 @@ class FCMDevice(Base):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
     )
     device_token: Mapped[str] = mapped_column(String(500), unique=True, nullable=False)
+    apns_token: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     platform: Mapped[DevicePlatform] = mapped_column(
         pg_enum(DevicePlatform, "deviceplatform"), nullable=False
     )

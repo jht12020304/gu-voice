@@ -21,6 +21,7 @@
 | DB 連線與事故 runbook | [supabase_connection_guide.md](supabase_connection_guide.md) |
 | Celery worker/beat 建置 | [railway_celery_runbook.md](railway_celery_runbook.md) |
 | 本機開發環境 | [full_setup_guide.md](full_setup_guide.md) |
+| Codex 程式知識圖譜 / Graphify MCP | [graphify_codex.md](graphify_codex.md) |
 | 新增語言 / i18n 上線 | [runbook/](runbook/) |
 | 監控告警 | [observability/](observability/) |
 | UI 設計系統 | [DESIGN.md](DESIGN.md)；參考分析見 [design_references/](design_references/) |

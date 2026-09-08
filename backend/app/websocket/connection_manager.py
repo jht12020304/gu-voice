@@ -37,6 +37,7 @@ class ConnectionManager:
         self.active_connections: dict[str, WebSocket] = {}
         # 儀表板連線列表
         self.dashboard_connections: list[WebSocket] = []
+        self.dashboard_users: dict[WebSocket, str] = {}
 
         logger.info("ConnectionManager 初始化完成")
 
@@ -107,6 +108,7 @@ class ConnectionManager:
         self,
         websocket: WebSocket,
         already_accepted: bool = False,
+        user_id: str | None = None,
     ) -> None:
         """
         接受並註冊儀表板 WebSocket 連線
@@ -118,6 +120,8 @@ class ConnectionManager:
         if not already_accepted:
             await websocket.accept()
         self.dashboard_connections.append(websocket)
+        if user_id is not None:
+            self.dashboard_users[websocket] = user_id
         logger.info(
             "儀表板 WebSocket 已連線 | dashboard_count=%d",
             len(self.dashboard_connections),
@@ -132,6 +136,7 @@ class ConnectionManager:
         """
         if websocket in self.dashboard_connections:
             self.dashboard_connections.remove(websocket)
+            self.dashboard_users.pop(websocket, None)
             try:
                 await websocket.close()
             except Exception:
@@ -205,8 +210,13 @@ class ConnectionManager:
 
         # 記錄需要移除的斷線連線
         disconnected: list[WebSocket] = []
+        target_user_id = (message.get("payload") or {}).get("targetUserId")
 
         for ws in self.dashboard_connections:
+            if target_user_id is not None and self.dashboard_users.get(ws) != str(
+                target_user_id
+            ):
+                continue
             try:
                 await ws.send_json(envelope)
             except Exception as exc:
@@ -219,6 +229,7 @@ class ConnectionManager:
         for ws in disconnected:
             if ws in self.dashboard_connections:
                 self.dashboard_connections.remove(ws)
+            self.dashboard_users.pop(ws, None)
 
         if disconnected:
             logger.info(
@@ -413,6 +424,7 @@ class ConnectionManager:
         patient_name: str,
         chief_complaint: str,
         status: str,
+        target_user_id: str | None = None,
     ) -> None:
         """推播 ``session_created`` 事件（對齊前端 ``SessionCreatedPayload``）。"""
         await self.broadcast_dashboard_event(
@@ -423,6 +435,7 @@ class ConnectionManager:
                 "patientName": patient_name or "",
                 "chiefComplaint": chief_complaint or "",
                 "status": status,
+                "targetUserId": target_user_id,
             },
         )
 

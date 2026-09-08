@@ -25,7 +25,11 @@ void main() {
         child: MaterialApp(
           theme: AppTheme.light,
           home: const MedicalInfoPage(
-            args: {'complaintId': 'c1', 'complaintName': 'Hematuria', 'complaintText': 'x'},
+            args: {
+              'complaintId': 'c1',
+              'complaintName': 'Hematuria',
+              'complaintText': 'x',
+            },
           ),
         ),
       ),
@@ -51,10 +55,15 @@ void main() {
       greaterThan(before),
       reason: '新增病史列後沒有出現 stillHas 勾選框——資料會永遠送 true',
     );
-    expect(find.byTooltip(t('intake.medicalInfo.history.stillHas')), findsOneWidget);
+    expect(
+      find.byTooltip(t('intake.medicalInfo.history.stillHas')),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('family-history section renders and accepts a row', (tester) async {
+  testWidgets('family-history section renders and accepts a row', (
+    tester,
+  ) async {
     // The page is tall; a small surface makes off-screen widgets un-tappable.
     tester.view.physicalSize = const Size(1200, 4000);
     tester.view.devicePixelRatio = 1.0;
@@ -63,8 +72,11 @@ void main() {
     await pumpPage(tester);
 
     final addLabel = t('intake.medicalInfo.family.add');
-    expect(find.text(t('intake.medicalInfo.family.title')), findsOneWidget,
-        reason: '家族病史區塊沒渲染出來——familyHistory 又會變成永遠空白');
+    expect(
+      find.text(t('intake.medicalInfo.family.title')),
+      findsOneWidget,
+      reason: '家族病史區塊沒渲染出來——familyHistory 又會變成永遠空白',
+    );
     expect(find.text(addLabel), findsOneWidget);
 
     // No rows until the patient adds one (the section is optional).
@@ -75,10 +87,15 @@ void main() {
 
     // A row = relation dropdown (defaulting to 'father') + a condition field.
     expect(find.text(t('intake.medicalInfo.relations.father')), findsWidgets);
-    expect(find.text(t('intake.medicalInfo.family.conditionPlaceholder')), findsWidgets);
+    expect(
+      find.text(t('intake.medicalInfo.family.conditionPlaceholder')),
+      findsWidgets,
+    );
   });
 
-  testWidgets('family history has a "none" checkbox like the other three sections', (tester) async {
+  testWidgets('family history has a "none" checkbox like the other three sections', (
+    tester,
+  ) async {
     // D-10: without it the patient cannot say 「沒有家族病史」, so the backend can only
     // tell 「沒填」 from 「有填」 — `no_family_history` stayed a dead branch in
     // patient_context.build_patient_info and §3b re-asked the urological-cancer family
@@ -98,15 +115,87 @@ void main() {
     // data that submit() drops, while the payload claims the patient denied it.
     await tester.tap(find.text(t('intake.medicalInfo.family.add')));
     await tester.pumpAndSettle();
-    expect(find.text(t('intake.medicalInfo.family.conditionPlaceholder')), findsWidgets);
+    expect(
+      find.text(t('intake.medicalInfo.family.conditionPlaceholder')),
+      findsWidgets,
+    );
 
     // Tap the checkbox itself (the label is not a tap target here).
-    final noneRow = find.ancestor(of: find.text(noneLabel), matching: find.byType(Row)).first;
-    await tester.tap(find.descendant(of: noneRow, matching: find.byType(Checkbox)));
+    final noneRow = find
+        .ancestor(of: find.text(noneLabel), matching: find.byType(Row))
+        .first;
+    await tester.tap(
+      find.descendant(of: noneRow, matching: find.byType(Checkbox)),
+    );
     await tester.pumpAndSettle();
 
-    expect(find.text(t('intake.medicalInfo.family.conditionPlaceholder')), findsNothing,
-        reason: '勾了「無家族病史」還留著輸入列＝看不見的資料，送出時會被靜默丟掉');
+    expect(
+      find.text(t('intake.medicalInfo.family.conditionPlaceholder')),
+      findsNothing,
+      reason: '勾了「無家族病史」還留著輸入列＝看不見的資料，送出時會被靜默丟掉',
+    );
     expect(find.text(t('intake.medicalInfo.family.add')), findsNothing);
+  });
+
+  testWidgets(
+    'quick-add NSAID creates a prefilled allergy row without duplicates',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 4000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await pumpPage(tester);
+
+      const chipKey = ValueKey('quick-allergy-nsaid');
+      final value = t('intake.medicalInfo.commonAllergies.nsaid');
+      expect(find.byKey(chipKey), findsOneWidget);
+
+      await tester.tap(find.byKey(chipKey));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(chipKey),
+        findsNothing,
+        reason: '已加入的快速過敏原仍留在選項裡，病患會重複加入同一項',
+      );
+      expect(
+        tester
+            .widgetList<TextField>(find.byType(TextField))
+            .where((f) => f.controller?.text == value),
+        hasLength(1),
+        reason: '點 NSAID 後沒有建立預填的過敏史輸入列',
+      );
+    },
+  );
+
+  testWidgets('quick-add diabetes creates a prefilled history row', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await pumpPage(tester);
+
+    const chipKey = ValueKey('quick-condition-diabetes');
+    final value = t('intake.medicalInfo.commonConditions.diabetes');
+    expect(find.byKey(chipKey), findsOneWidget);
+
+    await tester.tap(find.byKey(chipKey));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(chipKey), findsNothing);
+    expect(
+      tester
+          .widgetList<TextField>(find.byType(TextField))
+          .where((f) => f.controller?.text == value),
+      hasLength(1),
+      reason: '點糖尿病後沒有建立預填的過去病史輸入列',
+    );
+    expect(
+      find.byTooltip(t('intake.medicalInfo.history.stillHas')),
+      findsOneWidget,
+      reason: '快速加入的病史仍要保留「目前還有」三態輸入，不可只送疾病名稱',
+    );
   });
 }
