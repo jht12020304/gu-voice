@@ -64,8 +64,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # requirements.txt does not pin pytest; install the test runner explicitly
-          pip install pytest
+          # requirements.txt does not pin the test stack; install it explicitly.
+          # pytest-asyncio is required — the async tests carry @pytest.mark.asyncio and
+          # fail with "async def functions are not natively supported" without it.
+          # This was silently red on main from 2026-08-23 until 2026-09-08.
+          pip install pytest pytest-asyncio
 
       - name: Run pytest (unit)
         working-directory: backend
