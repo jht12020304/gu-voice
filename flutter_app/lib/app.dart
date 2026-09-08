@@ -45,7 +45,7 @@ class App extends ConsumerWidget {
   // Same MaterialApp configuration for both branches — theme, locale and delegates are
   // identical, so flipping `booted` swaps only what is below the app, not the app's look.
   MaterialApp _shell(WidgetRef ref, String lng, {required Widget home}) => MaterialApp(
-        title: 'GU Voice',
+        title: 'UroSense',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
@@ -68,7 +68,7 @@ class App extends ConsumerWidget {
   Widget _routed(WidgetRef ref, String lng) {
     final router = ref.watch(routerProvider);
     return MaterialApp.router(
-      title: 'GU Voice',
+      title: 'UroSense',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
