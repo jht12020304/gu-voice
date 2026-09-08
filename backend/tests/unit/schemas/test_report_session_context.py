@@ -63,6 +63,7 @@ def test_unloaded_session_relationship_is_never_touched():
     report = SOAPReportResponse.model_validate(_Row(**_base()), from_attributes=True)
 
     assert report.patient_name is None
+    assert report.doctor_name is None
     assert report.chief_complaint_text is None
     assert report.session_status is None
     assert report.session_red_flag is None
@@ -72,6 +73,7 @@ def test_loaded_session_is_flattened_onto_the_report():
     row = _Row(
         session=_Row(
             patient=_Row(name="王小明"),
+            doctor=_Row(name="陳醫師"),
             chief_complaint_text="血尿三天",
             status=SessionStatus.COMPLETED,
             red_flag=True,
@@ -82,6 +84,7 @@ def test_loaded_session_is_flattened_onto_the_report():
     report = SOAPReportResponse.model_validate(row, from_attributes=True)
 
     assert report.patient_name == "王小明"
+    assert report.doctor_name == "陳醫師"
     assert report.chief_complaint_text == "血尿三天"
     assert report.session_status is SessionStatus.COMPLETED
     assert report.session_red_flag is True
@@ -107,13 +110,14 @@ def test_session_loaded_without_patient_still_flattens_the_rest():
 
 @pytest.mark.parametrize(
     "key",
-    ["patient_name", "chief_complaint_text", "session_status", "session_red_flag"],
+    ["patient_name", "doctor_name", "chief_complaint_text", "session_status", "session_red_flag"],
 )
 def test_context_fields_are_serialized(key):
     """欄位要真的出現在 JSON 裡——Flutter 端讀的是 camelCase 後的這四個 key。"""
     row = _Row(
         session=_Row(
             patient=_Row(name="李小華"),
+            doctor=_Row(name="林醫師"),
             chief_complaint_text="排尿困難",
             status=SessionStatus.COMPLETED,
             red_flag=False,

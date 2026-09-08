@@ -14,6 +14,7 @@ Unit tests for patient ownership / authorization logic.
 from __future__ import annotations
 
 import inspect
+import asyncio
 import uuid
 from typing import Any, Optional
 from types import SimpleNamespace
@@ -27,6 +28,7 @@ from app.services.patient_service import (
     _authorize_patient_access,
     _get_user_role,
 )
+from app.core.authz import get_clinician_scope_id
 
 
 # ──────────────────────────────────────────────────────
@@ -45,6 +47,19 @@ def _make_patient(
         id=patient_id or uuid.uuid4(),
         user_id=owner_user_id or uuid.uuid4(),
     )
+
+
+class _AccessDb:
+    def __init__(self, assigned=False):
+        self.assigned = assigned
+
+    async def execute(self, _statement):
+        value = uuid.uuid4() if self.assigned else None
+        return SimpleNamespace(scalar_one_or_none=lambda: value)
+
+
+def _run(coro):
+    return asyncio.run(coro)
 
 
 # ──────────────────────────────────────────────────────
@@ -77,7 +92,7 @@ def test_get_user_role_unknown_string_is_none():
 def test_admin_can_access_any_patient():
     admin = _make_user(UserRole.ADMIN)
     patient = _make_patient(owner_user_id=uuid.uuid4())  # 任意醫師名下
-    _authorize_patient_access(patient, admin)  # 不應 raise
+    _run(_authorize_patient_access(_AccessDb(), patient, admin))
 
 
 # ──────────────────────────────────────────────────────
@@ -87,7 +102,7 @@ def test_admin_can_access_any_patient():
 def test_doctor_can_access_own_patient():
     doctor = _make_user(UserRole.DOCTOR)
     patient = _make_patient(owner_user_id=doctor.id)
-    _authorize_patient_access(patient, doctor)  # 不應 raise
+    _run(_authorize_patient_access(_AccessDb(), patient, doctor))
 
 
 def test_doctor_cannot_access_other_doctor_patient():
@@ -95,7 +110,20 @@ def test_doctor_cannot_access_other_doctor_patient():
     doctor_a = _make_user(UserRole.DOCTOR)
     patient_of_b = _make_patient(owner_user_id=uuid.uuid4())  # 非 doctor_a
     with pytest.raises(ForbiddenException):
-        _authorize_patient_access(patient_of_b, doctor_a)
+        _run(_authorize_patient_access(_AccessDb(), patient_of_b, doctor_a))
+
+
+def test_doctor_can_access_patient_assigned_by_session():
+    doctor = _make_user(UserRole.DOCTOR)
+    patient = _make_patient(owner_user_id=uuid.uuid4())
+    _run(_authorize_patient_access(_AccessDb(assigned=True), patient, doctor))
+
+
+def test_licensed_admin_is_scoped_as_clinician():
+    user = SimpleNamespace(
+        id=uuid.uuid4(), role=UserRole.ADMIN, license_number="待補"
+    )
+    assert get_clinician_scope_id(user) == user.id
 
 
 # ──────────────────────────────────────────────────────
@@ -106,20 +134,20 @@ def test_patient_role_is_rejected():
     patient_user = _make_user(UserRole.PATIENT)
     patient = _make_patient(owner_user_id=patient_user.id)
     with pytest.raises(ForbiddenException):
-        _authorize_patient_access(patient, patient_user)
+        _run(_authorize_patient_access(_AccessDb(), patient, patient_user))
 
 
 def test_unknown_role_is_rejected():
     user = _make_user("hacker")
     patient = _make_patient()
     with pytest.raises(ForbiddenException):
-        _authorize_patient_access(patient, user)
+        _run(_authorize_patient_access(_AccessDb(), patient, user))
 
 
 def test_missing_current_user_raises():
     patient = _make_patient()
     with pytest.raises(ForbiddenException):
-        _authorize_patient_access(patient, None)
+        _run(_authorize_patient_access(_AccessDb(), patient, None))
 
 
 # ──────────────────────────────────────────────────────

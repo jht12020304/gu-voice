@@ -12,10 +12,37 @@
 3. 查無此 id 時不炸、走原本的 fallback（前端一律帶真實 id，但後端不能信前端）。
 """
 
+import uuid
+from types import SimpleNamespace
+
 import pytest
 
+from app.core.exceptions import NotFoundException
 from app.models.enums import UserRole
+from app.schemas.session import SessionCreate
 from app.services.session_service import SessionService
+
+
+class _NoDoctorResult:
+    def scalar_one_or_none(self):
+        return None
+
+
+class _NoDoctorDb:
+    async def execute(self, statement):
+        return _NoDoctorResult()
+
+
+@pytest.mark.asyncio
+async def test_requested_doctor_must_be_an_active_doctor():
+    payload = SessionCreate(
+        chiefComplaintId=uuid.uuid4(),
+        doctorId=uuid.uuid4(),
+    )
+    user = SimpleNamespace(id=uuid.uuid4(), role=UserRole.PATIENT)
+
+    with pytest.raises(NotFoundException):
+        await SessionService().create_session(_NoDoctorDb(), payload, current_user=user)
 
 
 def test_doctor_branch_query_has_no_ownership_filter():
@@ -68,3 +95,23 @@ def test_admin_router_now_accepts_doctor():
     assert 'require_role("admin", "doctor")' in src, (
         "admin router 的角色閘門被改回 admin-only——醫師＝管理員的拍板被回退"
     )
+
+
+@pytest.mark.asyncio
+async def test_doctor_picker_includes_licensed_admin_accounts():
+    class _Result:
+        def scalars(self):
+            return SimpleNamespace(all=lambda: [])
+
+    class _Db:
+        statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return _Result()
+
+    db = _Db()
+    await SessionService.list_doctors(db)
+    sql = str(db.statement).lower()
+    assert "users.role" in sql
+    assert "users.license_number is not null" in sql

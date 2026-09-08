@@ -22,3 +22,13 @@ def get_user_role(current_user: Any) -> Optional[UserRole]:
         return UserRole(raw)
     except ValueError:
         return None
+
+
+def get_clinician_scope_id(current_user: Any) -> Any:
+    """回傳需要依指派病患隔離的臨床帳號 ID。"""
+    role = get_user_role(current_user)
+    if role == UserRole.DOCTOR or (
+        role == UserRole.ADMIN and getattr(current_user, "license_number", None)
+    ):
+        return getattr(current_user, "id", None)
+    return None

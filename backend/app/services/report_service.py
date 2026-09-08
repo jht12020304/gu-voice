@@ -17,7 +17,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.authz import get_user_role as _get_user_role
+from app.core.authz import (
+    get_clinician_scope_id,
+    get_user_role as _get_user_role,
+)
 from app.core.exceptions import (
     ConflictException,
     NotFoundException,
@@ -119,7 +122,7 @@ async def _authorize_report_access(
     報告本身不帶 patient_id / doctor_id，故透過其 session 對映：
       - 場次已軟刪除 → 一律不可見（含 admin）
       - admin   → 其餘無限制
-      - doctor  → session.doctor_id == self 或 doctor_id 為空(未指派)
+      - clinician → session.doctor_id == self
       - patient → session.patient → patient.user_id == self.id
       - 其餘/未知角色 / 無 current_user → 拒絕
 
@@ -144,13 +147,14 @@ async def _authorize_report_access(
         raise NotFoundException("errors.report_not_found")
     doctor_id, patient_id = row
 
-    if role == UserRole.ADMIN:
-        return
-
-    if role == UserRole.DOCTOR:
-        if doctor_id is None or doctor_id == user_id:
+    clinician_id = get_clinician_scope_id(current_user)
+    if clinician_id is not None:
+        if doctor_id == clinician_id:
             return
         raise NotFoundException("errors.report_not_found")
+
+    if role == UserRole.ADMIN:
+        return
 
     if role == UserRole.PATIENT:
         owner_result = await db.execute(
@@ -299,13 +303,14 @@ class ReportService:
 
         # 軟刪除場次的報告對**所有角色**都不可見，admin 也一樣——所以 admin 這格
         # 不再是 None（無限縮），而是「所有未刪除場次」。
-        if role == UserRole.ADMIN:
-            scope_subquery = visible_session_ids()
-        elif role == UserRole.DOCTOR:
+        clinician_id = get_clinician_scope_id(current_user)
+        if clinician_id is not None:
             scope_subquery = select(Session.id).where(
-                (Session.doctor_id == user_id) | (Session.doctor_id.is_(None)),
+                Session.doctor_id == clinician_id,
                 session_not_deleted(),
             )
+        elif role == UserRole.ADMIN:
+            scope_subquery = visible_session_ids()
         elif role == UserRole.PATIENT:
             owned_patient_ids = select(Patient.id).where(Patient.user_id == user_id)
             scope_subquery = select(Session.id).where(
@@ -327,7 +332,10 @@ class ReportService:
         # 每列一次、最多 20 次的 GET /sessions/{id}。
         query = (
             select(SOAPReport)
-            .options(selectinload(SOAPReport.session).selectinload(Session.patient))
+            .options(
+                selectinload(SOAPReport.session).selectinload(Session.patient),
+                selectinload(SOAPReport.session).selectinload(Session.doctor),
+            )
             .order_by(SOAPReport.created_at.desc(), SOAPReport.id.desc())
         )
         if scope_subquery is not None:

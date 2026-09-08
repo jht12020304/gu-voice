@@ -160,6 +160,27 @@ def test_manager_broadcast_localized_dashboard_merges_extra():
     asyncio.run(_run())
 
 
+def test_targeted_dashboard_event_reaches_only_selected_doctor():
+    async def _run():
+        mgr = ConnectionManager()
+        selected = _FakeWebSocket()
+        other = _FakeWebSocket()
+        await mgr.connect_dashboard(
+            selected, already_accepted=True, user_id="doctor-a"
+        )
+        await mgr.connect_dashboard(other, already_accepted=True, user_id="doctor-b")
+
+        await mgr.local_broadcast_dashboard_event(
+            "new_red_flag",
+            {"alertId": "a-1", "targetUserId": "doctor-a"},
+        )
+
+        assert len(selected.sent) == 1
+        assert other.sent == []
+
+    asyncio.run(_run())
+
+
 def test_manager_send_localized_to_session_missing_session_returns_false():
     async def _run():
         mgr = ConnectionManager()

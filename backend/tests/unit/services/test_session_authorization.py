@@ -3,7 +3,7 @@ Unit tests for session ownership / authorization logic.
 
 守護 Wave 2 資安阻斷（問題 ⑪ / ⑫）:
 - patient 只能存取自己名下 Patient 的 session
-- doctor 只能存取 doctor_id == self 或 doctor_id IS NULL(未指派)的 session
+- doctor 只能存取 doctor_id == self 的 session
 - admin 無限制
 - 不認得的角色、缺 current_user → 拒絕
 
@@ -121,7 +121,7 @@ def test_admin_can_access_any_session():
 
 
 # ──────────────────────────────────────────────────────
-# doctor: 自己負責 + 未指派
+# doctor: 只限自己負責
 # ──────────────────────────────────────────────────────
 
 def test_doctor_can_access_own_session():
@@ -132,11 +132,12 @@ def test_doctor_can_access_own_session():
     assert db.execute_calls == 0
 
 
-def test_doctor_can_access_unassigned_session():
+def test_doctor_cannot_access_unassigned_session():
     doctor = _make_user(UserRole.DOCTOR)
     session = _make_session(doctor_id=None)
     db = _FakeDB()
-    _run(_authorize_session_access(db, session, doctor))
+    with pytest.raises(ForbiddenException):
+        _run(_authorize_session_access(db, session, doctor))
     assert db.execute_calls == 0
 
 

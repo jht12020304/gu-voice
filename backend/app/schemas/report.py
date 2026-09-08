@@ -58,6 +58,7 @@ class SOAPReportResponse(BaseModel):
     # 這裡沒有新增任何資料曝光：list_reports 的 scope 子查詢本來就把報告限縮在該
     # 使用者看得到的場次內，而前端原本就是逐筆去打 /sessions/{id} 拿同樣這些值。
     patient_name: Optional[str] = None
+    doctor_name: Optional[str] = None
     chief_complaint_text: Optional[str] = None
     session_status: Optional[SessionStatus] = None
     session_red_flag: Optional[bool] = None
@@ -80,7 +81,9 @@ class SOAPReportResponse(BaseModel):
             return data
         try:
             patient = session.__dict__.get("patient")
+            doctor = session.__dict__.get("doctor")
             data.patient_name = getattr(patient, "name", None) if patient else None
+            data.doctor_name = getattr(doctor, "name", None) if doctor else None
             data.chief_complaint_text = getattr(session, "chief_complaint_text", None)
             data.session_status = getattr(session, "status", None)
             data.session_red_flag = getattr(session, "red_flag", None)

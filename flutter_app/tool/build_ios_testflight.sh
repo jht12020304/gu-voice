@@ -60,10 +60,8 @@ step() { printf '\n==> %s\n' "$1"; }
 #
 # 這段刻意【不寫 file:line】。行號在 banner、docs/TODO.md、deployment_guide.md、
 # CLAUDE.md、skill 五個地方重複過，最容易腐爛：2026-08-21 就抓到 banner 引到
-# `i18n_messages.py:587` / `notify_session_complete`，而那一條的 docstring 明寫
-# 「刻意不 fan-out」、呼叫端也只在有 doctor_id 時呼叫（DB 內 doctor_id 全為
-# NULL）＝根本不會發出去。照舊 banner 去補去識別化只會改到不會發的那條，
-# 真正打到手機的通道原封不動。唯一權威改成 docs/TODO.md §V8。
+# `i18n_messages.py:587` / `notify_session_complete`。2026-09-02 起現行 App 已強制
+# 選醫師，臨床帳號與即時事件也改成精確指派；唯一權威仍是 docs/TODO.md §V8。
 
 print_data_risk_banner() {
   cat <<'BANNER'
@@ -71,17 +69,15 @@ print_data_risk_banner() {
 ┌──────────────────────────────────────────────────────────────────────────┐
 │  ⚠  這顆包連的是「生產後端」，沒有 staging 環境。送測前務必知道：        │
 │                                                                          │
-│  1. 推播 body 帶真實病患姓名，而且是明文 fan-out 給全體在職醫師。測試者  │
-│     一登入註冊 FCM token，全院病患的姓名就會出現在他的鎖定畫面上。       │
+│  1. 推播與報告含被指派病患的 PHI；現行問診會先選醫師，通知只送該醫師。  │
 │                                                                          │
-│  2. iOS 端沒擋破壞性 API：刪病患、停用帳號、重設密碼在醫師端都可達。     │
+│  2. doctor／臨床 admin 只看自己被指派資料；system admin 可全院稽核，    │
+│     也可執行刪除場次、停用帳號與重設密碼。                               │
 │                                                                          │
-│  3. 紅旗推播的 body 是 LLM 生成的臨床描述。它目前休眠，但「開始指派醫    │
-│     師」那天會自動解封。                                                 │
+│  3. 舊客戶端若建立未指派場次，報告通知仍會 fallback 給全體在職醫護。     │
 │                                                                          │
-│  已拍板：第一版只裝「你自己一台」，用途純粹是驗證這條打包管道。          │
-│  加第 2 個測試人員前的前置條件、以及上面三條的逐條佐證（含 file:line）， │
-│  一律以 docs/TODO.md 的 §V8 為準（行號不寫在這裡，避免五處各腐爛一份）。 │
+│  production 內測只給獲授權院內人員；未授權工程／PM 一律使用 staging。   │
+│  詳細邊界與前置條件以 docs/TODO.md §V8 為準。                            │
 └──────────────────────────────────────────────────────────────────────────┘
 
 BANNER
