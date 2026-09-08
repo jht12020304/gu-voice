@@ -621,6 +621,7 @@ class NotificationService:
         db: AsyncSession,
         user_id: UUID,
         token: str,
+        apns_token: Optional[str],
         platform: DevicePlatform,
         device_name: Optional[str] = None,
     ) -> FCMDevice:
@@ -640,6 +641,7 @@ class NotificationService:
         if device:
             # 更新現有裝置
             device.user_id = user_id
+            device.apns_token = apns_token or device.apns_token
             device.platform = platform
             device.device_name = device_name or device.device_name
             device.is_active = True
@@ -649,6 +651,7 @@ class NotificationService:
             device = FCMDevice(
                 user_id=user_id,
                 device_token=token,
+                apns_token=apns_token,
                 platform=platform,
                 device_name=device_name,
                 is_active=True,

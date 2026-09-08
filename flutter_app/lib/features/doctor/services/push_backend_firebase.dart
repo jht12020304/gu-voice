@@ -36,7 +36,18 @@ class FirebasePushBackend implements PushBackend {
   }
 
   @override
+  Future<void> enableForegroundPresentation() =>
+      _messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+  @override
   Future<String?> getToken() => _messaging.getToken();
+
+  @override
+  Future<String?> getApnsToken() => _messaging.getAPNSToken();
 
   @override
   Stream<String> get onTokenRefresh => _messaging.onTokenRefresh;

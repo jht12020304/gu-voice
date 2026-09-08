@@ -32,6 +32,7 @@ cryptography==44.0.0
 
 # --- HTTP 客戶端 ---
 httpx==0.28.1
+h2==4.4.1
 aiohttp==3.11.11
 
 # --- OpenAI SDK ---
