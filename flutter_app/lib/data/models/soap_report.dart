@@ -14,8 +14,10 @@ class SoapReport {
   final List<String> icd10Codes;
   final bool? icd10Verified;
   final double? aiConfidenceScore;
-  final List<String> patientEducation; // plan.patientEducation — the patient-facing advice
+  final List<String>
+  patientEducation; // plan.patientEducation — the patient-facing advice
   final String? reviewNotes;
+
   /// 後端 `patient_facing_localized`（JSONB，camelCase 後為 `patientFacingLocalized`）。
   /// 缺欄位／null 是常態（舊報告、後端還沒填）——一律容錯成 null，由呼叫端決定退路。
   final PatientFacingLocalized? patientFacingLocalized;
@@ -32,6 +34,7 @@ class SoapReport {
   // **可能是 null，而且必須容忍**：TestFlight 上的 App 打的是生產後端，兩邊不會
   // 同時更新。後端還沒帶這幾欄時，report_list_page 會自動退回舊的逐列補值路徑。
   final String? patientName;
+  final String? doctorName;
   final String? chiefComplaintText;
   final String? sessionStatus;
   final bool? sessionRedFlag;
@@ -53,6 +56,7 @@ class SoapReport {
     this.reviewNotes,
     this.patientFacingLocalized,
     this.patientName,
+    this.doctorName,
     this.chiefComplaintText,
     this.sessionStatus,
     this.sessionRedFlag,
@@ -85,9 +89,12 @@ class SoapReport {
       // 防禦性取值，與這個檔案其他欄位同一套作風：型別不合就當沒有。這幾欄是
       // 一頁 20 列的清單資料，一列的形狀怪掉不該讓整頁變成錯誤畫面。
       patientName: _str(json['patientName']),
+      doctorName: _str(json['doctorName']),
       chiefComplaintText: _str(json['chiefComplaintText']),
       sessionStatus: _str(json['sessionStatus']),
-      sessionRedFlag: json['sessionRedFlag'] is bool ? json['sessionRedFlag'] as bool : null,
+      sessionRedFlag: json['sessionRedFlag'] is bool
+          ? json['sessionRedFlag'] as bool
+          : null,
       raw: json,
     );
   }
@@ -125,18 +132,20 @@ class PatientFacingLocalized {
     final edu = json['patientEducation'] ?? json['patient_education'];
     return PatientFacingLocalized(
       language: lng.trim(),
-      summary: summary is String && summary.trim().isNotEmpty ? summary.trim() : null,
+      summary: summary is String && summary.trim().isNotEmpty
+          ? summary.trim()
+          : null,
       // 後端 schema 註解明載本欄形狀是 **str**（schemas/report.py:31）；舊解析
       // 只認 List → 非中文場次的在地化衛教永遠被丟掉、病患看到 adviceEmpty
       // （2026-08-23 稽核）。str 收成單元素清單，list 形照舊容錯。
       patientEducation: edu is String && edu.trim().isNotEmpty
           ? [edu.trim()]
           : edu is List
-              ? [
-                  for (final e in edu)
-                    if (e is String && e.trim().isNotEmpty) e.trim(),
-                ]
-              : const [],
+          ? [
+              for (final e in edu)
+                if (e is String && e.trim().isNotEmpty) e.trim(),
+            ]
+          : const [],
     );
   }
 }
@@ -165,12 +174,12 @@ class ConversationTurn {
   });
 
   factory ConversationTurn.fromJson(Map json) => ConversationTurn(
-        id: json['id'] as String,
-        sequenceNumber: (json['sequenceNumber'] as num?)?.toInt() ?? 0,
-        role: (json['role'] ?? 'assistant') as String,
-        contentText: (json['contentText'] ?? '') as String,
-        sttConfidence: (json['sttConfidence'] as num?)?.toDouble(),
-        redFlagDetected: (json['redFlagDetected'] ?? false) as bool,
-        createdAt: json['createdAt'] as String?,
-      );
+    id: json['id'] as String,
+    sequenceNumber: (json['sequenceNumber'] as num?)?.toInt() ?? 0,
+    role: (json['role'] ?? 'assistant') as String,
+    contentText: (json['contentText'] ?? '') as String,
+    sttConfidence: (json['sttConfidence'] as num?)?.toDouble(),
+    redFlagDetected: (json['redFlagDetected'] ?? false) as bool,
+    createdAt: json['createdAt'] as String?,
+  );
 }
