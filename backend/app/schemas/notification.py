@@ -89,6 +89,7 @@ class NotificationPreferenceUpdate(BaseModel):
 class FCMTokenCreate(BaseModel):
     """註冊 FCM 推播 Token"""
     device_token: str = Field(..., max_length=500)
+    apns_token: Optional[str] = Field(None, max_length=200)
     platform: DevicePlatform
     device_name: Optional[str] = Field(None, max_length=200)
 

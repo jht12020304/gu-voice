@@ -11,6 +11,7 @@
 //     data 根本沒帶 type）。
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,7 +22,12 @@ import 'package:gu_voice/features/auth/auth_notifier.dart';
 import 'package:gu_voice/features/doctor/services/push_backend_stub.dart';
 import 'package:gu_voice/features/doctor/services/push_service.dart';
 
-typedef Registration = ({String token, String platform, String? deviceName});
+typedef Registration = ({
+  String token,
+  String platform,
+  String? apnsToken,
+  String? deviceName,
+});
 
 class FakeNotificationsApi extends NotificationsApi {
   final registrations = <Registration>[];
@@ -33,10 +39,16 @@ class FakeNotificationsApi extends NotificationsApi {
   Future<void> registerFcmToken({
     required String token,
     required String platform,
+    String? apnsToken,
     String? deviceName,
   }) async {
     if (registerError != null) throw registerError!;
-    registrations.add((token: token, platform: platform, deviceName: deviceName));
+    registrations.add((
+      token: token,
+      platform: platform,
+      apnsToken: apnsToken,
+      deviceName: deviceName,
+    ));
   }
 
   @override
@@ -47,14 +59,21 @@ class FakeNotificationsApi extends NotificationsApi {
 }
 
 class FakePushBackend implements PushBackend {
-  FakePushBackend({this.token = 'tok-1', this.tokenError, this.initError});
+  FakePushBackend({
+    this.token = 'tok-1',
+    this.apnsToken = 'apns-1',
+    this.tokenError,
+    this.initError,
+  });
 
   String? token;
+  String? apnsToken;
   Object? tokenError;
   Object? initError;
   Map<String, dynamic>? initialMessage;
   int initializeCalls = 0;
   int permissionCalls = 0;
+  int foregroundPresentationCalls = 0;
 
   final refresh = StreamController<String>.broadcast();
   final opened = StreamController<Map<String, dynamic>>.broadcast();
@@ -72,10 +91,18 @@ class FakePushBackend implements PushBackend {
   }
 
   @override
+  Future<void> enableForegroundPresentation() async {
+    foregroundPresentationCalls++;
+  }
+
+  @override
   Future<String?> getToken() async {
     if (tokenError != null) throw tokenError!;
     return token;
   }
+
+  @override
+  Future<String?> getApnsToken() async => apnsToken;
 
   @override
   Stream<String> get onTokenRefresh => refresh.stream;
@@ -100,11 +127,8 @@ void main() {
   late FakeNotificationsApi api;
   late List<String> routes;
 
-  PushService build() => PushService(
-        backend: backend,
-        api: api,
-        navigate: routes.add,
-      );
+  PushService build() =>
+      PushService(backend: backend, api: api, navigate: routes.add);
 
   setUp(() {
     backend = FakePushBackend();
@@ -114,23 +138,41 @@ void main() {
 
   tearDown(() => backend.dispose());
 
+  test('iOS 前景推播同時顯示橫幅並保留在通知中心', () {
+    final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    expect(appDelegate, contains('.banner'));
+    expect(appDelegate, contains('.list'));
+  });
+
   group('啟動閘門（web / 病患一律不啟動）', () {
-    User user(String role) => User(id: 'u1', email: 'a@b.c', name: 'n', role: role);
+    User user(String role) =>
+        User(id: 'u1', email: 'a@b.c', name: 'n', role: role);
 
     test('原生行動平台 × 醫護 → 啟動', () {
       for (final role in ['doctor', 'admin']) {
-        expect(shouldEnablePush(user: user(role), nativeMobile: true), isTrue, reason: role);
+        expect(
+          shouldEnablePush(user: user(role), nativeMobile: true),
+          isTrue,
+          reason: role,
+        );
       }
     });
 
     test('web（nativeMobile=false）永遠不啟動 —— 瀏覽器上 FCM 註冊沒有意義', () {
       for (final role in ['doctor', 'admin', 'patient']) {
-        expect(shouldEnablePush(user: user(role), nativeMobile: false), isFalse, reason: role);
+        expect(
+          shouldEnablePush(user: user(role), nativeMobile: false),
+          isFalse,
+          reason: role,
+        );
       }
     });
 
     test('病患帳號不啟動 —— kiosk iPad 是共用機，不得成為任何人的推播端點', () {
-      expect(shouldEnablePush(user: user('patient'), nativeMobile: true), isFalse);
+      expect(
+        shouldEnablePush(user: user('patient'), nativeMobile: true),
+        isFalse,
+      );
     });
 
     test('未登入不啟動', () {
@@ -144,8 +186,14 @@ void main() {
 
       expect(backend.initializeCalls, 1);
       expect(backend.permissionCalls, 1);
+      expect(backend.foregroundPresentationCalls, 1);
       expect(api.registrations, [
-        (token: 'tok-1', platform: 'ios', deviceName: 'Doctor iPhone'),
+        (
+          token: 'tok-1',
+          platform: 'ios',
+          apnsToken: 'apns-1',
+          deviceName: 'Doctor iPhone',
+        ),
       ]);
     });
 
@@ -308,7 +356,10 @@ void main() {
     });
 
     test('alert_id 優先於 session_id，與通知中心點擊一致', () {
-      expect(pushRouteFor({'alert_id': 'a-9', 'session_id': 's-9'}), '/alerts/a-9');
+      expect(
+        pushRouteFor({'alert_id': 'a-9', 'session_id': 's-9'}),
+        '/alerts/a-9',
+      );
     });
 
     test('onMessageOpenedApp（背景點擊）導到對應路由', () async {
@@ -344,7 +395,11 @@ void main() {
   group('web 的 no-op backend', () {
     test('每個方法都安靜地什麼都不做（萬一被建出來，代價是沒推播而不是白畫面）', () async {
       const noop = NoopPushBackend();
-      final service = PushService(backend: noop, api: api, navigate: routes.add);
+      final service = PushService(
+        backend: noop,
+        api: api,
+        navigate: routes.add,
+      );
 
       await expectLater(service.start(), completes);
       expect(await noop.getToken(), isNull);
@@ -360,7 +415,8 @@ void main() {
     test('註冊失敗的 log 不含 token', () async {
       final logs = <String>[];
       final previous = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) => logs.add(message ?? '');
+      debugPrint = (String? message, {int? wrapWidth}) =>
+          logs.add(message ?? '');
       addTearDown(() => debugPrint = previous);
 
       api.registerError = StateError('boom');
