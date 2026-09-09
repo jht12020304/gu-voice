@@ -28,6 +28,8 @@ App 取得 APNs/FCM token
 
 **每一段都是 best-effort、失敗只留 warning**，所以「沒有錯誤」不等於「有送出」。
 
+送到了但**專注模式下不亮**是第七種：見 §7。
+
 ### 1. 後端環境變數有沒有設
 
 ```bash
@@ -146,6 +148,36 @@ PY
    的症狀正好是「App 內看得到、鎖定畫面沒有」。
 2. 專注模式／勿擾。
 3. token 屬於已被覆蓋的舊安裝 → 在裝置上重開 App 並重新登入，寫入新 token。
+
+### 7. time-sensitive 沒生效（醫師開專注／睡眠模式時不亮）
+
+**症狀**：後端 log 一切正常、Apple 回 200、白天沒開專注模式的人收得到，但開著睡眠／專注模式的
+醫師鎖定畫面不亮，只在通知摘要裡看得到。2026-09-09 凌晨對三位測試員實測就是這樣。
+
+**成因**：`interruption-level: time-sensitive` 要 App 宣告 entitlement
+`com.apple.developer.usernotifications.time-sensitive` 才有效；**沒宣告時 iOS 不報錯，安靜降級成
+一般通知**。build `202609081800` 以前的每一顆都沒有這個 entitlement，所以後端一直以為紅旗會
+穿透勿擾，實際上從來沒有。
+
+**驗法**（對 export 出來的 .ipa，不是看 repo 的 entitlements 檔）：
+
+```bash
+unzip -q build/ios/ipa/gu_voice.ipa -d /tmp/ipa && codesign -d --entitlements :- /tmp/ipa/Payload/Runner.app
+# 期望看到 <key>com.apple.developer.usernotifications.time-sensitive</key><true/>
+```
+
+打包腳本第 6 關已會擋（2026-09-09 起）。⚠️ 用 `plutil -extract` 讀這個 key 要把點跳脫成
+`com\.apple\.developer\.…`，否則 plutil 把點當 key path 分隔符、永遠讀到空。
+
+**修法**（兩邊都要）：
+1. `flutter_app/ios/Runner/Runner.entitlements` 宣告該 key（已於 2026-09-09 加入）。
+2. App ID `com.guvoice.guVoice` 要有 **Time Sensitive Notifications** capability。專案是自動簽章且
+   `flutter build ipa` 帶 `-allowProvisioningUpdates`，Xcode 通常會在打包時自動把它加到 App ID；
+   若簽章報 provisioning profile 缺該 entitlement，就到 developer.apple.com → Identifiers 手動勾。
+
+**限制**：就算修好，使用者仍可在「設定 → 通知 → UroSense」關掉「時效性通知」；它是提高送達
+機率，不是保證。要「靜音也響」得申請 Apple 的 Critical Alerts entitlement（需送審，醫療 App 是
+合格類別），另案處理。
 
 ## 已知的設計限制
 

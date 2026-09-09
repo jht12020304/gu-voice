@@ -3,6 +3,7 @@
 import base64
 import logging
 import time
+from typing import NamedTuple
 
 import firebase_admin.messaging as messaging
 import httpx
@@ -12,6 +13,26 @@ from app.core.config import settings
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
+
+# 醫療通知不分時段（2026-09-09 拍板）：醫師開專注／睡眠模式時也要亮鎖定畫面，
+# 所以每一則推播都用 time-sensitive，不再只給 red_flag。
+# ⚠️ 這個等級要 App 端宣告 `com.apple.developer.usernotifications.time-sensitive`
+# entitlement 才會生效；沒宣告時 iOS 不會報錯，會安靜降級成一般通知。
+INTERRUPTION_LEVEL = "time-sensitive"
+
+
+class ApnsResult(NamedTuple):
+    """APNs 直送結果。
+
+    ``token_invalid``：token 對本 App／環境無效（BadDeviceToken、DeviceTokenNotForTopic），
+    只清掉 ``apns_token``、仍要回退 FCM——可能只是憑證環境不符，不能停用裝置。
+    ``unregistered``：Apple 明確回 410 Unregistered（App 已從裝置移除），
+    連 FCM 都不必再打，整台裝置停用。
+    """
+
+    sent: bool
+    token_invalid: bool
+    unregistered: bool = False
 
 
 def _build_message(
@@ -34,6 +55,9 @@ def _build_message(
                 aps=messaging.Aps(
                     alert=messaging.ApsAlert(title=title, body=body),
                     sound="default",
+                    # 備援路徑要與 APNs 直送同級：firebase-admin 沒有 interruption-level
+                    # 的具名參數，透過 custom_data 併進 aps 字典。
+                    custom_data={"interruption-level": INTERRUPTION_LEVEL},
                 )
             ),
         ),
@@ -46,10 +70,10 @@ async def _send_apns(
     title: str,
     body: str,
     data: dict | None = None,
-) -> tuple[bool, bool]:
-    """直接送 Apple production APNs；回傳（成功、token 已失效）。"""
+) -> ApnsResult:
+    """直接送 Apple production APNs；回傳 :class:`ApnsResult`（成功、token 失效、已解除註冊）。"""
     if not all((settings.APNS_AUTH_KEY_BASE64, settings.APNS_KEY_ID, settings.APNS_TEAM_ID)):
-        return False, False
+        return ApnsResult(False, False)
 
     try:
         private_key = base64.b64decode(settings.APNS_AUTH_KEY_BASE64).decode("utf-8")
@@ -62,9 +86,10 @@ async def _send_apns(
         aps: dict = {
             "alert": {"title": title, "body": body},
             "sound": "default",
+            # 不分通知種類一律 time-sensitive，理由與 entitlement 前提見
+            # 檔頭 INTERRUPTION_LEVEL 的說明。
+            "interruption-level": INTERRUPTION_LEVEL,
         }
-        if (data or {}).get("type") == "red_flag":
-            aps["interruption-level"] = "time-sensitive"
         payload = {"aps": aps, **(data or {})}
         headers = {
             "authorization": f"bearer {auth_token}",
@@ -79,15 +104,18 @@ async def _send_apns(
                 json=payload,
             )
         if response.status_code == 200:
-            return True, False
+            return ApnsResult(True, False)
 
         reason = response.json().get("reason", "unknown")
         logger.warning("APNs 直接推播失敗: status=%s reason=%s", response.status_code, reason)
-        invalid = reason in {"BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"}
-        return False, invalid
+        # Unregistered（HTTP 410）＝ Apple 明確告知 App 已從裝置移除，是唯一能推論
+        # 「這台裝置不該再收推播」的理由；其餘只代表 token 對本 App／環境無效。
+        unregistered = reason == "Unregistered"
+        invalid = unregistered or reason in {"BadDeviceToken", "DeviceTokenNotForTopic"}
+        return ApnsResult(False, invalid, unregistered)
     except Exception as exc:
         logger.warning("APNs 直接推播例外，改走 FCM: %s", exc)
-        return False, False
+        return ApnsResult(False, False)
 
 
 @celery_app.task(
@@ -162,15 +190,23 @@ async def _async_send(
 
         for device in devices:
             if device.apns_token:
-                direct_sent, invalid_apns_token = await _send_apns(
-                    device.apns_token, title, body, data
-                )
-                if direct_sent:
+                apns_result = await _send_apns(device.apns_token, title, body, data)
+                if apns_result.sent:
                     sent_count += 1
                     apns_sent_count += 1
                     continue
-                if invalid_apns_token:
+                if apns_result.token_invalid:
                     device.apns_token = None
+                if apns_result.unregistered:
+                    # App 已從裝置移除，FCM 也不會送到；停用裝置並跳過回退。
+                    device.is_active = False
+                    failed_tokens.append(device.device_token)
+                    logger.info(
+                        "APNs 回報裝置已解除註冊，停用裝置: user=%s, device=%s",
+                        user_id,
+                        device.device_name,
+                    )
+                    continue
 
             try:
                 messaging.send(
