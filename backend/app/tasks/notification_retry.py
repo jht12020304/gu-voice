@@ -3,6 +3,7 @@
 import base64
 import logging
 import time
+import uuid
 from typing import NamedTuple
 
 import firebase_admin.messaging as messaging
@@ -90,7 +91,19 @@ async def _send_apns(
             # 檔頭 INTERRUPTION_LEVEL 的說明。
             "interruption-level": INTERRUPTION_LEVEL,
         }
-        payload = {"aps": aps, **(data or {})}
+        # `gcm.message_id` 不是 FCM 的功能需求，而是 firebase_messaging iOS plugin 的閘門：
+        # 原生端 `FLTFirebaseMessagingPlugin.m` 的
+        # `userNotificationCenter:didReceiveNotificationResponse:` 只在收到的 userInfo 帶有
+        # `gcm.message_id` 時，才把「使用者點了通知」轉給 Dart（否則 `onMessageOpenedApp`
+        # 不觸發、冷啟動的 `getInitialMessage` 也配不到訊息），App 只會被帶到前景而不導頁。
+        # 我們 2026-09-03 改成 Apple 原生 APNs 直送後，payload 少了這個只有 FCM 會補的 key，
+        # 醫師點系統通知就一路沒有導頁——補上它即可恢復。
+        # 位置與 FCM 自己送到 APNs 時一致：放在 `aps` 之外的頂層。
+        # plugin 的 `remoteMessageUserInfoToDict` 會把 `gcm.` 開頭的 key 排除在 data 之外，
+        # 所以它不會污染 App 端拿到的 data。
+        # 先展開 `data` 再放我們的 id：這個 id 必須永遠存在且由後端產生（每則唯一），
+        # 呼叫端若不慎在 data 塞同名 key 也不能覆蓋掉它。
+        payload = {"aps": aps, **(data or {}), "gcm.message_id": str(uuid.uuid4())}
         headers = {
             "authorization": f"bearer {auth_token}",
             "apns-topic": settings.APNS_TOPIC,
