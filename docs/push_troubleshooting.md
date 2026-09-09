@@ -28,7 +28,7 @@ App 取得 APNs/FCM token
 
 **每一段都是 best-effort、失敗只留 warning**，所以「沒有錯誤」不等於「有送出」。
 
-送到了但**專注模式下不亮**是第七種：見 §7。
+送到了但**專注模式下不亮**是第七種（§7）；送到了、亮了、**點下去不導頁**是第八種（§8）。
 
 ### 1. 後端環境變數有沒有設
 
@@ -178,6 +178,28 @@ unzip -q build/ios/ipa/gu_voice.ipa -d /tmp/ipa && codesign -d --entitlements :-
 **限制**：就算修好，使用者仍可在「設定 → 通知 → UroSense」關掉「時效性通知」；它是提高送達
 機率，不是保證。要「靜音也響」得申請 Apple 的 Critical Alerts entitlement（需送審，醫療 App 是
 合格類別），另案處理。
+
+### 8. 推播收得到，但點下去不導頁（App 只是被帶到前景）
+
+**症狀**：鎖定畫面亮、聲音有，點下去 App 打開卻停在原本的畫面（首頁／通知中心），沒有跳到
+`AppNotification.route()` 算出來的那一頁。從 App 內通知中心列表點同一則卻會正確導頁。
+2026-09-09 兩位醫師實測都是這樣；log 上看得到的幾次「導頁成功」全是列表點的（伴隨
+`PUT /notifications/{id}/read`）。
+
+**根因（不在我們的程式碼）**：firebase_messaging iOS 原生端 `FLTFirebaseMessagingPlugin.m`
+的 `userNotificationCenter:didReceiveNotificationResponse:` **只在 `userInfo["gcm.message_id"]`
+存在時**才對 Dart 發 `Messaging#onMessageOpenedApp`（原始碼註解：「We only want to handle FCM
+notifications」）；冷啟動的 `getInitialMessage` 也拿同一個 id 配對。2026-09-03 起 iOS 改為 Apple
+原生 APNs 直送，直送 payload 沒有這個 FCM 專屬 key，**所以點系統通知從那天起就沒導過頁**，
+而 FCM 備援路徑（FCM 會自己加 `gcm.message_id`）反而正常——這也是它一直沒被發現的原因。
+
+**修法**（2026-09-09，後端）：`_send_apns()` 的 payload 頂層補 `"gcm.message_id": <uuid4>`。
+plugin 的 `remoteMessageUserInfoToDict` 會把它轉成 `message.messageId`，並把 `gcm.*` 開頭的
+key 排除在 `data` 之外，不影響 App 端讀到的 `session_id`／`report_id`。**不需要重發 App。**
+
+**為什麼測試沒抓到**：`flutter_app/test/push_service_test.dart` 用 fake backend 餵
+`onMessageOpenedApp`，測的是「事件來了怎麼導」，測不到「原生端根本不發事件」。這條只能真機驗：
+**App 在背景時點系統通知**、**App 被滑掉後從鎖定畫面點**，兩種都要進對的頁。
 
 ## 已知的設計限制
 

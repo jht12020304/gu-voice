@@ -1,5 +1,6 @@
 import asyncio
 import types
+import uuid
 
 import pytest
 from firebase_admin import _messaging_encoder
@@ -143,6 +144,63 @@ def test_every_notification_type_is_time_sensitive(monkeypatch, data):
 
     assert result.sent is True
     assert captured["json"]["aps"]["interruption-level"] == "time-sensitive"
+
+
+def test_direct_apns_payload_carries_gcm_message_id(monkeypatch):
+    """firebase_messaging iOS plugin 靠頂層 `gcm.message_id` 才把「點了通知」轉給 Dart。"""
+    captured = _stub_apns_transport(monkeypatch)
+
+    result = asyncio.run(
+        notification_retry._send_apns(
+            "apns-token",
+            "報告完成",
+            "請查看",
+            {"type": "report_ready", "session_id": "abc"},
+        )
+    )
+
+    assert result.sent is True
+    message_id = captured["json"]["gcm.message_id"]
+    assert isinstance(message_id, str)
+    uuid.UUID(message_id)  # 合法 UUID，否則拋 ValueError
+
+
+def test_gcm_message_id_is_unique_per_notification(monkeypatch):
+    """每則通知要有自己的 id；plugin 用它配對 `getInitialMessage`。"""
+    captured = _stub_apns_transport(monkeypatch)
+
+    asyncio.run(notification_retry._send_apns("apns-token", "標題", "內容", None))
+    first = captured["json"]["gcm.message_id"]
+    asyncio.run(notification_retry._send_apns("apns-token", "標題", "內容", None))
+    second = captured["json"]["gcm.message_id"]
+
+    assert first != second
+
+
+def test_gcm_message_id_is_top_level_not_inside_aps(monkeypatch):
+    """位置要與 FCM 送到 APNs 時一致：`aps` 之外的頂層。"""
+    captured = _stub_apns_transport(monkeypatch)
+
+    asyncio.run(notification_retry._send_apns("apns-token", "標題", "內容", None))
+
+    payload = captured["json"]
+    assert "gcm.message_id" in payload
+    assert "gcm.message_id" not in payload["aps"]
+
+
+def test_gcm_message_id_not_overridden_by_caller_data(monkeypatch):
+    """呼叫端 data 裡的同名 key 不能蓋掉後端產生的 id。"""
+    captured = _stub_apns_transport(monkeypatch)
+
+    asyncio.run(
+        notification_retry._send_apns(
+            "apns-token", "標題", "內容", {"gcm.message_id": "not-a-uuid"}
+        )
+    )
+
+    message_id = captured["json"]["gcm.message_id"]
+    assert message_id != "not-a-uuid"
+    uuid.UUID(message_id)
 
 
 def test_unregistered_deactivates_device_and_skips_fcm(monkeypatch):
