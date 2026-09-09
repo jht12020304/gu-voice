@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authz import (
+    clinician_session_filter,
     get_clinician_scope_id,
     get_user_role as _get_user_role,
 )
@@ -61,7 +62,7 @@ async def _authorize_patient_access(
             select(Session.id)
             .where(
                 Session.patient_id == patient.id,
-                Session.doctor_id == clinician_id,
+                clinician_session_filter(clinician_id),
                 session_not_deleted(),
             )
             .limit(1)
@@ -180,6 +181,7 @@ class PatientService:
         *,
         search: Optional[str] = None,
         doctor_id: Optional[UUID] = None,
+        include_unassigned: bool = False,
         created_from: Optional[datetime] = None,
         created_to: Optional[datetime] = None,
         gender: Optional[Gender] = None,
@@ -187,7 +189,12 @@ class PatientService:
         dob_max: Optional[date] = None,
         has_active_session: Optional[bool] = None,
     ) -> Any:
-        """將病患列表的所有篩選條件套到 query（SELECT 與 COUNT 共用，確保兩者一致）。"""
+        """將病患列表的所有篩選條件套到 query（SELECT 與 COUNT 共用，確保兩者一致）。
+
+        `include_unassigned` 只在 doctor_id 來自**臨床帳號自己的可見範圍**時為 True
+        （見 `list_patients`）；system admin 用 `?doctorId=` 明確篩選某位醫師時維持
+        精確比對，不會把未指派佇列混進去。
+        """
         # 搜尋篩選（姓名或病歷號碼）
         if search:
             search_pattern = f"%{search}%"
@@ -198,9 +205,14 @@ class PatientService:
 
         # 醫師篩選
         if doctor_id:
+            doctor_scope = (
+                clinician_session_filter(doctor_id)
+                if include_unassigned
+                else (Session.doctor_id == doctor_id)
+            )
             assigned_session = select(Session.id).where(
                 Session.patient_id == Patient.id,
-                Session.doctor_id == doctor_id,
+                doctor_scope,
                 session_not_deleted(),
             )
             query = query.where(
@@ -245,6 +257,7 @@ class PatientService:
         limit: int = 20,
         search: Optional[str] = None,
         doctor_id: Optional[UUID] = None,
+        include_unassigned: bool = False,
         created_from: Optional[datetime] = None,
         created_to: Optional[datetime] = None,
         gender: Optional[Gender] = None,
@@ -289,6 +302,7 @@ class PatientService:
         filter_kwargs = dict(
             search=search,
             doctor_id=doctor_id,
+            include_unassigned=include_unassigned,
             created_from=created_from,
             created_to=created_to,
             gender=gender_value,
@@ -477,7 +491,7 @@ class PatientService:
             # 已軟刪除的場次不出現在病患歷史（清單與總筆數共用這支）
             q = q.where(session_not_deleted())
             if clinician_id is not None:
-                q = q.where(Session.doctor_id == clinician_id)
+                q = q.where(clinician_session_filter(clinician_id))
             if status_value is not None:
                 q = q.where(Session.status == status_value)
             if date_from is not None:
@@ -543,7 +557,7 @@ class PatientService:
                             created_from=None, created_to=None,
                             gender=None, age_from=None, age_to=None,
                             has_active_session=None, sort_by='created_at', sort_order='desc'):
-        # 臨床帳號依被指派的 session 看病患；system admin 看全部。
+        # 臨床帳號依「被指派給自己 ＋ 尚未指派」的 session 看病患；system admin 看全部。
         doctor_id = get_clinician_scope_id(current_user)
         return await self.get_list(
             db,
@@ -551,6 +565,7 @@ class PatientService:
             limit=limit,
             search=search,
             doctor_id=doctor_id,
+            include_unassigned=doctor_id is not None,
             created_from=parse_iso(created_from),
             created_to=parse_iso(created_to),
             gender=gender,

@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache.redis_client import get_redis
-from app.core.authz import get_clinician_scope_id
+from app.core.authz import clinician_session_filter, get_clinician_scope_id
 from app.core.exceptions import ValidationException
 from app.models.chief_complaint import ChiefComplaint
 from app.models.enums import (
@@ -63,9 +63,19 @@ ALERT_SEVERITY_LABELS = {
 }
 
 
-def _resolve_doctor_scope(current_user: Any, doctor_id: Optional[UUID]) -> Optional[UUID]:
-    """臨床帳號強制看自己；system admin 可看全院或指定醫師。"""
-    return get_clinician_scope_id(current_user) or doctor_id
+def _resolve_doctor_scope_filter(current_user: Any, doctor_id: Optional[UUID]):
+    """回傳 (生效的醫師 ID, 場次限縮條件, 是否為臨床帳號自身範圍)。
+
+    臨床帳號的統計要含**未指派場次**——kiosk 佇列是共用的，看得到卻不計數只會
+    讓儀表板與場次清單對不起來。system admin 用 `?doctorId=` 明確篩選某位醫師時
+    仍是精確比對（那是篩選，不是可見範圍）。
+    """
+    clinician_id = get_clinician_scope_id(current_user)
+    if clinician_id is not None:
+        return clinician_id, clinician_session_filter(clinician_id), True
+    if doctor_id:
+        return doctor_id, Session.doctor_id == doctor_id, False
+    return None, None, False
 
 
 def _parse_day_range(date_value: Optional[str]) -> tuple[datetime, datetime]:
@@ -192,9 +202,14 @@ class DashboardService:
         """
         取得儀表板統計資料（含 Redis 快取）
         """
-        effective_doctor_id = _resolve_doctor_scope(current_user, doctor_id)
+        effective_doctor_id, scope_filter, own_scope = _resolve_doctor_scope_filter(
+            current_user, doctor_id
+        )
         day_start, day_end = _parse_day_range(date)
-        cache_key = f"gu:dashboard:stats:{effective_doctor_id or 'all'}:{day_start.date().isoformat()}"
+        # 快取鍵要分辨「醫師本人的可見範圍（含未指派）」與「admin 指定該醫師的篩選」，
+        # 兩者同一個 doctor_id 卻是不同集合。
+        scope_key = f"{effective_doctor_id or 'all'}{':own' if own_scope else ''}"
+        cache_key = f"gu:dashboard:stats:{scope_key}:{day_start.date().isoformat()}"
 
         # 嘗試從 Redis 讀取快取
         try:
@@ -218,8 +233,8 @@ class DashboardService:
             .where(Session.created_at >= day_start)
             .where(Session.created_at < day_end)
         )
-        if effective_doctor_id:
-            sessions_query = sessions_query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            sessions_query = sessions_query.where(scope_filter)
         sessions_today = (await db.execute(sessions_query)).scalar() or 0
 
         # 今日已完成
@@ -231,8 +246,8 @@ class DashboardService:
             .where(Session.created_at < day_end)
             .where(Session.status == SessionStatus.COMPLETED)
         )
-        if effective_doctor_id:
-            completed_query = completed_query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            completed_query = completed_query.where(scope_filter)
         completed = (await db.execute(completed_query)).scalar() or 0
 
         # 進行中（即時狀態快照，刻意不受 date 區間限制，反映當下佇列）
@@ -242,8 +257,8 @@ class DashboardService:
             .where(session_not_deleted())
             .where(Session.status == SessionStatus.IN_PROGRESS)
         )
-        if effective_doctor_id:
-            in_progress_query = in_progress_query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            in_progress_query = in_progress_query.where(scope_filter)
         in_progress = (await db.execute(in_progress_query)).scalar() or 0
 
         # 等待中（即時狀態快照，刻意不受 date 區間限制，反映當下佇列）
@@ -253,8 +268,8 @@ class DashboardService:
             .where(session_not_deleted())
             .where(Session.status == SessionStatus.WAITING)
         )
-        if effective_doctor_id:
-            waiting_query = waiting_query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            waiting_query = waiting_query.where(scope_filter)
         waiting = (await db.execute(waiting_query)).scalar() or 0
 
         # 今日紅旗
@@ -267,11 +282,11 @@ class DashboardService:
             .where(RedFlagAlert.created_at >= day_start)
             .where(RedFlagAlert.created_at < day_end)
         )
-        if effective_doctor_id:
+        if scope_filter is not None:
             red_flags_query = red_flags_query.where(
                 RedFlagAlert.session_id.in_(
                     select(Session.id).where(
-                        Session.doctor_id == effective_doctor_id,
+                        scope_filter,
                         session_not_deleted(),
                     )
                 )
@@ -287,8 +302,8 @@ class DashboardService:
             .where(SOAPReport.review_status == ReviewStatus.PENDING)
             .where(SOAPReport.status == ReportStatus.GENERATED)
         )
-        if effective_doctor_id:
-            pending_query = pending_query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            pending_query = pending_query.where(scope_filter)
         pending_reviews = (await db.execute(pending_query)).scalar() or 0
 
         # 平均場次時長（秒）：當日「已完成」場次的 ended/started 差
@@ -306,8 +321,8 @@ class DashboardService:
             .where(Session.status == SessionStatus.COMPLETED)
             .where(duration_expr.isnot(None))
         )
-        if effective_doctor_id:
-            duration_query = duration_query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            duration_query = duration_query.where(scope_filter)
         avg_duration_raw = (await db.execute(duration_query)).scalar()
         average_duration_seconds = (
             round(float(avg_duration_raw), 1) if avg_duration_raw is not None else None
@@ -347,7 +362,7 @@ class DashboardService:
         status：逗號分隔的場次狀態（如 "waiting,in_progress"），用於篩選佇列。
         未提供時預設為 waiting + in_progress。含無效狀態值時擲出 ValidationException。
         """
-        effective_doctor_id = _resolve_doctor_scope(current_user, doctor_id)
+        _, scope_filter, _ = _resolve_doctor_scope_filter(current_user, doctor_id)
         status_filters = _parse_queue_status(status)
         query = (
             select(Session, Patient.name.label("patient_name"))
@@ -356,8 +371,8 @@ class DashboardService:
             .where(Session.status.in_(status_filters))
             .order_by(Session.created_at.asc())
         )
-        if effective_doctor_id:
-            query = query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            query = query.where(scope_filter)
 
         result = await db.execute(query)
         rows = result.all()
@@ -399,7 +414,7 @@ class DashboardService:
         **kwargs,
     ) -> RecentAlertsResponse:
         """取得近期「未確認」紅旗警示（acknowledged_by 為 NULL）"""
-        effective_doctor_id = _resolve_doctor_scope(current_user, doctor_id)
+        _, scope_filter, _ = _resolve_doctor_scope_filter(current_user, doctor_id)
         severity_filter = _parse_alert_severity(severity)
         query = (
             select(RedFlagAlert, Patient.name.label("patient_name"))
@@ -410,8 +425,8 @@ class DashboardService:
             .where(RedFlagAlert.acknowledged_by.is_(None))
             .order_by(RedFlagAlert.created_at.desc())
         )
-        if effective_doctor_id:
-            query = query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            query = query.where(scope_filter)
         if severity_filter is not None:
             query = query.where(RedFlagAlert.severity == severity_filter)
 
@@ -442,15 +457,15 @@ class DashboardService:
         **kwargs,
     ) -> RecentSessionsResponse:
         """取得近期場次"""
-        effective_doctor_id = _resolve_doctor_scope(current_user, doctor_id)
+        _, scope_filter, _ = _resolve_doctor_scope_filter(current_user, doctor_id)
         query = (
             select(Session, Patient.name.label("patient_name"))
             .join(Patient, Session.patient_id == Patient.id)
             .where(session_not_deleted())
             .order_by(Session.created_at.desc())
         )
-        if effective_doctor_id:
-            query = query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            query = query.where(scope_filter)
 
         result = await db.execute(query.limit(limit))
         rows = result.all()
@@ -479,7 +494,7 @@ class DashboardService:
         **kwargs,
     ) -> MonthlySummaryResponse:
         """取得指定月份的問診摘要與圖表資料。"""
-        effective_doctor_id = _resolve_doctor_scope(current_user, doctor_id)
+        _, scope_filter, _ = _resolve_doctor_scope_filter(current_user, doctor_id)
         month_start, month_end, month_key, month_label = _parse_month_range(month)
 
         session_query = (
@@ -490,8 +505,8 @@ class DashboardService:
             .where(Session.created_at < month_end)
             .order_by(Session.created_at.asc())
         )
-        if effective_doctor_id:
-            session_query = session_query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            session_query = session_query.where(scope_filter)
 
         alert_query = (
             select(RedFlagAlert.severity, RedFlagAlert.created_at)
@@ -500,8 +515,8 @@ class DashboardService:
             .where(RedFlagAlert.created_at >= month_start)
             .where(RedFlagAlert.created_at < month_end)
         )
-        if effective_doctor_id:
-            alert_query = alert_query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            alert_query = alert_query.where(scope_filter)
 
         pending_query = (
             select(func.count())
@@ -513,8 +528,8 @@ class DashboardService:
             .where(SOAPReport.review_status == ReviewStatus.PENDING)
             .where(SOAPReport.status == ReportStatus.GENERATED)
         )
-        if effective_doctor_id:
-            pending_query = pending_query.where(Session.doctor_id == effective_doctor_id)
+        if scope_filter is not None:
+            pending_query = pending_query.where(scope_filter)
 
         session_rows = (await db.execute(session_query)).all()
         alert_rows = (await db.execute(alert_query)).all()

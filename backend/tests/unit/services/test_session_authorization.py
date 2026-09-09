@@ -3,7 +3,7 @@ Unit tests for session ownership / authorization logic.
 
 守護 Wave 2 資安阻斷（問題 ⑪ / ⑫）:
 - patient 只能存取自己名下 Patient 的 session
-- doctor 只能存取 doctor_id == self 的 session
+- doctor 只能存取 doctor_id == self 或未指派（doctor_id IS NULL）的 session
 - admin 無限制
 - 不認得的角色、缺 current_user → 拒絕
 
@@ -132,12 +132,17 @@ def test_doctor_can_access_own_session():
     assert db.execute_calls == 0
 
 
-def test_doctor_cannot_access_unassigned_session():
+def test_doctor_can_access_unassigned_session():
+    """未指派場次（kiosk 共享佇列）要讀得到。
+
+    紅旗與 report_ready 對未指派場次是 fan-out 給全體臨床帳號的，存取面若擋掉，
+    醫師點推播必得 403——2026-09-09 生產實證，四位醫師連 20 場都打不開。
+    WS 端（test_ws_session_authorization）本來就是這個模型，這裡是 REST 對齊。
+    """
     doctor = _make_user(UserRole.DOCTOR)
     session = _make_session(doctor_id=None)
     db = _FakeDB()
-    with pytest.raises(ForbiddenException):
-        _run(_authorize_session_access(db, session, doctor))
+    _run(_authorize_session_access(db, session, doctor))
     assert db.execute_calls == 0
 
 

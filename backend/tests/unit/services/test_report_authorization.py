@@ -146,7 +146,7 @@ def test_admin_cannot_access_report_of_deleted_or_missing_session():
 
 
 # ──────────────────────────────────────────────────────
-# doctor: 只限自己負責；未指派與其他醫師都拒絕
+# doctor: 自己負責的 ＋ 未指派的（kiosk 共享佇列）；其他醫師名下的拒絕
 # ──────────────────────────────────────────────────────
 
 def test_doctor_can_access_own_assigned_report():
@@ -157,12 +157,14 @@ def test_doctor_can_access_own_assigned_report():
     assert db.execute_calls == 1
 
 
-def test_doctor_cannot_access_unassigned_report():
+def test_doctor_can_access_unassigned_report():
+    """未指派場次的報告要讀得到——report_ready 推播對這種場次是 fan-out 給全體
+    臨床帳號的，存取面若擋掉，點推播必得 404（2026-09-09 生產實證）。"""
     doctor = _make_user(UserRole.DOCTOR)
     report = _make_report()
     db = _FakeDB(session_row=_Row(None, uuid.uuid4()))
-    with pytest.raises(NotFoundException):
-        _run(_authorize_report_access(db, report, doctor))
+    _run(_authorize_report_access(db, report, doctor))
+    assert db.execute_calls == 1
 
 
 def test_doctor_cannot_access_other_doctor_report():
