@@ -7,7 +7,7 @@
 > - 決策、陷阱、被推翻過的錯誤修法 → [`.claude/skills/ios-testflight/SKILL.md`](../.claude/skills/ios-testflight/SKILL.md)
 > - 現況、未解的資料風險、加第 2 個測試人員的前置條件 → [`TODO.md`](TODO.md) §V8
 >
-> 最後更新：2026-09-09（先行測試最新 build `202609081800`：醫師快速開單頁）
+> 最後更新：2026-09-09（先行測試最新 build `202609090231`：推播 time-sensitive entitlement）
 >
 > ⚠️ **build 號的權威是 App Store Connect，不是這份文件。** 2026-09-03～09-09 之間本檔
 > 自相矛盾過：這一行與下方 §7 表格寫 `202609030302`，而 §4 與其他段落寫 `202609030649`，
@@ -61,7 +61,7 @@
 | 項目 | 值 | 可否更改 |
 |---|---|---|
 | Bundle ID | `com.guvoice.guVoice` | ❌ 永久不可改 |
-| App ID（Developer 後台） | `XC com guvoice guVoice`，**Push Notifications 已勾** | capability 可改 |
+| App ID（Developer 後台） | `XC com guvoice guVoice`，**Push Notifications 已勾**，需另勾 **Time Sensitive Notifications**（見下方 entitlements 列與 `docs/push_troubleshooting.md`） | capability 可改 |
 | App Store Connect App name | **`UroSense`** | ✅ 可改（需全球唯一） |
 | SKU | `guvoice-ios` | ❌ 永久不可改 |
 | ASC app id | `6803904477` | 系統產生 |
@@ -81,6 +81,7 @@
 | CocoaPods | 1.17.0 | `ios/Podfile.lock` |
 | Firebase pods | 12.17.0（`firebase_core` 4.13.0 / `firebase_messaging` 16.5.0） | `ios/Podfile.lock` |
 | `aps-environment` | `development` | `ios/Runner/Runner.entitlements` — **這是正確狀態，不要改**（值由簽章時的 profile 決定，見 SKILL） |
+| `com.apple.developer.usernotifications.time-sensitive` | `true` | `ios/Runner/Runner.entitlements`（2026-09-09 起，醫師端紅旗推播要能穿透專注模式）。**兩邊都要做**：entitlements 宣告這個 key，**且** App ID 需勾 Time Sensitive Notifications capability（見上方第 3 節）——少一邊，打包腳本第 6 關（`tool/build_ios_testflight.sh`）會擋；症狀與驗法見 `docs/push_troubleshooting.md` |
 | `ITSAppUsesNonExemptEncryption` | `false` | `ios/Runner/Info.plist` |
 | `UIBackgroundModes` | `remote-notification` | `ios/Runner/Info.plist` |
 | App Icon 來源 | `frontend/public/logo.png`（1024²、無 alpha） | `tool/gen_app_icons.py` 自動裁盾牌、產 15 張 icon ＋ 3 張 LaunchImage |
@@ -117,7 +118,7 @@ WS_BASE=wss://gu-voice-app-production.up.railway.app/api/v1/ws
 ⚠️ **UTC 時間可能比上一顆的號碼小**（歷史上有 build 用了本地時間打號）：上一顆是
 `202608231410`（本地時間），若 `date -u` 算出來 ≤ 它，就改用 `date +%Y%m%d%H%M`（本地）
 明確帶 `--build-number=` ——只要單調遞增即可，UTC/本地混用在數值上無害。
-目前群組狀態：**先行測試群組最新 = `202609081800`（4 位測試員都在這個群組）；
+目前群組狀態：**先行測試群組最新 = `202609090231`（4 位測試員都在這個群組）；
 已停用的 4 人舊群組仍停在 `202608211213`**
 （0710 起的每一顆都只發先行測試）。
 
@@ -158,11 +159,11 @@ xcrun altool --upload-app  -f build/ios/ipa/gu_voice.ipa -t ios \
 
 | 項目 | 4 人全群組 | 先行測試群組 |
 |---|---|---|
-| Build | `202608211213`（版本 1.0.0） | `202609081800`（版本 1.0.0，最新＝醫師快速開單頁） |
-| 上傳時間 | 2026-08-21 20:47 | 2026-09-09 02:05（Asia/Taipei） |
+| Build | `202608211213`（版本 1.0.0） | `202609090231`（版本 1.0.0，最新＝推播 time-sensitive entitlement，含快速開單頁） |
+| 上傳時間 | 2026-08-21 20:47 | 2026-09-09 10:38（Asia/Taipei） |
 | 到期 | **2026-11-19** | **2026-12-08**（+90 天不可延長）⚠️ 排行事曆 |
-| Delivery UUID | `b37056bb-0b50-453c-a015-b0e390d3bdbd` | `01fd2a2f-699e-4189-acbf-b312eb95dee1`（202609081800） |
-| 群組 build 歷史 | 只有 1213 | 1528 → … → 202609021536 → 202609030302 → 202609030649 → 202609081800 |
+| Delivery UUID | `b37056bb-0b50-453c-a015-b0e390d3bdbd` | `74e1ee94-31d0-421e-af77-932372dcd48f`（202609090231） |
+| 群組 build 歷史 | 只有 1213 | 1528 → … → 202609030302 → 202609030649 → 202609081800 → 202609090231 |
 
 先行測試群組（id `645ac1e0-71c3-4e34-a4a4-4a7ada3d823f`，internal，ASC API 建）
 **2026-08-23 起共 4 位測試員**（全數 INSTALLED；名單以 ASC 為準，個資不進公開 repo）。

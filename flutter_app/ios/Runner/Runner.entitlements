@@ -11,5 +11,19 @@
 	     docs/deployment_guide.md 二、；打包腳本第 6 關已自動做）。 -->
 	<key>aps-environment</key>
 	<string>development</string>
+
+	<!-- 醫師端推播要在專注模式／睡眠模式下也亮鎖定畫面（醫療用途，2026-09-09 拍板）。
+	     後端已把紅旗推播的 APNs payload 設成 interruption-level: time-sensitive，但 iOS
+	     要認這個等級，App 必須宣告這個 entitlement——沒有它，iOS 會**安靜降級**成一般通知：
+	     沒有任何錯誤、後端 log 完全正常，只是醫師開專注模式時紅旗不會亮（2026-09-08 對
+	     已上傳的 build 202609081800 用 codesign 傾印 entitlements（指令見 docs/push_troubleshooting.md §7）驗到就是這個樣子：
+	     簽進去的只有 aps-environment／get-task-allow／application-identifier／
+	     team-identifier／beta-reports-active，沒有這一個）。
+	     ⚠️ 光加這個 key 不夠：Apple Developer 後台 → Certificates, IDs & Profiles →
+	     Identifiers → 這個 App ID 也要勾 Time Sensitive Notifications capability，否則
+	     provisioning profile 不含此 entitlement，簽章會直接失敗。打包腳本第 6 關
+	     （tool/build_ios_testflight.sh）會對簽進 .ipa 的值斷言，兩邊有一邊沒做都會被擋。 -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
 </dict>
 </plist>

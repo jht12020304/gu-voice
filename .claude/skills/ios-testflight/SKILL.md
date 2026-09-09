@@ -75,6 +75,8 @@ description: GU Voice iOS 單一 App 上 TestFlight 內部測試的完整管道�
 | **3. App Store Connect 上有這個 bundle ID 的 App 記錄** | 上傳時報找不到 app / bundle id 不匹配；Transporter 與 altool 都會在傳完之後才失敗，浪費一次上傳（.ipa 約 25MB；185MB 那個數字是 .xcarchive 不是上傳物） |
 | **4. APNs `.p8` 金鑰已上傳到 Firebase Console**（Project Settings → Cloud Messaging → **Apple app configuration** → APNs Authentication Key；Key ID／scope／檔案位置見總表 §5）⚠️ **APNs 金鑰必須與簽 App 的 team 相同**，而 `.p8` 檔本身不含 team ID、從檔案判斷不出來——2026-08-21 已到 developer.apple.com → Keys 實查確認歸屬正確，**日後換 team 要重驗這一條** | FCM `send` 回 200 但裝置什麼都收不到——**後端 log 一切正常**，這是最難查的一種。金鑰放在 repo 之外，上傳到 Firebase 即可，**不要複製進 repo** |
 
+| **5. App ID 勾選 Time Sensitive Notifications capability**（2026-09-09 起，紅旗推播要穿透醫師專注模式） | 若 `Runner.entitlements` 已宣告 `com.apple.developer.usernotifications.time-sensitive` 但這裡沒勾：provisioning profile 不含此 entitlement，**簽章直接失敗**。若這裡有勾但 entitlements 檔沒宣告：**一切正常、無錯誤**，但醫師開專注模式時紅旗不會亮，後端 log 完全正常——跟第 2 項的 ITMS-90078 不同，這種降級**沒有任何徵兆**。兩邊都要做，驗法與細節見 `docs/push_troubleshooting.md`、打包腳本第 6 關會擋 |
+
 ⚠️ 第 4 項與 App Store Connect 的 API key 是**兩把不同的 `.p8`**，用途與權限都不同。不要拿 APNs 那把去做 `xcrun altool --api-key`。
 
 ## 打包流程

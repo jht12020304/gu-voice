@@ -310,6 +310,42 @@ verify_artifact() {
       ;;
   esac
 
+  # -- 6b2. time-sensitive 通知 entitlement。
+  #    2026-09-09 拍板：醫師端推播要在專注模式／睡眠模式下也亮鎖定畫面（醫療用途）。
+  #    後端已把紅旗推播的 APNs payload 設成 interruption-level: time-sensitive，
+  #    但 iOS 要認這個等級，App 必須簽進這個 entitlement——沒簽的話 iOS 會【安靜降級】，
+  #    不會有任何錯誤、後端 log 完全正常，只是醫師開專注模式時紅旗不會亮
+  #   （2026-09-08 對已上傳的 build 202609081800 跑 codesign 驗到就是這個樣子）。
+  local time_sensitive
+  # ⚠️ 這個 key 含五個點，而 plutil -extract 把點當成 key path 分隔符：不跳脫的話
+  #    永遠讀到空值，斷言會在 entitlement 明明簽對時也判失敗（2026-09-09 實測）。
+  #    get-task-allow／aps-environment 沒有點所以從沒踩到。跳脫寫法實測可讀到 true。
+  time_sensitive="$(plist_get 'com\.apple\.developer\.usernotifications\.time-sensitive' "${ent_norm}")"
+  if [[ "${time_sensitive}" != "true" ]]; then
+    die "簽進去的 entitlements 沒有 com.apple.developer.usernotifications.time-sensitive = true" \
+        "（讀到的是「${time_sensitive:-完全沒有這個 key}」）。" \
+        "" \
+        "這不會讓上傳失敗、也不會讓推播整個收不到——iOS 只是【安靜】把 time-sensitive" \
+        "降級成一般通知，專注模式／睡眠模式下不會亮鎖定畫面，後端 log 完全正常，沒有" \
+        "任何錯誤徵兆（2026-09-08 就是這樣被發現的：build 202609081800 上傳前沒人" \
+        "發現漏簽）。" \
+        "" \
+        "兩個可能成因，都檢查一次：" \
+        "  1. ios/Runner/Runner.entitlements 沒有宣告這個 key" \
+        "     → 補上 <key>com.apple.developer.usernotifications.time-sensitive</key><true/>。" \
+        "  2. Apple Developer 後台的 App ID com.guvoice.guVoice 沒有勾" \
+        "     Time Sensitive Notifications capability" \
+        "     → developer.apple.com → Certificates, IDs & Profiles → Identifiers →" \
+        "       com.guvoice.guVoice → 勾 Time Sensitive Notifications → Save，" \
+        "       重跑本腳本讓 Xcode 重新產生 provisioning profile。" \
+        "     （若 entitlements 已宣告但 App ID 沒開這個 capability，通常會在簽章階段" \
+        "      直接失敗、根本跑不到這裡；會單獨在這裡被抓到的多半是 1，但兩邊都要" \
+        "      確認過才算修好。）" \
+        "" \
+        "entitlements 已存檔：${dump_dir}/entitlements.plist"
+  fi
+  printf '    com.apple.developer.usernotifications.time-sensitive = true ✓\n'
+
   # -- 6c. 圖示資產。
   [[ -f "${app_bundle}/Assets.car" ]] || die \
     "bundle 內沒有 Assets.car —— actool 沒有編出資產目錄。" \
