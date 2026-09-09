@@ -30,6 +30,7 @@
 | **運維端點曝光控制** | [ops_endpoint_exposure.md](ops_endpoint_exposure.md)——`/metrics`／`/docs`／`/redoc`／`/openapi.json` 的鎖法與理由、`METRICS_TOKEN` 設定、以及 `/metrics` 在多 worker 下會低估約 4 倍這個限制 |
 | **後端搬區域（新加坡）** | [railway_region_move.md](railway_region_move.md)——為什麼要搬（實測 827 倍差距）、app 與 Redis 的先後順序、Redis volume 弄丟會失去什麼、驗收與回退。設定值本身在 `backend/railway.toml` 與 [supabase_connection_guide.md](supabase_connection_guide.md) |
 | **效能／體感流暢度（唯一權威來源）** | [perf_audit_2026-08-22.md](perf_audit_2026-08-22.md)——2026-08-22 那一輪稽核查了什麼、修了什麼、還剩什麼（含「已查證但刻意不做」與理由）。**結論只留這一份**，別的檔連結過來就好 |
+| **產品介紹影片（自動產生）** | [../flutter_app/README.md](../flutter_app/README.md) §介紹影片——`tool/record_demo.sh` 一行產出 60 秒 MP4（模擬器錄影＋walkthrough 驅動＋ffmpeg 字卡）。⚠️ 只准打本機後端；模擬器要先 shutdown 再 boot；本機 ffmpeg 沒有 `drawtext` |
 | Flutter Web staged rollout | [flutter_web_cutover.md](flutter_web_cutover.md)；程式與本機跑法見 [../flutter_app/README.md](../flutter_app/README.md)，缺口見 [TODO.md](TODO.md) §G／§V |
 
 ## 歷史文件

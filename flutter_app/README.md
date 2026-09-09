@@ -165,7 +165,49 @@ doctor／臨床 admin 也只讀自己被指派的病患資料。system admin 仍
   - `login_smoke_test.dart` — 登入冒煙，驗 dio／iOS Keychain 持久化／bootstrap 還原／導向
   - `kiosk_idle_logout_test.dart` — 真等逾時驗病患被登出＋token 清除
   - `patient_text_flow_test.dart` — **病患全流程（文字代替語音）**，打真後端＋真 OpenAI，見上方「已驗過的」
+  - `demo_walkthrough_test.dart` — **不是測試，是產品介紹影片的驅動腳本**（見下方「介紹影片」）
 - 憑證一律只從 `--dart-define` 讀，沒給就 skip。
+
+## 介紹影片（自動產生，2026-09-09）
+
+一行產出 60 秒 1080×1920 的產品介紹影片：
+
+```bash
+cd flutter_app && ./tool/record_demo.sh --output ~/Desktop/UroSense_demo.mp4
+```
+
+它做的事：重開模擬器 → `simctl io recordVideo` 開錄 → 跑
+`integration_test/demo_walkthrough_test.dart`（登入 → 選醫師 → 問診 → 醫師端通知 →
+快速開單 → SOAP 報告）→ 停錄 → 剪成 60 秒並疊中文字卡。
+
+**前提**：本機後端（`docker compose up -d postgres redis` ＋ uvicorn）與 **Celery worker**
+都要在跑——沒有 worker 就等不到 `report_ready`，快速開單那段會空等。腳本會先檢查，缺了直接擋。
+
+| 檔案 | 職責 |
+|---|---|
+| `tool/record_demo.sh` | 串接全流程；用 Dart 端印的 `DEMO_MARK_START <epoch>` 把 build 的空桌面剪掉 |
+| `tool/make_demo_video.sh` | ffmpeg 後製：變速、裁成 1080×1920、疊字卡、淡入淡出 |
+| `tool/demo_captions.py` | 用 Pillow 把中文字卡渲染成帶 alpha 的 PNG |
+| `tool/demo_captions.example.json` | 字卡時間軸與文案 |
+
+四件會咬人的事，動它之前先讀：
+
+- ⚠️ **一律先 `shutdown` 再 `boot` 模擬器。** 沿用已開著的模擬器連跑第二次，100% 卡在
+  `openMic`，後端連一次 WS 握手都收不到（2026-09-09 重現兩次）。這發生在 Dart 拿到控制權
+  之前，測試碼裡救不了，只能由 `record_demo.sh` 負責。
+- ⚠️ **不要用 ffmpeg 的 `drawtext` / `subtitles` / `ass`。** 本機 Homebrew 的 ffmpeg 9.0.1
+  沒編 libfreetype／libass，這三個濾鏡直接失敗。中文字卡走 Pillow 渲染 PNG ＋ `overlay`。
+- ⚠️ **只准打本機後端。** 腳本硬性拒絕 `https://` 與 railway 位址：這支會被重複執行，打正式
+  環境等於每跑一次就建真場次、對四支真醫師手機發推播。
+- ⚠️ **字卡目前綁固定秒數，而 walkthrough 每次長度會變**（LLM 回應快慢不同，實測 2:14 與
+  2:21），成品固定壓成 60 秒 → 變速倍率跟著變 → **同一組字卡在不同次錄影會對到不同畫面**。
+  要根治得讓 walkthrough 印階段標記（`DEMO_MARK_STAGE <名稱> <epoch>`），字卡綁標記而非秒數。
+
+只改字卡不必重錄——`record_demo.sh --keep-raw` 會留下 `build/demo/raw.mov`，直接重跑
+`make_demo_video.sh` 即可（`--trim-start` / `--trim-duration` 用上一次 log 印的值）。
+
+**已知畫面瑕疵**：這台 Mac 沒有音訊輸入裝置，問診頁會掛一條「語音功能無法使用」橫幅入鏡
+（walkthrough 會印 `DEMO_NOTE` 提醒）。要乾淨畫面得換一台有麥克風的 Mac，或該段真機補拍。
 
 ## 注意
 
