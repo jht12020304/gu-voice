@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authz import (
+    clinician_can_access_session,
+    clinician_session_filter,
     get_clinician_scope_id,
     get_user_role as _get_user_role,
 )
@@ -149,7 +151,7 @@ async def _authorize_report_access(
 
     clinician_id = get_clinician_scope_id(current_user)
     if clinician_id is not None:
-        if doctor_id == clinician_id:
+        if clinician_can_access_session(doctor_id, clinician_id):
             return
         raise NotFoundException("errors.report_not_found")
 
@@ -305,8 +307,9 @@ class ReportService:
         # 不再是 None（無限縮），而是「所有未刪除場次」。
         clinician_id = get_clinician_scope_id(current_user)
         if clinician_id is not None:
+            # 自己負責的 ＋ 尚未指派的（kiosk 共享佇列），與場次清單同一套範圍。
             scope_subquery = select(Session.id).where(
-                Session.doctor_id == clinician_id,
+                clinician_session_filter(clinician_id),
                 session_not_deleted(),
             )
         elif role == UserRole.ADMIN:

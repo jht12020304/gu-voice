@@ -14,6 +14,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.authz import (
+    clinician_session_filter,
     get_clinician_scope_id,
     get_user_role as _get_user_role,
 )
@@ -85,7 +86,7 @@ def _parse_iso_datetime(value: Any) -> Optional[datetime]:
 
 
 def _doctor_scope_id(current_user: Any) -> Optional[UUID]:
-    """臨床帳號只看被指派給自己的紅旗；system admin 不限縮。"""
+    """臨床帳號只看自己負責或尚未指派場次的紅旗；system admin 不限縮。"""
     return get_clinician_scope_id(current_user)
 
 
@@ -144,7 +145,7 @@ class AlertService:
             if needs_session_join:
                 stmt = stmt.join(Session, RedFlagAlert.session_id == Session.id)
                 if doctor_scope_id is not None:
-                    stmt = stmt.where(Session.doctor_id == doctor_scope_id)
+                    stmt = stmt.where(clinician_session_filter(doctor_scope_id))
                 if patient_id is not None:
                     stmt = stmt.where(Session.patient_id == patient_id)
             return stmt
@@ -246,7 +247,7 @@ class AlertService:
             stmt = stmt.where(
                 RedFlagAlert.session_id.in_(
                     select(Session.id).where(
-                        Session.doctor_id == doctor_scope_id,
+                        clinician_session_filter(doctor_scope_id),
                         Session.id.in_(visible_session_ids()),
                     )
                 )
@@ -283,7 +284,7 @@ class AlertService:
         if doctor_scope_id is not None:
             count_query = count_query.join(
                 Session, RedFlagAlert.session_id == Session.id
-            ).where(Session.doctor_id == doctor_scope_id)
+            ).where(clinician_session_filter(doctor_scope_id))
 
         result = await db.execute(count_query)
         return result.scalar() or 0
@@ -316,7 +317,7 @@ class AlertService:
         if doctor_scope_id is not None:
             query = query.join(
                 Session, RedFlagAlert.session_id == Session.id
-            ).where(Session.doctor_id == doctor_scope_id)
+            ).where(clinician_session_filter(doctor_scope_id))
 
         result = await db.execute(query)
         alert = result.scalar_one_or_none()

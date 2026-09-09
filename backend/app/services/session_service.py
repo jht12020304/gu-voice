@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authz import (
+    clinician_can_access_session,
+    clinician_session_filter,
     get_clinician_scope_id,
     get_user_role as _get_user_role,
 )
@@ -308,7 +310,7 @@ async def _authorize_session_access(
 
     clinician_id = get_clinician_scope_id(current_user)
     if clinician_id is not None:
-        if session.doctor_id == clinician_id:
+        if clinician_can_access_session(session.doctor_id, clinician_id):
             return
         raise ForbiddenException(
             "errors.session_forbidden_other_doctor",
@@ -1169,14 +1171,14 @@ class SessionService:
 
         clinician_id = get_clinician_scope_id(current_user)
         if clinician_id is not None:
-            # 臨床帳號只看自己負責的場次；未指派場次留給 system admin 處理。
-            # 避免透過 query 參數窺探其他醫師負責的場次。
+            # 臨床帳號看「自己負責的 ＋ 尚未指派的」場次（kiosk 共享佇列）。
+            # 仍然看不到其他醫師名下的場次，避免透過 query 參數窺探。
             effective_limit = min(limit, 100)
             query = (
                 select(Session)
                 .options(selectinload(Session.patient), selectinload(Session.doctor))
                 .where(
-                    Session.doctor_id == clinician_id,
+                    clinician_session_filter(clinician_id),
                     session_not_deleted(),
                 )
             )
