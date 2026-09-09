@@ -1,0 +1,55 @@
+{
+  "width": 1080,
+  "height": 1920,
+  "captions": [
+    {
+      "start": 0.0,
+      "end": 2.5,
+      "title": "UroSense",
+      "subtitle": "AI 語音問診系統 產品介紹",
+      "style": "title"
+    },
+    {
+      "start": 4.0,
+      "end": 9.0,
+      "title": "問診前選擇主治醫師",
+      "subtitle": "病人到院後先指定看診醫師，問診紀錄自動歸戶",
+      "style": "normal"
+    },
+    {
+      "start": 12.0,
+      "end": 17.0,
+      "title": "AI 引導式語音問診",
+      "subtitle": "系統以自然語音一步步詢問症狀，取代冗長紙本問卷",
+      "style": "normal"
+    },
+    {
+      "start": 20.0,
+      "end": 25.0,
+      "title": "即時紅旗警示",
+      "subtitle": "偵測到危險徵兆立即標記，提醒醫護優先處理",
+      "style": "normal"
+    },
+    {
+      "start": 28.0,
+      "end": 33.0,
+      "title": "SOAP 報告自動生成",
+      "subtitle": "問診結束即產出結構化病歷，免去手動謄寫",
+      "style": "normal"
+    },
+    {
+      "start": 36.0,
+      "end": 42.0,
+      "title": "醫師快速開單：勾選 AI 建議檢查",
+      "subtitle": "AI 依問診內容建議檢查項目，醫師一鍵確認即可送出",
+      "style": "normal"
+    },
+    {
+      "start": 57.5,
+      "end": 60.0,
+      "title": "UroSense",
+      "subtitle": "讓每一次問診更快、更準、更安心",
+      "style": "title"
+    }
+  ]
+}
