@@ -106,7 +106,7 @@ void _installStub({required String language, Map<String, Object?>? patientFacing
         'pagination': {'hasMore': false, 'totalCount': 1},
       };
     }
-    if (path == '/reports/$_reportId') return _reportJson(patientFacing: patientFacing);
+    if (path == '/reports/$_reportId' || path == '/sessions/$_sessionId/report') return _reportJson(patientFacing: patientFacing);
     return null;
   });
 }
@@ -424,13 +424,15 @@ void main() {
       installApiStub((options) {
         final path = options.path;
         if (path == '/sessions/$_sessionId') return _sessionJson('zh-TW');
-        if (path == '/reports') {
+        if (path == '/reports' || path == '/sessions/$_sessionId/report') {
           reportCalls++;
           if (reportCalls == 1) {
             return ResponseBody.fromString('{"detail":"boom"}', 500,
                 headers: {Headers.contentTypeHeader: ['application/json']});
           }
-          return {'data': <Object>[], 'pagination': {'hasMore': false, 'totalCount': 0}};
+          // 一趟式端點：尚無報告 = 404（客戶端轉成 null）
+          return ResponseBody.fromString('{"detail":"not found"}', 404,
+              headers: {Headers.contentTypeHeader: ['application/json']});
         }
         return null;
       });

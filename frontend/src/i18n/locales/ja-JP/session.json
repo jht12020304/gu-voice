@@ -115,13 +115,6 @@
       "completed": "完了",
       "inProgress": "進行中",
       "cancelled": "キャンセル済み"
-    },
-    "status": {
-      "completed": "完了",
-      "inProgress": "進行中",
-      "waiting": "待機中",
-      "abortedRedFlag": "レッドフラグにより中断",
-      "cancelled": "キャンセル済み"
     }
   },
   "patientFacing": {

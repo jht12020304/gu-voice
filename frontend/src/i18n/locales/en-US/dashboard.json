@@ -86,14 +86,7 @@
     "emptyTitle": "No Alerts",
     "emptyMessage": "No red-flag alerts match the current filters",
     "groupCount": "{{count}} alerts",
-    "unknownComplaintFetchFailed": "Chief complaint unavailable",
-    "sessionStatus": {
-      "waiting": "Waiting",
-      "inProgress": "In Consultation",
-      "completed": "Completed",
-      "abortedRedFlag": "Aborted (Red Flag)",
-      "cancelled": "Cancelled"
-    }
+    "unknownComplaintFetchFailed": "Chief complaint unavailable"
   },
   "transcript": {
     "title": "Consultation transcript",

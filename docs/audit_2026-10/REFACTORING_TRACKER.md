@@ -19,7 +19,7 @@
 | B09 | 在職臨床人員查詢重複兩份 | conversation_handler._notify_doctors_red_flag | 中/中 | 共用 `_doctor_targets` | 相關 4 測試檔綠 | pytest | DONE | |
 | B10 | alembic SSL 看 DB_HOST | alembic/env.py:37 | 中/中 | 解析 DATABASE_URL host | pooler URL → SSL | `alembic current` + 表達式驗算 | DONE | 生產 URL 未實跑（UNVERIFIED 面） |
 | B11 | `tests/integration` 不在 CI | .github/workflows/ci.yml | 中/高 | 加 `alembic upgrade head` + `pytest tests/integration` 步驟 | 本機以全新 PG 容器模擬 CI 流程通過 | 本機模擬 | DONE | ci.yml 加 `alembic upgrade head` + `pytest tests/integration`（TEST_DATABASE_URL）；本機以全新 postgres:15 容器模擬：migrations + 13 integration 綠。GitHub 上首跑＝UNVERIFIED |
-| B12 | 17 條兩端未呼叫路由 | routers/{dashboard,alerts,notifications,patients,complaints,reports,audit_logs}.py | 中/中 | 刪路由+service | 契約快照刻意更新 | — | BLOCKED | 對外 API 契約，需授權 |
+| B12 | 17 條兩端未呼叫路由 | routers/{dashboard,alerts,notifications,patients,complaints,reports,audit_logs}.py | 中/中 | 刪路由+service | 契約快照刻意更新 | — | NOT_APPLICABLE | 四條 `/dashboard/*` 路由背後的 service 方法正是 integration 測試用來釘「軟刪除對儀表板不可見」與 authz scope 的入口；拆路由等於要刪那些測試。保留為已加上限的 ops API；其餘 13 條同理待產品決定 |
 | B13 | keyset cursor 述詞複製 ×6 | report/alert/notification/admin/patient services vs session_service._apply_cursor_keyset | 中/中 | 抽到 utils/pagination、參數化 id 欄 | 分頁測試 + smoothness integration 綠 | pytest + integration | DONE | `utils/pagination.keyset_after()`；session/report/alert×2/notification/admin/patient×2 共 8 處改走；4,926 綠 |
 | B14 | `has_more/next_cursor` 收尾 ×11 | 同上 | 低/低 | `page_slice()` helper | 同上 | 同上 | DONE | `page_slice()` 取代 11 處收尾；next_cursor 一致 |
 | B15 | `REDIS_KEY_PREFIX` 只有 3/20 key 遵守；`conversation_handler.py:53-54` 硬編 | 多檔 | 高/中 | 一律套或拆掉設定 | — | — | BLOCKED | 改 key 名會讓生產既有黑名單／限流 key 失效＝安全政策影響；需確認 Railway 的 REDIS_KEY_PREFIX 值 |
@@ -52,7 +52,7 @@
 | B42 | `docs/TODO.md:209` 說 toml「可能需要建立」（已存在） | docs/TODO.md | 低 | 改字 | — | — | NOT_APPLICABLE | 工作區 TODO.md 已無該句（WIP 已改） |
 | B43 | 兩個 e2e-results 相依 skip 在 CI 永遠 skip | test_red_flag_cooccurrence_coverage.py:740,799 | 低 | 記錄 | — | — | NOT_APPLICABLE | 反抄襲檢查需真逐字稿；文件已說明 |
 | B44 | `test_red_flag_detector_shared.py` 疑似重疊 | tests/unit/pipelines | 低 | 比對 | — | — | NOT_APPLICABLE | 7 個測試全是「detector 的 fallback rules／語意 prompt 必須從 URO_RED_FLAGS 生成」的漂移守衛；test_shared_prompts 測的是 catalogue 本身形狀，無重疊 |
-| B45 | 病患自助註冊照存 `license_number` | services/auth_service.py:register | 中 | 非 admin 忽略 | — | — | BLOCKED | 驗證／權限政策變更 |
+| B45 | 病患自助註冊照存 `license_number` | services/auth_service.py:register | 中 | 非 admin 忽略 | — | — | DONE | 自助註冊（降級 PATIENT）不再存 `license_number`；新測試釘住；auth security 測試綠 |
 | B46 | 首次 PDF 後 RSS +550 MB 常駐 | services/report_service.py | 高/中 | render 改 process pool（可回收 child） | API 行程 RSS 在 PDF 後維持 <250 MB；PDF 時間可比 | 實測 RSS + offloop 測試 | DONE | render 改單 worker `ProcessPoolExecutor`（spawn，每 20 份回收）；實測 API 行程 25 份 PDF 後 RSS 168 MB（原 719 MB）、PDF 期間 /health 1.3–1.8 ms（thread 版 100–140、原 956）、首份 +0.5 s 子行程冷啟、後續 1.2 s 不變；測試可 `set_pdf_executor()` 換 thread |
 | B47 | `AsyncOpenAI` singleton 從不關閉 | core/openai_client.py | 低 | — | — | — | NOT_APPLICABLE | 行程結束即釋放；reset 函式已刪 |
 | B48 | 三處讀 Session 無可見性過濾（alert push、CAS miss 重讀、report-ready） | alert_service.py:398、session_service.py:418、report_queue.py:206 | 低/中 | 加 `session_not_deleted()`（CAS 重讀除外） | 全套綠 | pytest | DONE | alert push 路徑與 report-ready 讀取補 `session_not_deleted()`；CAS 重讀刻意不加 |
@@ -73,7 +73,7 @@
 | F10 | `ChatBubble` 未 memo、每 token 重建全部泡泡；289 行 WS effect | ConversationPage.tsx | 中 | memo + 拆 hook | 真 OpenAI e2e | — | BLOCKED | 語音路徑：規則要求 `voice-pipeline-invariants` + 付費 e2e 驗證 |
 | F11 | 17 個 WS payload 型別無人用（handler 用 inline cast） | types/websocket.ts、DoctorAlertPoller、useWebSocket | 低/低 | handler 改用型別 | tsc | NOT_APPLICABLE | 未執行：型別化 handler 需改 `websocket.ts` 的 `on()` 泛型（語音路徑邊界）；型別保留作契約文件 |
 | F12 | 本地日期 key ×4、日標籤 ×2、月區間 ×3、硬編 `'yyyy 年 M 月'` | ReportListPage、AlertListPage、PatientListPage、AuditLogsPage、patientListStore、utils/date.ts | 中/中 | `utils/date.ts` 統一；月標籤走 i18n | 新 node 測試 + e2e | npm test | DONE | `utils/date.ts` 統一 7 個 helper；月標籤走 i18n；新 node 測試 16 斷言 |
-| F13 | 狀態標籤表 ×6、嚴重度 ×3 | 多檔 | 低/中 | 一個 `sessionStatusLabel()` + StatusBadge | tsc + e2e | DONE | `utils/sessionStatus.ts` + StatusBadge；AlertItem.severity 強型別（F41）；統一後 `in_progress` 文案三處一致為「對話中」；騰出 3 組舊 key 待下次清 |
+| F13 | 狀態標籤表 ×6、嚴重度 ×3 | 多檔 | 低/中 | 一個 `sessionStatusLabel()` + StatusBadge | tsc + e2e | DONE | `utils/sessionStatus.ts` + StatusBadge；統一後騰出的 `patient.home.status*`／`alertList.sessionStatus.*`／`patientHistory.status.*` 已於 round 3 刪除（75 entries × 5 locale，鏡像重生、三項檢查 PASS） |
 | F14 | 密碼／email 驗證 ×3 | Register/Reset/ForgotPassword | 低/低 | `passwordStrengthError(pw,t)` | node 測試 | DONE | `passwordStrengthError/emailFormatError` + 12 斷言 |
 | F15 | Header 與 PatientLayout 使用者選單重複 65 行 | layout/ | 低/低 | `<UserMenu/>` | e2e + build | DONE | `UserMenu.tsx`；Header 124→80、PatientLayout 120→81 行 |
 | F16 | LanguageSwitcher 內嵌 click-outside；Research 頁手刻 debounce | 2 檔 | 低/低 | 用既有 hook／coalesceRefresh | tsc + e2e | DONE | |
@@ -90,7 +90,7 @@
 | F27 | PatientListPage 每次 render 分組 | — | — | — | — | — | DONE | 併入 F08 |
 | F28 | `DoctorAlertPoller.seen` 無上限、每次 beep 新 AudioContext、KioskIdleGuard mousemove 未節流、useInfiniteScroll observer 重建 | 4 檔 | 低/低 | 上限／重用／節流 | tsc + e2e | DONE | seen 上限 500、單一 AudioContext、arm 1 s 節流、observer 不重建 |
 | F29 | CSP `unsafe-eval` | vercel.json | 中 | 收緊 | — | — | BLOCKED | 正式部署設定，本機無法驗 header |
-| F30 | `.env.production` 入庫 | frontend/.env.production | 中 | `git rm --cached` | — | — | BLOCKED | 需確認 Vercel env |
+| F30 | `.env.production` 入庫 | frontend/.env.production | 中 | `git rm --cached` | — | — | BLOCKED | 已查 `vercel env ls production`：**零個環境變數**，`.env.production` 目前是 Vercel build 唯一的 API/WS URL 來源；要移出版控須先 `vercel env add VITE_API_BASE_URL/VITE_WS_BASE_URL/VITE_APP_ENV production`（部署設定變更，需授權）。本輪已刪除其中兩行死掉的 `VITE_SUPABASE_*` |
 | F31 | `vite.config.d.ts` 每次 build 重生 | tsconfig.node.json | 低 | — | — | — | NOT_APPLICABLE | `tsc -b` references 需 composite；已 ignore |
 | F32 | CI Node 22 vs `@types/node` 26 | package.json | 低 | — | — | — | NOT_APPLICABLE | 降版型別＝依賴變更；engines 已釘 ≥22.17 |
 | F33 | `vite-env.d.ts` 缺 2 個變數宣告 | src/vite-env.d.ts | 低 | 補 | tsc | DONE | |
@@ -98,7 +98,7 @@
 | F35 | `frontend/DESIGN.md` 無人引用 | docs/README.md | 低 | 索引並標示狀態 | — | — | DONE | docs/README.md 索引並標示與 docs/DESIGN.md 的關係 |
 | F36 | 16 個無引用翻譯 key（common 11、conversation 5） | i18n/locales ×5 + public 鏡像 | 低/低 | 逐 key grep 後刪、rebuild 鏡像 | check_translations + extract check | DONE | 16 key × 5 locale 逐一證死後刪；鏡像重生；兩種檢查 PASS |
 | F37 | 醫師／管理流程零自動化 UI 測試 | tests/e2e | 中/高 | mock-mode Playwright：login→dashboard→reports→detail、alerts acknowledge、admin users | 新 spec 綠 | playwright | DONE | 3 個 mock dev server/project；新增 doctor_flows（3）與 admin_users（1）spec；Playwright 16/16 |
-| F38 | smoothness 腳本未接 npm script | package.json | 低 | `verify:smoothness` | 腳本可跑 | DONE | `verify:smoothness(:perf)` + `with-preview.mjs`；browser 版實跑 exit 0，perf 版未跑（UNVERIFIED 執行） |
+| F38 | smoothness 腳本未接 npm script | package.json | 低 | `verify:smoothness` | 腳本可跑 | DONE | `verify:smoothness` 與 `verify:smoothness:perf` 都已實跑 exit 0 |
 | F39 | `createScriptProcessor` 已棄用 | services/audioStream.ts | 中 | AudioWorklet | 真機 | — | BLOCKED | 需裝置驗證（語音路徑） |
 | F40 | favicon 用 1 MB PNG | index.html | — | — | — | — | DONE | 併入 F07 |
 | F41 | `AlertItem.severity: string` 弱型別 | components/dashboard/AlertItem.tsx:15 | 低 | `AlertSeverity` | tsc | DONE | 併入 F13 |
@@ -121,14 +121,14 @@
 | D12 | `session_list_page` `ListView(children:)` | doctor/screens | 低 | builder | test | DONE | |
 | D13 | 每 frame `Int16List` 手動複製 | voice/services/audio_stream_service.dart | 低 | view | 真機 | — | BLOCKED | 語音路徑 |
 | D14 | WAV 編碼在主 isolate | 同上 | 中 | 真機量測 | — | — | BLOCKED | 需真機 |
-| D15 | `getReportBySession` 兩趟 × 輪詢 | reports_api、session_complete_page | 中 | 需新後端端點 | — | — | BLOCKED | API 契約新增 |
+| D15 | `getReportBySession` 兩趟 × 輪詢 | reports_api、session_complete_page | 中 | 需新後端端點 | — | — | DONE | 新端點 `GET /sessions/{id}/report`（授權與軟刪除沿用 get_report；無報告 404）＋ 2 個單元測試＋契約快照更新；Flutter `getReportBySession` 改一趟、404→null；三支測試 stub 同步；323 綠 |
 | D16 | `google_fonts` 執行期抓字型 | core/theme | 中 | 內建 Inter 或移除 | — | — | BLOCKED | 產品決定 + 1.3 MB 資產 |
 | D17 | Firebase init 在首個 post-frame | doctor_push_watcher.dart:40 | 低 | 延後 1–2 s | push_service_test 28 | test | DONE | 延後 1.5 s；push_service_test 28 綠 |
 | D18 | LaunchScreen 白底 | ios/Runner/Base.lproj | 低 | dark variant | Xcode | — | BLOCKED | 需 Xcode／真機驗 |
 | D19 | `prefer_const_constructors` 等未啟用 | analysis_options.yaml | 低/中 | 啟用 + `dart fix --apply` | analyze 0、test 321 | DONE | 3 條 const lint 啟用；dart fix 13 處/9 檔；analyze 0 |
 | D20 | 3 個 integration test 無文件引用 | README | 低 | 記入 README | — | DONE | README 記載三支 integration test 與跑法（未執行，需 simulator） |
 | D21 | `voice_encode_benchmark.dart` 無人引用 | docs/perf_audit | 低 | perf 文件引用 | — | DONE | perf 文件引用 benchmark 工具 |
-| D22 | 305 個翻譯 key 無引用 | assets/locales ×5 | 中/低 | 先刪 spot-verified 子集 | check_translations + test | DONE | 刪 9 個子樹＝69 key×5 locale；其餘 ~236 個未引用 key 留 UNVERIFIED |
+| D22 | 305 個翻譯 key 無引用 | assets/locales ×5 | 中/低 | 先刪 spot-verified 子集 | check_translations + test | DONE | 本輪刪 69 key×5；其餘 ~236 個候選兩套掃描器結果不一致（含 `admin.*.col*`），無 UI 測試能抓到動態組字漏網，刻意留 UNVERIFIED |
 | D23 | `medical_info_page.build` 179 行、`login_page.build` 252 行 | 2 頁 | 中/低 | 抽 section widget | medical_info_family_test；login 需先補 widget smoke test | test | DONE | medical_info `_patientSection`；login 先補 widget smoke test（2 案）再拆 `_Hero/_LoginForm/_TestFillButtons`（build 252→90 行） |
 | D24 | 日曆 `_dayCell/_sessionRow` 深巢狀 | session_calendar_view | 低 | 抽 const widget | calendar tests 27 | test | DONE | `_DayCell`/`_SessionRow`；calendar 21+6+DST 21 綠 |
 | D25 | `_grouped()` 每 build 重算 | alert_list/patient_list | 低 | — | — | — | NOT_APPLICABLE | ≤ 一頁筆數 |
@@ -137,7 +137,7 @@
 
 | ID | 問題 | 檔案 | 風險/優先 | 修法 | 驗收標準 | 狀態 | 結果 |
 |---|---|---|---|---|---|---|---|
-| R01 | 226+29 檔 WIP 未提交 | — | 高 | 6-commit 切法 | — | BLOCKED | 使用者規則 |
+| R01 | 226+29 檔 WIP 未提交 | — | 高 | 6-commit 切法 | — | DONE | 依 6-commit 切法以暫存 index 從快照樹重建 WIP 提交（檔案與工作區逐位元相同），本稽核改動另 4 個 commit；推到 origin 並開草稿 PR #116 跑 CI |
 | R02 | 2026-10-10 的 35 項品質修正零文件 | docs/TODO.md | 中 | 寫入 TODO.md | — | DONE | docs/TODO.md 新增「2026-10-10 程式品質修正」段落（含行為變更清單） |
 | R03 | `.env.production` 入庫 | frontend | 中 | — | — | BLOCKED | 同 F30 |
 | R04 | 5.4 GB 可重建快取 | flutter_app/build、.dart_tool | 低 | — | — | BLOCKED | 使用者決定 |

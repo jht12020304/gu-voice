@@ -206,12 +206,7 @@
       "empty": "Chưa có lịch sử khám",
       "emptyHint": "Hãy bắt đầu lần khám đầu tiên của quý vị",
       "durationMinutes": "{{minutes}} phút",
-      "defaultComplaint": "Khám bệnh",
-      "statusCompleted": "Hoàn tất",
-      "statusInProgress": "Đang khám",
-      "statusWaiting": "Đang chờ",
-      "statusAbortedRedFlag": "Ngừng do cờ đỏ",
-      "statusCancelled": "Đã hủy"
+      "defaultComplaint": "Khám bệnh"
     },
     "settings": {
       "tabProfile": "Hồ sơ",

@@ -79,13 +79,15 @@ class ReportsApi {
     return SoapReport.fromJson(res.data as Map);
   }
 
-  // Two-step: list by session (limit 1) -> fetch full by id. Returns null if none yet.
+  // 一趟：GET /sessions/{id}/report（後端 2026-10-24 新增，取代 list→get 兩趟；
+  // session_complete 每 3 秒輪詢一次，兩趟＝2N 個請求）。尚無報告回 404 → null。
   Future<SoapReport?> getReportBySession(String sessionId) async {
-    final res = await _dio.get('/reports', queryParameters: {'sessionId': sessionId, 'limit': 1});
-    final data = res.data;
-    final list = (data is Map ? data['data'] : data) as List? ?? const [];
-    if (list.isEmpty) return null;
-    final id = (list.first as Map)['id'] as String;
-    return getReport(id);
+    try {
+      final res = await _dio.get('/sessions/$sessionId/report');
+      return SoapReport.fromJson(res.data as Map);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
   }
 }

@@ -383,6 +383,14 @@
    "request": null,
    "response": "{\"anyOf\": [{\"$ref\": \"#/components/schemas/ExamOrderResponse\"}, {\"type\": \"null\"}], \"title\": \"Response Get Latest Exam Order Api V1 Sessions  Session Id  Exam Orders Latest Get\"}"
   },
+  "GET /api/v1/sessions/{session_id}/report": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/SOAPReportDetailResponse\"}"
+  },
   "POST /api/v1/admin/users": {
    "params": [
     "header:Authorization*"

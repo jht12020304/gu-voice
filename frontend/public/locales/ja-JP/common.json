@@ -206,12 +206,7 @@
       "empty": "問診履歴はまだありません",
       "emptyHint": "最初の問診を始めましょう",
       "durationMinutes": "{{minutes}} 分",
-      "defaultComplaint": "問診",
-      "statusCompleted": "完了",
-      "statusInProgress": "進行中",
-      "statusWaiting": "待機中",
-      "statusAbortedRedFlag": "レッドフラグによる中止",
-      "statusCancelled": "キャンセル済み"
+      "defaultComplaint": "問診"
     },
     "settings": {
       "tabProfile": "プロフィール",

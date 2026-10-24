@@ -262,6 +262,28 @@ class ReportService:
         return list(result.scalars().all())
 
     @staticmethod
+    async def get_report_by_session(
+        db: AsyncSession, session_id: UUID, current_user: Any = None
+    ) -> Any:
+        """取得場次的（最新一份）SOAP 報告詳情；沒有報告或無權限都回 NotFound。
+
+        客戶端先前要兩趟（list?sessionId=…&limit=1 → get_report）；這裡一趟完成，
+        授權與軟刪除檢查沿用 `get_report`（同一條路徑，不另寫一份）。
+        """
+        row = (
+            await db.execute(
+                select(SOAPReport.id)
+                .where(SOAPReport.session_id == session_id)
+                .where(SOAPReport.session_id.in_(visible_session_ids()))
+                .order_by(SOAPReport.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise NotFoundException("errors.report_not_found")
+        return await ReportService.get_report(db, report_id=row, current_user=current_user)
+
+    @staticmethod
     async def list_reports(
         db: AsyncSession,
         current_user: Any = None,

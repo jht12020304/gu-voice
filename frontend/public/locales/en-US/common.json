@@ -206,12 +206,7 @@
       "empty": "No consultation records yet",
       "emptyHint": "Let's start your first consultation",
       "durationMinutes": "{{minutes}} min",
-      "defaultComplaint": "Consultation",
-      "statusCompleted": "Completed",
-      "statusInProgress": "In progress",
-      "statusWaiting": "Waiting",
-      "statusAbortedRedFlag": "Red-flag aborted",
-      "statusCancelled": "Cancelled"
+      "defaultComplaint": "Consultation"
     },
     "settings": {
       "tabProfile": "Profile",

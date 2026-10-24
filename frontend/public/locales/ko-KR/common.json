@@ -206,12 +206,7 @@
       "empty": "문진 기록이 없습니다",
       "emptyHint": "첫 문진을 시작해 보세요",
       "durationMinutes": "{{minutes}}분",
-      "defaultComplaint": "문진",
-      "statusCompleted": "완료됨",
-      "statusInProgress": "진행 중",
-      "statusWaiting": "대기 중",
-      "statusAbortedRedFlag": "레드플래그 중단",
-      "statusCancelled": "취소됨"
+      "defaultComplaint": "문진"
     },
     "settings": {
       "tabProfile": "개인정보",

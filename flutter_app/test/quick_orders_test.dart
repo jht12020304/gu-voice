@@ -57,7 +57,7 @@ void _installStub({Object? latestOrder, List<Object?>? tests}) {
         'pagination': {'hasMore': false, 'totalCount': 1},
       };
     }
-    if (path == '/reports/$_reportId') return _report(tests: tests);
+    if (path == '/reports/$_reportId' || path == '/sessions/$_sessionId/report') return _report(tests: tests);
     if (path == '/sessions/$_sessionId') {
       return {
         'id': _sessionId,

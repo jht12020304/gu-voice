@@ -86,14 +86,7 @@
     "emptyTitle": "警告なし",
     "emptyMessage": "条件に一致するレッドフラグ警告はありません",
     "groupCount": "{{count}} 件の警告",
-    "unknownComplaintFetchFailed": "主訴を取得できません",
-    "sessionStatus": {
-      "waiting": "待機中",
-      "inProgress": "問診中",
-      "completed": "完了",
-      "abortedRedFlag": "レッドフラグにより中断",
-      "cancelled": "キャンセル済み"
-    }
+    "unknownComplaintFetchFailed": "主訴を取得できません"
   },
   "transcript": {
     "title": "問診会話の逐語記録",

@@ -115,13 +115,6 @@
       "completed": "Completed",
       "inProgress": "In progress",
       "cancelled": "Cancelled"
-    },
-    "status": {
-      "completed": "Completed",
-      "inProgress": "In progress",
-      "waiting": "Waiting",
-      "abortedRedFlag": "Aborted (Red Flag)",
-      "cancelled": "Cancelled"
     }
   },
   "patientFacing": {

@@ -240,7 +240,9 @@ class AuthService:
             role=effective_role,
             phone=data.phone,
             department=data.department,
-            license_number=data.license_number,
+            # 執照號碼只對臨床角色有意義；自助註冊一律是 PATIENT，照存會讓病患帳號帶著
+            # 一個自稱的執照欄位（clinician scope 以 license_number 判「臨床 admin」）。
+            license_number=data.license_number if effective_role != UserRole.PATIENT else None,
             is_active=True,
             created_at=now,
             updated_at=now,

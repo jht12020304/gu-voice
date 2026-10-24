@@ -86,14 +86,7 @@
     "emptyTitle": "無警示",
     "emptyMessage": "目前沒有符合條件的紅旗警示",
     "groupCount": "{{count}} 筆警示",
-    "unknownComplaintFetchFailed": "未取得主訴",
-    "sessionStatus": {
-      "waiting": "等待中",
-      "inProgress": "問診中",
-      "completed": "已完成",
-      "abortedRedFlag": "紅旗中止",
-      "cancelled": "已取消"
-    }
+    "unknownComplaintFetchFailed": "未取得主訴"
   },
   "transcript": {
     "title": "問診對話逐字稿",
