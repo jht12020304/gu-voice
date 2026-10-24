@@ -1,5 +1,23 @@
 # GU-Voice TODO 清單
 
+## 2026-10-10 程式品質修正（backend 18 項／frontend 17 項，本機未提交）
+
+> 這一輪先前**沒有任何文件記載**，只留在程式註解；2026-10-23 稽核時從 diff 反推（詳見
+> `docs/audit_2026-10/evidence/audit_repo.md` §1.1 (c)）。其中幾條是**行為改變**不是純整理，提交／部署前要知道：
+>
+> - backend：REST 狀態轉移改 compare-and-set（`session_service._execute_status_cas`）——別的行程先轉移時**回 409 而非覆寫**；
+>   report generate/regenerate 補 row-level 授權（臨床帳號對非自己場次 **403**）；`assign_doctor` 驗證目標是可指派臨床帳號（否則 404）；
+>   逾時任務改看「threshold 後有沒有新對話」而不是 `updated_at`；六個 Celery task 的 `asyncio.run` 重試包裝統一為 `tasks.run_async`
+>   （業務例外不再重跑整個 task body）；`report_queue` 失敗只宣告一次、`notify_report_ready` 先 commit 再 publish；
+>   死碼（`PaginationParams`、`cache_*`、`get_by_session`、兩個 schema export）移除；`requirements.txt` 拿掉 5 個無人 import 的套件
+>   （2026-10-24 以全新 venv `pip check` + 166 tests 驗過）。
+> - frontend：`websocket.ts` 以 generation 計數修掉「舊 socket handler 未解除 → 兩條活連線」；暫時性 refresh 失敗改退避重連而非登出；
+>   `useWebSocket` 拆成 `useDashboardConnection`（MainLayout 擁有連線）與 `useDashboardWebSocket`（只掛 listener）；
+>   `@sentry/react` 搬回 dependencies；新增 `ThemeToggle`／`useClickOutside`／`useInfiniteScroll`；多頁時區與 URL 語言權威修正。
+> - flutter：`parse_page.dart`（7 個 API 共用分頁解析）、`toast.dart`（34 處）、`share_bytes.dart`（取代 pdf_share／png_share）。
+>
+> 驗收：2026-10-24 全套重跑——backend 4,926 unit + 13 integration、frontend lint/tsc/15 tests/build/Playwright 12、Flutter analyze + 321。
+
 ## 2026-10-03 整體流暢度修正
 
 F01–F12 已完成程式修正與本機回歸；獨立 staging 後端與 React preview 已部署，iOS 候選包六關通過、尚未上傳 TestFlight。Apple 必要協議由使用者稍後處理；production 未變更。真機效能及麥克風等裝置驗收仍待完成，結果與重跑入口集中在 [效能驗收紀錄](perf_audit_2026-08-22.md)。

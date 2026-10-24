@@ -1,0 +1,1280 @@
+diff --git a/backend/.env.example b/backend/.env.example
+index 0b3325b..4ddf177 100644
+--- a/backend/.env.example
++++ b/backend/.env.example
+@@ -11,9 +11,7 @@
+ # -----------------------------------------------------------------------------
+ # development | staging | production（development 會開 /docs 與不設 token 的 /metrics）
+ APP_ENV=production
+-APP_HOST=0.0.0.0
+-APP_PORT=8000
+-APP_WORKERS=4
++# 綁定埠／worker 數是 scripts/start.sh 的 shell 變數（PORT、WORKERS），不是 Settings 欄位
+ # DEBUG / INFO / WARNING / ERROR / CRITICAL（大小寫皆可，啟動腳本會轉小寫）
+ # 同時被 Settings.LOG_LEVEL 與 scripts/start.sh 的 uvicorn 讀取
+ LOG_LEVEL=info
+@@ -136,7 +134,6 @@ MULTILANG_GLOBAL_ENABLED=true
+ MULTILANG_ROLLOUT_PERCENT=100
+ # 緊急 kill-switch，逗號分隔（例：ja-JP,ko-KR）
+ # MULTILANG_DISABLED_LANGUAGES=
+-RED_FLAG_SEMANTIC_ONLY_THRESHOLD=0.3
+ RED_FLAG_BUILTIN_RULES_FALLBACK=true
+ RED_FLAG_NEGATION_GUARD=true
+ 
+diff --git a/backend/app/core/config.py b/backend/app/core/config.py
+index 98cdd2a..e817c83 100644
+--- a/backend/app/core/config.py
++++ b/backend/app/core/config.py
+@@ -50,9 +50,8 @@ class Settings(BaseSettings):
+ 
+     # ── APP ─────────────────────────────────────────────
+     APP_ENV: str = "development"
+-    APP_HOST: str = "0.0.0.0"
+-    APP_PORT: int = 8000
+-    APP_WORKERS: int = 4
++    # 綁定位址／埠／worker 數由 scripts/start.sh 的 shell 變數 PORT／WORKERS 決定，
++    # Settings 不讀它們（先前的 APP_HOST／APP_PORT／APP_WORKERS 欄位零讀取者，已移除）。
+     # 單一日誌等級欄位，對齊 start.sh / docker-compose / .env.example 的 LOG_LEVEL
+     LOG_LEVEL: str = "info"
+     APP_SECRET_KEY: str = "change-me-in-production"
+@@ -318,11 +317,6 @@ class Settings(BaseSettings):
+     # 改由下方 field_validator(mode="before") 接手解析逗號分隔字串。
+     MULTILANG_DISABLED_LANGUAGES: Annotated[list[str], NoDecode] = []  # 緊急 kill-switch（逗號分隔）
+ 
+-    # TODO-M8：紅旗 semantic-only 比率閾值。
+-    # 一個 session 的紅旗命中若 semantic_only / total > threshold → report 將
+-    # 被後端視為 draft（非 zh-TW fail-safe 機制）。預設 0.3。
+-    RED_FLAG_SEMANTIC_ONLY_THRESHOLD: float = 0.3
+-
+     # W1：紅旗規則層 kill-switch。
+     # red_flag_rules 表在生產環境從未被 seed，查詢「成功但 0 筆」在語意上
+     # 等同「規則層從未被配置過」，而非管理者刻意清空。預設 True 時，
+diff --git a/backend/app/core/email_client.py b/backend/app/core/email_client.py
+index 2401ae0..d0b5c66 100644
+--- a/backend/app/core/email_client.py
++++ b/backend/app/core/email_client.py
+@@ -12,7 +12,7 @@ DI 友善：`send_email` 可注入 `client` 替換 transport；單元測試直
+ from __future__ import annotations
+ 
+ import logging
+-from typing import Any, Optional, Protocol
++from typing import Optional, Protocol
+ 
+ from app.core.config import settings
+ 
+diff --git a/backend/app/core/exceptions.py b/backend/app/core/exceptions.py
+index 4b86be6..7e6db90 100644
+--- a/backend/app/core/exceptions.py
++++ b/backend/app/core/exceptions.py
+@@ -246,7 +246,7 @@ class AIServiceUnavailableException(AppException):
+ class ServiceUnavailableException(AppException):
+     """後端依賴（非 AI 服務）暫時不可用 → 503。
+ 
+-    與 `InternalErrorException`(500) 的分工：500 代表程式錯誤，503 代表外部依賴掛了、
++    與未捕捉例外（500，`unhandled_exception_handler`）的分工：500 代表程式錯誤，503 代表外部依賴掛了、
+     重試即可能成功（呼叫端可退避重試，維運上也不該被計入 bug）。
+     """
+ 
+@@ -269,16 +269,6 @@ class RateLimitExceededException(AppException):
+         super().__init__(ErrorCode.RATE_LIMIT_EXCEEDED, message, details, message_kwargs=message_kwargs)
+ 
+ 
+-class InternalErrorException(AppException):
+-    def __init__(
+-        self,
+-        message: str = "errors.internal_error",
+-        details: Optional[dict[str, Any]] = None,
+-        message_kwargs: Optional[dict[str, Any]] = None,
+-    ):
+-        super().__init__(ErrorCode.INTERNAL_ERROR, message, details, message_kwargs=message_kwargs)
+-
+-
+ # ── 例外處理器註冊 ──────────────────────────────────────
+ def _cors_headers(request: Request) -> dict[str, str]:
+     """從請求 Origin 產生 CORS headers，確保錯誤回應也帶有 CORS 資訊。"""
+diff --git a/backend/app/core/middleware.py b/backend/app/core/middleware.py
+index fa0ff72..afca7a0 100644
+--- a/backend/app/core/middleware.py
++++ b/backend/app/core/middleware.py
+@@ -11,7 +11,7 @@ import logging
+ import re
+ import time
+ import uuid
+-from typing import Any, Callable, Optional
++from typing import Any, Optional
+ from uuid import UUID
+ 
+ from sqlalchemy import text
+diff --git a/backend/app/core/openai_client.py b/backend/app/core/openai_client.py
+index f835696..7c0e0dc 100644
+--- a/backend/app/core/openai_client.py
++++ b/backend/app/core/openai_client.py
+@@ -56,17 +56,6 @@ def get_openai_client() -> AsyncOpenAI:
+     return _client
+ 
+ 
+-async def reset_openai_client() -> None:
+-    """關閉並清除 singleton。主要給測試、app shutdown 使用。"""
+-    global _client
+-    if _client is not None:
+-        try:
+-            await _client.close()
+-        except Exception:  # noqa: BLE001
+-            pass
+-        _client = None
+-
+-
+ def _retryable_errors() -> tuple[type[Exception], ...]:
+     return (APITimeoutError, RateLimitError, APIConnectionError)
+ 
+diff --git a/backend/app/models/audit_log.py b/backend/app/models/audit_log.py
+index ce40390..90a3d30 100644
+--- a/backend/app/models/audit_log.py
++++ b/backend/app/models/audit_log.py
+@@ -9,7 +9,7 @@ import uuid
+ from datetime import datetime
+ from typing import TYPE_CHECKING, Any, Optional
+ 
+-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, text
++from sqlalchemy import BigInteger, DateTime, ForeignKey, String, text
+ from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+diff --git a/backend/app/models/notification_preference.py b/backend/app/models/notification_preference.py
+index 8f4ff4b..2c4b404 100644
+--- a/backend/app/models/notification_preference.py
++++ b/backend/app/models/notification_preference.py
+@@ -8,7 +8,7 @@
+ 
+ import uuid
+ from datetime import datetime
+-from typing import TYPE_CHECKING, Optional
++from typing import TYPE_CHECKING
+ 
+ from sqlalchemy import Boolean, DateTime, ForeignKey, text
+ from sqlalchemy.dialects.postgresql import UUID
+diff --git a/backend/app/pipelines/red_flag_detector.py b/backend/app/pipelines/red_flag_detector.py
+index 2b62182..f3b3e00 100644
+--- a/backend/app/pipelines/red_flag_detector.py
++++ b/backend/app/pipelines/red_flag_detector.py
+@@ -9,8 +9,7 @@ import asyncio
+ import json
+ import logging
+ import re
+-import uuid
+-from typing import Any, Optional
++from typing import Any
+ 
+ from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+diff --git a/backend/app/pipelines/supervisor.py b/backend/app/pipelines/supervisor.py
+index ef73533..2626e80 100644
+--- a/backend/app/pipelines/supervisor.py
++++ b/backend/app/pipelines/supervisor.py
+@@ -23,7 +23,6 @@ from typing import Any
+ from redis.asyncio import Redis
+ 
+ from app.core.config import Settings
+-from app.core.exceptions import AIServiceUnavailableException
+ from app.core.openai_client import (
+     cache_kwargs,
+     call_with_retry,
+@@ -42,7 +41,6 @@ from app.pipelines.prompts.shared import (
+     render_hpi_checklist,
+     sanitize_for_prompt,
+ )
+-from app.utils.i18n_messages import get_message as _i18n_get
+ 
+ 
+ # BCP-47 → 人類語言名稱，用在 Supervisor 的 next_focus 輸出語言規則。
+diff --git a/backend/app/pipelines/tts_pipeline.py b/backend/app/pipelines/tts_pipeline.py
+index 38e42c4..ba25fbb 100644
+--- a/backend/app/pipelines/tts_pipeline.py
++++ b/backend/app/pipelines/tts_pipeline.py
+@@ -1,14 +1,10 @@
+ """
+ 文字轉語音管線 — OpenAI TTS API
+ 
+-將 AI 回應文字合成為 MP3 語音，支援上傳至 Supabase Storage
+-並產生簽章 URL 供前端播放。
++將 AI 回應文字合成為 MP3 語音，直接以 bytes 回給 WS 串流播放（不落地）。
+ """
+ 
+ import logging
+-from typing import Any
+-
+-from supabase import create_client, Client as SupabaseClient
+ 
+ from app.core.config import Settings
+ from app.core.metrics import observe_tts_latency
+@@ -16,16 +12,11 @@ from app.core.openai_client import call_with_retry, get_openai_client
+ 
+ logger = logging.getLogger(__name__)
+ 
+-_STORAGE_BUCKET = "tts-audio"
+-_SIGNED_URL_EXPIRE_SECONDS = 3600  # 1 小時
+-
+-
+ class TTSPipeline:
+     """
+     OpenAI TTS 管線
+ 
+-    使用 tts-1 模型合成自然語音，輸出 MP3 格式，
+-    並可選擇性地上傳至 Supabase Storage 供前端串流播放。
++    使用 tts-1 模型合成自然語音，輸出 MP3 格式。
+     """
+ 
+     def __init__(self, settings: Settings) -> None:
+@@ -36,19 +27,11 @@ class TTSPipeline:
+         # LANGUAGE_MAP 規劃 ja/ko/vi 用 shimmer；這裡保留引用，synthesize 時依場次語言覆寫。
+         self._language_map = settings.LANGUAGE_MAP
+ 
+-        self._supabase: SupabaseClient | None = None
+-        if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
+-            self._supabase = create_client(
+-                settings.SUPABASE_URL,
+-                settings.SUPABASE_SERVICE_ROLE_KEY,
+-            )
+-
+         logger.info(
+-            "TTSPipeline 初始化 (OpenAI TTS) | model=%s, default_voice=%s, speed=%.1f, supabase=%s",
++            "TTSPipeline 初始化 (OpenAI TTS) | model=%s, default_voice=%s, speed=%.1f",
+             self._model,
+             self._voice,
+             self._speed,
+-            "connected" if self._supabase else "disabled",
+         )
+ 
+     def _voice_for_language(self, language: str | None) -> str:
+@@ -109,71 +92,6 @@ class TTSPipeline:
+             )
+             raise
+ 
+-    async def synthesize_to_url(
+-        self, text: str, session_id: str, message_id: str, language: str | None = None
+-    ) -> str:
+-        """
+-        合成語音後上傳至 Supabase Storage，回傳簽章 URL。
+-
+-        Args:
+-            text:       要合成語音的文字
+-            session_id: 問診場次 ID
+-            message_id: 訊息 ID（用於檔案命名）
+-
+-        Returns:
+-            可播放的簽章 URL，失敗時回傳空字串
+-        """
+-        if self._supabase is None:
+-            raise RuntimeError(
+-                "Supabase 客戶端未設定，無法上傳音訊。"
+-                "請確認 SUPABASE_URL 與 SUPABASE_SERVICE_ROLE_KEY 環境變數。"
+-            )
+-
+-        audio_bytes = await self.synthesize(text, language=language)
+-        if not audio_bytes:
+-            return ""
+-
+-        # 存為 mp3
+-        file_path = f"sessions/{session_id}/{message_id}.mp3"
+-
+-        try:
+-            self._supabase.storage.from_(_STORAGE_BUCKET).upload(
+-                path=file_path,
+-                file=audio_bytes,
+-                file_options={
+-                    "content-type": "audio/mpeg",
+-                    "upsert": "true",
+-                },
+-            )
+-
+-            signed_url_response = self._supabase.storage.from_(
+-                _STORAGE_BUCKET
+-            ).create_signed_url(
+-                path=file_path,
+-                expires_in=_SIGNED_URL_EXPIRE_SECONDS,
+-            )
+-
+-            signed_url = signed_url_response.get("signedURL", "")
+-
+-            logger.info(
+-                "TTS 音訊已上傳 | session=%s, message=%s, path=%s",
+-                session_id,
+-                message_id,
+-                file_path,
+-            )
+-
+-            return signed_url
+-
+-        except Exception as exc:
+-            logger.error(
+-                "TTS 音訊上傳失敗 | session=%s, message=%s, error=%s",
+-                session_id,
+-                message_id,
+-                str(exc),
+-                exc_info=True,
+-            )
+-            raise
+-
+     async def close(self) -> None:
+         """OpenAI AsyncClient 無需明確關閉，保留介面一致性。"""
+         logger.info("TTSPipeline 關閉")
+diff --git a/backend/app/routers/admin.py b/backend/app/routers/admin.py
+index e043110..5805ea3 100644
+--- a/backend/app/routers/admin.py
++++ b/backend/app/routers/admin.py
+@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, status
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.dependencies import get_current_user, get_db, require_role
+-from app.core.exceptions import AppException
+ from app.schemas.admin import (
+     CreateUserRequest,
+     SystemHealthResponse,
+diff --git a/backend/app/routers/alerts.py b/backend/app/routers/alerts.py
+index 73705e0..3e85dcb 100644
+--- a/backend/app/routers/alerts.py
++++ b/backend/app/routers/alerts.py
+@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, status
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.dependencies import get_current_user, get_db, require_role
+-from app.core.exceptions import AppException
+ from app.schemas.alert import (
+     AcknowledgeAlertRequest,
+     AcknowledgeAlertResponse,
+diff --git a/backend/app/routers/audit_logs.py b/backend/app/routers/audit_logs.py
+index 869bd35..8047fc1 100644
+--- a/backend/app/routers/audit_logs.py
++++ b/backend/app/routers/audit_logs.py
+@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, status
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.dependencies import get_current_user, get_db, require_role
+-from app.core.exceptions import AppException
+ from app.schemas.audit_log import (
+     AuditLogDetail,
+     AuditLogListResponse,
+diff --git a/backend/app/routers/auth.py b/backend/app/routers/auth.py
+index 3e7e3d8..1e0a052 100644
+--- a/backend/app/routers/auth.py
++++ b/backend/app/routers/auth.py
+@@ -4,7 +4,6 @@
+ 
+ from __future__ import annotations
+ 
+-from uuid import UUID
+ 
+ from fastapi import APIRouter, Depends, Header, Request, Response, status
+ from fastapi.responses import JSONResponse
+@@ -31,7 +30,6 @@ from app.schemas.auth import (
+     RefreshResponse,
+     RegisterRequest,
+     ResetPasswordRequest,
+-    TokenResponse,
+     UpdateProfileRequest,
+     UserResponse,
+ )
+diff --git a/backend/app/routers/patients.py b/backend/app/routers/patients.py
+index c1976a5..4166524 100644
+--- a/backend/app/routers/patients.py
++++ b/backend/app/routers/patients.py
+@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, status
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.dependencies import get_current_user, get_db, require_role
+-from app.core.exceptions import AppException
+ from app.schemas.patient import (
+     PatientCreate,
+     PatientDetail,
+diff --git a/backend/app/routers/sessions.py b/backend/app/routers/sessions.py
+index c600338..7b427be 100644
+--- a/backend/app/routers/sessions.py
++++ b/backend/app/routers/sessions.py
+@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.dependencies import get_current_user, get_db, get_redis, require_role
+-from app.core.exceptions import AppException
+ from app.core.metrics import record_session_created
+ from app.core.sentry import set_language_scope
+ from app.schemas.session import (
+diff --git a/backend/app/schemas/auth.py b/backend/app/schemas/auth.py
+index 713c3b4..cb3247a 100644
+--- a/backend/app/schemas/auth.py
++++ b/backend/app/schemas/auth.py
+@@ -165,7 +165,6 @@ class ForgotPasswordResponse(MessageResponse):
+ # ── 別名（供 router 匯入相容） ──────────────────────────
+ RefreshRequest = RefreshTokenRequest
+ RefreshResponse = RefreshTokenResponse
+-TokenResponse = LoginResponse
+ UserResponse = UserInfo
+ 
+ class UpdateProfileRequest(BaseModel):
+diff --git a/backend/app/services/alert_service.py b/backend/app/services/alert_service.py
+index 562a06b..05dfa88 100644
+--- a/backend/app/services/alert_service.py
++++ b/backend/app/services/alert_service.py
+@@ -687,5 +687,3 @@ class AlertService:
+     async def update_rule_entry(self, db, rule_id, data):
+         return await self.update_rule(db, rule_id=rule_id, data=data.model_dump(exclude_unset=True) if hasattr(data, 'model_dump') else data)
+ 
+-    async def delete_rule_entry(self, db, rule_id):
+-        return await self.delete_rule(db, rule_id=rule_id)
+diff --git a/backend/app/services/auth_service.py b/backend/app/services/auth_service.py
+index 32010bb..009da01 100644
+--- a/backend/app/services/auth_service.py
++++ b/backend/app/services/auth_service.py
+@@ -26,7 +26,6 @@ from app.core.exceptions import (
+     NotFoundException,
+     ServiceUnavailableException,
+     UnauthorizedException,
+-    ValidationException,
+ )
+ from app.core.security import (
+     create_access_token,
+@@ -42,8 +41,9 @@ from app.utils.datetime_utils import utc_now
+ 
+ logger = logging.getLogger(__name__)
+ 
+-# JWT 黑名單 Redis key 前綴（與 dependencies.get_current_user 檢查端共用）
+-BLACKLIST_KEY_PREFIX = "gu:token_blacklist:"
++# JWT 黑名單 Redis key 前綴：單一定義在讀取端 core/dependencies，這裡只 import，
++# 避免寫入端／讀取端各自寫死後漂移（漂移＝登出的 token 靜默繼續有效）。
++from app.core.dependencies import BLACKLIST_KEY_PREFIX  # noqa: E402
+ 
+ # Refresh token rotation 登記表 key 前綴
+ # 每發一張 refresh token，就寫一筆 gu:refresh:{user_id}:{jti} = "1"，TTL = token exp
+diff --git a/backend/app/services/complaint_service.py b/backend/app/services/complaint_service.py
+index aafbd78..50d4985 100644
+--- a/backend/app/services/complaint_service.py
++++ b/backend/app/services/complaint_service.py
+@@ -100,41 +100,6 @@ def _serialize_complaint(complaint: ChiefComplaint, language: Optional[str]) ->
+ class ComplaintService:
+     """主訴業務邏輯"""
+ 
+-    @staticmethod
+-    async def get_active_list(db: AsyncSession) -> list[dict[str, Any]]:
+-        """
+-        取得所有啟用中的主訴，依分類分組並依 display_order 排序
+-
+-        Returns:
+-            依分類分組的主訴列表
+-            [
+-                {
+-                    "category": "排尿症狀",
+-                    "complaints": [ChiefComplaint, ...]
+-                },
+-                ...
+-            ]
+-        """
+-        result = await db.execute(
+-            select(ChiefComplaint)
+-            .where(ChiefComplaint.is_active.is_(True))
+-            .order_by(ChiefComplaint.category, ChiefComplaint.display_order)
+-        )
+-        complaints = result.scalars().all()
+-
+-        # 依分類分組
+-        grouped: dict[str, list] = {}
+-        for complaint in complaints:
+-            category = complaint.category
+-            if category not in grouped:
+-                grouped[category] = []
+-            grouped[category].append(complaint)
+-
+-        return [
+-            {"category": category, "complaints": items}
+-            for category, items in grouped.items()
+-        ]
+-
+     @staticmethod
+     async def create(
+         db: AsyncSession,
+diff --git a/backend/app/services/conversation_service.py b/backend/app/services/conversation_service.py
+index 7798abc..b0da6f0 100644
+--- a/backend/app/services/conversation_service.py
++++ b/backend/app/services/conversation_service.py
+@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.exceptions import NotFoundException
+ from app.models.conversation import Conversation
+-from app.models.session import Session
+ from app.utils.datetime_utils import utc_now
+ 
+ 
+diff --git a/backend/app/services/notification_service.py b/backend/app/services/notification_service.py
+index ea3da1d..a8eaa4a 100644
+--- a/backend/app/services/notification_service.py
++++ b/backend/app/services/notification_service.py
+@@ -6,7 +6,6 @@
+ - 未讀計數（Redis 快取）
+ """
+ 
+-import json
+ import logging
+ from typing import Any, Optional
+ from uuid import UUID
+diff --git a/backend/app/services/report_service.py b/backend/app/services/report_service.py
+index 290fd92..92d63df 100644
+--- a/backend/app/services/report_service.py
++++ b/backend/app/services/report_service.py
+@@ -6,8 +6,10 @@ SOAP 報告服務
+ - PDF 匯出
+ """
+ 
++import asyncio
+ import html as _html
+ import logging
++import threading
+ from datetime import timedelta, timezone
+ from typing import Any, Optional
+ from uuid import UUID
+@@ -737,15 +739,27 @@ class ReportService:
+ 
+         # 使用 WeasyPrint 生成 PDF。url_fetcher 一律拒絕，
+         # 防止注入內容經 img src / CSS url() 觸發 SSRF／本地檔讀取。
+-        from weasyprint import HTML
+-
+-        pdf_bytes = HTML(
+-            string=html_content, url_fetcher=_forbid_url_fetch
+-        ).write_pdf()
++        # WeasyPrint 是 CPU-bound 同步 render（實測約 1.2 s）；直接在 async def 裡呼叫
++        # 會把共用的 API worker event loop 整個卡住（/health 由 1 ms 變 956 ms），
++        # 所有 kiosk WS 音訊跟著凍結。改丟到 thread；用鎖維持原本「一次一份」的
++        # 序列化語意（WeasyPrint 未保證 thread-safe）。
++        # ponytail: single render lock; move to a process pool if PDF throughput matters.
++        pdf_bytes = await asyncio.to_thread(_render_pdf_blocking, html_content)
+         filename = f"SOAP_Report_{report.id}.pdf"
+         return pdf_bytes, filename
+ 
+ 
++_PDF_RENDER_LOCK = threading.Lock()
++
++
++def _render_pdf_blocking(html_content: str) -> bytes:
++    """在 worker thread 內同步 render（由 export_pdf 以 asyncio.to_thread 呼叫）。"""
++    from weasyprint import HTML
++
++    with _PDF_RENDER_LOCK:
++        return HTML(string=html_content, url_fetcher=_forbid_url_fetch).write_pdf()
++
++
+ # PDF 版面語系標籤。key 為 BCP-47 locale；未支援的 language 一律 fallback 至 zh-TW
+ # （與 i18n_messages 的 DEFAULT_LANGUAGE 一致），確保 language 參數真實影響輸出。
+ # 註：SOAP 內容本身的翻譯由生成階段決定（report.language），此處僅切換版面/欄位標籤。
+diff --git a/backend/app/tasks/session_timeout.py b/backend/app/tasks/session_timeout.py
+index c65e0a5..92574c7 100644
+--- a/backend/app/tasks/session_timeout.py
++++ b/backend/app/tasks/session_timeout.py
+@@ -85,6 +85,7 @@ async def _async_check() -> dict:
+     from app.models.conversation import Conversation
+     from app.models.enums import SessionStatus
+     from app.models.session import Session
++    from app.services.session_visibility import session_not_deleted
+     from app.utils.datetime_utils import utc_now
+ 
+     # 單一權威狀態機把關：in_progress → cancelled 目前合法，但不硬編碼這個事實，
+@@ -104,6 +105,8 @@ async def _async_check() -> dict:
+         result = await db.execute(
+             select(Session.id, Session.updated_at)
+             .where(Session.status == SessionStatus.IN_PROGRESS)
++            # CLAUDE.md 軟刪除鐵律：已刪場次不得被逾時取消再廣播回儀表板。
++            .where(session_not_deleted())
+             .where(Session.updated_at < timeout_threshold)
+             .where(
+                 ~exists().where(
+diff --git a/backend/app/utils/pagination.py b/backend/app/utils/pagination.py
+deleted file mode 100644
+index 7022eeb..0000000
+--- a/backend/app/utils/pagination.py
++++ /dev/null
+@@ -1,23 +0,0 @@
+-"""Cursor 分頁共用小工具。"""
+-
+-from typing import Optional
+-from uuid import UUID
+-
+-
+-def parse_cursor(cursor: Optional[str]) -> Optional[UUID]:
+-    """
+-    將 cursor 解析為 UUID。
+-
+-    cursor 為「上一頁最後一筆的 id」（UUID 字串）。無法解析為合法 UUID 時
+-    保守視為「無 cursor」（回傳 None），避免把無效字串直接餵進 UUID 欄位比對
+-    （Postgres 會對垃圾字串回 500），同時維持既有「cursor 查不到對應 record
+-    即從頭分頁」的向後相容行為。
+-    """
+-    if not cursor:
+-        return None
+-    if isinstance(cursor, UUID):
+-        return cursor
+-    try:
+-        return UUID(str(cursor))
+-    except (ValueError, AttributeError, TypeError):
+-        return None
+diff --git a/backend/app/websocket/connection_manager.py b/backend/app/websocket/connection_manager.py
+index c600c6e..9c70a6b 100644
+--- a/backend/app/websocket/connection_manager.py
++++ b/backend/app/websocket/connection_manager.py
+@@ -439,24 +439,6 @@ class ConnectionManager:
+             },
+         )
+ 
+-    async def broadcast_report_generated(
+-        self,
+-        report_id: str,
+-        session_id: str,
+-        patient_name: str,
+-        status: str,
+-    ) -> None:
+-        """推播 ``report_generated`` 事件（對齊前端 ``ReportGeneratedPayload``）。"""
+-        await self.broadcast_dashboard_event(
+-            "report_generated",
+-            {
+-                "reportId": report_id,
+-                "sessionId": session_id,
+-                "patientName": patient_name or "",
+-                "status": status,
+-            },
+-        )
+-
+     async def broadcast_red_flag_acknowledged(
+         self,
+         alert_id: str,
+@@ -500,19 +482,6 @@ class ConnectionManager:
+             "payload": payload,
+         }
+ 
+-    def get_session_connection(self, session_id: str) -> WebSocket | None:
+-        """取得指定場次的 WebSocket 連線"""
+-        return self.active_connections.get(session_id)
+-
+-    def is_session_connected(self, session_id: str) -> bool:
+-        """檢查指定場次是否有活躍的 WebSocket 連線"""
+-        return session_id in self.active_connections
+-
+-    @property
+-    def active_session_count(self) -> int:
+-        """目前活躍的問診場次數"""
+-        return len(self.active_connections)
+-
+     @property
+     def dashboard_connection_count(self) -> int:
+         """目前活躍的儀表板連線數"""
+diff --git a/backend/app/websocket/conversation_handler.py b/backend/app/websocket/conversation_handler.py
+index 0ff01d5..8747b6c 100644
+--- a/backend/app/websocket/conversation_handler.py
++++ b/backend/app/websocket/conversation_handler.py
+@@ -32,7 +32,6 @@ from app.pipelines.llm_conversation import (
+ )
+ from app.pipelines.patient_context import build_patient_info
+ from app.pipelines.prompts.shared import (
+-    count_critical_risk_factors_for_complaint,
+     sanitize_for_prompt,
+ )
+ from app.pipelines.red_flag_detector import RedFlagDetector
+@@ -472,7 +471,7 @@ def _build_conversation_summary(
+ # ── 自動結束政策與紅旗去重已抽到 app/pipelines/{conclusion_policy,alert_dedup}.py ──
+ # 這裡以底線別名 re-import，保持既有呼叫端與測試（ch._should_auto_conclude 等）相容。
+ from app.pipelines.conclusion_policy import (  # noqa: E402
+-    coerce_hpi_pct as _coerce_hpi_pct,
++    coerce_hpi_pct as _coerce_hpi_pct,  # noqa: F401  (re-export used by tests)
+     effective_hard_cap as _effective_hard_cap,
+     hard_cap_reached as _hard_cap_reached,
+     session_risk_factor_count as _session_risk_factor_count,
+@@ -480,9 +479,7 @@ from app.pipelines.conclusion_policy import (  # noqa: E402
+     should_conclude_now as _should_conclude_now,
+ )
+ from app.pipelines.alert_dedup import (  # noqa: E402
+-    RED_FLAG_SEVERITY_RANK as _RED_FLAG_SEVERITY_RANK,
+-    SESSION_EMITTED_RED_FLAGS_KEY as _SESSION_EMITTED_RED_FLAGS_KEY,
+-    alert_dedup_identity as _alert_dedup_identity,
++    SESSION_EMITTED_RED_FLAGS_KEY as _SESSION_EMITTED_RED_FLAGS_KEY,  # noqa: F401  (re-export used by tests)
+     record_emitted_alert as _record_emitted_alert,
+     should_suppress_duplicate_alert as _should_suppress_duplicate_alert,
+ )
+@@ -2948,7 +2945,6 @@ async def _validate_session(
+         場次資料字典，或 None（不存在時）
+     """
+     try:
+-        from app.models.patient import Patient
+         from app.models.session import Session
+         from app.services.session_visibility import session_not_deleted
+         from sqlalchemy import select
+diff --git a/backend/app/websocket/dashboard_handler.py b/backend/app/websocket/dashboard_handler.py
+index 4ed0da8..da36538 100644
+--- a/backend/app/websocket/dashboard_handler.py
++++ b/backend/app/websocket/dashboard_handler.py
+@@ -317,7 +317,6 @@ async def _build_initial_state(
+     Returns:
+         初始狀態字典
+     """
+-    import json
+ 
+     # 嘗試從 Redis 快取載入
+     queue_data = await _get_queue_status(db, redis, doctor_id)
+diff --git a/backend/tests/integration/test_smoothness_queries_pg.py b/backend/tests/integration/test_smoothness_queries_pg.py
+deleted file mode 100644
+index b82c5f7..0000000
+--- a/backend/tests/integration/test_smoothness_queries_pg.py
++++ /dev/null
+@@ -1,134 +0,0 @@
+-"""Real SQL acceptance: scoped counts, local midnight, pagination and bounded queries."""
+-from datetime import datetime, timedelta, timezone
+-from unittest.mock import AsyncMock
+-from uuid import uuid4
+-
+-import pytest
+-import json
+-from sqlalchemy import event, text
+-from app.models.session import Session
+-from app.models.soap_report import SOAPReport
+-from app.models.notification import Notification
+-from app.models.enums import SessionStatus, ReportStatus, ReviewStatus, NotificationType
+-from app.services.dashboard_service import DashboardService
+-from app.services.report_service import ReportService
+-from app.services.notification_service import NotificationService
+-from app.websocket.dashboard_handler import broadcast_queue_and_stats
+-from tests.integration.conftest import requires_db, run_with_session
+-from tests.integration.test_authz_scoping_pg import _seed_two_tenants, _cleanup, _doctor
+-
+-pytestmark = requires_db
+-
+-
+-@pytest.mark.parametrize("row_count", [1001, 10001])
+-def test_large_calendar_reports_notifications_and_broadcast(monkeypatch, tmp_path, row_count):
+-    async def body(db):
+-        a, b, cc = await _seed_two_tenants(db)
+-        start = datetime(2026, 10, 1, tzinfo=timezone(timedelta(hours=8)))
+-        statements = []
+-        def record(_conn, _cursor, statement, _params, _context, _many):
+-            statements.append(statement)
+-        event.listen(db.bind.sync_engine, 'before_cursor_execute', record)
+-        try:
+-            rows = [Session(id=uuid4(), patient_id=a.patient.id, doctor_id=a.user.id,
+-                            chief_complaint_id=cc.id, status=SessionStatus.COMPLETED,
+-                            created_at=start + timedelta(seconds=i), duration_seconds=60)
+-                    for i in range(row_count)]
+-            db.add_all(rows)
+-            await db.flush()
+-            db.add_all([SOAPReport(session_id=row.id, status=ReportStatus.GENERATED,
+-                                  review_status=ReviewStatus.PENDING if i < 120 else ReviewStatus.APPROVED,
+-                                  created_at=start)
+-                        for i, row in enumerate(rows[:150])])
+-            db.add_all([Notification(user_id=a.user.id, type=NotificationType.SYSTEM,
+-                                     title='synthetic', is_read=i % 2 == 0)
+-                        for i in range(row_count)])
+-            await db.flush()
+-            boundaries = [start + timedelta(days=i) for i in range(32)]
+-            statements.clear()
+-            calendar = await DashboardService.get_calendar_summary(db, _doctor(a.user.id), boundaries)
+-            assert len(statements) == 1
+-            assert dict(calendar[0])['total'] == row_count
+-            assert dict(calendar[0])['busy_seconds'] == row_count * 60
+-            assert dict(calendar[0])['day_index'] == 0  # UTC is still September 30.
+-            other = await DashboardService.get_calendar_summary(db, _doctor(b.user.id), boundaries)
+-            assert not any(row['total'] >= row_count for row in other)
+-            reports = await ReportService.list_reports(db, current_user=_doctor(a.user.id),
+-                date_from=start.isoformat(), date_to=start.isoformat(), review_status='pending', limit=20)
+-            assert len(reports['data']) == 20
+-            assert reports['pagination']['total_count'] == 120
+-            assert reports['review_counts'] == {'pending': 120, 'approved': 30}
+-            statements.clear()
+-            notifications = await NotificationService.list_notifications(db, a.user.id, limit=20, is_read=False)
+-            assert len(statements) == 2  # page + both counts, independent of row count
+-            assert notifications['pagination']['total_count'] == row_count // 2
+-            assert notifications['unread_count'] == row_count // 2
+-            assert len(notifications['data']) == 20
+-            await db.execute(text('ANALYZE notifications'))
+-            plan = (await db.execute(text('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT id FROM notifications WHERE user_id = :user ORDER BY created_at DESC, id DESC LIMIT 20'), {'user': a.user.id})).scalar()
+-            (tmp_path / f'notification-plan-{row_count}.json').write_text(json.dumps(plan, indent=2))
+-            assert 'ix_notifications_user_created_id' in json.dumps(plan)
+-            # Query count and no unused queue details in the broadcast path.
+-            from app.websocket import dashboard_handler as handler
+-            monkeypatch.setattr(handler.manager, 'broadcast_queue_updated', AsyncMock())
+-            monkeypatch.setattr(handler.manager, 'broadcast_stats_updated', AsyncMock())
+-            statements.clear()
+-            await broadcast_queue_and_stats(db, AsyncMock())
+-            assert len(statements) == 2
+-            handler.manager.broadcast_queue_updated.assert_awaited_once()
+-            assert handler.manager.broadcast_queue_updated.call_args.kwargs['queue'] == []
+-            summary = await DashboardService.get_monthly_summary(db, current_user=_doctor(a.user.id), month='2026-10')
+-            assert summary.total_sessions >= 1  # original tenant fixture in this month
+-            assert all('intake_data' not in sql for sql in statements)
+-        finally:
+-            db.expunge_all()  # Keep committed seed IDs available for cleanup after rollback.
+-            await db.rollback()  # synthetic bulk rows were deliberately never committed
+-            event.remove(db.bind.sync_engine, 'before_cursor_execute', record)
+-            await _cleanup(db, a, b, cc)
+-    run_with_session(body)
+-
+-
+-def test_calendar_http_contract_dst_duration_and_deleted_rows():
+-    """Exercise actual response validation and authorization, including a 23-hour day."""
+-    from zoneinfo import ZoneInfo
+-    from httpx import AsyncClient, ASGITransport
+-    from app.main import app
+-    from app.core.dependencies import get_db, get_current_user
+-    from app.models.enums import UserRole
+-    from types import SimpleNamespace
+-
+-    async def body(db):
+-        a, b, cc = await _seed_two_tenants(db)
+-        zone = ZoneInfo('America/New_York')
+-        start = datetime(2026, 3, 8, tzinfo=zone)
+-        boundaries = [start, datetime(2026, 3, 9, tzinfo=zone), datetime(2026, 3, 10, tzinfo=zone)]
+-        rows = [Session(patient_id=a.patient.id, doctor_id=a.user.id, chief_complaint_id=cc.id,
+-                        status=SessionStatus.COMPLETED, created_at=start,
+-                        started_at=start, completed_at=start + timedelta(seconds=10.9),
+-                        duration_seconds=-1, is_deleted=deleted) for deleted in (False, True)]
+-        db.add_all(rows)
+-        await db.flush()
+-        old = dict(app.dependency_overrides)
+-        async def database(): yield db
+-        app.dependency_overrides[get_db] = database
+-        app.dependency_overrides[get_current_user] = lambda: _doctor(a.user.id)
+-        try:
+-            async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
+-                params = [('day_starts', day.isoformat()) for day in boundaries]
+-                response = await client.get('/api/v1/dashboard/calendar', params=params)
+-                assert response.status_code == 200, response.text
+-                assert response.json()[0]['total'] == 1
+-                assert response.json()[0]['busy_seconds'] == 10  # floor fractional seconds, fall back from invalid duration
+-                app.dependency_overrides[get_current_user] = lambda: _doctor(b.user.id)
+-                assert (await client.get('/api/v1/dashboard/calendar', params=params)).json() == []
+-                app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=a.user.id, role=UserRole.PATIENT)
+-                assert (await client.get('/api/v1/dashboard/calendar', params=params)).status_code == 403
+-                app.dependency_overrides[get_current_user] = lambda: _doctor(a.user.id)
+-                assert (await client.get('/api/v1/dashboard/calendar', params={'day_starts': '2026-10-01'})).status_code == 422
+-        finally:
+-            app.dependency_overrides.clear()
+-            app.dependency_overrides.update(old)
+-            db.expunge_all()
+-            await db.rollback()
+-            await _cleanup(db, a, b, cc)
+-    run_with_session(body)
+diff --git a/backend/tests/unit/core/test_config_env_precedence.py b/backend/tests/unit/core/test_config_env_precedence.py
+index b3da264..b76dd4d 100644
+--- a/backend/tests/unit/core/test_config_env_precedence.py
++++ b/backend/tests/unit/core/test_config_env_precedence.py
+@@ -10,11 +10,7 @@
+ 
+ from __future__ import annotations
+ 
+-import os
+-import tempfile
+-from pathlib import Path
+ 
+-import pytest
+ 
+ from app.core.config import Settings
+ 
+diff --git a/backend/tests/unit/core/test_rate_limit.py b/backend/tests/unit/core/test_rate_limit.py
+index 24a12dd..7044701 100644
+--- a/backend/tests/unit/core/test_rate_limit.py
++++ b/backend/tests/unit/core/test_rate_limit.py
+@@ -16,7 +16,7 @@ from __future__ import annotations
+ 
+ import asyncio
+ import time
+-from typing import Any, Optional
++from typing import Any
+ 
+ import pytest
+ from redis.exceptions import ConnectionError as RedisConnectionError
+diff --git a/backend/tests/unit/middleware/test_i18n_error_handler.py b/backend/tests/unit/middleware/test_i18n_error_handler.py
+index 87ab9d6..f82dbf3 100644
+--- a/backend/tests/unit/middleware/test_i18n_error_handler.py
++++ b/backend/tests/unit/middleware/test_i18n_error_handler.py
+@@ -13,7 +13,6 @@ from __future__ import annotations
+ 
+ from typing import Any
+ 
+-import pytest
+ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ 
+diff --git a/backend/tests/unit/pipelines/test_red_flag_rule_layer_w1.py b/backend/tests/unit/pipelines/test_red_flag_rule_layer_w1.py
+index 4be050b..d68f80e 100644
+--- a/backend/tests/unit/pipelines/test_red_flag_rule_layer_w1.py
++++ b/backend/tests/unit/pipelines/test_red_flag_rule_layer_w1.py
+@@ -18,7 +18,7 @@ from __future__ import annotations
+ 
+ import asyncio
+ from typing import Any
+-from unittest.mock import AsyncMock, MagicMock
++from unittest.mock import MagicMock
+ 
+ import pytest
+ 
+diff --git a/backend/tests/unit/routers/test_session_reconnect.py b/backend/tests/unit/routers/test_session_reconnect.py
+deleted file mode 100644
+index 022fc25..0000000
+--- a/backend/tests/unit/routers/test_session_reconnect.py
++++ /dev/null
+@@ -1,45 +0,0 @@
+-"""`POST /sessions/{id}/reconnect` 與 WS handler 共用 history 載入與 checksum。
+-
+-兩邊各寫一份時任一邊漂移（key 格式、序列化欄位）都會讓 resumeFrom 永遠比對不上。
+-"""
+-
+-import asyncio
+-import json
+-import uuid
+-from types import SimpleNamespace
+-
+-from app.routers import sessions as sessions_router
+-from app.websocket.conversation_handler import _SESSION_CONTEXT_KEY, _history_checksum
+-from tests.unit.websocket.conftest import FakeRedis
+-
+-
+-def test_reconnect_uses_ws_handler_history_and_checksum(monkeypatch):
+-    session_id = uuid.uuid4()
+-    history = [
+-        {"role": "assistant", "content": "請問哪裡不舒服？", "timestamp": "t1"},
+-        {"role": "user", "content": "小便會痛", "timestamp": "t2"},
+-    ]
+-    redis = FakeRedis()
+-    asyncio.run(
+-        redis.hset(
+-            _SESSION_CONTEXT_KEY.format(session_id=session_id),
+-            "conversation_history",
+-            json.dumps(history, ensure_ascii=False),
+-        )
+-    )
+-
+-    async def _get_session(db, session_id, current_user):
+-        return SimpleNamespace(status="in_progress")
+-
+-    monkeypatch.setattr(sessions_router.session_service, "get_session", _get_session)
+-
+-    result = asyncio.run(
+-        sessions_router.reconnect_session(
+-            session_id, db=None, redis=redis, current_user=SimpleNamespace(id=uuid.uuid4())
+-        )
+-    )
+-
+-    assert result["conversationHistory"] == history
+-    assert result["lastMessageIndex"] == 1
+-    assert result["checksum"] == _history_checksum(history)
+-    assert result["resumeToken"] == result["checksum"]
+diff --git a/backend/tests/unit/services/test_alert_service_authz.py b/backend/tests/unit/services/test_alert_service_authz.py
+index ccc6906..e72fc08 100644
+--- a/backend/tests/unit/services/test_alert_service_authz.py
++++ b/backend/tests/unit/services/test_alert_service_authz.py
+@@ -20,7 +20,7 @@ from __future__ import annotations
+ import asyncio
+ import inspect
+ import uuid
+-from dataclasses import dataclass, field
++from dataclasses import dataclass
+ from types import SimpleNamespace
+ from typing import Any, Optional
+ 
+diff --git a/backend/tests/unit/services/test_get_current_user_blacklist.py b/backend/tests/unit/services/test_get_current_user_blacklist.py
+index b398d66..8523e4f 100644
+--- a/backend/tests/unit/services/test_get_current_user_blacklist.py
++++ b/backend/tests/unit/services/test_get_current_user_blacklist.py
+@@ -17,10 +17,9 @@ from __future__ import annotations
+ 
+ import asyncio
+ import logging
+-import time
+ import uuid
+ from dataclasses import dataclass
+-from typing import Any, Optional
++from typing import Any
+ from types import SimpleNamespace
+ 
+ import pytest
+diff --git a/backend/tests/unit/services/test_patient_authorization.py b/backend/tests/unit/services/test_patient_authorization.py
+index 0c0ce53..45eeec2 100644
+--- a/backend/tests/unit/services/test_patient_authorization.py
++++ b/backend/tests/unit/services/test_patient_authorization.py
+@@ -16,7 +16,7 @@ from __future__ import annotations
+ import inspect
+ import asyncio
+ import uuid
+-from typing import Any, Optional
++from typing import Optional
+ from types import SimpleNamespace
+ 
+ import pytest
+diff --git a/backend/tests/unit/services/test_red_flag_confidence.py b/backend/tests/unit/services/test_red_flag_confidence.py
+index 37c8c38..13f6517 100644
+--- a/backend/tests/unit/services/test_red_flag_confidence.py
++++ b/backend/tests/unit/services/test_red_flag_confidence.py
+@@ -15,7 +15,7 @@ from __future__ import annotations
+ import asyncio
+ import uuid
+ from typing import Any
+-from unittest.mock import AsyncMock, MagicMock
++from unittest.mock import MagicMock
+ 
+ from app.models.enums import AlertSeverity, AlertType, RedFlagConfidence
+ from app.pipelines import red_flag_detector as rfd_module
+@@ -255,7 +255,7 @@ def test_alert_service_create_persists_confidence_and_canonical_id(monkeypatch):
+         "confidence": "rule_hit",
+         "language": "zh-TW",
+     }
+-    alert = _run(AlertService.create(db, data))
++    _run(AlertService.create(db, data))
+     # find RedFlagAlert in db.added
+     from app.models.red_flag_alert import RedFlagAlert
+     added_alerts = [o for o in db.added if isinstance(o, RedFlagAlert)]
+diff --git a/backend/tests/unit/services/test_refresh_token_rotation.py b/backend/tests/unit/services/test_refresh_token_rotation.py
+index 94107e4..5086398 100644
+--- a/backend/tests/unit/services/test_refresh_token_rotation.py
++++ b/backend/tests/unit/services/test_refresh_token_rotation.py
+@@ -26,7 +26,6 @@ from redis.exceptions import ConnectionError as RedisConnectionError
+ 
+ from app.cache import redis_client
+ from app.core.exceptions import ServiceUnavailableException, UnauthorizedException
+-from app.models.enums import UserRole
+ from app.services import auth_service as auth_service_mod
+ from app.services.auth_service import (
+     AuthService,
+diff --git a/backend/tests/unit/tasks/test_audio_lifecycle.py b/backend/tests/unit/tasks/test_audio_lifecycle.py
+index 311edb2..b023afb 100644
+--- a/backend/tests/unit/tasks/test_audio_lifecycle.py
++++ b/backend/tests/unit/tasks/test_audio_lifecycle.py
+@@ -11,7 +11,6 @@ from __future__ import annotations
+ 
+ import asyncio
+ from datetime import timedelta
+-from typing import Any
+ 
+ import pytest
+ 
+diff --git a/backend/tests/unit/tasks/test_audit_retention.py b/backend/tests/unit/tasks/test_audit_retention.py
+index af5a4de..7481551 100644
+--- a/backend/tests/unit/tasks/test_audit_retention.py
++++ b/backend/tests/unit/tasks/test_audit_retention.py
+@@ -11,7 +11,6 @@ from __future__ import annotations
+ 
+ import asyncio
+ from datetime import date
+-from typing import Any
+ 
+ import pytest
+ 
+@@ -176,7 +175,6 @@ def test_cleanup_detach_failure_does_not_block_others(patch_factory, monkeypatch
+ 
+     rows = [("audit_logs_2019_02",), ("audit_logs_2019_03",)]
+ 
+-    call_count = {"n": 0}
+ 
+     def _provide():
+         # 第一次 DETACH（2019_02）失敗；第二次 DROP 不會跑；
+@@ -188,7 +186,7 @@ def test_cleanup_detach_failure_does_not_block_others(patch_factory, monkeypatch
+ 
+         return _FakeSession(rows, execute_side_effect=_side)
+ 
+-    factory = patch_factory(_provide)
++    patch_factory(_provide)
+     result = _run(ar._async_cleanup())
+ 
+     assert "audit_logs_2019_03" in result["dropped"]
+diff --git a/backend/tests/unit/tasks/test_run_async.py b/backend/tests/unit/tasks/test_run_async.py
+deleted file mode 100644
+index df4fe8f..0000000
+--- a/backend/tests/unit/tasks/test_run_async.py
++++ /dev/null
+@@ -1,30 +0,0 @@
+-"""`app.tasks.run_async`：同步 Celery task body 跑 coroutine 的唯一入口。
+-
+-舊寫法 ``try: loop.run_until_complete(coro) except Exception: asyncio.run(coro)``
+-會把 business exception 當成「loop 壞了」而把整個 task body 重跑一次
+-（推播送兩遍、報告標兩次 FAILED）。這裡釘住：factory 只被呼叫一次。
+-"""
+-
+-import pytest
+-
+-from app.tasks import run_async
+-
+-
+-def test_factory_raising_business_exception_is_invoked_exactly_once():
+-    calls: list[int] = []
+-
+-    async def _boom() -> None:
+-        calls.append(1)
+-        raise ValueError("business error, not a loop problem")
+-
+-    with pytest.raises(ValueError):
+-        run_async(_boom)
+-
+-    assert calls == [1]
+-
+-
+-def test_returns_coroutine_result():
+-    async def _ok() -> int:
+-        return 42
+-
+-    assert run_async(_ok) == 42
+diff --git a/backend/tests/unit/utils/test_localized_field.py b/backend/tests/unit/utils/test_localized_field.py
+index f474d88..141b7a9 100644
+--- a/backend/tests/unit/utils/test_localized_field.py
++++ b/backend/tests/unit/utils/test_localized_field.py
+@@ -11,7 +11,6 @@
+ 
+ from __future__ import annotations
+ 
+-import pytest
+ 
+ from app.core.config import settings
+ from app.utils.localized_field import pick
+diff --git a/backend/tests/unit/utils/test_pagination.py b/backend/tests/unit/utils/test_pagination.py
+deleted file mode 100644
+index 609cb15..0000000
+--- a/backend/tests/unit/utils/test_pagination.py
++++ /dev/null
+@@ -1,17 +0,0 @@
+-"""`parse_cursor`：垃圾 cursor 不得進到 UUID 欄位比對（Postgres 會回 500）。"""
+-
+-import uuid
+-
+-from app.utils.pagination import parse_cursor
+-
+-
+-def test_valid_uuid_string_round_trips():
+-    value = uuid.uuid4()
+-    assert parse_cursor(str(value)) == value
+-    assert parse_cursor(value) == value
+-
+-
+-def test_garbage_and_empty_cursor_mean_no_cursor():
+-    assert parse_cursor("not-a-uuid") is None
+-    assert parse_cursor("") is None
+-    assert parse_cursor(None) is None
+diff --git a/backend/tests/unit/utils/test_resolve_language.py b/backend/tests/unit/utils/test_resolve_language.py
+index b788d87..672cca9 100644
+--- a/backend/tests/unit/utils/test_resolve_language.py
++++ b/backend/tests/unit/utils/test_resolve_language.py
+@@ -12,10 +12,9 @@ Feature flag gate：
+ 
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass, field
++from dataclasses import dataclass
+ from typing import Optional
+ 
+-import pytest
+ 
+ from app.core.config import settings
+ from app.utils.language import resolve_language
+diff --git a/backend/tests/unit/websocket/test_auth_handshake.py b/backend/tests/unit/websocket/test_auth_handshake.py
+index ae80894..5972846 100644
+--- a/backend/tests/unit/websocket/test_auth_handshake.py
++++ b/backend/tests/unit/websocket/test_auth_handshake.py
+@@ -18,7 +18,6 @@ import asyncio
+ import json
+ from contextlib import asynccontextmanager
+ from types import SimpleNamespace
+-from typing import Any
+ 
+ import pytest
+ 
+diff --git a/backend/tests/unit/websocket/test_early_sentence_stream.py b/backend/tests/unit/websocket/test_early_sentence_stream.py
+deleted file mode 100644
+index 8a9bb05..0000000
+--- a/backend/tests/unit/websocket/test_early_sentence_stream.py
++++ /dev/null
+@@ -1,98 +0,0 @@
+-"""The first safe sentence need not wait for the complete LLM response."""
+-import asyncio
+-import pytest
+-from .conftest import (run_text_turn, StubLLMEngine, StubDetector, _CaptureManager,
+-                      make_alert, make_settings)
+-from app.websocket.conversation_handler import _split_completed_sentences
+-
+-
+-@pytest.mark.parametrize('language,text', [
+-    ('zh-TW', '第一句。第二句。'), ('en-US', 'First sentence. Second sentence.'),
+-    ('ja-JP', '一文目です。二文目です。'), ('ko-KR', '첫 문장입니다. 두 번째 문장입니다.'),
+-    ('vi-VN', 'Câu đầu tiên. Câu thứ hai.'),
+-])
+-def test_safe_first_chunk_precedes_generation_end(monkeypatch, language, text):
+-    cap = _CaptureManager()
+-    sentences, tail = _split_completed_sentences(text)
+-    first = sentences[0]
+-    prefix = text[:len(first)] + (' ' if text[len(first):].startswith(' ') else '')
+-    async def generate(self, *_args):
+-        yield prefix
+-        for _ in range(100):
+-            if cap.chunk_texts():
+-                break
+-            await asyncio.sleep(.001)
+-        assert cap.chunk_texts(), 'Safe first sentence waited for LLM completion'
+-        yield text[len(prefix):]
+-    monkeypatch.setattr(StubLLMEngine, 'generate_response', generate)
+-    result = run_text_turn(monkeypatch, manager=cap, language=language)
+-    assert ''.join(cap.chunk_texts()) == text
+-    chunks = cap.messages_of_type('ai_response_chunk')
+-    assert [m['payload']['chunkIndex'] for m in chunks] == list(range(len(chunks)))
+-    assert result.conversation_history[-1]['content'] == text
+-    assert len(cap.messages_of_type('ai_response_end')) == 1
+-
+-
+-@pytest.mark.parametrize('gate', ['pending', 'high', 'critical', 'failed', 'wrap_up'])
+-def test_unsafe_or_rewritable_output_stays_buffered(monkeypatch, gate):
+-    cap = _CaptureManager()
+-    detector = StubDetector(delay=.05) if gate == 'pending' else (
+-        StubDetector(error=RuntimeError('detector down')) if gate == 'failed' else
+-        StubDetector(alerts=[make_alert(severity=gate)]) if gate in ('high', 'critical') else StubDetector())
+-    async def generate(self, *_args):
+-        yield 'First sentence. '
+-        await asyncio.sleep(.01)
+-        assert not cap.chunk_texts(), f'{gate} bypassed gate'
+-        yield 'May I ask another question?'
+-    monkeypatch.setattr(StubLLMEngine, 'generate_response', generate)
+-    settings = make_settings(MAX_PATIENT_TURNS_HARD_CAP=1) if gate == 'wrap_up' else None
+-    result = run_text_turn(monkeypatch, manager=cap, detector=detector, settings=settings,
+-                           red_flag_wait_timeout=.1)
+-    assert cap.messages_of_type('ai_response_end')
+-    if gate == 'wrap_up':
+-        assert 'May I ask' not in ''.join(cap.chunk_texts())
+-    if gate in ('high', 'critical'):
+-        types = [m['message']['type'] for m in cap.session_messages]
+-        assert types.index('red_flag_alert') < types.index('ai_response_chunk')
+-
+-
+-def test_partial_stream_failure_closes_and_persists_heard_text(monkeypatch):
+-    cap = _CaptureManager()
+-    async def generate(self, *_args):
+-        yield '已確認。'
+-        for _ in range(100):
+-            if cap.chunk_texts(): break
+-            await asyncio.sleep(.001)
+-        assert cap.chunk_texts()
+-        yield '尚未完成且未送出的內容'
+-        raise RuntimeError('connection interrupted')
+-    monkeypatch.setattr(StubLLMEngine, 'generate_response', generate)
+-    result = run_text_turn(monkeypatch, manager=cap)
+-    assert result.conversation_history[-1]['content'] == '已確認。'
+-    assert cap.messages_of_type('ai_response_end')[0]['payload']['fullText'] == '已確認。'
+-    assert any(m['msg_type'] == 'error' for m in cap.localized_calls)
+-    # Redis copy must match the DB copy, else the next turn reloads a history missing this reply.
+-    from app.websocket import conversation_handler as ch
+-    assert any('已確認。' in str(c.args[2]) for c in ch._save_conversation_history.await_args_list)
+-
+-
+-def test_gate_clearing_during_wait_window_does_not_double_emit(monkeypatch):
+-    """red_flag_task resolves [] after the LLM finished but inside the wait_for window:
+-    the done-callback starts early_sender, then the main path awaits it and drains again."""
+-    cap = _CaptureManager()
+-    text = '第一句。第二句。'
+-    async def generate(self, *_args):
+-        yield text
+-    monkeypatch.setattr(StubLLMEngine, 'generate_response', generate)
+-    run_text_turn(monkeypatch, manager=cap, detector=StubDetector(delay=.02),
+-                  red_flag_wait_timeout=.5)
+-    assert ''.join(cap.chunk_texts()) == text
+-    chunks = cap.messages_of_type('ai_response_chunk')
+-    assert [m['payload']['chunkIndex'] for m in chunks] == [0, 1]
+-    assert len(cap.messages_of_type('ai_response_end')) == 1
+-
+-
+-def test_sentence_periods_keep_decimals_and_abbreviations():
+-    assert _split_completed_sentences('Dr. Chen measured 3.5 mg. Next') == (['Dr. Chen measured 3.5 mg.'], ' Next')
+-    assert _split_completed_sentences('3.') == ([], '3.')
+-    assert _split_completed_sentences('Really? Yes!') == (['Really?', 'Yes!'], '')

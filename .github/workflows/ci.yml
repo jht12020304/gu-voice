@@ -78,6 +78,19 @@ jobs:
         working-directory: backend
         run: pytest tests/unit -q --junitxml=pytest-results.xml
 
+      # 整合測試打真 Postgres（服務已在上面 provision）：先把 schema 升到 head，
+      # 再跑 tests/integration——軟刪除跳閘器、授權限縮、分頁 SQL 都在這層，
+      # 以前只在開發機跑。TEST_DATABASE_URL 用 asyncpg driver（conftest 預設值指向本機 55432）。
+      - name: Migrate test database to head
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: Run pytest (integration, real Postgres)
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+        run: pytest tests/integration -q
+
       - name: Test repository checks
         run: python -m pytest scripts/tests -q
 
@@ -129,8 +142,6 @@ jobs:
         env:
           VITE_API_BASE_URL: http://localhost:8000/api/v1
           VITE_WS_BASE_URL: ws://localhost:8000/api/v1/ws
-          VITE_SUPABASE_URL: http://localhost:54321
-          VITE_SUPABASE_ANON_KEY: ci-placeholder
         run: npm run build
 
   # ──────────────────────────────────────────────────────────────────────

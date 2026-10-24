@@ -50,7 +50,7 @@
 - E2E 分析器原本只在「重問」識別持續／間歇同義句，卻不在「第一次問」識別，造成錯誤 INCOMPLETE。現在兩者使用同一規則；有回歸測試證明真正重問仍 FAIL、只有單邊詞彙不會誤建拒答 cutoff。另把指定情境的 onset／duration 拒答固定為測試輸入，其餘回答仍由模擬 LLM 生成，避免模擬器把持續／間歇問題誤答成加重因素，導致拒答路徑根本沒測到。
 - 網頁語言解析跳過不存在的短語碼目錄：zh-TW 啟動 locale URL 從 20 降至 10，五個完整 locale 與既有 fallback 保留；尚未改成逐頁載入全部 namespace。
 - CocoaPods 最低版本對齊 Runner 原有的 iOS 15，修正 Xcode 27 把舊 pod 的 iOS 9／12／13 deployment target 視為錯誤；未提高 App 原本的最低支援版本。
-- WAV 編碼保留既有實作：Mac AOT、每種長度 30 樣本，10／30／60 秒音訊 P95 約 4.4／9.4／11.9ms。這無法證明 iPhone 成本，但不足以支持現在增加 isolate 或改音訊協定。
+- WAV 編碼保留既有實作：Mac AOT、每種長度 30 樣本，10／30／60 秒音訊 P95 約 4.4／9.4／11.9ms。量測工具：`flutter_app/tool/voice_encode_benchmark.dart`（`fvm dart compile exe tool/voice_encode_benchmark.dart -o /tmp/gu-voice-encode && /tmp/gu-voice-encode`）。這無法證明 iPhone 成本，但不足以支持現在增加 isolate 或改音訊協定。
 
 ### 可重跑檢查
 

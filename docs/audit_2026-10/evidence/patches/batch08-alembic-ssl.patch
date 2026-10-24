@@ -1,0 +1,30 @@
+diff --git a/backend/alembic/env.py b/backend/alembic/env.py
+index 7887039..a482df8 100644
+--- a/backend/alembic/env.py
++++ b/backend/alembic/env.py
+@@ -9,6 +9,7 @@ Alembic 環境設定
+ import os
+ import sys
+ from logging.config import fileConfig
++from urllib.parse import urlparse
+ 
+ from sqlalchemy import create_engine, pool
+ from sqlalchemy.engine import Connection
+@@ -34,8 +35,16 @@ if config.config_file_name is not None:
+ target_metadata = Base.metadata
+ 
+ # ── 建立 sync engine（psycopg2 driver）──────────────────────────
+-_use_ssl = "supabase" in settings.DB_HOST or "pooler.supabase" in settings.DB_HOST
+ _sync_url = settings.DATABASE_URL  # postgresql:// (defaults to psycopg2)
++# SSL 判斷要看「實際連線用的 host」：以完整 DATABASE_URL 注入時（Railway／Supabase
++# 常態）settings.DB_HOST 仍是預設 localhost，只看它會漏掉 SSL。與 app/core/database.py
++# 的 runtime engine 同一套判斷（supabase 或 pooler 都算）。
++try:
++    _url_host = (urlparse(_sync_url).hostname or "").lower()
++except Exception:
++    _url_host = ""
++_db_host = _url_host or (settings.DB_HOST or "").lower()
++_use_ssl = ("supabase" in _db_host) or ("pooler" in _db_host)
+ _connect_args: dict = {}
+ if _use_ssl:
+     _connect_args["sslmode"] = "require"

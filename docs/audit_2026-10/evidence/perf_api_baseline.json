@@ -1,0 +1,381 @@
+{
+ "label": "baseline",
+ "base": "http://127.0.0.1:18000",
+ "n": 30,
+ "started": "2026-10-23T23:48:54",
+ "endpoints": {
+  "POST /auth/login": {
+   "n": 5,
+   "p50_ms": 197.8,
+   "p95_ms": 200.8,
+   "max_ms": 200.8,
+   "mean_ms": 197.6,
+   "codes": {
+    "200": 5
+   }
+  },
+  "GET /api/v1/admin/system/health": {
+   "n": 30,
+   "p50_ms": 274.0,
+   "p95_ms": 400.0,
+   "max_ms": 418.8,
+   "mean_ms": 276.9,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/admin/users": {
+   "n": 30,
+   "p50_ms": 27.7,
+   "p95_ms": 44.5,
+   "max_ms": 52.8,
+   "mean_ms": 27.8,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/alerts": {
+   "n": 30,
+   "p50_ms": 24.4,
+   "p95_ms": 49.0,
+   "max_ms": 54.5,
+   "mean_ms": 26.6,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/alerts/rules": {
+   "n": 30,
+   "p50_ms": 18.8,
+   "p95_ms": 34.7,
+   "max_ms": 47.2,
+   "mean_ms": 21.8,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/alerts/unacknowledged/count": {
+   "n": 30,
+   "p50_ms": 21.8,
+   "p95_ms": 43.4,
+   "max_ms": 44.5,
+   "mean_ms": 22.7,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/alerts/{alert_id}": {
+   "n": 30,
+   "p50_ms": 19.3,
+   "p95_ms": 37.8,
+   "max_ms": 39.4,
+   "mean_ms": 21.5,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/audit-logs": {
+   "n": 30,
+   "p50_ms": 29.1,
+   "p95_ms": 46.2,
+   "max_ms": 50.4,
+   "mean_ms": 28.8,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/audit-logs/{log_id}": {
+   "n": 30,
+   "p50_ms": 18.2,
+   "p95_ms": 28.2,
+   "max_ms": 29.3,
+   "mean_ms": 16.8,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/auth/me": {
+   "n": 30,
+   "p50_ms": 7.4,
+   "p95_ms": 10.4,
+   "max_ms": 13.5,
+   "mean_ms": 7.6,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/complaints": {
+   "n": 30,
+   "p50_ms": 8.4,
+   "p95_ms": 48.7,
+   "max_ms": 113.3,
+   "mean_ms": 14.9,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/complaints/{complaint_id}": {
+   "n": 30,
+   "p50_ms": 7.6,
+   "p95_ms": 23.5,
+   "max_ms": 29.6,
+   "mean_ms": 9.5,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/dashboard/monthly-summary": {
+   "n": 30,
+   "p50_ms": 7.1,
+   "p95_ms": 10.4,
+   "max_ms": 16.7,
+   "mean_ms": 7.6,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/dashboard/queue": {
+   "n": 30,
+   "p50_ms": 6.3,
+   "p95_ms": 10.8,
+   "max_ms": 13.3,
+   "mean_ms": 6.4,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/dashboard/recent-alerts": {
+   "n": 30,
+   "p50_ms": 7.4,
+   "p95_ms": 9.4,
+   "max_ms": 9.5,
+   "mean_ms": 7.4,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/dashboard/recent-sessions": {
+   "n": 30,
+   "p50_ms": 5.8,
+   "p95_ms": 7.2,
+   "max_ms": 8.1,
+   "mean_ms": 6.0,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/dashboard/stats": {
+   "n": 30,
+   "p50_ms": 5.3,
+   "p95_ms": 7.5,
+   "max_ms": 16.0,
+   "mean_ms": 5.8,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/health": {
+   "n": 30,
+   "p50_ms": 1.1,
+   "p95_ms": 1.5,
+   "max_ms": 1.9,
+   "mean_ms": 1.2,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/healthz/deep": {
+   "n": 30,
+   "p50_ms": 4.1,
+   "p95_ms": 4.9,
+   "max_ms": 5.3,
+   "mean_ms": 4.1,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/notifications": {
+   "n": 30,
+   "p50_ms": 6.9,
+   "p95_ms": 8.5,
+   "max_ms": 10.8,
+   "mean_ms": 7.0,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/notifications/preferences": {
+   "n": 30,
+   "p50_ms": 5.9,
+   "p95_ms": 10.0,
+   "max_ms": 14.5,
+   "mean_ms": 6.6,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/notifications/unread-count": {
+   "n": 30,
+   "p50_ms": 4.3,
+   "p95_ms": 7.2,
+   "max_ms": 8.0,
+   "mean_ms": 4.5,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/patients": {
+   "n": 30,
+   "p50_ms": 4.8,
+   "p95_ms": 6.2,
+   "max_ms": 6.3,
+   "mean_ms": 5.0,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/patients/{patient_id}": {
+   "n": 30,
+   "p50_ms": 4.9,
+   "p95_ms": 6.2,
+   "max_ms": 6.6,
+   "mean_ms": 5.0,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/patients/{patient_id}/sessions": {
+   "n": 30,
+   "p50_ms": 6.1,
+   "p95_ms": 9.8,
+   "max_ms": 19.5,
+   "mean_ms": 7.2,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/reports": {
+   "n": 30,
+   "p50_ms": 8.3,
+   "p95_ms": 12.3,
+   "max_ms": 23.0,
+   "mean_ms": 9.2,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/reports/{report_id}": {
+   "n": 30,
+   "p50_ms": 4.3,
+   "p95_ms": 7.3,
+   "max_ms": 7.4,
+   "mean_ms": 4.7,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/reports/{report_id}/pdf": {
+   "n": 5,
+   "p50_ms": 1248.8,
+   "p95_ms": 1983.8,
+   "max_ms": 1983.8,
+   "mean_ms": 1390.0,
+   "codes": {
+    "200": 5
+   }
+  },
+  "GET /api/v1/reports/{report_id}/revisions": {
+   "n": 30,
+   "p50_ms": 4.3,
+   "p95_ms": 9.8,
+   "max_ms": 18.3,
+   "mean_ms": 5.0,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/research/analytics": {
+   "n": 3,
+   "p50_ms": 14.7,
+   "p95_ms": 16.7,
+   "max_ms": 16.7,
+   "mean_ms": 13.0,
+   "codes": {
+    "200": 3
+   }
+  },
+  "GET /api/v1/sessions": {
+   "n": 30,
+   "p50_ms": 7.2,
+   "p95_ms": 8.9,
+   "max_ms": 9.4,
+   "mean_ms": 7.1,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/sessions/doctors": {
+   "n": 30,
+   "p50_ms": 5.5,
+   "p95_ms": 7.4,
+   "max_ms": 9.6,
+   "mean_ms": 5.8,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/sessions/{session_id}": {
+   "n": 30,
+   "p50_ms": 7.9,
+   "p95_ms": 9.9,
+   "max_ms": 11.3,
+   "mean_ms": 7.8,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/sessions/{session_id}/conversations": {
+   "n": 30,
+   "p50_ms": 6.3,
+   "p95_ms": 12.7,
+   "max_ms": 13.3,
+   "mean_ms": 7.2,
+   "codes": {
+    "200": 30
+   }
+  },
+  "GET /api/v1/sessions/{session_id}/exam-orders/latest": {
+   "n": 30,
+   "p50_ms": 5.4,
+   "p95_ms": 7.2,
+   "max_ms": 7.3,
+   "mean_ms": 5.7,
+   "codes": {
+    "200": 30
+   }
+  }
+ },
+ "skipped": {
+  "GET /api/v1/dashboard/calendar": "required param day_starts unknown"
+ },
+ "role": "admin",
+ "ids_found": {
+  "session_id": true,
+  "report_id": true,
+  "alert_id": true,
+  "patient_id": true,
+  "notification_id": false,
+  "log_id": true,
+  "complaint_id": true,
+  "user_id": true
+ },
+ "concurrency_20x_sessions_wall_ms": 228.8,
+ "concurrency_20x_sessions_codes": [
+  200
+ ],
+ "rss_mb": {
+  "min": 174.5,
+  "peak": 958.9,
+  "samples": 275
+ }
+}

@@ -1,0 +1,57 @@
+{
+  "environment": {
+    "browser": "155.0.8059.85",
+    "build": "production",
+    "backend": "intercepted synthetic data only"
+  },
+  "cases": [
+    {
+      "name": "voice",
+      "transcriptRows": 40,
+      "sample_ms": 3002.7999999821186,
+      "root_commits": 51,
+      "bubble_updates": 40,
+      "long_tasks_ms": []
+    },
+    {
+      "name": "voice",
+      "transcriptRows": 200,
+      "sample_ms": 3001.4000000059605,
+      "root_commits": 53,
+      "bubble_updates": 200,
+      "long_tasks_ms": []
+    },
+    {
+      "name": "reports",
+      "listRows": 100,
+      "ready_ms": 102,
+      "dom_nodes": 1966,
+      "interaction_ms": 27,
+      "long_tasks_ms": []
+    },
+    {
+      "name": "reports",
+      "listRows": 1000,
+      "ready_ms": 165,
+      "dom_nodes": 18166,
+      "interaction_ms": 46,
+      "long_tasks_ms": []
+    },
+    {
+      "name": "notifications",
+      "listRows": 100,
+      "ready_ms": 93,
+      "dom_nodes": 834,
+      "interaction_ms": 67,
+      "long_tasks_ms": []
+    },
+    {
+      "name": "notifications",
+      "listRows": 1000,
+      "ready_ms": 129,
+      "dom_nodes": 7134,
+      "interaction_ms": 104,
+      "long_tasks_ms": []
+    }
+  ]
+}

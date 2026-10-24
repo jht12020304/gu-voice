@@ -23,7 +23,7 @@ WebSocket 全程用 `text_message` 與 backend 對話，逐輪撈 Redis supervis
 ## 啟動基礎設施
 
 ```bash
-E2E=/private/tmp/claude-501/-Users-chun-Desktop-GU-0410/1337bb7a-da86-4a4c-b956-6e2350c1f83f/scratchpad/e2e
+E2E=scripts/e2e_realopenai   # 本目錄（相對 repo 根）
 
 # 1. docker postgres + redis（project 名 gu_0410，沿用既有 volume）
 docker compose -p gu_0410 \

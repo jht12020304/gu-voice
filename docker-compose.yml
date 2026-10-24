@@ -49,7 +49,6 @@ services:
       - ./backend/.env
     environment:
       APP_ENV: development
-      APP_DEBUG: "true"
       # 顯式 URL 走 config.py 的優先分支（對齊 Railway/Supabase 路徑）
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/gu_voice
       REDIS_URL: redis://redis:6379/0

@@ -1,0 +1,1115 @@
+diff --git a/flutter_app/integration_test/ios_doctor_app_test.dart b/flutter_app/integration_test/ios_doctor_app_test.dart
+index d1970f0..d20b202 100644
+--- a/flutter_app/integration_test/ios_doctor_app_test.dart
++++ b/flutter_app/integration_test/ios_doctor_app_test.dart
+@@ -11,7 +11,7 @@
+ //
+ // ── 三個 test ────────────────────────────────────────────────────────────
+ //  A. doctor landing        — 醫師登入後停在 /notifications（不是 /dashboard）
+-//  B. patient unsupported   — 病患帳號登入後停在 /patient-unsupported，按登出回登入頁
++//  B. patient landing       — 病患帳號登入後落在 /patient（平台閘門已拆），按登出回登入頁
+ //  C. notifications live    — 醫師停在通知頁不動，後端建立一筆新通知並廣播 dashboard WS
+ //                             事件，列表要在數秒內自己長出那筆（不重進頁面、不下拉重整）
+ //
+diff --git a/flutter_app/lib/data/api/parse_page.dart b/flutter_app/lib/data/api/parse_page.dart
+deleted file mode 100644
+index 0c81051..0000000
+--- a/flutter_app/lib/data/api/parse_page.dart
++++ /dev/null
+@@ -1,15 +0,0 @@
+-/// 後端 cursor 分頁回應的共用解析：`{data: [...], pagination: {nextCursor, hasMore, totalCount}}`。
+-/// 各 API 的欄位名與 fallback（totalCount 缺時用本頁筆數）都在這一處。
+-typedef CursorPage<T> = ({List<T> data, String? nextCursor, bool hasMore, int totalCount});
+-
+-CursorPage<T> parsePage<T>(dynamic body, T Function(Map) fromJson) {
+-  final data = body as Map;
+-  final list = (data['data'] as List? ?? const []).map((e) => fromJson(e as Map)).toList();
+-  final p = (data['pagination'] as Map?) ?? const {};
+-  return (
+-    data: list,
+-    nextCursor: p['nextCursor'] as String?,
+-    hasMore: (p['hasMore'] ?? false) as bool,
+-    totalCount: (p['totalCount'] as num?)?.toInt() ?? list.length,
+-  );
+-}
+diff --git a/flutter_app/lib/data/api/sessions_api.dart b/flutter_app/lib/data/api/sessions_api.dart
+index 796b9eb..7920022 100644
+--- a/flutter_app/lib/data/api/sessions_api.dart
++++ b/flutter_app/lib/data/api/sessions_api.dart
+@@ -1,4 +1,5 @@
+ import '../models/session.dart';
++import 'parse_page.dart';
+ import '../models/soap_report.dart';
+ import 'dio_client.dart';
+ 
+@@ -96,14 +97,8 @@ class SessionsApi {
+         'sortOrder': ?sortOrder,
+       },
+     );
+-    final data = res.data;
+-    final list = (data is Map ? data['data'] : data) as List? ?? const [];
+-    final pagination = (data is Map ? data['pagination'] : null) as Map?;
+-    return SessionsPage(
+-      sessions: list.map((e) => Session.fromJson(e as Map)).toList(),
+-      nextCursor: pagination?['nextCursor'] as String?,
+-      hasMore: (pagination?['hasMore'] as bool?) ?? false,
+-    );
++    final page = parsePage(res.data, Session.fromJson);
++    return SessionsPage(sessions: page.data, nextCursor: page.nextCursor, hasMore: page.hasMore);
+   }
+ 
+   Future<List<Map>> calendarSummary(List<DateTime> boundaries) async {
+diff --git a/flutter_app/lib/features/patient/patient_session_tile.dart b/flutter_app/lib/features/patient/patient_session_tile.dart
+deleted file mode 100644
+index 2861201..0000000
+--- a/flutter_app/lib/features/patient/patient_session_tile.dart
++++ /dev/null
+@@ -1,51 +0,0 @@
+-import 'package:flutter/material.dart';
+-import 'package:go_router/go_router.dart';
+-
+-import '../../core/i18n/loc.dart';
+-import '../../core/router/lng.dart';
+-import '../../core/theme/app_tokens.dart';
+-import '../../data/models/session.dart';
+-import '../../shared/format.dart';
+-import '../../shared/widgets/status_badge.dart';
+-import '../../shared/widgets/ui_kit.dart';
+-
+-/// 病患端點開自己的場次：完成／紅旗中止 → 完成頁；進行中／等待 → 對話頁。
+-/// cancelled / unknown 不導頁（與 web 一致）。病患首頁與歷史頁共用。
+-void openPatientSession(BuildContext context, Session s) {
+-  if (s.status == 'completed' || s.status == 'aborted_red_flag') {
+-    context.go(prefixLngToPath('/patient/session/${s.id}/complete', currentLng));
+-  } else if (s.status == 'in_progress' || s.status == 'waiting') {
+-    context.go(prefixLngToPath('/conversation/${s.id}', currentLng), extra: s);
+-  }
+-}
+-
+-/// 病患端場次列（首頁最近 5 筆／歷史頁清單同一顆）。
+-/// [durationKey] 由頁面帶自己既有的 i18n key（兩頁的 key 不同、文案相同）。
+-class PatientSessionTile extends StatelessWidget {
+-  const PatientSessionTile(this.session, {super.key, required this.durationKey});
+-
+-  final Session session;
+-  final String durationKey;
+-
+-  @override
+-  Widget build(BuildContext context) {
+-    final s = session;
+-    final redFlagColor = Theme.of(context).extension<AppTokens>()!.statusRedFlag;
+-    final duration = s.durationSeconds != null
+-        ? ' · ${t(durationKey, args: {'minutes': durationMinutes(s.durationSeconds)})}'
+-        : '';
+-    return Card(
+-      margin: const EdgeInsets.symmetric(vertical: 4),
+-      child: ListTile(
+-        onTap: () => openPatientSession(context, s),
+-        leading: s.redFlag ? IconTile(Icons.flag, color: redFlagColor) : null,
+-        title: Text(s.chiefComplaintText ?? t('common.patient.home.defaultComplaint')),
+-        subtitle: Text('${formatDateTime(s.createdAt)}$duration'),
+-        trailing: Row(
+-          mainAxisSize: MainAxisSize.min,
+-          children: [StatusBadge(s.status), const SizedBox(width: 4), const Icon(Icons.chevron_right)],
+-        ),
+-      ),
+-    );
+-  }
+-}
+diff --git a/flutter_app/lib/shared/share_bytes.dart b/flutter_app/lib/shared/share_bytes.dart
+deleted file mode 100644
+index d6d4ede..0000000
+--- a/flutter_app/lib/shared/share_bytes.dart
++++ /dev/null
+@@ -1,23 +0,0 @@
+-import 'dart:typed_data';
+-
+-import 'package:flutter/foundation.dart' show kIsWeb;
+-import 'package:share_plus/share_plus.dart';
+-
+-import 'pdf_download.dart';
+-
+-/// Share/save bytes（SOAP PDF、研究圖 PNG）。
+-///
+-/// Native: the OS share sheet (save to Files, AirDrop, …).
+-///
+-/// Web: share_plus routes through `navigator.share(files)`, which **most desktop
+-/// browsers do not implement** — it throws, the caller catches, and the doctor sees
+-/// nothing at all (TODO §G medium). So on web we trigger a real anchor download
+-/// instead, matching what the React app does.
+-Future<void> shareBytes(Uint8List bytes, String filename, String mimeType) async {
+-  if (kIsWeb) {
+-    downloadBytes(bytes, filename, mimeType);
+-    return;
+-  }
+-  final file = XFile.fromData(bytes, mimeType: mimeType, name: filename);
+-  await SharePlus.instance.share(ShareParams(files: [file]));
+-}
+diff --git a/flutter_app/lib/shared/toast.dart b/flutter_app/lib/shared/toast.dart
+deleted file mode 100644
+index 01e25c4..0000000
+--- a/flutter_app/lib/shared/toast.dart
++++ /dev/null
+@@ -1,10 +0,0 @@
+-import 'package:flutter/material.dart';
+-
+-/// 全 App 共用的 SnackBar 提示（取代各頁自抄的 `_toast`／inline showSnackBar）。
+-/// await 之後呼叫也安全：context 已卸載就靜默略過。
+-void showToast(BuildContext context, String message, {Duration? duration}) {
+-  if (!context.mounted) return;
+-  ScaffoldMessenger.of(context).showSnackBar(
+-    SnackBar(content: Text(message), duration: duration ?? const Duration(milliseconds: 4000)),
+-  );
+-}
+diff --git a/flutter_app/pubspec.lock b/flutter_app/pubspec.lock
+index 8fb9586..da4ab6e 100644
+--- a/flutter_app/pubspec.lock
++++ b/flutter_app/pubspec.lock
+@@ -129,14 +129,6 @@ packages:
+       url: "https://pub.dev"
+     source: hosted
+     version: "3.0.7"
+-  cupertino_icons:
+-    dependency: "direct main"
+-    description:
+-      name: cupertino_icons
+-      sha256: "41e005c33bd814be4d3096aff55b1908d419fde52ca656c8c47719ec745873cd"
+-      url: "https://pub.dev"
+-    source: hosted
+-    version: "1.0.9"
+   dio:
+     dependency: "direct main"
+     description:
+@@ -581,7 +573,7 @@ packages:
+     source: hosted
+     version: "1.9.1"
+   path_provider:
+-    dependency: "direct main"
++    dependency: transitive
+     description:
+       name: path_provider
+       sha256: a7f4874f987173da295a61c181b8ee71dab59b332a486b391babf26a1b884825
+diff --git a/flutter_app/pubspec.yaml b/flutter_app/pubspec.yaml
+index 4cb4d87..500e853 100644
+--- a/flutter_app/pubspec.yaml
++++ b/flutter_app/pubspec.yaml
+@@ -31,9 +31,6 @@ dependencies:
+   flutter:
+     sdk: flutter
+ 
+-  # The following adds the Cupertino Icons font to your application.
+-  # Use with the CupertinoIcons class for iOS style icons.
+-  cupertino_icons: ^1.0.8
+   dio: ^5.10.0
+   go_router: ^17.3.0
+   flutter_riverpod: ^3.3.2
+@@ -53,12 +50,11 @@ dependencies:
+   web_socket_channel: ^3.0.3
+   uuid: ^4.6.0
+   share_plus: ^13.3.0
+-  path_provider: ^2.1.6
+   fl_chart: ^1.2.0
+   # web-only：SOAP PDF 在瀏覽器走 anchor download（見 lib/shared/pdf_download_web.dart）。
+   # 桌面瀏覽器多不支援 navigator.share(files)，share_plus 那條路會直接拋。
+   web: ^1.1.1
+-  # iOS 醫師 App 的推播。Dart 端只在 isDoctorOnlyPlatform 才碰得到（見
++  # iOS 醫師 App 的推播。Dart 端只在 dart.library.io 分支（push_backend_firebase.dart） 才碰得到（見
+   # lib/features/doctor/services/push_backend.dart 的 conditional import）；
+   # web build 完全不匯入 Firebase 程式碼。
+   firebase_core: ^4.13.0
+diff --git a/flutter_app/test/api_auth_recovery_test.dart b/flutter_app/test/api_auth_recovery_test.dart
+deleted file mode 100644
+index d979b27..0000000
+--- a/flutter_app/test/api_auth_recovery_test.dart
++++ /dev/null
+@@ -1,227 +0,0 @@
+-import 'dart:async';
+-import 'dart:convert';
+-
+-import 'package:dio/dio.dart';
+-import 'package:flutter_riverpod/flutter_riverpod.dart';
+-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+-import 'package:flutter_test/flutter_test.dart';
+-import 'package:gu_voice/data/api/dio_client.dart';
+-import 'package:gu_voice/data/api/token_store.dart';
+-import 'package:gu_voice/features/auth/auth_notifier.dart';
+-
+-import 'support/api_stub.dart';
+-
+-ResponseBody response(int status, [Object body = const {}]) =>
+-    ResponseBody.fromString(
+-      jsonEncode(body),
+-      status,
+-      headers: {
+-        Headers.contentTypeHeader: ['application/json'],
+-      },
+-    );
+-
+-void main() {
+-  TestWidgetsFlutterBinding.ensureInitialized();
+-  final tokens = TokenStore.instance;
+-  final client = ApiClient.instance;
+-  final refreshDio = Dio(BaseOptions(baseUrl: 'http://localhost'));
+-  int cleared = 0;
+-  int refreshed = 0;
+-
+-  setUp(() async {
+-    FlutterSecureStorage.setMockInitialValues({});
+-    await tokens.clear();
+-    await tokens.save(access: 'A-access', refresh: 'A-refresh');
+-    cleared = 0;
+-    refreshed = 0;
+-    installApiStub((request) => response(401), refreshDio: refreshDio);
+-    client.onAuthCleared = () => cleared++;
+-    refreshDio.httpClientAdapter = StubAdapter((request) {
+-      refreshed++;
+-      return {'access_token': 'A-new-access', 'refresh_token': 'A-new-refresh'};
+-    });
+-  });
+-  tearDown(() {
+-    client.onAuthCleared = null;
+-  });
+-
+-  for (final phase in ['refresh', 'retry']) {
+-    for (final status in [0, 500, 503]) {
+-      test(
+-        '$phase ${status == 0 ? 'timeout' : status} 保留登入，回傳真正錯誤且可重試',
+-        () async {
+-          Object fail(RequestOptions request) {
+-            if (status == 0) {
+-              throw DioException(
+-                requestOptions: request,
+-                type: DioExceptionType.receiveTimeout,
+-              );
+-            }
+-            return response(status);
+-          }
+-
+-          if (phase == 'refresh') {
+-            refreshDio.httpClientAdapter = StubAdapter(fail);
+-          } else {
+-            installApiStub(
+-              (request) => request.extra['_retry'] == true
+-                  ? fail(request)
+-                  : response(401),
+-            );
+-          }
+-          await expectLater(
+-            client.dio.get('/protected'),
+-            throwsA(
+-              isA<DioException>()
+-                  .having(
+-                    (e) => e.response?.statusCode,
+-                    'status',
+-                    status == 0 ? null : status,
+-                  )
+-                  .having(
+-                    (e) => e.type,
+-                    'type',
+-                    status == 0
+-                        ? DioExceptionType.receiveTimeout
+-                        : DioExceptionType.badResponse,
+-                  ),
+-            ),
+-          );
+-          expect(
+-            tokens.accessToken,
+-            phase == 'refresh' ? 'A-access' : 'A-new-access',
+-          );
+-          expect(
+-            await tokens.readRefresh(),
+-            phase == 'refresh' ? 'A-refresh' : 'A-new-refresh',
+-          );
+-          expect(cleared, 0);
+-          refreshDio.httpClientAdapter = StubAdapter(
+-            (_) => {
+-              'access_token': 'recovered',
+-              'refresh_token': 'recovered-refresh',
+-            },
+-          );
+-          expect(await client.forceRefresh(), isTrue);
+-        },
+-      );
+-    }
+-  }
+-
+-  for (final status in [401, 403]) {
+-    test('refresh $status 確實拒絕憑證時清除登入', () async {
+-      refreshDio.httpClientAdapter = StubAdapter((_) => response(status));
+-      await expectLater(
+-        client.dio.get('/protected'),
+-        throwsA(isA<DioException>()),
+-      );
+-      expect(tokens.accessToken, isNull);
+-      expect(await tokens.readRefresh(), isNull);
+-      expect(cleared, 1);
+-    });
+-  }
+-
+-  test('重送仍為 401 登出；資源 403 保留登入', () async {
+-    for (final status in [403, 401]) {
+-      installApiStub(
+-        (request) => response(request.extra['_retry'] == true ? status : 401),
+-      );
+-      await expectLater(
+-        client.dio.get('/protected'),
+-        throwsA(
+-          isA<DioException>().having(
+-            (e) => e.response?.statusCode,
+-            'status',
+-            status,
+-          ),
+-        ),
+-      );
+-      expect(cleared, status == 401 ? 1 : 0);
+-      expect(tokens.accessToken, status == 401 ? isNull : isNotNull);
+-    }
+-  });
+-
+-  test('並行 401 與 bootstrap 重試共用一次刷新，各自只重送一次', () async {
+-    final gate = Completer<void>();
+-    refreshDio.httpClientAdapter = StubAdapter((_) async {
+-      refreshed++;
+-      await gate.future;
+-      return {'access_token': 'fresh', 'refresh_token': 'fresh-refresh'};
+-    });
+-    var retried = 0;
+-    installApiStub((request) {
+-      if (request.extra['_retry'] != true) return response(401);
+-      expect(request.headers['Authorization'], 'Bearer fresh');
+-      retried++;
+-      return {'ok': true};
+-    });
+-    final first = client.dio.get('/one');
+-    await pumpEventQueue();
+-    await tokens.load();
+-    final pending = Future.wait([first, client.dio.get('/two')]);
+-    await pumpEventQueue();
+-    expect(refreshed, 1);
+-    gate.complete();
+-    await pending;
+-    expect(retried, 2);
+-    expect(cleared, 0);
+-  });
+-
+-  for (final status in [200, 401, 503]) {
+-    test('A 的 refresh $status 晚到不覆蓋或登出 B', () async {
+-      final gate = Completer<void>();
+-      refreshDio.httpClientAdapter = StubAdapter((_) async {
+-        await gate.future;
+-        return response(status, {
+-          'access_token': 'late-A',
+-          'refresh_token': 'late-A-refresh',
+-        });
+-      });
+-      final pending = client.dio.get('/protected');
+-      final check = expectLater(
+-        pending,
+-        throwsA(
+-          isA<DioException>().having(
+-            (e) => e.type,
+-            'type',
+-            DioExceptionType.cancel,
+-          ),
+-        ),
+-      );
+-      await pumpEventQueue();
+-      await tokens.clear();
+-      await tokens.save(access: 'B-access', refresh: 'B-refresh');
+-      gate.complete();
+-      await check;
+-      expect(tokens.accessToken, 'B-access');
+-      expect(await tokens.readRefresh(), 'B-refresh');
+-      expect(cleared, 0);
+-    });
+-  }
+-
+-  test('bootstrap 遇 refresh 503 顯示可重試狀態，保留 Keychain 憑證', () async {
+-    refreshDio.httpClientAdapter = StubAdapter((_) => response(503));
+-    final container = ProviderContainer();
+-    addTearDown(container.dispose);
+-    client.onAuthCleared = container.read(authProvider.notifier).forceLoggedOut;
+-    await container.read(authProvider.notifier).bootstrap();
+-    expect(container.read(authProvider).bootOffline, isTrue);
+-    expect(tokens.accessToken, 'A-access');
+-    expect(await tokens.readRefresh(), 'A-refresh');
+-  });
+-
+-  test('Keychain 依序完成刷新、登出、新登入，重開後仍是 B', () async {
+-    await Future.wait([
+-      tokens.save(
+-        access: 'late-A',
+-        refresh: 'late-A-refresh',
+-        newSession: false,
+-      ),
+-      tokens.clear(),
+-      tokens.save(access: 'B-access', refresh: 'B-refresh'),
+-    ]);
+-    await tokens.load();
+-    expect(tokens.accessToken, 'B-access');
+-    expect(await tokens.readRefresh(), 'B-refresh');
+-  });
+-}
+diff --git a/flutter_app/test/doctor_alert_watcher_test.dart b/flutter_app/test/doctor_alert_watcher_test.dart
+deleted file mode 100644
+index c8db4a8..0000000
+--- a/flutter_app/test/doctor_alert_watcher_test.dart
++++ /dev/null
+@@ -1,71 +0,0 @@
+-// DoctorAlertWatcher 坐在 MaterialApp.router 的 `builder` 裡——Router **之上**。
+-// 那一層拿不到 GoRouter，toast 的「查看」按鈕若走 `context.go` 會拋
+-// 「No GoRouter found in context」，醫師點了什麼都不會發生。這裡把導頁釘在
+-// routerProvider 上：按鈕按下去真的要換頁。
+-
+-import 'package:flutter/material.dart';
+-import 'package:flutter_riverpod/flutter_riverpod.dart';
+-import 'package:flutter_test/flutter_test.dart';
+-import 'package:go_router/go_router.dart';
+-
+-import 'package:gu_voice/core/router/app_router.dart';
+-import 'package:gu_voice/data/models/user.dart';
+-import 'package:gu_voice/features/auth/auth_notifier.dart';
+-import 'package:gu_voice/features/doctor/doctor_alert_watcher.dart';
+-import 'package:gu_voice/features/doctor/state/alerts_controller.dart';
+-
+-import 'support/api_stub.dart';
+-
+-class _DoctorAuth extends AuthNotifier {
+-  @override
+-  AuthState build() => const AuthState(
+-        user: User(id: 'd1', email: 'd@x.y', name: 'Dr', role: 'doctor'),
+-        booted: true,
+-      );
+-}
+-
+-class _FakeAlerts extends AlertsController {
+-  @override
+-  AlertsState build() => const AlertsState();
+-
+-  void bump() => state = state.copyWith(newAlertSeq: state.newAlertSeq + 1);
+-}
+-
+-void main() {
+-  testWidgets('新紅旗 toast 的「查看」按鈕從 Router 之上也導得到 /alerts', (tester) async {
+-    installApiStub((_) => null); // 只為了初始化 ApiClient；fake 不打網路
+-    final router = GoRouter(
+-      initialLocation: '/',
+-      routes: [
+-        GoRoute(path: '/', builder: (_, _) => const Scaffold(body: Text('home'))),
+-        GoRoute(path: '/:lng/alerts', builder: (_, _) => const Scaffold(body: Text('alerts page'))),
+-      ],
+-    );
+-    final container = ProviderContainer(overrides: [
+-      authProvider.overrideWith(_DoctorAuth.new),
+-      alertsProvider.overrideWith(_FakeAlerts.new),
+-      routerProvider.overrideWithValue(router),
+-    ]);
+-    addTearDown(container.dispose);
+-
+-    await tester.pumpWidget(UncontrolledProviderScope(
+-      container: container,
+-      child: MaterialApp.router(
+-        routerConfig: router,
+-        builder: (context, child) => DoctorAlertWatcher(child: child!),
+-      ),
+-    ));
+-    expect(find.text('home'), findsOneWidget);
+-
+-    (container.read(alertsProvider.notifier) as _FakeAlerts).bump();
+-    await tester.pump();
+-    await tester.pump(const Duration(milliseconds: 300)); // SnackBar 進場動畫
+-    expect(find.byType(SnackBarAction), findsOneWidget);
+-
+-    await tester.tap(find.byType(SnackBarAction));
+-    await tester.pumpAndSettle();
+-
+-    expect(find.text('alerts page'), findsOneWidget,
+-        reason: 'builder 層沒有 GoRouter；導頁必須走 routerProvider');
+-  });
+-}
+diff --git a/flutter_app/test/doctor_session_lifecycle_test.dart b/flutter_app/test/doctor_session_lifecycle_test.dart
+deleted file mode 100644
+index d28bfc1..0000000
+--- a/flutter_app/test/doctor_session_lifecycle_test.dart
++++ /dev/null
+@@ -1,171 +0,0 @@
+-import 'dart:async';
+-
+-import 'package:flutter_riverpod/flutter_riverpod.dart';
+-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+-import 'package:flutter_test/flutter_test.dart';
+-import 'package:gu_voice/data/api/dio_client.dart';
+-import 'package:gu_voice/data/api/token_store.dart';
+-import 'package:gu_voice/features/auth/auth_notifier.dart';
+-import 'package:gu_voice/features/doctor/services/dashboard_ws.dart';
+-import 'package:gu_voice/features/doctor/state/alerts_controller.dart';
+-import 'package:gu_voice/features/doctor/state/notifications_controller.dart';
+-import 'package:gu_voice/features/doctor/state/sessions_list_controller.dart';
+-import 'package:gu_voice/features/voice/state/settings_notifier.dart';
+-
+-import 'support/api_stub.dart';
+-
+-void main() {
+-  TestWidgetsFlutterBinding.ensureInitialized();
+-  late ProviderContainer container;
+-  late AuthNotifier auth;
+-  Completer<void>? gate;
+-  final waiting = <String>[];
+-
+-  setUp(() async {
+-    FlutterSecureStorage.setMockInitialValues({});
+-    await TokenStore.instance.clear();
+-    gate = null;
+-    waiting.clear();
+-    installApiStub((request) async {
+-      if (request.path == '/auth/login') {
+-        final id = (request.data as Map)['email'] as String;
+-        return {
+-          'access_token': id,
+-          'refresh_token': '$id-refresh',
+-          'user': {'id': id, 'role': id == 'patient' ? 'patient' : 'doctor'},
+-        };
+-      }
+-      if (request.path == '/auth/logout') return <String, dynamic>{};
+-      final owner = request.headers['Authorization'].toString().replaceFirst(
+-        'Bearer ',
+-        '',
+-      );
+-      if (request.path == '/auth/me') {
+-        return {'id': owner, 'name': 'updated', 'role': 'doctor'};
+-      }
+-      final pending = gate;
+-      if (pending != null && owner == 'doctor-A') {
+-        waiting.add(request.path);
+-        await pending.future;
+-      }
+-      if (request.path.endsWith('count')) {
+-        return {'count': owner == 'doctor-A' ? 1 : 2};
+-      }
+-      if (request.path == '/notifications/read-all') return <String, dynamic>{};
+-      if (request.path == '/alerts/acknowledge-all') return {'acknowledged': 1};
+-      if (request.path.endsWith('/acknowledge')) {
+-        return {'acknowledged_at': '2026-10-03T00:00:00Z'};
+-      }
+-      return {
+-        'data': [
+-          {'id': owner, 'title': owner},
+-        ],
+-        'pagination': {
+-          'has_more': true,
+-          'next_cursor': 'next',
+-          'total_count': 1,
+-        },
+-      };
+-    });
+-    container = ProviderContainer();
+-    addTearDown(() {
+-      container.dispose();
+-      ApiClient.instance.onAuthCleared = null;
+-    });
+-    auth = container.read(authProvider.notifier);
+-    ApiClient.instance.onAuthCleared = auth.forceLoggedOut;
+-    await auth.login('doctor-A', 'test');
+-    container.listen(notificationsProvider, (_, _) {});
+-    container.listen(alertsProvider, (_, _) {});
+-    container.listen(sessionsListProvider, (_, _) {});
+-    await pumpEventQueue();
+-  });
+-
+-  void expectOwner(String id) {
+-    expect(container.read(notificationsProvider).notifications.single.id, id);
+-    expect(container.read(alertsProvider).alerts.single.id, id);
+-    expect(container.read(sessionsListProvider).sessions.single.id, id);
+-    expect(container.read(notificationsProvider).error, isNull);
+-    expect(container.read(alertsProvider).error, isNull);
+-    expect(container.read(sessionsListProvider).hasError, isFalse);
+-  }
+-
+-  void expectEmpty() {
+-    expect(container.read(dashboardWsProvider), isNull);
+-    expect(container.read(notificationsProvider).notifications, isEmpty);
+-    expect(container.read(notificationsProvider).unreadCount, 0);
+-    expect(container.read(alertsProvider).alerts, isEmpty);
+-    expect(container.read(alertsProvider).unacknowledgedCount, 0);
+-    expect(container.read(sessionsListProvider).sessions, isEmpty);
+-  }
+-
+-  for (final forced in [false, true]) {
+-    test('${forced ? '認證失效' : '主動登出'}清空所有醫師資料，B 登入重建連線與資料', () async {
+-      expectOwner('doctor-A');
+-      final oldWs = container.read(dashboardWsProvider)!;
+-      container.read(settingsProvider.notifier).toggleTtsMuted();
+-      if (forced) {
+-        await TokenStore.instance.clear();
+-        auth.forceLoggedOut();
+-      } else {
+-        await auth.logout();
+-      }
+-      expectEmpty();
+-      expect(oldWs.isDisposed, isTrue);
+-      expect(container.read(settingsProvider).ttsMuted, isFalse,
+-          reason: 'kiosk 跨病患：上一位的靜音／字級不得留給下一位');
+-      await auth.login('doctor-B', 'test');
+-      await pumpEventQueue();
+-      expectOwner('doctor-B');
+-      expect(container.read(dashboardWsProvider), isNot(same(oldWs)));
+-      expect(container.read(notificationsProvider).unreadCount, 2);
+-    });
+-  }
+-
+-  test('直接切換醫師或病患也隔離資料，更新同帳號個人資料不重連', () async {
+-    final original = container.read(dashboardWsProvider)!;
+-    await auth.updateProfile({'name': 'updated'});
+-    expect(container.read(dashboardWsProvider), same(original));
+-    expectOwner('doctor-A');
+-    await auth.login('doctor-B', 'test');
+-    await pumpEventQueue();
+-    expectOwner('doctor-B');
+-    expect(original.isDisposed, isTrue);
+-    final doctorWs = container.read(dashboardWsProvider)!;
+-    await auth.login('patient', 'test');
+-    expectEmpty();
+-    expect(doctorWs.isDisposed, isTrue);
+-  });
+-
+-  test('A 的清單、分頁、計數與寫入延遲完成，不污染 B 或觸發 B 的後續請求', () async {
+-    gate = Completer<void>();
+-    final notifications = container.read(notificationsProvider.notifier);
+-    final alerts = container.read(alertsProvider.notifier);
+-    final pending = Future.wait([
+-      notifications.fetchMore(),
+-      notifications.fetch(),
+-      notifications.fetchUnreadCount(),
+-      notifications.markAllRead(),
+-      alerts.fetchMore(),
+-      alerts.fetchAlerts(),
+-      alerts.fetchUnacknowledgedCount(),
+-      alerts.acknowledge('doctor-A'),
+-      alerts.acknowledgeAll(),
+-      container.read(sessionsListProvider.notifier).reload(),
+-    ]);
+-    await pumpEventQueue();
+-    expect(waiting.length, 10);
+-    await auth.logout();
+-    await auth.login('doctor-B', 'test');
+-    await pumpEventQueue();
+-    expectOwner('doctor-B');
+-    final requestsBefore = sentRequests.length;
+-    gate!.complete();
+-    await pending;
+-    await pumpEventQueue();
+-    expectOwner('doctor-B');
+-    expect(sentRequests.length, requestsBefore);
+-    expect(container.read(notificationsProvider).unreadCount, 2);
+-    expect(container.read(alertsProvider).unacknowledgedCount, 2);
+-  });
+-}
+diff --git a/flutter_app/test/smoothness_regression_test.dart b/flutter_app/test/smoothness_regression_test.dart
+deleted file mode 100644
+index f57149f..0000000
+--- a/flutter_app/test/smoothness_regression_test.dart
++++ /dev/null
+@@ -1,341 +0,0 @@
+-import 'dart:async';
+-import 'package:flutter/material.dart';
+-import 'package:flutter_riverpod/flutter_riverpod.dart';
+-import 'package:flutter_test/flutter_test.dart';
+-import 'package:gu_voice/core/i18n/locales_loader.dart';
+-import 'package:gu_voice/core/router/app_router.dart';
+-import 'package:gu_voice/core/router/lng.dart';
+-import 'package:gu_voice/core/theme/app_theme.dart';
+-import 'package:gu_voice/data/models/user.dart';
+-import 'package:gu_voice/features/auth/auth_notifier.dart';
+-import 'package:gu_voice/features/doctor/services/dashboard_ws.dart';
+-import 'package:gu_voice/features/doctor/state/sessions_list_controller.dart';
+-import 'package:gu_voice/features/voice/services/ws_manager.dart';
+-import 'support/api_stub.dart';
+-import 'package:gu_voice/core/i18n/loc.dart';
+-import 'package:gu_voice/features/doctor/screens/session_calendar_view.dart';
+-import 'package:gu_voice/features/doctor/screens/patient_list_page.dart';
+-import 'package:gu_voice/features/doctor/screens/report_list_page.dart';
+-import 'package:gu_voice/features/doctor/screens/alert_list_page.dart';
+-
+-class AuditAuth extends AuthNotifier {
+-  void switchUser(String id) => state = AuthState(
+-    booted: true,
+-    user: User(id: id, email: "$id@example.invalid", name: id, role: "doctor"),
+-  );
+-  @override
+-  AuthState build() => const AuthState(
+-    booted: true,
+-    user: User(id: 'audit', email: 'audit@example.invalid', name: 'Audit', role: 'doctor'),
+-  );
+-}
+-
+-class AuditSocket extends DashboardWs {
+-  final listeners = <String, List<WsHandler>>{};
+-  @override
+-  void ensureConnected() {}
+-  @override
+-  void on(String type, WsHandler handler) => listeners.putIfAbsent(type, () => []).add(handler);
+-  @override
+-  void off(String type, WsHandler handler) => listeners[type]?.remove(handler);
+-  void emit(String type) {
+-    for (final h in List<WsHandler>.of(listeners[type] ?? [])) {
+-      h({'sessionId': 'audit-s', 'status': 'in_progress'}, {'type': type});
+-    }
+-  }
+-}
+-
+-void main() {
+-  TestWidgetsFlutterBinding.ensureInitialized();
+-  setUpAll(() async {
+-    await Locales.loadAll();
+-    setCurrentLng('zh-TW');
+-  });
+-  testWidgets('retained tabs preserve search, month, scroll and request budget', (tester) async {
+-    final calls = <String>[];
+-    installApiStub((r) {
+-      calls.add(r.path);
+-      if (r.path.endsWith('count')) return {'count': 0};
+-      if (r.path == '/dashboard/monthly-summary') {
+-        return {
+-          'month': r.queryParameters['month'],
+-          'total_sessions': 1,
+-          'total_red_flag_alerts': 0,
+-          'chief_complaint_distribution': [],
+-          'daily_trend': [],
+-        };
+-      }
+-      return {
+-        'data': r.path == '/sessions'
+-            ? List.generate(50, (i) => {'id': 'tab-$i', 'patient_name': 'AUDIT search $i', 'status': 'completed'})
+-            : [],
+-        'pagination': {'has_more': false, 'total_count': 50},
+-      };
+-    });
+-    final ws = AuditSocket();
+-    final c = ProviderContainer(
+-      overrides: [authProvider.overrideWith(AuditAuth.new), dashboardWsProvider.overrideWithValue(ws)],
+-    );
+-    final router = c.read(routerProvider);
+-    router.go('/zh-TW/dashboard');
+-    await tester.pumpWidget(
+-      UncontrolledProviderScope(
+-        container: c,
+-        child: MaterialApp.router(theme: AppTheme.light, routerConfig: router),
+-      ),
+-    );
+-    await tester.pumpAndSettle();
+-    await tester.tap(find.byTooltip(t('common.doctor.dashboard.prevMonth')));
+-    await tester.pumpAndSettle();
+-    final now = DateTime.now();
+-    final previousMonth = DateTime(now.year, now.month - 1);
+-    final monthLabel = t(
+-      'common.doctor.dashboard.monthFormat',
+-      args: {'year': previousMonth.year, 'month': previousMonth.month},
+-    );
+-    expect(find.text(monthLabel), findsOneWidget);
+-    final initial = calls.where((p) => p == '/dashboard/monthly-summary').length;
+-    router.go('/zh-TW/sessions');
+-    await tester.pumpAndSettle();
+-    await tester.enterText(find.byType(TextField), 'AUDIT search');
+-    await tester.pump();
+-    final listScroll = tester.state<ScrollableState>(find.byType(Scrollable).last).position;
+-    listScroll.jumpTo(300);
+-    await tester.pump();
+-    for (var i = 0; i < 20; i++) {
+-      router.go('/zh-TW/dashboard');
+-      await tester.pumpAndSettle();
+-      expect(find.text(monthLabel), findsOneWidget);
+-      router.go('/zh-TW/sessions');
+-      await tester.pumpAndSettle();
+-    }
+-    final returned = calls.where((p) => p == '/dashboard/monthly-summary').length;
+-    router.go('/zh-TW/sessions');
+-    await tester.pumpAndSettle();
+-    final search = tester.widget<EditableText>(find.byType(EditableText)).controller.text;
+-    final before = calls.where((p) => p == '/sessions').length;
+-    for (final e in ['session_created', 'session_status_changed', 'queue_updated']) {
+-      ws.emit(e);
+-    }
+-    await tester.pump(const Duration(milliseconds: 150));
+-    await tester.pumpAndSettle();
+-    final after = calls.where((p) => p == '/sessions').length;
+-    expect(initial, 2); // initial month + deliberate previous-month selection
+-    expect(returned, initial);
+-    expect(tester.state<ScrollableState>(find.byType(Scrollable).last).position.pixels, 300);
+-    expect(search, 'AUDIT search');
+-    expect(after - before, 1);
+-    await tester.pumpWidget(const SizedBox());
+-    c.dispose();
+-  });
+-  test('late list result cannot revert fresher data within one account', () async {
+-    final older = Completer<Object?>(), newer = Completer<Object?>();
+-    var count = 0;
+-    installApiStub((r) {
+-      if (++count == 1) return {'data': []};
+-      return count == 2 ? older.future : newer.future;
+-    });
+-    final c = ProviderContainer(overrides: [dashboardWsProvider.overrideWithValue(AuditSocket())]);
+-    c.listen(sessionsListProvider, (_, _) {});
+-    await pumpEventQueue();
+-    final controller = c.read(sessionsListProvider.notifier);
+-    final a = controller.reload(), b = controller.reload();
+-    await pumpEventQueue();
+-    newer.complete({
+-      'data': [
+-        {'id': 'new', 'status': 'completed'},
+-      ],
+-    });
+-    await b;
+-    older.complete({
+-      'data': [
+-        {'id': 'old', 'status': 'waiting'},
+-      ],
+-    });
+-    await a;
+-    final id = c.read(sessionsListProvider).sessions.single.id;
+-    expect(id, "new");
+-    c.dispose();
+-  });
+-
+-  testWidgets('switching language and accounts clears retained navigators safely', (tester) async {
+-    installApiStub(
+-      (r) => r.path.endsWith('count')
+-          ? {'count': 0}
+-          : {
+-              'data': [],
+-              'pagination': {'has_more': false},
+-            },
+-    );
+-    final c = ProviderContainer(
+-      overrides: [authProvider.overrideWith(AuditAuth.new), dashboardWsProvider.overrideWithValue(AuditSocket())],
+-    );
+-    c.read(routerProvider).go('/zh-TW/sessions');
+-    await tester.pumpWidget(
+-      UncontrolledProviderScope(
+-        container: c,
+-        child: Consumer(
+-          builder: (_, ref, _) => MaterialApp.router(theme: AppTheme.light, routerConfig: ref.watch(routerProvider)),
+-        ),
+-      ),
+-    );
+-    await tester.pumpAndSettle();
+-    await tester.enterText(find.byType(TextField), 'private A search');
+-    c.read(routerProvider).go('/en-US/sessions');
+-    await tester.pumpAndSettle();
+-    expect(currentLng, 'en-US');
+-    expect(tester.takeException(), isNull);
+-    (c.read(authProvider.notifier) as AuditAuth).switchUser('B');
+-    await tester.pumpAndSettle();
+-    c.read(routerProvider).go('/zh-TW/sessions');
+-    await tester.pumpAndSettle();
+-    expect(tester.widget<EditableText>(find.byType(EditableText)).controller.text, isEmpty);
+-    expect(tester.takeException(), isNull);
+-    await tester.pumpWidget(const SizedBox());
+-    c.dispose();
+-  });
+-
+-  testWidgets('calendar uses one aggregate and one day page; totals exceed 1000', (tester) async {
+-    final today = DateTime(2026, 10, 3);
+-    installApiStub((r) {
+-      if (r.path == '/dashboard/calendar') {
+-        return [
+-          {
+-            'day_index': 2,
+-            'total': 1001,
+-            'completed': 1001,
+-            'red_flags': 0,
+-            'busy_seconds': 60060,
+-            'duration_count': 1001,
+-          },
+-        ];
+-      }
+-      if (r.path == '/sessions') {
+-        final more = r.queryParameters['cursor'] != null;
+-        return {
+-          'data': List.generate(
+-            more ? 1 : 20,
+-            (i) => {
+-              'id': 'day-${more ? 20 : i}',
+-              'patient_name': 'Calendar ${more ? 20 : i}',
+-              'status': 'completed',
+-              'created_at': today.toIso8601String(),
+-            },
+-          ),
+-          'pagination': {'has_more': !more, 'next_cursor': more ? null : 'next-day-page', 'total_count': 1001},
+-        };
+-      }
+-      return {'count': 0};
+-    });
+-    await tester.pumpWidget(
+-      ProviderScope(
+-        child: MaterialApp(
+-          theme: AppTheme.light,
+-          home: Scaffold(body: SessionCalendarView(today: today)),
+-        ),
+-      ),
+-    );
+-    await tester.pumpAndSettle();
+-    expect(sentRequests.where((r) => r.path == '/dashboard/calendar').length, 1);
+-    expect(sentRequests.where((r) => r.path == '/sessions').length, 1);
+-    expect(find.text('1001'), findsWidgets);
+-    final calendar = sentRequests.firstWhere((r) => r.path == '/dashboard/calendar');
+-    final boundaries = calendar.queryParameters['day_starts'] as List;
+-    expect(boundaries.length, 32);
+-    expect(DateTime.parse(boundaries.first), DateTime(2026, 10, 1).toUtc());
+-    for (var i = 0; i < 15 && find.text(t('common.pagination.loadMore')).hitTestable().evaluate().isEmpty; i++) {
+-      await tester.drag(find.byType(ListView), const Offset(0, -500));
+-      await tester.pumpAndSettle();
+-    }
+-    await tester.tap(find.text(t('common.pagination.loadMore')));
+-    await tester.pumpAndSettle();
+-    expect(sentRequests.where((r) => r.path == '/sessions').length, 2);
+-    expect(find.text('Calendar 20'), findsOneWidget);
+-    tester.state<ScrollableState>(find.byType(Scrollable).first).position.jumpTo(0);
+-    await tester.pumpAndSettle();
+-    await tester.tap(find.byTooltip(t('session.doctor.calendar.nextMonth')));
+-    await tester.pumpAndSettle();
+-    await tester.tap(find.byTooltip(t('session.doctor.calendar.previousMonth')));
+-    await tester.pumpAndSettle();
+-    expect(
+-      sentRequests.where((r) => r.path == '/dashboard/calendar').length,
+-      2,
+-      reason: 'Returning to a fresh cached month needs no new aggregate',
+-    );
+-
+-    expect(tester.takeException(), isNull);
+-  });
+-
+-  for (final kind in ['patients', 'reports', 'alerts']) {
+-    testWidgets('$kind builds visible rows from a 1000 row data set', (tester) async {
+-      final now = DateTime.now().toIso8601String();
+-      installApiStub((r) {
+-        if (r.path.endsWith('count')) return {'count': 1000};
+-        if (r.path.startsWith('/sessions/')) {
+-          return {'id': r.path.split('/').last, 'patient_name': 'Synthetic', 'status': 'completed'};
+-        }
+-        return {
+-          'data': List.generate(
+-            1000,
+-            (i) => {
+-              'id': 'row-$i',
+-              'session_id': 's$i',
+-              'name': 'Patient $i',
+-              'patient_name': 'Patient $i',
+-              'chief_complaint_text': 'Synthetic',
+-              'title': 'Alert $i',
+-              'severity': 'medium',
+-              'status': 'generated',
+-              'review_status': 'pending',
+-              'session_status': 'completed',
+-              'session_red_flag': false,
+-              'created_at': now,
+-            },
+-          ),
+-          'review_counts': {'pending': 1000},
+-          'pagination': {'has_more': false, 'total_count': 1000},
+-        };
+-      });
+-      final widget = switch (kind) {
+-        'patients' => const PatientListPage(),
+-        'reports' => const ReportListPage(),
+-        _ => const AlertListPage(),
+-      };
+-      await tester.pumpWidget(
+-        ProviderScope(
+-          overrides: [dashboardWsProvider.overrideWithValue(AuditSocket())],
+-          child: MaterialApp(theme: AppTheme.light, home: widget),
+-        ),
+-      );
+-      await tester.pumpAndSettle();
+-      expect(find.byType(Card).evaluate().length, lessThan(30));
+-      expect(find.byType(ListView), findsWidgets);
+-      await tester.drag(find.byType(ListView).last, const Offset(0, -1000));
+-      await tester.pumpAndSettle();
+-      expect(find.byType(Card).evaluate().length, lessThan(30));
+-      expect(tester.takeException(), isNull);
+-      if (kind == 'reports') expect(sentRequests.where((r) => r.path == '/reports').length, 1);
+-    });
+-  }
+-  test('events during a pending request produce one follow-up', () async {
+-    var calls = 0;
+-    final gate = Completer<Object?>();
+-    installApiStub((r) => ++calls == 2 ? gate.future : {'data': []});
+-    final ws = AuditSocket();
+-    final c = ProviderContainer(overrides: [dashboardWsProvider.overrideWithValue(ws)]);
+-    c.listen(sessionsListProvider, (_, _) {});
+-    await pumpEventQueue();
+-    final pending = c.read(sessionsListProvider.notifier).reload();
+-    await pumpEventQueue();
+-    for (final event in ['session_created', 'queue_updated', 'report_generated']) {
+-      ws.emit(event);
+-    }
+-    await Future<void>.delayed(const Duration(milliseconds: 150));
+-    expect(calls, 2);
+-    gate.complete({'data': []});
+-    await pending;
+-    await pumpEventQueue();
+-    expect(calls, 3);
+-    c.dispose();
+-  });
+-}
+diff --git a/flutter_app/test_driver/integration_test.dart b/flutter_app/test_driver/integration_test.dart
+index 45e1b41..a28350b 100644
+--- a/flutter_app/test_driver/integration_test.dart
++++ b/flutter_app/test_driver/integration_test.dart
+@@ -7,7 +7,7 @@
+ // --dart-define=SHOTS=true 時逐頁截圖，人眼複核用；不帶 SHOTS 時測試端
+ // 根本不呼叫，這個 callback 閒置）。
+ //
+-// 用法見 flutter_app/README.md 的 web 章節與 mobile_layout_walkthrough_test 檔頭。
++// 用法見 mobile_layout_walkthrough_test 檔頭（`fvm flutter drive --driver=test_driver/integration_test.dart`）。
+ import 'dart:io';
+ 
+ import 'package:integration_test/integration_test_driver_extended.dart';
+diff --git a/flutter_app/tool/env.production.sh b/flutter_app/tool/env.production.sh
+deleted file mode 100644
+index df9609a..0000000
+--- a/flutter_app/tool/env.production.sh
++++ /dev/null
+@@ -1,6 +0,0 @@
+-# 生產後端位址——build_ios_testflight.sh 與 build_vercel_output.sh 共用（source 進來）。
+-# 變數名是 API_BASE / WS_BASE（不是 *_BASE_URL），值含 path 後綴；
+-# 呼叫端用 ${API_BASE:-${PROD_API_BASE}}，所以明確給的環境變數永遠優先。
+-# 注意：`api-` 開頭的域名是死的，不要用。staging 位址見 docs/ios_release_settings.md §0。
+-PROD_API_BASE="https://gu-voice-app-production.up.railway.app/api/v1"
+-PROD_WS_BASE="wss://gu-voice-app-production.up.railway.app/api/v1/ws"
+diff --git a/flutter_app/tool/voice_encode_benchmark.dart b/flutter_app/tool/voice_encode_benchmark.dart
+deleted file mode 100644
+index a6cb384..0000000
+--- a/flutter_app/tool/voice_encode_benchmark.dart
++++ /dev/null
+@@ -1,31 +0,0 @@
+-// Native AOT host benchmark; this does not measure iPhone frames or microphone I/O.
+-// fvm dart compile exe tool/voice_encode_benchmark.dart -o /tmp/gu-voice-encode
+-import 'dart:convert';
+-import 'dart:io';
+-import 'dart:typed_data';
+-import 'package:gu_voice/features/voice/services/wav_encoder.dart';
+-
+-void main() {
+-  final result = <Map<String, Object>>[];
+-  for (final seconds in [10, 30, 60]) {
+-    final frames = List.generate(seconds * 50, (_) => Int16List(320));
+-    final times = <int>[];
+-    var bytes = 0;
+-    for (var i = 0; i < 35; i++) {
+-      final watch = Stopwatch()..start();
+-      final encoded = bytesToBase64(encodeWav(frames, 16000));
+-      watch.stop();
+-      bytes = encoded.length;
+-      if (i >= 5) times.add(watch.elapsedMicroseconds);
+-    }
+-    times.sort();
+-    result.add({
+-      'seconds': seconds,
+-      'samples': times.length,
+-      'base64_bytes': bytes,
+-      'p50_ms': times[times.length ~/ 2] / 1000,
+-      'p95_ms': times[(times.length * .95).ceil() - 1] / 1000,
+-    });
+-  }
+-  stdout.writeln(jsonEncode(result));
+-}
