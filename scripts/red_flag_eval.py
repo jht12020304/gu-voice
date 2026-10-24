@@ -16,7 +16,7 @@
 - 期望值只分三檔：critical（必須至少一則 critical）、alert（必須至少一則任意
   嚴重度）、no_critical（不得有 critical——政策允許 medium/high 誤報，
   規則層偏誤報是 2026-07-27 臨床拍板，本評測不當 false-positive 檢查器用）。
-- 語意層每案例一次 LLM 呼叫（gpt-5.6-luna, effort=none），全表 < NT$1。
+- 語意層每案例一次 LLM 呼叫（模型＝settings.OPENAI_MODEL_RED_FLAG, effort=none），全表 < NT$1。
 """
 
 from __future__ import annotations
