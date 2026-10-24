@@ -112,7 +112,8 @@ GU-Voice 是一套**以語音對話為核心**的醫療遠端問診系統，協�
 
 | 層級 | 服務 |
 |------|------|
-| 前端 | **Vercel**（手動 `vercel --prod`；專案 `gu-voice`）。⚠️ `flutter_app/` 是要取代它的單一碼庫前端，已入 main 但未上生產 |
+| 網頁版 | React `frontend/`，**Vercel** 手動部署；與 iOS 並行維護，分工見 [README.md](README.md) |
+| iOS App | Flutter `flutter_app/`，TestFlight 內部測試；設定見 [ios_release_settings.md](ios_release_settings.md) |
 | 後端 | **Railway**（Docker 多階段建置，`backend/scripts/start.sh` 啟動） |
 | 資料庫 | **Supabase**（PostgreSQL + RLS + Storage） |
 | 快取 / 佇列 | Redis（Railway 或 Upstash），同時做 Celery broker / result backend |

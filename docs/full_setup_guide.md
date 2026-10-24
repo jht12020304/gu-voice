@@ -8,14 +8,14 @@
 
 專案採用前後端分離架構：
 
-*   **前端路徑**: `/Users/chun/Desktop/GU_0410/frontend`
+*   **前端路徑**: `<repo>/frontend`
     *   框架: React + Vite + Tailwind CSS
     *   入口網址: `http://localhost:3000` (或 `http://127.0.0.1:3000`)
-*   **後端路徑**: `/Users/chun/Desktop/GU_0410/backend`
+*   **後端路徑**: `<repo>/backend`
     *   框架: FastAPI (Python 3.12+)
     *   API 入口: `http://localhost:8000/api/v1`
     *   API 文檔: `http://localhost:8000/docs`
-*   **文檔路徑**: `/Users/chun/Desktop/GU_0410/docs` (包含各項規格書與部署指南)
+*   **文檔路徑**: `<repo>/docs` (包含各項規格書與部署指南)
 
 ---
 

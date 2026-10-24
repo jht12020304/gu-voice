@@ -119,13 +119,13 @@ vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.a
 > ⚠️ 2026-08-22 平台分工推翻：iOS 不再是「醫師端」，是唯一的 App——kiosk iPad 跑
 > 病患語音問診、醫師/管理員同一顆。所以**從這一天之後的 build 起，裝了 App 的
 > 測試員都能進到病患問診入口**；加測試員前的 PHI 檢查（§V8）比以前更要緊。
-> 現行內測包帶 KIOSK define：登入頁直接按「開始語音問診」便會以候診專用 patient
+> §7 最後已知的 production 內測包帶 KIOSK define；2026-10-03 staging 候選包不帶登入憑證。舊包的登入頁直接按「開始語音問診」便會以候診專用 patient
 > 帳號自動登入，無須輸入帳密；閒置登出 180 秒照常生效。
 
 > 已作廢的 2026-08-20 平台分工曾是「Web＝病患 kiosk、iOS＝醫師端」；現況以同一顆 iOS App 為準。
 > iOS 這條線只走 TestFlight **內部測試**，不上架。管道現況與未解風險見 `docs/TODO.md` §V8（iOS 醫師端功能面見 §V7）。
 
-> ⚠️⚠️ **內測包打的是生產後端，本專案沒有 staging**（本手冊只有 production 一組）。
+> 打包腳本預設仍連 production；2026-10-03 已建立獨立 staging 後端、DB、Redis 與 React preview，並產出明確指定 staging 的 iOS 候選包。網址、帳號位置與 Apple 協議阻擋狀態以 [發佈設定 §0](ios_release_settings.md#0-2026-10-03-staging-候選包與測試環境) 為準。以下臨床資料限制適用於 production 包。
 > 2026-09-02 起病患在基本資料頁必須選醫師；已指派場次的問診完成、紅旗、報告成功／失敗
 > 通知與 dashboard 即時事件都只送該醫師。doctor 與帶執照的臨床 admin 也只讀自己的
 > 病患、場次、報告與紅旗；無執照的 system admin 保留全院稽核視野。

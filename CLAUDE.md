@@ -1,6 +1,6 @@
 # GU_0410 — GU Voice 泌尿科語音問診系統
 
-院內候診 Kiosk 的語音 AI 問診系統：病患已在現場、問診完成後等看診。FastAPI + Celery 後端、React + Vite 前端、5 語言（zh-TW / en-US / ja-JP / ko-KR / vi-VN）。
+院內候診 Kiosk 的語音 AI 問診系統：病患已在現場、問診完成後等看診。FastAPI + Celery 共用後端、Flutter iOS App、React + Vite 網頁版、5 語言（zh-TW / en-US / ja-JP / ko-KR / vi-VN）。
 
 ## 專案結構
 
@@ -13,21 +13,14 @@ backend/            → FastAPI + Celery。app/pipelines/ 問診管線（llm_con
                       `_after_status_transition` 呼叫入口，另兩格認的是「寫終態」本身）。
                       必須留在 tests/unit/ **根**：檔內用 `parents[2]` 硬推 `backend/`，
                       移進子目錄會讓路徑推導掉一層
-frontend/           → React + Vite + TS，**目前的生產前端**。src/i18n/locales/ 是翻譯源頭；
-                      public/locales/ 是 build 鏡像
-flutter_app/        → Flutter 單一碼庫前端（web+iOS+Android），要取代 frontend/。
-                      **平台定位（2026-08-22 拍板，推翻 2026-08-20 的分工）：iOS 單一 App**——候診區 kiosk iPad 跑病患語音問診，醫師/管理員用自己的裝置跑同一顆 App（角色分流），**網頁版走向除役**（React 正式站在 App 驗證完成前暫時保留，Flutter Web 停止投資）。iOS 平台閘門已拆（route_guard.dart 只剩角色守衛；拆除前先修掉 `/patients` 前綴誤中的病患越權洞——閘門拆掉後那是唯一防線）。Web 的 Vercel 管道與預覽網址仍在，僅供過渡。**醫師＝管理員（2026-08-22 拍板）**：admin 四頁與 admin API 對醫師開放（`require_role("admin","doctor")`），醫師並可從病患詳情頁代病患發起語音問診（場次記在該病患名下；後端 create_session 僅對 doctor/admin 放行任意 patient_id）。LLM 模型 2026-08-22 起為 gpt-5.6 世代，**權威在 backend/app/core/config.py**，取樣參數一律走 `sampling_kwargs`（不變式 #33，手寫 temperature= 會在 gpt-5.6 上 400）
-                      醫師端場次頁有**清單／日曆兩種檢視**（日曆＝點一天看那天的問診＋
-                      時間管理；日界線走裝置本地時區，理由見鐵律與 docs/app_architecture.md §2.5）。
-                      **admin 可軟刪除整場問診**（`DELETE /api/v1/sessions/{id}`）。
-                      iOS 有 TestFlight 內部測試發佈管道（`tool/build_ios_testflight.sh`
-                      ＋ `ios/ExportOptions.plist` ＋ `tool/gen_app_icons.py`）——**2026-08-21 首顆 build
-                      已上傳，TestFlight 狀態「準備測試」**，待建內部測試群組／真機安裝／推播驗證（§V8）；
-                      步驟見 docs/deployment_guide.md 二、，**設定值見 docs/ios_release_settings.md**
-                      assets/locales/ 是同一份翻譯的第三份拷貝，
-                      切換期要與 frontend 兩份同步。已知缺口見 docs/TODO.md §G；
-                      病患端非語音全流程已真跑驗畢（2026-07-27，文字代替語音，§V2）；
-                      ⚠️ **麥克風／VAD 路徑仍是零實測**（§V1），別因 analyze/test 全綠就當它可用
+frontend/           → 持續維護的 React + Vite + TS 網頁版。
+                      src/i18n/locales/ 是網頁翻譯來源；public/locales/ 是 build 鏡像。
+flutter_app/        → 持續維護的 Flutter iOS App，與 React 共用 backend/ API。
+                      kiosk iPad 跑病患問診，醫師／管理員使用同一 App，依角色分流。
+                      assets/locales/ 是 App 翻譯來源，與 React 各自檢查，不強制逐檔同步。
+                      Flutter Web 保留預覽用途；不自動替換 React。
+                      iOS 開發見 flutter_app/README.md；TestFlight 設定值只放
+                      docs/ios_release_settings.md。兩端分工以 docs/README.md 為準。
 docs/               → 現行文件（入口 docs/README.md；docs/AGENTS.md 為部署細節指南；
                       docs/archive/ 為歷史 audit 與舊規格，勿當現行讀）
 scripts/            → check_translations.py、e2e_realopenai/（真 OpenAI E2E 工具，見其 README.md）
@@ -38,11 +31,11 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 
 ## 常用指令
 
-- Frontend（在 `frontend/`）：`npm run dev`、`npm run build`（tsc + vite，翻譯改動後必跑）、`npm run lint`、`npm run type-check`、`npm run test:e2e`（Playwright）、`npm run i18n:extract:check`
+- Frontend（在 `frontend/`）：`npm run dev`、`npm run build`（tsc + vite，翻譯改動後必跑）、`npm run lint`、`npm run type-check`、`npm test`（Node ≥ 22.17）、`npm run test:e2e`（Playwright）、`npm run i18n:extract:check`
 - Backend（在 `backend/`）：`venv/bin/pytest tests/`（unit / integration / e2e 分層）、`venv/bin/uvicorn app.main:app --reload`
-- Flutter（在 `flutter_app/`）：`flutter analyze`（**info 級也 exit 1**）、`flutter test`（只跑 `test/`）、`flutter run -d chrome`。dart-define 是 `API_BASE`／`WS_BASE` 且值含 path 後綴（`/api/v1`、`/api/v1/ws`）、`KIOSK_IDLE_TIMEOUT_SECONDS`（預設 180，`0`＝停用閒置登出）。iOS simulator 與 `integration_test/`（打真後端、需真 simulator、不在 CI）用法見 `flutter_app/README.md`
+- Flutter（在 `flutter_app/`）：`fvm flutter analyze`（**info 級也 exit 1**）、`fvm flutter test`（只跑 `test/`）、`fvm flutter run`（iOS）；Flutter Web 預覽用 `fvm flutter run -d chrome`。dart-define 是 `API_BASE`／`WS_BASE` 且值含 path 後綴（`/api/v1`、`/api/v1/ws`）、`KIOSK_IDLE_TIMEOUT_SECONDS`（預設 180，`0`＝停用閒置登出）。iOS simulator 與 `integration_test/`（打真後端、需真 simulator、不在 CI）用法見 `flutter_app/README.md`
 - 本機全端：`docker compose up -d`（frontend :80、backend :8000、postgres :5432、redis :6379）
-- 翻譯完整性：`python scripts/check_translations.py`
+- 翻譯完整性（repo 根目錄）：網頁 `python scripts/check_translations.py`；App `python scripts/check_translations.py --locales-dir flutter_app/assets/locales`
 - 碼庫探索：`graphify query "<問題>"`／`graphify path A B`／`graphify explain <符號>`（對 `graphify-out/graph.json` 查詢，涵蓋 code＋docs；程式碼大幅改動後用 `/graphify . --update` 增量重建）
 
 ## 部署重點
@@ -51,13 +44,13 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 
 - 後端：⚠️ CLI 5.41.2 起 `railway up` 一律上傳 git root（在 `backend/` 裡跑也一樣→FAILED），必須先 `git archive HEAD:backend | tar -x -C <非git臨時目錄>`，在該目錄 `railway link -p gu-voice-api -s gu-voice-app -e production && railway up --detach` → 驗 `curl <host>/api/v1/healthz/deep`（完整流程見 `docs/deployment_guide.md` 一、）
 - React 前端：`cd frontend && npm run build && vercel --prod`，然後 **手動** `vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.app`（正式 alias 不會隨 --prod 自動移動）
-- Flutter Web：`cd flutter_app && ./tool/build_vercel_output.sh && vercel deploy --prebuilt --prod --skip-domain --scope chuns-projects-068de742`；正式切換前照 `docs/flutter_web_cutover.md` 驗語音並保留 React rollback
+- Flutter Web 預覽（維持 React 網頁版）：`cd flutter_app && ./tool/build_vercel_output.sh && vercel deploy --prebuilt --prod --skip-domain --scope chuns-projects-068de742`；歷史切換程序見 `docs/flutter_web_cutover.md`，現行維護決定不包含切換
 - iOS TestFlight（Flutter 單一 App，只做內部測試）：`cd flutter_app && ./tool/build_ios_testflight.sh` →
   產出已簽章 .ipa → 由人看過六關驗證結果後手動上傳（ASC API key ＋ `xcrun altool`，
   先 `--validate-app` 再 `--upload-app`；腳本刻意不代勞）。所有設定值與目前 build 只留在
   `docs/ios_release_settings.md`；操作與到期門檻見 `docs/deployment_guide.md` 二、。第一次跑第 5 關
   會被 macOS 鑰匙圈授權對話框擋一次；`flutter build ipa` export 失敗仍可能回 exit 0，唯一判準是
-  `.ipa` 存在。⚠️ 內測包打生產後端（無 staging）：現行問診必選醫師，doctor／臨床 admin
+  `.ipa` 存在。腳本預設連 production；獨立 staging 與候選包見設定總表 §0，建置時須明確指定 API／WS。⚠️ production 現行問診必選醫師，doctor／臨床 admin
   只讀與接收自己被指派的病患資料，system admin 保留全院稽核；未指派 legacy 報告通知仍有
   全體在職醫護 fallback。production 測試員只能是獲授權院內人員，未授權工程／PM 用 staging。
   `testFlightInternalTestingOnly=true` 已證實有效，但只擋散佈、不擋資料；Organizer 仍會繞過整份 ExportOptions。
@@ -70,7 +63,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 |---|---|
 | `voice-pipeline-invariants` | 動到問診對話流程（前端 conversationStore / ConversationPage、後端 app/pipelines/）之前 |
 | `e2e-real-openai` | 需要用真 OpenAI 驗證問診行為改動時（管線/prompt 改動的合併前置條件） |
-| `i18n-language-consistency` | 動到語言切換、翻譯檔、或顯示在地化資料的頁面時（含 **Flutter 端的五份 `assets/locales/`**——`check_translations.py` 看不到那份，靠 flutter test 的文案守衛） |
+| `i18n-language-consistency` | 動到語言切換、翻譯檔、或顯示在地化資料的頁面時（React 與 Flutter 各自執行 `check_translations.py`，Flutter 指定 `--locales-dir flutter_app/assets/locales`） |
 | `deploy-production` | 部署、改部署設定、生產環境除錯（DB timeout、連線問題）時 |
 | `research-analytics` | 動到 /research 分析頁或 /api/v1/research/analytics 時 |
 | `ios-testflight` | 打 iOS TestFlight 包、處理簽章／上傳／內部測試群組，或動到 `flutter_app/ios/` 與打包腳本時 |
@@ -82,7 +75,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 - Always：改 `backend/scripts/start.sh` 後保留 executable bit（`git update-index --chmod=+x`），否則 Railway 部署失敗
 - Always：動語音管線或 SOAP prompt 前先讀 `voice-pipeline-invariants`；改完跑 `e2e-real-openai` 驗證
 - Always：病患面措辭用「請稍候等看診」「請告知現場醫護」——部署情境是院內 kiosk，病患已在現場，禁用含糊的「盡速就醫」
-- Always：改 `frontend/src/i18n/locales/` 的 key 時，切換期要同步 `flutter_app/assets/locales/`（`check_translations.py` 不涵蓋 flutter 那份）
+- Always：iOS 與 React 都持續維護；共用功能修改需檢查兩端行為與五語文案，各端翻譯以自己的來源檔為準。平台專用 key 不必跨端複製
 - Always：`flutter_app` 新增路由要用 `_lngKeyed()` 包住，否則只切語言時頁面文字不會變（`t()` 讀全域 `currentLng`，非 reactive）
 - Always：`flutter_app` 的指令一律用 **`fvm flutter`**（`.fvmrc` 釘 3.41.3），不要用 PATH 上的裸 `flutter`（homebrew 3.47.0）——3.47 的 SPM 預設開，會把 `.flutter-plugins-dependencies` 翻成 `swift_package_manager_enabled=true` 並動到 `ios/Podfile.lock`。2026-08-21 為此誤判成「SPM／CocoaPods 半切換要做架構決策」，實際只是跑錯 SDK；改用 fvm 後 `pod install` 對 `Podfile.lock` 零變動
 - Always：`patient_info` 一律走 `app/pipelines/patient_context.build_patient_info`——WS 與 Celery SOAP 兩條路徑共用。曾經各組一份，Celery 那份不讀 `sessions.intake_data`，SOAP 對家族史寫「未提供」而 intake 明載父親膀胱癌（TODO R1）

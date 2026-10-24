@@ -104,7 +104,7 @@ railway redeploy
 
 ### Exit 條件
 
-- [ ] 2 週週期紅旗 precision >= 90%（臨床審核結果寫入 `docs/clinical/red_flag_beta_review.md`）
+- [ ] 2 週週期紅旗 precision >= 90%（臨床審核結果需留存紀錄；檔案位置待定）
 - [ ] 該診所 NPS >= 7
 - [ ] 零 PII 外洩事件（由 audit log review 確認）
 - [ ] 主任簽名 sign-off
@@ -218,7 +218,7 @@ railway redeploy
 
 ### Exit 條件
 
-- [ ] 14 天穩定，正式寫入 `docs/専案開発進度.md` 為上線里程碑
+- [ ] 14 天穩定，正式記為上線里程碑（寫進 `docs/TODO.md`）
 - [ ] Runbook 歸檔（不再動）
 
 ### Rollback（緊急）

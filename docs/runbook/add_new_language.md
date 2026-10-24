@@ -187,7 +187,7 @@ Check 腳本：`frontend/scripts/i18n-extract-check.mjs` — 獨立 Node 腳本�
 - `frontend/src/screens/patient/MedicalInfoPage.tsx`：`t(\`medicalInfo.frequency.${k}\`)` 等
 - `frontend/src/components/medical/TranscriptPanel.tsx`：`t(\`transcript.roles.${role}\`)`
 - `frontend/src/components/common/LanguageSwitcher.tsx`：`t(\`language.names.${lng}\`)`
-- `frontend/src/services/ws/useWsMessageRenderer.ts`：`t(payload.code, ...)` —
+- `frontend/src/screens/patient/ConversationPage.tsx`：`t(data.code, ...)` —
   ws namespace 整包走 runtime code，parser 無法靜態分析
 
 這些 key 的「具體 static 子集」要手動維護在對應 JSON 裡；`keepRemoved:true`

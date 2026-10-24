@@ -90,7 +90,7 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # Locale JSON copied verbatim from frontend/src/i18n/locales (single source of truth).
+  # App locale sources; React maintains its own locales in frontend/.
   assets:
     - assets/images/
     - assets/locales/zh-TW/

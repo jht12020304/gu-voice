@@ -7,7 +7,7 @@
 > - 決策、陷阱、被推翻過的錯誤修法 → [`.claude/skills/ios-testflight/SKILL.md`](../.claude/skills/ios-testflight/SKILL.md)
 > - 現況、未解的資料風險、加第 2 個測試人員的前置條件 → [`TODO.md`](TODO.md) §V8
 >
-> 最後更新：2026-09-09（先行測試最新 build `202609090231`：推播 time-sensitive entitlement）
+> 最後更新：2026-10-03（staging 候選包已備妥；Apple 必要協議阻擋 ASC，尚未上傳）
 >
 > ⚠️ **build 號的權威是 App Store Connect，不是這份文件。** 2026-09-03～09-09 之間本檔
 > 自相矛盾過：這一行與下方 §7 表格寫 `202609030302`，而 §4 與其他段落寫 `202609030649`，
@@ -27,6 +27,31 @@
 > build number 只能遞增，挑錯會被 Apple 退件。
 
 ---
+
+## 0. 2026-10-03 staging 候選包與測試環境
+
+本輪未修改 production。後端與 React preview 已部署至獨立測試環境；iOS 是本機已簽章候選包，**尚未送進 TestFlight**。原有 TestFlight build 的最後已知狀態保留在 §7。
+
+| 項目 | 值 |
+|---|---|
+| React 測試網址 | https://gu-voice-staging.vercel.app |
+| iOS `API_BASE`／React `VITE_API_BASE_URL` | `https://gu-voice-staging-staging.up.railway.app/api/v1` |
+| iOS `WS_BASE`／React `VITE_WS_BASE_URL` | `wss://gu-voice-staging-staging.up.railway.app/api/v1/ws` |
+| Railway project／environment | `gu-voice-api`／`staging`（`983418f1-260c-4868-ace6-ad5acb67e2f2`） |
+| Railway services | `gu-voice-staging`、獨立 `Postgres`、獨立 `Redis-R-n1`；三者在 Singapore |
+| DB migration | `smoothness_20261003` |
+| iOS version／build | `1.0.0`／`202610031213`（候選號；尚未能與 ASC 最新 build 比對） |
+| IPA | `~/.local/share/gu-voice/releases/202610031213-staging/UroSense-staging.ipa`（26,036,744 bytes） |
+| IPA SHA-256 | `09abac50f65cfcc8df6dcb4ad4f6388a4cf15f7827b9114e2b979a2a7fcf666e` |
+| 測試帳號 | `~/.config/gu-voice/staging-acceptance.json`，只有 doctor／patient 合成帳號；檔案權限 `0600`，帳密不進 repo |
+| 證據與來源清單 | IPA 同目錄的 `artifact.json`、`build.log`、`acceptance/`；流程結果見 [效能驗收紀錄](perf_audit_2026-08-22.md) |
+
+- 兩支打包腳本（`tool/build_ios_testflight.sh`、`tool/build_vercel_output.sh`）的 production 預設 API／WS 位址只放在 `flutter_app/tool/env.production.sh`；建置時明確給 `API_BASE`／`WS_BASE` 仍優先。
+- Kiosk 閒置自動登出兩端各自設定：React `VITE_KIOSK_IDLE_TIMEOUT_MS`（毫秒，預設 0＝停用）；Flutter dart-define `KIOSK_IDLE_TIMEOUT_SECONDS`（秒，預設 180，`0`＝停用）。
+- DB、Redis 與 JWT 簽章金鑰獨立，未複製 production 病歷、使用者或裝置 token；AI／推播沿用既有供應商設定。驗收只建立合成資料。建立帳號用的暫時 DB TCP proxy 已移除。
+- 由 `tool/build_ios_testflight.sh` 明確指定上述 API／WS 建置，六關全過；Flutter analyze 無問題、317 tests 通過。候選包沒有內嵌 E2E／KIOSK 登入憑證，需用 staging 帳號登入。App bundle ID 沿用 §3，因此將來安裝此候選版會取代同 App 的舊版本。
+- 2026-10-03 ASC `/v1/apps` 與 `/v1/builds` 回 **403 `FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`**。使用者決定稍後處理協議；未執行 Apple validate、upload 或群組分發。帳號持有人可至 [App Store Connect Business](https://appstoreconnect.apple.com/business) 處理，完成後才能重新查最新 build 號。
+- 後續先核對 build 遞增及六關產物證據，再依既有人工審閱流程 validate／upload **同一份 SHA-256 的 IPA**；若 ASC 已有更大的 build 號，須換號重建。真機效能、麥克風、背景恢復與推播仍待安裝後驗收。
 
 ## 1. Apple 帳號
 
@@ -53,8 +78,7 @@
 | 隱私政策 URL | ⬜ **不存在**——整個 repo 沒有任何隱私政策頁，要在 Vercel 站上加一頁 `/privacy` |
 | 歐盟 DSA 貿易商狀態 | ⬜ 未填。只影響歐盟發佈，內部測試不需要 |
 
-> ⚠️ ASC 首頁那條「《Apple Developer Program 許可協議》已更新且需要檢視」**不是待簽阻擋**，
-> 是「有新版可看」的通知。協議狀態實際是已接受、「＋ 新的 App」按鈕可點。
+> 上表是 2026-08-21 的歷史查核，當時的更新提示並未阻擋操作。**2026-10-03 已實際遇到必要協議 403**，以 §0 為準，不能沿用當時的有效狀態。
 
 ## 3. App 識別
 
@@ -76,7 +100,7 @@
 | 項目 | 值 | 位置 |
 |---|---|---|
 | Flutter | **3.41.3**，一律 `fvm flutter` | `.fvmrc` |
-| Xcode | 26.6（Build 17F113），iOS 26 SDK | — |
+| Xcode | 27.0（Build 27A266a），iOS 27 SDK | 2026-10-03 staging 候選包實際工具鏈 |
 | `IPHONEOS_DEPLOYMENT_TARGET` | 15.0 | `project.pbxproj` 三處 |
 | CocoaPods | 1.17.0 | `ios/Podfile.lock` |
 | Firebase pods | 12.17.0（`firebase_core` 4.13.0 / `firebase_messaging` 16.5.0） | `ios/Podfile.lock` |
@@ -153,9 +177,9 @@ xcrun altool --upload-app  -f build/ios/ipa/gu_voice.ipa -t ios \
 
 `notarytool` 是 macOS 公證用的，與 iOS 上架無關，不要拿來傳 .ipa。
 
-## 7. 目前上線狀態
+## 7. 最近一次已確認的 TestFlight 狀態（2026-09-09）
 
-兩個群組、兩顆現行 build（先行測試拿最新、4 人全群組刻意停在舊版）：
+以下是最後成功查得的歷史狀態。2026-10-03 ASC 受協議阻擋，無法確認目前最新 build 與群組狀態；§0 的 staging 候選包尚未上傳。
 
 | 項目 | 4 人全群組 | 先行測試群組 |
 |---|---|---|
@@ -169,7 +193,7 @@ xcrun altool --upload-app  -f build/ios/ipa/gu_voice.ipa -t ios \
 **2026-08-23 起共 4 位測試員**（全數 INSTALLED；名單以 ASC 為準，個資不進公開 repo）。
 4 人舊群組自此僅存歷史（成員已全數併入先行測試）。
 
-兩群組共通事實（仍然有效）：
+兩群組當時的共通狀態：
 
 | 項目 | 值 |
 |---|---|
@@ -218,15 +242,15 @@ TestFlight 邀請信。只寄第二封對方會卡住——這是這條流程最
 > 原本的「第一版只裝自己一台」已被推翻。使用者的理由是**帳號發放由他自己控制**——
 > 即 App 一打開就是登入頁，沒有醫師帳號就什麼都看不到，PHI 暴露發生在「發出真實醫師帳號」
 > 那一刻而不是「加進 TestFlight」那一刻。2026-09-02 已再補臨床帳號 row-level scope；
-> 但帳號授權仍是必要控制點，未授權測試者的 staging 尚未建立。
+> 但帳號授權仍是必要控制點；2026-10-03 已建立獨立 staging，見 §0。
 >
-> 🛑 **現行風險：**內測包仍打**生產後端**（沒有 staging）。doctor 與臨床 admin
+> 🛑 **production 包的風險：**§7 舊內測包連**生產後端**；§0 新候選包才連 staging。doctor 與臨床 admin
 > 只讀自己被指派的病患，system admin 仍有全院稽核視野；推播內容仍可能在鎖定畫面顯示 PHI。
 
 ## 8.5 2026-08-22 轉向：iOS 單一 App（語音問診開通）
 
-平台分工推翻（詳見 `docs/TODO.md` §V7 開頭與 CLAUDE.md）：iOS 不再是醫師專用，
-kiosk iPad 跑病患語音問診、醫師/管理員同一顆 App、網頁走向除役。對這份文件的影響：
+當時決定 iOS 不再是醫師專用：kiosk iPad 跑病患語音問診、醫師/管理員同一顆 App。
+2026-10-03 已確認 iOS 與 React 網頁版都繼續維護，現行分工見 [README.md](README.md)。iOS 的角色與發佈要求仍適用：
 
 - **下一顆 build 起，App 內含完整病患問診流程。** `testFlightInternalTestingOnly=true`
   照舊（擋散佈不擋資料），但測試員名單的意義變了——**裝了 App 的人現在可能接觸到

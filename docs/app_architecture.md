@@ -1,10 +1,10 @@
 # 泌尿科 AI 語音問診助手 — 系統架構設計
 
-> **前端有兩份，本文件描述的是生產在跑的 React `frontend/`。**
-> `flutter_app/`（Flutter 單一碼庫，web+iOS+Android）是要取代它的實作，已入 `main` 但
-> **未上生產、沒有部署管道**。本文件所有前端不變式（尤其 §2.2.1 的語音管線）
-> Flutter 版都適用且已逐字 port——**兩邊要一起顧**；移植缺口清單見
-> [TODO.md](TODO.md) §G。Flutter 專屬慣例（`_lngKeyed` 包路由、
+> **iOS App（`flutter_app/`）與 React 網頁版（`frontend/`）都持續維護，共用後端。**
+> 維護與驗證入口見 [README.md](README.md)。本文件描述兩端與共用問診管線；
+> 前端不變式（尤其 §2.2.1 的語音管線）兩端都適用，功能差異仍需逐端驗證。
+> iOS 已有 TestFlight 管道，設定見 [ios_release_settings.md](ios_release_settings.md)。
+> 已知缺口見 [TODO.md](TODO.md)。Flutter 專屬慣例（`_lngKeyed` 包路由、
 > `conversationControllerProvider` 必須 autoDispose）見 [../flutter_app/README.md](../flutter_app/README.md)。
 
 ## 1. 產品概述

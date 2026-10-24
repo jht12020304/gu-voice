@@ -40,7 +40,7 @@ DB_PASSWORD=<你的密碼>
 > ```
 
 ### ⚠️ 連線地雷與解法 (Asyncpg + PL/Bouncer)
-1. **密碼包含特殊字元 (`@`)**：密碼中若有 `@`，直接組裝 URL 會造成 SQLAlchemy 解析失敗，必須使用 `urllib.parse.quote(..., safe="")` 進行 URL Encode（例如 `@` -> `%40`）。目前已在 `app.core.config.py` 中實作。
+1. **密碼包含特殊字元 (`@`)**：密碼中若有 `@`，直接組裝 URL 會造成 SQLAlchemy 解析失敗，必須使用 `urllib.parse.quote(..., safe="")` 進行 URL Encode（例如 `@` -> `%40`）。目前已在 `backend/app/core/config.py` 中實作。
 2. **Prepared Statements 與 Transaction Pooler 衝突**：Supabase 的 Transaction Pooler 背後是 `PgBouncer(Transaction mode)`，**不支援** Prepared Statements。如果沒有停用，會跳出 `<class 'asyncpg.exceptions.DuplicatePreparedStatementError'>` 或 `cannot insert multiple commands into a prepared statement` 錯誤。
    * **解法**：在建立 `create_async_engine` 時，必須傳入 `connect_args={"statement_cache_size": 0}`。
 

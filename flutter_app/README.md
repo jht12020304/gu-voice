@@ -1,19 +1,17 @@
-# flutter_app — GU Voice 單一碼庫前端
+# flutter_app — GU Voice iOS App
 
-取代 `frontend/`（React + Vite）的 Flutter 實作，一份碼庫出 **web + iOS + Android**。**backend 完全不動**，打的是同一組 REST / WebSocket API。
+Flutter 實作的 iOS App，供病患 kiosk、醫師與管理員使用。與 `frontend/`（React + Vite 網頁版）**持續並行維護**，共用 `backend/` 的 REST / WebSocket API。現行分工以 [維護範圍](../docs/README.md#維護範圍2026-10-03) 為準。
 
-兩套前端目前並存：`frontend/` 仍是正式網址在跑的版本；Flutter Web 已部署到
-`https://gu-voice-flutter-preview.vercel.app` 做 staged production 驗證，尚未 promote。
-release build、78 tests、五語 deep link、CORS 與測試病患登入已過，實體麥克風／STT／TTS／VAD 仍待驗。
+Flutter Web 保留預覽建置與驗證網址 `https://gu-voice-flutter-preview.vercel.app`；不自動替換 React 網頁版。Android 專案仍保留，但不在目前兩端維護與發佈範圍內。
 
-## 2026-08-22 轉向：iOS 單一 App（含語音問診）
+## iOS App 的角色分工（含語音問診）
 
-平台分工推翻：**只留 App，網頁走向除役**。kiosk iPad（候診區共用機）跑病患語音問診，
+kiosk iPad（候診區共用機）跑病患語音問診，
 醫師/管理員用自己的裝置跑同一顆 App。實作重點：
 
 - 平台閘門拆除，`route_guard.dart` 只剩**角色守衛**；拆之前先修掉 `/patients` 前綴
   誤中的病患越權洞（`role_guard_test.dart` 釘死）。
-- 醫師 landing 依平台：原生 → `/notifications`，web（過渡期）→ `/dashboard`。
+- 醫師 landing 依平台：原生 → `/notifications`，Flutter Web 預覽 → `/dashboard`。
 - kiosk iPad（病患帳號）**不註冊推播**；閒置登出 180 秒照舊（`KIOSK_IDLE_TIMEOUT_SECONDS`）。
 - 已在 iOS simulator × 本機後端上驗過：醫師/病患 landing 與越權防線
   （`ios_doctor_app_test.dart`）、**12 個醫師+admin 頁在 iPhone 寬度零 overflow**
@@ -91,8 +89,8 @@ build `202609030649` 已發到先行測試群組：App 會把 Apple 原生 APNs 
 
 ```bash
 fvm flutter pub get
-fvm flutter run -d chrome                 # web，預設打 http://localhost:8000
-fvm flutter run                           # 接上的 iOS / Android 裝置
+fvm flutter run                           # 選擇 iOS 模擬器或接上的裝置
+fvm flutter run -d chrome                 # Flutter Web 預覽，預設打本機後端
 fvm flutter analyze && fvm flutter test   # 合併前必跑
 ```
 
@@ -160,7 +158,7 @@ doctor／臨床 admin 也只讀自己被指派的病患資料。system admin 仍
 
 ## 測試分層
 
-- `test/`（78 項，純函式 + 少量 widget）——CI 會跑（`flutter analyze` 對 info 級也 exit 1）。
+- `test/`（純函式、controller 與 widget）——CI 會跑（`fvm flutter analyze` 對 info 級也 exit 1）。
 - `integration_test/`（**需要真 simulator，不在 CI**；`flutter test` 不帶參數只跑 `test/`，天然排除）：
   - `login_smoke_test.dart` — 登入冒煙，驗 dio／iOS Keychain 持久化／bootstrap 還原／導向
   - `kiosk_idle_logout_test.dart` — 真等逾時驗病患被登出＋token 清除
@@ -211,5 +209,5 @@ cd flutter_app && ./tool/record_demo.sh --output ~/Desktop/UroSense_demo.mp4
 
 ## 注意
 
-- `assets/locales/` 是 5 語言翻譯檔，**與 `frontend/src/i18n/locales/` 逐檔位元相同**。切換期新增 key 要同步改兩份；React 下線後這裡才成為唯一來源。
+- `assets/locales/` 是 App 的 5 語言翻譯來源，與 React 各自維護。從 repo 根目錄跑 `python scripts/check_translations.py --locales-dir flutter_app/assets/locales`；共用功能需一併檢查網頁文案，平台專用 key 不必跨端複製。
 - 語言唯一權威是 URL 路徑段（`/zh-TW/...`），與 React 版同一條鐵律。裝置語系只在 URL 無語言段時當 seed。
