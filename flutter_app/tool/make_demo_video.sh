@@ -19,6 +19,30 @@
 # 全程只用這些「有裝」的濾鏡：overlay、zoompan、xfade、scale、fps、
 # format、trim、setpts、concat、fade。下一個人要加字卡效果，也請
 # 走這條路，不要再試 drawtext。
+#
+# ------------------------------------------------------------
+# 字卡為什麼綁「階段標記」而不是設定檔裡寫死的秒數？
+# ------------------------------------------------------------
+# walkthrough 每次跑的長度會變（LLM 快慢，實測 2:14 vs 2:21），這支
+# 腳本又會把來源影片變速壓成固定的 --target-seconds → 變速倍率
+# （下面算的 SPEED_FACTOR）跟著每次不同 → 同一組寫死秒數的字卡，
+# 换一次錄影就對到不同畫面。
+#
+# 解法：record_demo.sh 會把 Dart 端印的 `DEMO_MARK_STAGE <id> <epoch>`
+# 換算成「相對 DEMO_MARK_START 的秒數偏移」寫成 --stages 那份
+# stages.tsv（一行 `stage-id<TAB>offset`）。設定檔裡的字卡若寫
+# `"stage": "<id>"`（而不是 `"start"/"end"`），這支腳本就用
+#     final_t = stage_offset / SPEED_FACTOR
+# 換算成成品影片裡的秒數——因為 --trim-start 已經把來源影片的原點
+# 移到 DEMO_MARK_START，offset 直接除以變速倍率就是成品時間。結束時間
+# 取「下一個有字卡的 stage 的 final_t」跟「自己的 final_t + duration
+# （設定檔給，預設 5 秒）」兩者較小值，並且不超過影片總長。
+#
+# 品牌卡（片頭/片尾）沒有對應的 UI 階段，仍然用舊式的固定
+# "start"/"end" 秒數——兩種寫法可以在同一份設定檔裡混用。字卡引用
+# 了 --stages 裡不存在的 stage id 會直接 die（並印出目前有哪些
+# 可用的 id），故意不安靜跳過，因為安靜跳過＝字卡默默消失，正是要
+# 防的問題。
 # ============================================================
 
 set -euo pipefail
@@ -48,7 +72,7 @@ usage() {
 用法:
   $(basename "$0") --input <raw.mov> --config <captions.json> --output <demo.mp4> \\
                     [--target-seconds 60] [--trim-start SEC] [--trim-duration SEC] \\
-                    [--work-dir DIR]
+                    [--stages stages.tsv] [--work-dir DIR]
 
 參數:
   --input          模擬器錄下來的原始影片 (.mov)
@@ -57,6 +81,10 @@ usage() {
   --target-seconds 目標長度（秒），預設 60
   --trim-start     可選，若原片太長，先從第幾秒開始擷取
   --trim-duration  可選，配合 --trim-start，擷取幾秒
+  --stages         可選，record_demo.sh 產生的 stages.tsv（stage-id<TAB>offset，
+                    offset 是相對 DEMO_MARK_START 的秒數）。設定檔裡用
+                    "stage" 綁定的字卡要靠這份檔案換算成成品秒數；沒給、
+                    但設定檔裡有字卡用了 "stage"，會直接失敗。
   --work-dir       可選，暫存字卡 PNG 的目錄；預設用 mktemp 建立臨時目錄
 EOF
 }
@@ -71,6 +99,7 @@ TARGET_SECONDS="60"
 TRIM_START=""
 TRIM_DURATION=""
 WORK_DIR=""
+STAGES=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -80,6 +109,7 @@ while [[ $# -gt 0 ]]; do
     --target-seconds) TARGET_SECONDS="$2"; shift 2 ;;
     --trim-start) TRIM_START="$2"; shift 2 ;;
     --trim-duration) TRIM_DURATION="$2"; shift 2 ;;
+    --stages) STAGES="$2"; shift 2 ;;
     --work-dir) WORK_DIR="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "未知參數: $1（用 --help 看用法）" ;;
@@ -91,6 +121,7 @@ done
 [[ -n "$OUTPUT" ]] || { usage; die "缺少 --output"; }
 [[ -f "$INPUT" ]] || die "找不到輸入檔: $INPUT"
 [[ -f "$CONFIG" ]] || die "找不到設定檔: $CONFIG"
+[[ -z "$STAGES" || -f "$STAGES" ]] || die "找不到 --stages 檔案: $STAGES"
 
 command -v ffmpeg >/dev/null 2>&1 || die "找不到 ffmpeg"
 command -v ffprobe >/dev/null 2>&1 || die "找不到 ffprobe"
@@ -150,13 +181,103 @@ fi
 log "變速倍率 (setpts 用): ${SPEED_FACTOR}x（來源 ${SOURCE_DURATION}s → 目標 ${TARGET_SECONDS}s）"
 
 # ---------------------------------------------------------------
+# 2.5) 若字卡設定裡有用 "stage" 綁定的項目，換算成這次成品影片的實際秒數
+#      （固定 "start"/"end" 的項目原封不動通過，兩種寫法混用沒問題）
+# ---------------------------------------------------------------
+RESOLVE_SCRIPT="$WORK_DIR/resolve_stage_captions.py"
+cat > "$RESOLVE_SCRIPT" <<'PYEOF'
+import json
+import sys
+
+config_path, stages_path, speed_factor_s, target_seconds_s, out_path = sys.argv[1:6]
+speed_factor = float(speed_factor_s)
+target_seconds = float(target_seconds_s)
+
+with open(config_path, encoding="utf-8") as f:
+    cfg = json.load(f)
+
+captions = cfg.get("captions", [])
+
+stage_offsets = {}
+if stages_path:
+    with open(stages_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) != 2:
+                continue
+            stage_id, offset_s = parts
+            try:
+                stage_offsets[stage_id] = float(offset_s)
+            except ValueError:
+                continue
+
+stage_captions = [c for c in captions if "stage" in c]
+
+if stage_captions and not stage_offsets:
+    ids = sorted({c["stage"] for c in stage_captions})
+    print(
+        "設定檔裡有用 \"stage\" 綁定的字卡（" + ", ".join(ids) + "），"
+        "但沒有提供 --stages（或該檔案是空的），無法換算成秒數。"
+        "請先讓 walkthrough 印出 DEMO_MARK_STAGE 再用 record_demo.sh 產生 "
+        "stages.tsv，或把這幾張字卡改回固定 start/end。",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+unknown = sorted({c["stage"] for c in stage_captions if c["stage"] not in stage_offsets})
+if unknown:
+    available = ", ".join(sorted(stage_offsets.keys())) or "(空)"
+    print(
+        "字卡設定引用了不存在的 stage id：" + ", ".join(unknown) + "。"
+        "--stages 檔案裡目前可用的 id 有：" + available,
+        file=sys.stderr,
+    )
+    sys.exit(3)
+
+# 把每個 stage 綁定的字卡換算出「成品影片裡的開始秒數」，按時間排序，
+# 用來找「下一個有字卡的 stage」當結束時間的上限。
+resolved = []
+for c in stage_captions:
+    start = stage_offsets[c["stage"]] / speed_factor
+    resolved.append((start, c))
+resolved.sort(key=lambda pair: pair[0])
+
+for i, (start, c) in enumerate(resolved):
+    duration = float(c.get("duration", 5.0))
+    end = start + duration
+    if i + 1 < len(resolved):
+        end = min(end, resolved[i + 1][0])
+    end = min(end, target_seconds)
+    if end <= start:
+        end = min(start + 0.1, target_seconds)
+    c["start"] = round(start, 3)
+    c["end"] = round(end, 3)
+    print(
+        f"[resolve_stage_captions] stage={c['stage']!r} "
+        f"offset={stage_offsets[c['stage']]}s -> start={c['start']}s end={c['end']}s",
+        file=sys.stderr,
+    )
+
+with open(out_path, "w", encoding="utf-8") as f:
+    json.dump(cfg, f, ensure_ascii=False, indent=2)
+PYEOF
+
+RESOLVED_CONFIG="$WORK_DIR/resolved_captions.json"
+"$PYTHON_BIN" "$RESOLVE_SCRIPT" "$CONFIG" "${STAGES}" "$SPEED_FACTOR" "$TARGET_SECONDS" "$RESOLVED_CONFIG" \
+  || die "字卡的 stage 綁定換算失敗（看上面的錯誤訊息）"
+EFFECTIVE_CONFIG="$RESOLVED_CONFIG"
+
+# ---------------------------------------------------------------
 # 3) 用 demo_captions.py 產字卡 PNG + manifest
 # ---------------------------------------------------------------
 CAPTIONS_DIR="$WORK_DIR/captions"
 mkdir -p "$CAPTIONS_DIR"
 
 "$PYTHON_BIN" "$SCRIPT_DIR/demo_captions.py" \
-  --config "$CONFIG" \
+  --config "$EFFECTIVE_CONFIG" \
   --out-dir "$CAPTIONS_DIR" \
   --width "$WIDTH" \
   --height "$HEIGHT" \
