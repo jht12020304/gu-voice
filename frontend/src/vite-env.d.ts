@@ -7,6 +7,10 @@ interface ImportMetaEnv {
   readonly VITE_SENTRY_DSN: string;
   readonly VITE_APP_ENV: string;
   readonly VITE_ENABLE_MOCK: string;
+  // mock 模式的假帳號角色：'patient' | 'doctor' | 'admin'（authStore.hydrateFromStorage mock 分支）
+  readonly VITE_MOCK_ROLE: string;
+  // Kiosk 閒置自動登出毫秒數；未設或 0 = 停用（KioskIdleGuard）
+  readonly VITE_KIOSK_IDLE_TIMEOUT_MS: string;
   // #1 pre-roll 連續擷取 feature flag（預設關；需真實麥克風驗 STT 後才逐平台開啟）
   readonly VITE_VAD_PREROLL: string;
   // #4 關閉 AGC feature flag（預設關＝AGC 開；設 'true' 在實機驗證 AGC 是否污染後續辨識）

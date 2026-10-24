@@ -7,15 +7,9 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
+COPY package.json package-lock.json ./
 
-RUN if [ -f pnpm-lock.yaml ]; then \
-      corepack enable && pnpm install --frozen-lockfile; \
-    elif [ -f yarn.lock ]; then \
-      yarn install --frozen-lockfile; \
-    else \
-      npm ci; \
-    fi
+RUN npm ci
 
 COPY . .
 

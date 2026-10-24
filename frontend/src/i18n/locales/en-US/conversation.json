@@ -11,9 +11,7 @@
     "transcribing": "Transcribing what you said…",
     "noSpeechDetected": "We didn't catch that — please say it again",
     "listening": "Listening {{duration}}",
-    "idle": "Start speaking — I'll listen automatically",
-    "thinking": "AI is thinking...",
-    "speaking": "Speaking"
+    "idle": "Start speaking — I'll listen automatically"
   },
   "scroll": {
     "latest": "Latest message",
@@ -66,16 +64,11 @@
     "loadFailed": "Unable to load conversation",
     "sessionInterrupted": "Consultation interrupted, please restart",
     "aiUnavailable": "AI service is temporarily unavailable, please try again later",
-    "disconnected": "Connection lost, reconnecting...",
-    "audioTooLong": "Recording too long, automatically stopped",
     "micPermission": "Please allow microphone permission in your browser settings, then reload the page",
     "micNotFound": "No microphone device found, please check your microphone is connected",
     "micGeneric": "Microphone error: {{message}}",
     "endSessionOffline": "You are offline, so the request to end the consultation was not sent. Please wait for the connection to return, then tap “End consultation” again.",
     "endSessionTimeout": "We have not received confirmation yet. Please tap “End consultation” again; if nothing happens, let the staff here know."
-  },
-  "mockMessages": {
-    "systemStart": "Consultation started — Chief complaint: {{complaint}}"
   },
   "connection": {
     "reconnecting": "Connection lost, reconnecting…",

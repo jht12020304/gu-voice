@@ -4,6 +4,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
@@ -37,7 +38,18 @@ export default function NotificationPage() {
     fetchMore,
     markRead,
     markAllRead,
-  } = useNotificationStore();
+  } = useNotificationStore(
+    useShallow((s) => ({
+      notifications: s.notifications,
+      isLoading: s.isLoading,
+      error: s.error,
+      hasMore: s.hasMore,
+      fetchNotifications: s.fetchNotifications,
+      fetchMore: s.fetchMore,
+      markRead: s.markRead,
+      markAllRead: s.markAllRead,
+    })),
+  );
 
   const sentinelRef = useRef<HTMLDivElement>(null);
 

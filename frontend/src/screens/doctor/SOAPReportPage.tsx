@@ -5,6 +5,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { apiErrorMessage } from '../../services/api/client';
+import { useShallow } from 'zustand/react/shallow';
 import type { TFunction } from 'i18next';
 import toast from 'react-hot-toast';
 import { useLocalizedNavigate } from '../../i18n/paths';
@@ -172,7 +174,19 @@ export default function SOAPReportPage() {
     fetchConversations,
     reviewReport,
     generateReport,
-  } = useReportStore();
+  } = useReportStore(
+    useShallow((s) => ({
+      selectedReport: s.selectedReport,
+      conversations: s.conversations,
+      isLoading: s.isLoading,
+      isLoadingConversations: s.isLoadingConversations,
+      error: s.error,
+      fetchReportBySession: s.fetchReportBySession,
+      fetchConversations: s.fetchConversations,
+      reviewReport: s.reviewReport,
+      generateReport: s.generateReport,
+    })),
+  );
 
   const [session, setSession] = useState<Session | null>(IS_MOCK ? mockSession : null);
   // §1d 安全：session 抓取失敗時不可靜默把「有紅旗場次」渲染成「無紅旗」。
@@ -234,8 +248,8 @@ export default function SOAPReportPage() {
       });
       setShowReviewModal(false);
       setReviewNotes('');
-    } catch {
-      setReviewError(t('soap:review.submitError', '審閱送出失敗，請稍後再試。'));
+    } catch (err) {
+      setReviewError(apiErrorMessage(err, t, t('soap:review.submitError', '審閱送出失敗，請稍後再試。')));
     } finally {
       setIsSubmitting(false);
     }
@@ -256,8 +270,8 @@ export default function SOAPReportPage() {
       anchor.remove();
       window.URL.revokeObjectURL(url);
       toast.success(t('soap:export.success', 'PDF 已開始下載'));
-    } catch {
-      toast.error(t('soap:export.error', 'PDF 匯出失敗，請稍後再試'));
+    } catch (err) {
+      toast.error(apiErrorMessage(err, t, t('soap:export.error', 'PDF 匯出失敗，請稍後再試')));
     } finally {
       setIsExporting(false);
     }
@@ -276,8 +290,8 @@ export default function SOAPReportPage() {
         setShowRegenerateModal(false);
         toast.success(t('soap:regenerate.success', '報告已重新產生'));
       }
-    } catch {
-      toast.error(t('soap:regenerate.error', '報告重新產生失敗，請稍後再試'));
+    } catch (err) {
+      toast.error(apiErrorMessage(err, t, t('soap:regenerate.error', '報告重新產生失敗，請稍後再試')));
     } finally {
       setIsRegenerating(false);
     }

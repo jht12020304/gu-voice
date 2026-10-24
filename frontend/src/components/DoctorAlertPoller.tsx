@@ -11,14 +11,19 @@ import { dashboardWS } from '../services/websocket';
 
 const POLL_MS = 20000;
 
-/** 簡易提示音（Web Audio，無需音檔）。失敗不影響視覺 toast。 */
+const SEEN_MAX = 500;
+
+/** 簡易提示音（Web Audio，無需音檔）。失敗不影響視覺 toast。整個 shell 共用一顆 AudioContext。 */
+let beepCtx: AudioContext | null = null;
 function playBeep() {
   try {
     const Ctx =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctx) return;
-    const ctx = new Ctx();
+    if (!beepCtx || beepCtx.state === 'closed') beepCtx = new Ctx();
+    const ctx = beepCtx;
+    if (ctx.state === 'suspended') void ctx.resume();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.frequency.value = 880;
@@ -26,7 +31,7 @@ function playBeep() {
     osc.connect(gain).connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + 0.18);
-    setTimeout(() => void ctx.close(), 400);
+    osc.onended = () => { osc.disconnect(); gain.disconnect(); };
   } catch {
     /* 音效失敗忽略 */
   }
@@ -64,6 +69,8 @@ export default function DoctorAlertPoller() {
       const id = (payload as { alertId?: string }).alertId;
       if (id && !seen.has(id)) {
         seen.add(id);
+        // 只留最近 SEEN_MAX 筆（Set 保插入順序），避免長開的醫師端無上限成長
+        if (seen.size > SEEN_MAX) seen.delete(seen.values().next().value as string);
         notify(1);
       }
       refresh.schedule();

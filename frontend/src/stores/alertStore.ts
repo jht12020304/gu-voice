@@ -3,10 +3,11 @@
 // =============================================================================
 
 import { create } from 'zustand';
+import i18n from '../i18n';
 import type { RedFlagAlert } from '../types';
 import * as alertsApi from '../services/api/alerts';
 import { useAuthStore } from './authStore';
-import { getAuthEpoch } from '../services/api/client';
+import { apiErrorMessage, getAuthEpoch } from '../services/api/client';
 
 let listRequest = 0;
 let countRequest = 0;
@@ -97,9 +98,9 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
         allTotalCount: filter === 'all' ? response.pagination.totalCount : get().allTotalCount,
         isLoading: false,
       });
-    } catch {
+    } catch (err) {
       if (epoch !== getAuthEpoch() || request !== listRequest) return;
-      set({ isLoading: false, error: '無法載入警示列表' });
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入警示列表') });
     }
   },
 
@@ -125,9 +126,9 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
         totalCount: response.pagination.totalCount,
         isLoading: false,
       });
-    } catch {
+    } catch (err) {
       if (epoch !== getAuthEpoch() || request !== listRequest) return;
-      set({ isLoading: false, error: '無法載入更多' });
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入更多') });
     }
   },
 
@@ -149,9 +150,9 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
             ? Math.max(0, state.totalCount - 1)
             : state.totalCount,
       }));
-    } catch {
+    } catch (err) {
       if (epoch !== getAuthEpoch()) return;
-      set({ error: '確認警示失敗' });
+      set({ error: apiErrorMessage(err, i18n.t, '確認警示失敗') });
     }
   },
 

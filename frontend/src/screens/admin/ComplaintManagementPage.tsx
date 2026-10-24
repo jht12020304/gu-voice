@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Tag } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { apiErrorMessage } from '../../services/api/client';
 import toast from 'react-hot-toast';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
@@ -35,8 +36,8 @@ export default function ComplaintManagementPage() {
     try {
       const response = await complaintsApi.getComplaints({ limit: 100 });
       setComplaints(response.data);
-    } catch {
-      setError(t('admin:complaints.loadFailed', '無法載入主訴模版'));
+    } catch (err) {
+      setError(apiErrorMessage(err, t, t('admin:complaints.loadFailed', '無法載入主訴模版')));
     } finally {
       setIsLoading(false);
     }
@@ -116,9 +117,9 @@ export default function ComplaintManagementPage() {
       setShowModal(false);
       toast.success(t('admin:complaints.saveSuccess', '主訴已儲存'));
       await loadComplaints();
-    } catch {
-      setFormError(t('admin:complaints.saveFailed', '儲存主訴失敗'));
-      toast.error(t('admin:complaints.saveFailed', '儲存主訴失敗'));
+    } catch (err) {
+      setFormError(apiErrorMessage(err, t, t('admin:complaints.saveFailed', '儲存主訴失敗')));
+      toast.error(apiErrorMessage(err, t, t('admin:complaints.saveFailed', '儲存主訴失敗')));
     } finally {
       setIsSubmitting(false);
     }
@@ -132,8 +133,8 @@ export default function ComplaintManagementPage() {
       toast.success(t('admin:complaints.deleteSuccess', '主訴已刪除'));
       setDeleteTarget(null);
       await loadComplaints();
-    } catch {
-      toast.error(t('admin:complaints.deleteFailed', '刪除主訴失敗'));
+    } catch (err) {
+      toast.error(apiErrorMessage(err, t, t('admin:complaints.deleteFailed', '刪除主訴失敗')));
     } finally {
       setIsDeleting(false);
     }

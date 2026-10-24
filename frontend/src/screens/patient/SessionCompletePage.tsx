@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useReportStore } from '../../stores/reportStore';
@@ -46,7 +47,13 @@ export default function SessionCompletePage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useLocalizedNavigate();
   const { t, i18n } = useTranslation('session');
-  const { selectedReport, isLoading: reportLoading, fetchReportBySession } = useReportStore();
+  const { selectedReport, isLoading: reportLoading, fetchReportBySession } = useReportStore(
+    useShallow((s) => ({
+      selectedReport: s.selectedReport,
+      isLoading: s.isLoading,
+      fetchReportBySession: s.fetchReportBySession,
+    })),
+  );
   const [session, setSession] = useState<Session | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
 

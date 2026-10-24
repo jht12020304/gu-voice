@@ -5,6 +5,7 @@
 import { useTranslation } from 'react-i18next';
 
 import type { SessionStatus } from '../../types/enums';
+import { sessionStatusLabel } from '../../utils/sessionStatus';
 
 interface StatusBadgeProps {
   status: SessionStatus;
@@ -13,32 +14,26 @@ interface StatusBadgeProps {
 }
 
 const statusConfig: Record<string, {
-  labelKey: string;
   classes: string;
   dotColor: string;
 }> = {
   waiting: {
-    labelKey: 'status.waiting',
     classes: 'bg-status-waiting-bg text-status-waiting border-status-waiting-border',
     dotColor: 'bg-status-waiting',
   },
   in_progress: {
-    labelKey: 'status.in_progress',
     classes: 'bg-status-in-progress-bg text-status-in-progress border-status-in-progress-border',
     dotColor: 'bg-status-in-progress',
   },
   completed: {
-    labelKey: 'status.completed',
     classes: 'bg-status-completed-bg text-status-completed border-status-completed-border',
     dotColor: 'bg-status-completed',
   },
   aborted_red_flag: {
-    labelKey: 'status.aborted_red_flag',
     classes: 'bg-status-red-flag-bg text-status-red-flag border-status-red-flag-border',
     dotColor: 'bg-status-red-flag',
   },
   cancelled: {
-    labelKey: 'status.cancelled',
     classes: 'bg-status-cancelled-bg text-status-cancelled border-status-cancelled-border',
     dotColor: 'bg-status-cancelled',
   },
@@ -59,7 +54,7 @@ export default function StatusBadge({ status, size = 'md', showDot = true }: Sta
       {showDot && (
         <span className={`${dotSize} rounded-full ${config.dotColor} shrink-0`} />
       )}
-      {t(config.labelKey)}
+      {sessionStatusLabel(status, t)}
     </span>
   );
 }

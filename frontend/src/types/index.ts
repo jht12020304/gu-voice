@@ -326,23 +326,6 @@ export interface RedFlagAlert {
   createdAt: string;
 }
 
-/** 紅旗規則 */
-export interface RedFlagRule {
-  id: string;
-  name: string;
-  description?: string;
-  category: string;
-  keywords: string[];
-  regexPattern?: string;
-  severity: 'critical' | 'high' | 'medium';
-  suspectedDiagnosis?: string;
-  suggestedAction?: string;
-  isActive: boolean;
-  createdBy?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 /** 通知 */
 export interface Notification {
   id: string;
@@ -369,18 +352,6 @@ export interface AuditLog {
   createdAt: string;
 }
 
-/** FCM 裝置 */
-export interface FCMDevice {
-  id: string;
-  userId: string;
-  deviceToken: string;
-  platform: 'ios' | 'android' | 'web';
-  deviceName?: string;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
 /** 分頁回應 */
 export interface PaginatedResponse<T> {
   data: T[];
@@ -389,16 +360,5 @@ export interface PaginatedResponse<T> {
     hasMore: boolean;
     limit: number;
     totalCount: number;
-  };
-}
-
-/** 錯誤回應 */
-export interface ErrorResponse {
-  error: {
-    code: string;
-    message: string;
-    details?: Record<string, unknown>;
-    requestId: string;
-    timestamp: string;
   };
 }

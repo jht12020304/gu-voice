@@ -58,14 +58,6 @@ export function detectInitialLanguage(): SupportedLanguage {
 }
 
 /**
- * 從 pathname 取出第一段 locale；不合法則回 null。
- */
-export function extractLngFromPath(pathname: string): SupportedLanguage | null {
-  const first = pathname.split('/').filter(Boolean)[0];
-  return isSupportedLanguage(first) ? first : null;
-}
-
-/**
  * 去掉 pathname 首段 locale，回傳剩餘 path（保證以 `/` 起頭）。
  */
 export function stripLngFromPath(pathname: string): string {

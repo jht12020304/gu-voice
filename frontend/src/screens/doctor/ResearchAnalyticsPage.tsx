@@ -13,10 +13,11 @@
 // 每場問診結束 debounce 1.5s 自動 refetch。
 // =============================================================================
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getResearchAnalytics } from '../../services/api/research';
 import { useDashboardWebSocket } from '../../hooks/useWebSocket';
+import { coalesceRefresh } from '../../utils/coalesceRefresh';
 import type {
   NumericSummary,
   Proportion,
@@ -94,7 +95,6 @@ export default function ResearchAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -112,16 +112,13 @@ export default function ResearchAnalyticsPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   useEffect(() => {
-    const scheduleRefetch = () => {
-      if (refetchTimer.current) clearTimeout(refetchTimer.current);
-      refetchTimer.current = setTimeout(fetchData, REFETCH_DEBOUNCE_MS);
-    };
-    on('report_generated', scheduleRefetch);
-    on('session_status_changed', scheduleRefetch);
+    const refetch = coalesceRefresh(fetchData, REFETCH_DEBOUNCE_MS);
+    on('report_generated', refetch.schedule);
+    on('session_status_changed', refetch.schedule);
     return () => {
       off('report_generated');
       off('session_status_changed');
-      if (refetchTimer.current) clearTimeout(refetchTimer.current);
+      refetch.dispose();
     };
   }, [on, off, fetchData]);
 

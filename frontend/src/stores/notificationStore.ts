@@ -1,8 +1,9 @@
 import { create } from 'zustand';
+import i18n from '../i18n';
 import type { Notification } from '../types';
 import * as notificationsApi from '../services/api/notifications';
 import { useAuthStore } from './authStore';
-import { getAuthEpoch } from '../services/api/client';
+import { apiErrorMessage, getAuthEpoch } from '../services/api/client';
 
 let listRequest = 0;
 let countRequest = 0;
@@ -48,8 +49,8 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         hasMore: !reset && existing.notifications.length > 20 ? existing.hasMore : response.pagination.hasMore,
         isLoading: false,
       });
-    } catch {
-      if (epoch === getAuthEpoch() && request === listRequest) set({ isLoading: false, error: '無法載入通知' });
+    } catch (err) {
+      if (epoch === getAuthEpoch() && request === listRequest) set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入通知') });
     }
   },
   fetchMore: async () => {
@@ -67,8 +68,8 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         notifications: [...current, ...response.data.filter((n) => !ids.has(n.id)).map((n) => pendingReads.has(n.id) ? { ...n, isRead: true } : n)],
         cursor: response.pagination.nextCursor, hasMore: response.pagination.hasMore, isLoading: false,
       });
-    } catch {
-      if (epoch === getAuthEpoch() && request === listRequest) set({ isLoading: false, error: '無法載入更多' });
+    } catch (err) {
+      if (epoch === getAuthEpoch() && request === listRequest) set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入更多') });
     }
   },
   markRead: async (id) => {
@@ -110,8 +111,8 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         notifications: state.notifications.map((n) => ({ ...n, isRead: true, readAt: n.readAt ?? new Date().toISOString() })),
         unreadCount: 0,
       }));
-    } catch {
-      if (epoch === getAuthEpoch()) set({ error: '標記全部已讀失敗' });
+    } catch (err) {
+      if (epoch === getAuthEpoch()) set({ error: apiErrorMessage(err, i18n.t, '標記全部已讀失敗') });
     }
   },
   fetchUnreadCount: async () => {

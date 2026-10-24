@@ -6,7 +6,7 @@ import { create } from 'zustand';
 import type { User } from '../types';
 import type { LoginResponse } from '../types/api';
 import * as authApi from '../services/api/auth';
-import { refreshAccessToken, getAuthEpoch, invalidateAuthSession, isAuthRejected } from '../services/api/client';
+import { apiErrorMessage, refreshAccessToken, getAuthEpoch, invalidateAuthSession, isAuthRejected } from '../services/api/client';
 import i18n from '../i18n';
 
 // 注意：偏好語言（preferredLanguage）刻意「不」在這裡直接寫 i18n。
@@ -56,10 +56,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
       get().applySession(response);
     } catch (error: unknown) {
       if (epoch !== getAuthEpoch()) return;
-      const message =
-        (error as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
-          ?.message || '登入失敗';
-      set({ isLoading: false, error: message });
+      set({ isLoading: false, error: apiErrorMessage(error, i18n.t, '登入失敗') });
       throw error;
     }
   },
@@ -120,9 +117,9 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
       const updatedUser = await authApi.updateMe(data);
       if (epoch !== getAuthEpoch()) return;
       set({ user: updatedUser, isLoading: false });
-    } catch {
+    } catch (err) {
       if (epoch !== getAuthEpoch()) return;
-      set({ isLoading: false, error: '更新失敗' });
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '更新失敗') });
     }
   },
 
@@ -150,7 +147,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
     const request = ++hydrationRequest;
     // === DEV MOCK MODE ===
     if (import.meta.env.VITE_ENABLE_MOCK === 'true') {
-      // 透過 VITE_MOCK_ROLE 切換角色: 'patient' | 'doctor' (預設 doctor)
+      // 透過 VITE_MOCK_ROLE 切換角色: 'patient' | 'doctor' | 'admin' (預設 doctor；admin = 同一位醫師帳號改 role)
       const mockRole = import.meta.env.VITE_MOCK_ROLE || 'doctor';
       // Mock 使用者姓名 / 科別依目前 i18n 語言在地化：英文系 locale 用英文假資料，
       // 其餘沿用 zh-TW —— 這份 mock user 會出現在 PatientLayout / Header 等每個
@@ -173,7 +170,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
               id: 'mock-doctor-001',
               email: 'doctor@gu-voice.local',
               name: isEnglish ? 'Wang Da-Ming' : '王大明',
-              role: 'doctor',
+              role: mockRole === 'admin' ? 'admin' : 'doctor',
               phone: '0912345678',
               department: isEnglish ? 'Urology' : '泌尿科',
               licenseNumber: 'D-2024-001',

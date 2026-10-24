@@ -29,7 +29,7 @@
 const STUB_I18N_URL = 'f7-verify-stub:i18n';
 
 export async function resolve(specifier, context, nextResolve) {
-  if (specifier === '../../i18n' || (specifier === '../i18n' && context.parentURL?.includes('/stores/'))) {
+  if (specifier === '../../i18n' || (specifier === '../i18n' && /\/(stores|utils)\//.test(context.parentURL ?? ''))) {
     return { url: STUB_I18N_URL, shortCircuit: true };
   }
   try {
@@ -55,7 +55,7 @@ export async function load(url, context, nextLoad) {
       shortCircuit: true,
       source: `
         export const SUPPORTED_LANGUAGES = ['zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'vi-VN'];
-        export default { resolvedLanguage: 'zh-TW', language: 'zh-TW' };
+        export default { resolvedLanguage: 'zh-TW', language: 'zh-TW', t: (key, opts) => opts?.defaultValue ?? key };
       `,
     };
   }

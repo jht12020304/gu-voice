@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { apiErrorMessage } from '../../services/api/client';
 import toast from 'react-hot-toast';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import ChatBubble from '../../components/chat/ChatBubble';
@@ -69,8 +70,8 @@ export default function SessionDetailPage() {
             setHasReport(false);
           }
         }
-      } catch {
-        setError(t('doctor.detail.loadError'));
+      } catch (err) {
+        setError(apiErrorMessage(err, t, t('doctor.detail.loadError')));
       } finally {
         setIsLoading(false);
       }
@@ -90,8 +91,8 @@ export default function SessionDetailPage() {
           ? t('doctor.detail.statusCompletedSuccess', '場次已標記為完成')
           : t('doctor.detail.statusCancelledSuccess', '場次已取消'),
       );
-    } catch {
-      toast.error(t('doctor.detail.statusUpdateError', '更新場次狀態失敗，請稍後再試'));
+    } catch (err) {
+      toast.error(apiErrorMessage(err, t, t('doctor.detail.statusUpdateError', '更新場次狀態失敗，請稍後再試')));
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -104,8 +105,8 @@ export default function SessionDetailPage() {
       const updated = await sessionsApi.assignDoctor(session.id, currentUser.id);
       setSession(updated);
       toast.success(t('doctor.detail.assignSuccess', '已將場次指派給您'));
-    } catch {
-      toast.error(t('doctor.detail.assignError', '指派醫師失敗，請稍後再試'));
+    } catch (err) {
+      toast.error(apiErrorMessage(err, t, t('doctor.detail.assignError', '指派醫師失敗，請稍後再試')));
     } finally {
       setIsAssigning(false);
     }
@@ -124,8 +125,8 @@ export default function SessionDetailPage() {
       toast.success(t('doctor.detail.generateReportSuccess', '報告已生成'));
       setHasReport(true);
       navigate(`/reports/${session.id}`);
-    } catch {
-      toast.error(t('doctor.detail.generateReportError', '報告生成失敗，請稍後再試'));
+    } catch (err) {
+      toast.error(apiErrorMessage(err, t, t('doctor.detail.generateReportError', '報告生成失敗，請稍後再試')));
     } finally {
       setIsGenerating(false);
     }

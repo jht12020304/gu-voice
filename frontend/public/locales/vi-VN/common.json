@@ -1,6 +1,5 @@
 {
   "acknowledge": "Đã hiểu",
-  "back": "Quay lại",
   "loading": "Đang tải...",
   "retry": "Thử lại",
   "unknownError": "Lỗi không xác định",
@@ -8,7 +7,6 @@
   "appTagline": "Hệ thống khám tiết niệu bằng giọng nói AI",
   "user": "Người dùng",
   "close": "Đóng",
-  "save": "Lưu",
   "saving": "Đang lưu...",
   "header": {
     "themeToLight": "Chuyển sang chế độ sáng",
@@ -25,19 +23,16 @@
     "passwordPlaceholder": "Nhập mật khẩu",
     "forgotPassword": "Quên mật khẩu?",
     "submit": "Đăng nhập",
-    "submitting": "Đang đăng nhập...",
     "emailRequired": "Vui lòng nhập email",
     "passwordRequired": "Vui lòng nhập mật khẩu"
   },
   "roles": {
     "patient": "Bệnh nhân",
     "assistant": "Trợ lý AI",
-    "system": "Hệ thống",
     "doctor": "Bác sĩ",
     "admin": "Quản trị viên"
   },
   "language": {
-    "label": "Ngôn ngữ",
     "switchTo": "Chuyển sang {{name}}",
     "current": "Ngôn ngữ hiện tại: {{name}}",
     "switched": "Đã chuyển sang {{name}}",
@@ -48,7 +43,6 @@
       "ko-KR": "한국어",
       "vi-VN": "Tiếng Việt"
     },
-    "betaTag": " (beta)",
     "switchModal": {
       "title": "Cần kết thúc phiên khám hiện tại trước khi đổi ngôn ngữ",
       "description": "Phiên khám hiện tại ({{from}}) đang diễn ra. Để tránh trộn lẫn ngôn ngữ trong cùng một phiên, chuyển sang {{to}} sẽ kết thúc phiên này. Quý vị có thể bắt đầu phiên khám mới sau đó.",
@@ -83,12 +77,10 @@
   },
   "common": {
     "errorTitle": "Đã xảy ra lỗi",
-    "emptyTitle": "Chưa có dữ liệu",
     "notSet": "Chưa thiết lập",
     "dash": "-",
     "defaultDevice": "Mặc định hệ thống",
     "microphoneLabel": "Micro {{id}}",
-    "viewAll": "Xem tất cả",
     "enabled": "Đã bật",
     "disabled": "Đã tắt"
   },
@@ -168,7 +160,6 @@
     },
     "patient": {
       "noPhone": "Chưa có số điện thoại",
-      "noName": "Bệnh nhân chưa đặt tên",
       "labels": {
         "gender": "Giới tính",
         "dateOfBirth": "Ngày sinh",
@@ -285,8 +276,6 @@
     "noPhone": "Chưa cung cấp điện thoại"
   },
   "pagination": {
-    "loadMore": "Tải thêm",
-    "loadingMore": "Đang tải thêm...",
     "allLoaded": "Đã hiển thị tất cả"
   }
 }

@@ -3,17 +3,28 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { SupportedLanguage } from '../../i18n';
-import { buildSwitchedPath } from '../../i18n/paths';
+import { buildSwitchedPath, useCurrentLng } from '../../i18n/paths';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAuthStore } from '../../stores/authStore';
 
 export default function SettingsPage() {
   const { t } = useTranslation('common');
-  const { theme, setTheme, language, notificationsEnabled, setNotificationsEnabled, soundEnabled, setSoundEnabled } = useSettingsStore();
+  const { theme, setTheme, notificationsEnabled, setNotificationsEnabled, soundEnabled, setSoundEnabled } = useSettingsStore(
+    useShallow((s) => ({
+      theme: s.theme,
+      setTheme: s.setTheme,
+      notificationsEnabled: s.notificationsEnabled,
+      setNotificationsEnabled: s.setNotificationsEnabled,
+      soundEnabled: s.soundEnabled,
+      setSoundEnabled: s.setSoundEnabled,
+    })),
+  );
   const user = useAuthStore((s) => s.user);
+  const language = useCurrentLng();
   const navigate = useNavigate();
   const location = useLocation();
   // URL 是語言唯一權威：只改 `/:lng` 前綴，i18n / settingsStore 由 LanguageLayout 同步。
@@ -22,7 +33,12 @@ export default function SettingsPage() {
 
   // 音訊裝置列表
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
-  const { audioInputDevice, setAudioDevice } = useSettingsStore();
+  const { audioInputDevice, setAudioDevice } = useSettingsStore(
+    useShallow((s) => ({
+      audioInputDevice: s.audioInputDevice,
+      setAudioDevice: s.setAudioDevice,
+    })),
+  );
 
   useEffect(() => {
     async function loadDevices() {

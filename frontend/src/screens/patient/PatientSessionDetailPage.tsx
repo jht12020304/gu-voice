@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, FileText, Calendar, Activity, CheckCircle2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { apiErrorMessage } from '../../services/api/client';
 import { useCurrentLng } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorState from '../../components/common/ErrorState';
@@ -36,8 +37,8 @@ export default function PatientSessionDetailPage() {
         } catch {
           setReport(null);
         }
-      } catch {
-        setError(t('patientDetail.loadError'));
+      } catch (err) {
+        setError(apiErrorMessage(err, t, t('patientDetail.loadError')));
       } finally {
         setIsLoading(false);
       }

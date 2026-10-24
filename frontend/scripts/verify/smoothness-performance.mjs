@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { chromium } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 // Run against npm run build + vite preview (no mock mode). All backend traffic is intercepted.

@@ -1,23 +1,28 @@
 // =============================================================================
 // 無限捲動 — sentinel 進入視窗且仍有下一頁時呼叫 onMore
+// hasMore / isLoading / onMore 走 ref 讀最新值：observer 只在 sentinel 變動時建立一次，
+// 不隨每次 loading 翻轉重建。
 // =============================================================================
 
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 
 interface UseInfiniteScrollOptions {
   hasMore: boolean;
   isLoading: boolean;
-  /** 需為穩定參照（store action 或 useCallback），否則每次 render 都會重建 observer。 */
   onMore: () => void;
 }
 
 export function useInfiniteScroll(
   sentinelRef: RefObject<HTMLElement>,
-  { hasMore, isLoading, onMore }: UseInfiniteScrollOptions,
+  options: UseInfiniteScrollOptions,
 ): void {
+  const latest = useRef(options);
+  latest.current = options;
+
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
+        const { hasMore, isLoading, onMore } = latest.current;
         if (entries[0].isIntersecting && hasMore && !isLoading) {
           onMore();
         }
@@ -28,5 +33,5 @@ export function useInfiniteScroll(
     if (sentinelRef.current) observer.observe(sentinelRef.current);
 
     return () => observer.disconnect();
-  }, [sentinelRef, hasMore, isLoading, onMore]);
+  }, [sentinelRef]);
 }

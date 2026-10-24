@@ -4,6 +4,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { apiErrorMessage } from '../../services/api/client';
 import toast from 'react-hot-toast';
 import SearchBar from '../../components/form/SearchBar';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -156,8 +157,8 @@ export default function UserManagementPage() {
           : t('admin:users.createSuccess', '使用者已建立'),
       );
       fetchUsers();
-    } catch {
-      const message = t('admin:users.operationFailed', '操作失敗，請稍後再試');
+    } catch (err) {
+      const message = apiErrorMessage(err, t, t('admin:users.operationFailed', '操作失敗，請稍後再試'));
       setFormError(message);
       toast.error(message);
     } finally {
@@ -184,8 +185,8 @@ export default function UserManagementPage() {
       const result = await adminApi.resetUserPassword(user.id);
       // 刻意只放在 state：不寫 localStorage、不進 log / Sentry
       setTempPasswordInfo({ email: result.email, password: result.tempPassword });
-    } catch {
-      toast.error(t('admin:users.resetPasswordFailed', '重設密碼失敗'));
+    } catch (err) {
+      toast.error(apiErrorMessage(err, t, t('admin:users.resetPasswordFailed', '重設密碼失敗')));
     } finally {
       setResettingUserId(null);
     }
@@ -206,8 +207,8 @@ export default function UserManagementPage() {
           : t('admin:users.activateSuccess', '帳號已啟用'),
       );
       await fetchUsers();
-    } catch {
-      toast.error(t('admin:users.toggleFailed', '更新帳號狀態失敗'));
+    } catch (err) {
+      toast.error(apiErrorMessage(err, t, t('admin:users.toggleFailed', '更新帳號狀態失敗')));
     } finally {
       setTogglingUserId(null);
     }

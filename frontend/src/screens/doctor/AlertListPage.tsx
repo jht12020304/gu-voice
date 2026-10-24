@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import type { TFunction } from 'i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import { useAlertStore } from '../../stores/alertStore';
@@ -14,8 +15,8 @@ import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
 import ErrorState from '../../components/common/ErrorState';
 import * as sessionsApi from '../../services/api/sessions';
-import type { Session } from '../../types';
-import { formatDate } from '../../utils/format';
+import { sessionStatusLabel } from '../../utils/sessionStatus';
+import { dayLabel, localDayKey } from '../../utils/date';
 
 function getFilterTabs(t: TFunction) {
   return [
@@ -29,41 +30,6 @@ interface AlertSessionMeta {
   patientName: string;
   chiefComplaint: string;
   sessionStatus: string;
-}
-
-function sessionStatusLabel(status: Session['status'] | undefined, t: TFunction): string {
-  switch (status) {
-    case 'waiting':
-      return t('alertList.sessionStatus.waiting', '等待中');
-    case 'in_progress':
-      return t('alertList.sessionStatus.inProgress', '問診中');
-    case 'completed':
-      return t('alertList.sessionStatus.completed', '已完成');
-    case 'aborted_red_flag':
-      return t('alertList.sessionStatus.abortedRedFlag', '紅旗中止');
-    case 'cancelled':
-      return t('alertList.sessionStatus.cancelled', '已取消');
-    default:
-      return t('common:status.unknown', '未取得場次狀態');
-  }
-}
-
-function getDateKey(dateStr: string): string {
-  const date = new Date(dateStr);
-  if (Number.isNaN(date.getTime())) return 'unknown';
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function getDateLabel(dateStr: string): string {
-  return formatDate(dateStr, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'long',
-  });
 }
 
 function AlertSummaryCard({
@@ -139,7 +105,22 @@ export default function AlertListPage() {
     fetchUnacknowledgedCount,
     unacknowledgedCount,
     allTotalCount,
-  } = useAlertStore();
+  } = useAlertStore(
+    useShallow((s) => ({
+      alerts: s.alerts,
+      isLoading: s.isLoading,
+      error: s.error,
+      filter: s.filter,
+      hasMore: s.hasMore,
+      fetchAlerts: s.fetchAlerts,
+      fetchMore: s.fetchMore,
+      setFilter: s.setFilter,
+      acknowledgeAlert: s.acknowledgeAlert,
+      fetchUnacknowledgedCount: s.fetchUnacknowledgedCount,
+      unacknowledgedCount: s.unacknowledgedCount,
+      allTotalCount: s.allTotalCount,
+    })),
+  );
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sessionMeta, setSessionMeta] = useState<Record<string, AlertSessionMeta>>({});
@@ -257,13 +238,13 @@ export default function AlertListPage() {
     const groups = sorted.reduce<
       Array<{ key: string; label: string; items: typeof visibleAlerts }>
     >((acc, alert) => {
-      const key = getDateKey(alert.createdAt);
+      const key = localDayKey(alert.createdAt);
       const existing = acc.find((group) => group.key === key);
       if (existing) {
         existing.items.push(alert);
         return acc;
       }
-      acc.push({ key, label: getDateLabel(alert.createdAt), items: [alert] });
+      acc.push({ key, label: dayLabel(alert.createdAt), items: [alert] });
       return acc;
     }, []);
     groups.forEach((g) => g.items.sort(priority));

@@ -18,6 +18,8 @@ import { useConversationStore } from '../stores/conversationStore';
 
 const IDLE_MS = Number(import.meta.env.VITE_KIOSK_IDLE_TIMEOUT_MS) || 0;
 const RESET_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'] as const;
+// mousemove 每秒可達上百次，re-arm 至少間隔 1 秒（閒置逾時以分計，1 秒誤差無感）
+const REARM_MIN_MS = 1000;
 
 export default function KioskIdleGuard() {
   const location = useLocation();
@@ -37,7 +39,11 @@ export default function KioskIdleGuard() {
       resetSession();
       void logout(); // isAuthenticated 轉 false → RequireAuth 導回 /login
     };
+    let lastArm = 0;
     const arm = () => {
+      const now = Date.now();
+      if (timerRef.current && now - lastArm < REARM_MIN_MS) return;
+      lastArm = now;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(doLogout, IDLE_MS);
     };

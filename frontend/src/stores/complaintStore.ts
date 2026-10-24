@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 import type { ChiefComplaint } from '../types';
 import * as complaintsApi from '../services/api/complaints';
+import { apiErrorMessage } from '../services/api/client';
 import type { ComplaintCreateRequest, ComplaintUpdateRequest } from '../types/api';
 import i18n from '../i18n';
 
@@ -13,11 +14,7 @@ import i18n from '../i18n';
  * 取不到時退回 i18n fallback key。避免 catch{} 直接吞錯只丟死的中文字串。
  */
 function resolveErrorMessage(error: unknown, fallbackKey: string, fallbackText: string): string {
-  const backendMessage = (
-    error as { response?: { data?: { error?: { message?: string } } } }
-  )?.response?.data?.error?.message;
-  if (backendMessage) return backendMessage;
-  return i18n.t(fallbackKey, { defaultValue: fallbackText });
+  return apiErrorMessage(error, i18n.t, i18n.t(fallbackKey, { defaultValue: fallbackText }));
 }
 
 interface ComplaintState {

@@ -39,36 +39,6 @@ export interface RefreshTokenResponse {
 
 // ---- 病患 ----
 
-export interface PatientCreateRequest {
-  userId?: string;
-  medicalRecordNumber: string;
-  name: string;
-  gender: 'male' | 'female' | 'other';
-  dateOfBirth: string;
-  phone?: string;
-  emergencyContact?: {
-    name: string;
-    relationship: string;
-    phone: string;
-  };
-  medicalHistory?: unknown[];
-  allergies?: unknown[];
-  currentMedications?: unknown[];
-}
-
-export interface PatientUpdateRequest {
-  name?: string;
-  phone?: string;
-  emergencyContact?: {
-    name: string;
-    relationship: string;
-    phone: string;
-  };
-  medicalHistory?: unknown[];
-  allergies?: unknown[];
-  currentMedications?: unknown[];
-}
-
 export interface PatientListParams {
   cursor?: string;
   limit?: number;
@@ -167,62 +137,6 @@ export interface AlertListParams {
 
 // ---- 儀表板 ----
 
-export interface DashboardStatsResponse {
-  sessionsToday: number;
-  completed: number;
-  redFlags: number;
-  pendingReviews: number;
-  inProgress?: number;
-  waiting?: number;
-  averageDurationSeconds?: number | null;
-  timestamp?: string;
-}
-
-export interface DashboardQueueResponse {
-  totalWaiting: number;
-  totalInProgress: number;
-  queue: QueueItem[];
-}
-
-export interface QueueItem {
-  sessionId: string;
-  patientId: string;
-  patientName: string;
-  chiefComplaint: string;
-  status: string;
-  waitingSeconds: number;
-  hasRedFlag: boolean;
-  createdAt: string;
-}
-
-export interface RecentAlertItem {
-  alertId: string;
-  sessionId: string;
-  patientName: string;
-  severity: string;
-  title: string;
-  acknowledged: boolean;
-  createdAt: string;
-}
-
-export interface RecentAlertsResponse {
-  data: RecentAlertItem[];
-}
-
-export interface RecentSessionItem {
-  sessionId: string;
-  patientName: string;
-  chiefComplaint: string;
-  status: string;
-  redFlag: boolean;
-  createdAt: string;
-  completedAt?: string;
-}
-
-export interface RecentSessionsResponse {
-  data: RecentSessionItem[];
-}
-
 export interface SummaryBucketItem {
   key: string;
   label: string;
@@ -283,45 +197,6 @@ export interface MarkReadResponse {
 }
 
 /** 通知偏好（GDPR opt-out）。red_flag 為病安關鍵，後端恆為開。 */
-export interface NotificationPreference {
-  userId: string;
-  redFlagEnabled: boolean;
-  sessionCompleteEnabled: boolean;
-  reportReadyEnabled: boolean;
-  systemEnabled: boolean;
-  emailEnabled: boolean;
-  pushEnabled: boolean;
-}
-
-/** 更新通知偏好（僅更新提供的欄位） */
-export interface NotificationPreferenceUpdate {
-  redFlagEnabled?: boolean;
-  sessionCompleteEnabled?: boolean;
-  reportReadyEnabled?: boolean;
-  systemEnabled?: boolean;
-  emailEnabled?: boolean;
-  pushEnabled?: boolean;
-}
-
-/** 註冊 FCM 推播 Token 請求 */
-export interface FcmTokenCreateRequest {
-  deviceToken: string;
-  platform: 'ios' | 'android' | 'web';
-  deviceName?: string;
-}
-
-/** FCM Token 回應 */
-export interface FcmTokenResponse {
-  id: string;
-  deviceToken: string;
-  platform: 'ios' | 'android' | 'web';
-  deviceName?: string;
-  isActive: boolean;
-  createdAt: string;
-}
-
-// ---- 管理員 ----
-
 export interface UserCreateRequest {
   email: string;
   password: string;

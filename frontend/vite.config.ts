@@ -87,17 +87,8 @@ export default defineConfig(({ mode }) => {
 
     // 路徑別名設定（對應 tsconfig.json 的 paths）
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './src'),
-        '@components': path.resolve(__dirname, './src/components'),
-        '@hooks': path.resolve(__dirname, './src/hooks'),
-        '@pages': path.resolve(__dirname, './src/pages'),
-        '@stores': path.resolve(__dirname, './src/stores'),
-        '@utils': path.resolve(__dirname, './src/utils'),
-        '@types': path.resolve(__dirname, './src/types'),
-        '@services': path.resolve(__dirname, './src/services'),
-        '@assets': path.resolve(__dirname, './src/assets'),
-      },
+      // 專案內全部用相對路徑 import；先前九組 alias（含指向不存在目錄的 @pages/@assets）無人使用，已移除。
+      alias: {},
     },
 
     // 本地開發伺服器設定
@@ -140,6 +131,8 @@ export default defineConfig(({ mode }) => {
             'vendor-state': ['zustand'],
             // HTTP 與工具
             'vendor-utils': ['axios'],
+            // 錯誤回報 SDK：sentry.ts 動態 import，只有設了 VITE_SENTRY_DSN 才會被引用與下載
+            'vendor-sentry': ['@sentry/react'],
           },
         },
       },

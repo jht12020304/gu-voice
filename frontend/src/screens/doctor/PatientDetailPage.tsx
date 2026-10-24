@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { apiErrorMessage } from '../../services/api/client';
 import toast from 'react-hot-toast';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -42,8 +43,8 @@ export default function PatientDetailPage() {
         ]);
         setPatient(patientData);
         setSessions(Array.isArray(sessionData.data) ? sessionData.data : []);
-      } catch {
-        setError(t('doctor.patient.loadError', '無法載入病患資料'));
+      } catch (err) {
+        setError(apiErrorMessage(err, t, t('doctor.patient.loadError', '無法載入病患資料')));
       } finally {
         setIsLoading(false);
       }
@@ -60,8 +61,8 @@ export default function PatientDetailPage() {
       toast.success(t('doctor.patient.deleteSuccess', '已刪除病患'));
       setShowDeleteModal(false);
       navigate('/patients');
-    } catch {
-      toast.error(t('doctor.patient.deleteError', '刪除病患失敗，請稍後再試'));
+    } catch (err) {
+      toast.error(apiErrorMessage(err, t, t('doctor.patient.deleteError', '刪除病患失敗，請稍後再試')));
     } finally {
       setIsDeleting(false);
     }

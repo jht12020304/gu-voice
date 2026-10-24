@@ -8,6 +8,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import * as sessionsApi from '../../services/api/sessions';
 import { formatDate } from '../../utils/format';
+import StatusBadge from '../../components/medical/StatusBadge';
 import type { Session } from '../../types';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
@@ -44,14 +45,6 @@ const mockRecentSessions: Session[] = [
     updatedAt: '2026-04-03T10:12:00Z',
   },
 ];
-
-const statusKeyMap: Record<string, { labelKey: string; cls: string }> = {
-  completed: { labelKey: 'patient.home.statusCompleted', cls: 'badge-completed' },
-  in_progress: { labelKey: 'patient.home.statusInProgress', cls: 'badge-in-progress' },
-  waiting: { labelKey: 'patient.home.statusWaiting', cls: 'badge-waiting' },
-  aborted_red_flag: { labelKey: 'patient.home.statusAbortedRedFlag', cls: 'badge-red-flag' },
-  cancelled: { labelKey: 'patient.home.statusCancelled', cls: 'badge-red-flag' },
-};
 
 export default function PatientHomePage() {
   const navigate = useLocalizedNavigate();
@@ -152,7 +145,6 @@ export default function PatientHomePage() {
         ) : (
           <div className="overflow-hidden rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
             {recentSessions.map((session, i) => {
-              const sc = statusKeyMap[session.status] || statusKeyMap.completed;
               return (
                 <button
                   key={session.id}
@@ -181,7 +173,7 @@ export default function PatientHomePage() {
                         : ''}
                     </p>
                   </div>
-                  <span className={`badge shrink-0 ${sc.cls}`}>{t(sc.labelKey)}</span>
+                  <StatusBadge status={session.status} size="sm" />
                   <svg className="h-4 w-4 shrink-0 text-ink-placeholder dark:text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                   </svg>

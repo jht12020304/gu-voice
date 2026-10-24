@@ -1,6 +1,5 @@
 {
   "acknowledge": "知道了",
-  "back": "返回",
   "loading": "載入中...",
   "retry": "重試",
   "unknownError": "未知錯誤",
@@ -8,7 +7,6 @@
   "appTagline": "泌尿科 AI 語音問診系統",
   "user": "使用者",
   "close": "關閉",
-  "save": "儲存",
   "saving": "儲存中...",
   "header": {
     "themeToLight": "切換淺色模式",
@@ -25,19 +23,16 @@
     "passwordPlaceholder": "輸入密碼",
     "forgotPassword": "忘記密碼？",
     "submit": "登入",
-    "submitting": "登入中...",
     "emailRequired": "請輸入電子郵件",
     "passwordRequired": "請輸入密碼"
   },
   "roles": {
     "patient": "病患",
     "assistant": "AI 助手",
-    "system": "系統",
     "doctor": "醫師",
     "admin": "管理員"
   },
   "language": {
-    "label": "語言",
     "switchTo": "切換至 {{name}}",
     "current": "目前語言：{{name}}",
     "switched": "已切換至 {{name}}",
@@ -48,7 +43,6 @@
       "ko-KR": "한국어",
       "vi-VN": "Tiếng Việt"
     },
-    "betaTag": "（beta）",
     "switchModal": {
       "title": "切換語言前需結束目前問診",
       "description": "目前問診（{{from}}）進行中，為避免問診內容混用語言，切換至 {{to}} 會結束此場次。結束後可重新開始新的問診。",
@@ -83,12 +77,10 @@
   },
   "common": {
     "errorTitle": "發生錯誤",
-    "emptyTitle": "暫無資料",
     "notSet": "未設定",
     "dash": "-",
     "defaultDevice": "系統預設",
     "microphoneLabel": "麥克風 {{id}}",
-    "viewAll": "查看全部",
     "enabled": "啟用",
     "disabled": "關閉"
   },
@@ -168,7 +160,6 @@
     },
     "patient": {
       "noPhone": "未設定聯絡電話",
-      "noName": "未命名病患",
       "labels": {
         "gender": "性別",
         "dateOfBirth": "出生日期",
@@ -285,8 +276,6 @@
     "noPhone": "未提供電話"
   },
   "pagination": {
-    "loadMore": "載入更多",
-    "loadingMore": "載入中...",
     "allLoaded": "已顯示全部"
   }
 }

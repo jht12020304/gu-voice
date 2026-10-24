@@ -7,6 +7,8 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useCurrentLng } from '../../i18n/paths';
 import * as authApi from '../../services/api/auth';
+import { apiErrorMessage } from '../../services/api/client';
+import { emailFormatError } from '../../utils/validation';
 
 export default function ForgotPasswordPage() {
   const { t } = useTranslation('common');
@@ -18,20 +20,11 @@ export default function ForgotPasswordPage() {
   const [delivery, setDelivery] = useState<'email' | 'onsite'>('onsite');
   const [error, setError] = useState('');
 
-  // 與 utils/validation.validateEmail 一致的格式檢查，回傳已 i18n 的訊息或 null。
-  const validateEmailField = (value: string): string | null => {
-    if (!value) return t('auth:email.required', '請輸入電子郵件');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-      return t('auth:email.invalid', '電子郵件格式不正確');
-    }
-    return null;
-  };
-
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
 
-    const emailError = validateEmailField(email);
+    const emailError = emailFormatError(email, t);
     if (emailError) {
       setError(emailError);
       return;
@@ -42,8 +35,8 @@ export default function ForgotPasswordPage() {
       const { delivery: mode } = await authApi.forgotPassword(email);
       setDelivery(mode);
       setIsSent(true);
-    } catch {
-      setError(t('auth:forgot.failed', '發送重設連結失敗，請稍後再試'));
+    } catch (err) {
+      setError(apiErrorMessage(err, t, t('auth:forgot.failed', '發送重設連結失敗，請稍後再試')));
     } finally {
       setIsLoading(false);
     }

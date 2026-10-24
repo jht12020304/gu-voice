@@ -1,7 +1,7 @@
-import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as dashboardApi from '../../services/api/dashboard';
+import { addMonths, monthKey, monthRangeLabel } from '../../utils/date';
 import type {
   MonthlySummaryResponse,
   SummaryBucketItem,
@@ -35,7 +35,7 @@ const SEVERITY_LABEL_KEYS: Record<string, string> = {
 };
 
 function createMockMonthlySummary(monthDate: Date): MonthlySummaryResponse {
-  const month = format(monthDate, 'yyyy-MM');
+  const month = monthKey(monthDate);
 
   return {
     month,
@@ -92,10 +92,6 @@ function parseMonthKey(monthKey: string | undefined): Date | null {
   const match = /^(\d{4})-(\d{2})$/.exec(monthKey ?? '');
   if (!match) return null;
   return new Date(Number(match[1]), Number(match[2]) - 1, 1);
-}
-
-function formatMonthRange(monthDate: Date): string {
-  return `${format(startOfMonth(monthDate), 'yyyy/MM/dd')} - ${format(endOfMonth(monthDate), 'yyyy/MM/dd')}`;
 }
 
 function SummaryMetricCard({
@@ -335,7 +331,7 @@ export default function DashboardPage() {
       const request = ++requestId.current;
       setIsLoading(true);
       try {
-        const month = format(selectedMonth, 'yyyy-MM');
+        const month = monthKey(selectedMonth);
         const summary = await dashboardApi.getMonthlySummary(month);
         if (request !== requestId.current) return;
         setMonthlySummary(summary);
@@ -352,7 +348,7 @@ export default function DashboardPage() {
 
   // 顯示後端實際回答的區間（month，格式 YYYY-MM）；舊後端沒回時退回本地選中的月份
   const selectedMonthLabel = formatMonthLabel(parseMonthKey(monthlySummary?.month) ?? selectedMonth);
-  const monthRangeLabel = formatMonthRange(selectedMonth);
+  const monthRange = monthRangeLabel(monthKey(selectedMonth));
   const totalSessions = monthlySummary?.totalSessions ?? 0;
   const redFlagAlerts = monthlySummary?.totalRedFlagAlerts ?? 0;
 
@@ -385,7 +381,7 @@ export default function DashboardPage() {
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="rounded-pill bg-surface-tertiary px-3 py-1.5 text-tiny font-semibold text-ink-secondary dark:bg-dark-surface dark:text-dark-text-muted">
-                {t('doctor.dashboard.dateRange', { range: monthRangeLabel })}
+                {t('doctor.dashboard.dateRange', { range: monthRange })}
               </span>
               <span className="rounded-pill bg-primary-50 px-3 py-1.5 text-tiny font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
                 {t('doctor.dashboard.complaintCategories', { count: monthlySummary?.chiefComplaintDistribution.length ?? 0 })}

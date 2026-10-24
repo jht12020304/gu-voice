@@ -4,6 +4,8 @@
 
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig, type AxiosResponse } from 'axios';
 
+import type { TFunction } from 'i18next';
+
 import i18n, { SUPPORTED_LANGUAGES } from '../../i18n';
 
 // URL `/:lng/*` 是使用者目前 active 語言的權威來源 —— i18n.resolvedLanguage 讀
@@ -109,6 +111,21 @@ export function isAuthRejected(error: unknown): boolean {
   const status = (error as { response?: { status?: number } })?.response?.status;
   return status === 401 || status === 403;
 }
+/**
+ * 從 API 錯誤取出可顯示給使用者的訊息。
+ * 後端統一回 `{"error": {code, message, …}}`（LanguageMiddleware 依 Accept-Language 在地化），
+ * 422 等 FastAPI 預設也被後端 handler 轉成同一形狀；仍保留 `detail` 字串作為後備。
+ * 取不到字串訊息時回 `fallback`（各頁面已 i18n 的情境訊息），再沒有就回 `common:unknownError`。
+ */
+export function apiErrorMessage(err: unknown, t: TFunction, fallback?: string): string {
+  const data = (err as { response?: { data?: unknown } })?.response?.data as
+    | { error?: { message?: unknown }; detail?: unknown }
+    | undefined;
+  const message = data?.error?.message ?? data?.detail;
+  if (typeof message === 'string' && message.trim()) return message;
+  return fallback ?? t('unknownError', { ns: 'common' });
+}
+
 type SessionRequest = InternalAxiosRequestConfig & { _authEpoch?: number };
 
 // F7 #1：/auth/logout 的 401 自動重試若原樣重放舊 request body，會把

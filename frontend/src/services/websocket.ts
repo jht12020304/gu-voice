@@ -3,7 +3,6 @@
 // 支援自動重連 (指數退避)、心跳、事件監聽
 // =============================================================================
 
-import { v4 as uuidv4 } from 'uuid';
 import type { WSMessage } from '../types/websocket';
 
 type MessageHandler = (payload: unknown, message: WSMessage) => void;
@@ -168,7 +167,7 @@ export class WebSocketManager {
 
     const message: WSMessage = {
       type,
-      id: uuidv4(),
+      id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       payload: payload as Record<string, unknown>,
     };

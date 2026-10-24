@@ -11,9 +11,7 @@
     "transcribing": "正在辨識你說的話…",
     "noSpeechDetected": "剛才沒有聽清楚，請再說一次",
     "listening": "正在聆聽你說話 {{duration}}",
-    "idle": "請直接開始說話，我會自動聽取",
-    "thinking": "AI 正在思考...",
-    "speaking": "說話中"
+    "idle": "請直接開始說話，我會自動聽取"
   },
   "scroll": {
     "latest": "最新訊息",
@@ -66,16 +64,11 @@
     "loadFailed": "無法載入對話",
     "sessionInterrupted": "問診中斷，請重新開始",
     "aiUnavailable": "AI 服務暫時無法回應，請稍後再試",
-    "disconnected": "連線中斷，正在重新連線...",
-    "audioTooLong": "錄音時間過長，已自動結束",
     "micPermission": "請在瀏覽器設定允許麥克風權限，然後重新載入頁面",
     "micNotFound": "找不到麥克風裝置，請確認已連接麥克風",
     "micGeneric": "麥克風發生錯誤：{{message}}",
     "endSessionOffline": "連線中斷，結束問診的指令尚未送出。請待重新連線後再按一次「結束問診」。",
     "endSessionTimeout": "尚未收到結束確認，請再按一次「結束問診」；若仍無反應，請告知現場醫護。"
-  },
-  "mockMessages": {
-    "systemStart": "問診開始 — 主訴: {{complaint}}"
   },
   "connection": {
     "reconnecting": "連線中斷，重新連線中…",

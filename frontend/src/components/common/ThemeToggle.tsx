@@ -7,7 +7,8 @@ import { useSettingsStore } from '../../stores/settingsStore';
 
 export default function ThemeToggle() {
   const { t } = useTranslation('common');
-  const { theme, setTheme } = useSettingsStore();
+  const theme = useSettingsStore((s) => s.theme);
+  const setTheme = useSettingsStore((s) => s.setTheme);
 
   return (
     <button

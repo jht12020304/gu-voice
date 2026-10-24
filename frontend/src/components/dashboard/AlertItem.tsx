@@ -12,7 +12,7 @@ interface AlertItemProps {
   id: string;
   title: string;
   description?: string;
-  severity: string;
+  severity: AlertSeverity;
   patientName?: string;
   chiefComplaint?: string;
   sessionStatus?: string;
@@ -25,7 +25,7 @@ interface AlertItemProps {
   onClick?: () => void;
 }
 
-const severityBorderClass: Record<string, string> = {
+const severityBorderClass: Record<AlertSeverity, string> = {
   critical: 'alert-card-critical',
   high: 'alert-card-high',
   medium: 'alert-card-medium',
@@ -82,7 +82,7 @@ export default function AlertItem({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-body font-semibold text-ink-heading dark:text-white">{title}</p>
-            <SeverityBadge severity={severity as AlertSeverity} size="sm" />
+            <SeverityBadge severity={severity} size="sm" />
             <span
               className={`rounded-pill px-2.5 py-0.5 text-tiny font-semibold ${
                 isAcknowledged

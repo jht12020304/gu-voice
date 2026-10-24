@@ -4,12 +4,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import type { TFunction } from 'i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
 import type { SOAPReport, Session } from '../../types';
 import { formatDate } from '../../utils/format';
+import { dayLabel, localDayKey } from '../../utils/date';
+import { sessionStatusLabel } from '../../utils/sessionStatus';
 import { useDashboardWebSocket } from '../../hooks/useWebSocket';
 import { useInfiniteScroll } from '../../hooks/useInfiniteScroll';
 import { coalesceRefresh } from '../../utils/coalesceRefresh';
@@ -116,24 +119,6 @@ function getReportTimestamp(report: SOAPReport): string {
   return report.generatedAt || report.updatedAt || report.createdAt;
 }
 
-function getDateKey(report: SOAPReport): string {
-  const date = new Date(getReportTimestamp(report));
-  if (Number.isNaN(date.getTime())) return 'unknown';
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function getDayLabel(report: SOAPReport): string {
-  return formatDate(getReportTimestamp(report), {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'long',
-  });
-}
-
 function reviewStatusLabel(status: SOAPReport['reviewStatus'], t: TFunction): string {
   switch (status) {
     case 'approved':
@@ -156,23 +141,6 @@ function reviewStatusClass(status: SOAPReport['reviewStatus']): string {
   }
 }
 
-function sessionStatusLabel(status: Session['status'] | undefined, t: TFunction): string {
-  switch (status) {
-    case 'waiting':
-      return t('alertList.sessionStatus.waiting', '等待中');
-    case 'in_progress':
-      return t('alertList.sessionStatus.inProgress', '問診中');
-    case 'completed':
-      return t('alertList.sessionStatus.completed', '已完成');
-    case 'aborted_red_flag':
-      return t('alertList.sessionStatus.abortedRedFlag', '紅旗中止');
-    case 'cancelled':
-      return t('alertList.sessionStatus.cancelled', '已取消');
-    default:
-      return t('common:status.unknown', '未取得場次狀態');
-  }
-}
-
 function countByStatus(reports: SOAPReport[], status: SOAPReport['reviewStatus']): number {
   return reports.filter((report) => report.reviewStatus === status).length;
 }
@@ -180,7 +148,16 @@ function countByStatus(reports: SOAPReport[], status: SOAPReport['reviewStatus']
 export default function ReportListPage() {
   const { t } = useTranslation('dashboard');
   const navigate = useLocalizedNavigate();
-  const { reports, reviewCounts, isLoading: storeLoading, hasMore, fetchReports, fetchMore } = useReportStore();
+  const { reports, reviewCounts, isLoading: storeLoading, hasMore, fetchReports, fetchMore } = useReportStore(
+    useShallow((s) => ({
+      reports: s.reports,
+      reviewCounts: s.reviewCounts,
+      isLoading: s.isLoading,
+      hasMore: s.hasMore,
+      fetchReports: s.fetchReports,
+      fetchMore: s.fetchMore,
+    })),
+  );
   const { on, off } = useDashboardWebSocket();
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -253,7 +230,7 @@ export default function ReportListPage() {
     );
 
     return sorted.reduce<Array<{ key: string; label: string; reports: SOAPReport[] }>>((groups, report) => {
-      const key = getDateKey(report);
+      const key = localDayKey(getReportTimestamp(report));
       const existing = groups.find((group) => group.key === key);
       if (existing) {
         existing.reports.push(report);
@@ -261,7 +238,7 @@ export default function ReportListPage() {
       }
       groups.push({
         key,
-        label: getDayLabel(report),
+        label: dayLabel(getReportTimestamp(report)),
         reports: [report],
       });
       return groups;

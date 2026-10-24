@@ -9,7 +9,7 @@ import * as sessionsApi from '../services/api/sessions';
 import type { ReportListParams, ReviewRequest } from '../types/api';
 import i18n from '../i18n';
 import { useAuthStore } from './authStore';
-import { getAuthEpoch } from '../services/api/client';
+import { apiErrorMessage, getAuthEpoch } from '../services/api/client';
 
 let listRequest = 0;
 let detailRequest = 0;
@@ -160,9 +160,9 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
         hasMore: !reset && previous.reports.length > 20 ? previous.hasMore : response.pagination.hasMore,
         isLoading: false,
       });
-    } catch {
+    } catch (err) {
       if (epoch !== getAuthEpoch() || request !== listRequest) return;
-      set({ isLoading: false, error: '無法載入報告列表' });
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入報告列表') });
     }
   },
 
@@ -182,9 +182,9 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
         hasMore: response.pagination.hasMore,
         isLoading: false,
       });
-    } catch {
+    } catch (err) {
       if (epoch !== getAuthEpoch() || request !== listRequest) return;
-      set({ isLoading: false, error: '無法載入更多' });
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入更多') });
     }
   },
 
@@ -196,9 +196,9 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
       const report = await reportsApi.getReport(id);
       if (epoch !== getAuthEpoch() || request !== detailRequest) return;
       set({ selectedReport: report, isLoading: false });
-    } catch {
+    } catch (err) {
       if (epoch !== getAuthEpoch() || request !== detailRequest) return;
-      set({ isLoading: false, error: '無法載入報告' });
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入報告') });
     }
   },
 
@@ -220,9 +220,9 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
       const report = await reportsApi.getReportBySession(sessionId);
       if (epoch !== getAuthEpoch() || request !== detailRequest) return;
       set({ selectedReport: report, isLoading: false });
-    } catch {
+    } catch (err) {
       if (epoch !== getAuthEpoch() || request !== detailRequest) return;
-      set({ isLoading: false, error: '無法載入報告' });
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入報告') });
     }
   },
 
@@ -259,22 +259,19 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
       const report = await reportsApi.generateReport(sessionId);
       if (epoch !== getAuthEpoch() || request !== detailRequest) return;
       set({ selectedReport: report, isLoading: false });
-    } catch {
+    } catch (err) {
       if (epoch !== getAuthEpoch() || request !== detailRequest) return;
-      set({ isLoading: false, error: '報告生成失敗' });
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '報告生成失敗') });
     }
   },
 
   reviewReport: async (id, payload) => {
-    try {
-      const updated = await reportsApi.reviewReport(id, payload);
-      set((state) => ({
-        selectedReport: updated,
-        reports: state.reports.map((r) => (r.id === id ? updated : r)),
-      }));
-    } catch {
-      throw new Error('審閱失敗');
-    }
+    // 失敗直接拋出原始 API 錯誤，由頁面以 apiErrorMessage 顯示後端訊息。
+    const updated = await reportsApi.reviewReport(id, payload);
+    set((state) => ({
+      selectedReport: updated,
+      reports: state.reports.map((r) => (r.id === id ? updated : r)),
+    }));
   },
 
   clearSelectedReport: () => {

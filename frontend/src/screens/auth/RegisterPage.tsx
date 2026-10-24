@@ -5,6 +5,8 @@ import { Mail, Lock, User, FileText, ArrowRight } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useCurrentLng, useLocalizedNavigate } from '../../i18n/paths';
 import * as authApi from '../../services/api/auth';
+import { apiErrorMessage } from '../../services/api/client';
+import { passwordStrengthError } from '../../utils/validation';
 
 export default function RegisterPage() {
   const { t } = useTranslation('common');
@@ -25,21 +27,10 @@ export default function RegisterPage() {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  // 與 ResetPasswordPage（utils/validation.validatePassword）一致的密碼強度規則：
-  // 至少 8 字元，且包含大寫、小寫與數字。回傳已 i18n 的錯誤訊息或 null。
-  const validatePasswordStrength = (password: string): string | null => {
-    if (!password) return t('auth:password.required', '請輸入密碼');
-    if (password.length < 8) return t('auth:password.minLength', '密碼至少需要 8 個字元');
-    if (!/[A-Z]/.test(password)) return t('auth:password.needUppercase', '密碼需包含大寫字母');
-    if (!/[a-z]/.test(password)) return t('auth:password.needLowercase', '密碼需包含小寫字母');
-    if (!/[0-9]/.test(password)) return t('auth:password.needDigit', '密碼需包含數字');
-    return null;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const passwordError = validatePasswordStrength(formData.password);
+    const passwordError = passwordStrengthError(formData.password, t);
     if (passwordError) {
       setError(passwordError);
       return;
@@ -65,10 +56,7 @@ export default function RegisterPage() {
       applySession(response);
       navigate('/patient');
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
-          ?.message || t('auth:register.failed', '註冊失敗，請稍後再試');
-      setError(message);
+      setError(apiErrorMessage(err, t, t('auth:register.failed', '註冊失敗，請稍後再試')));
     } finally {
       setIsLoading(false);
     }
