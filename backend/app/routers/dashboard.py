@@ -7,11 +7,13 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import AwareDatetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, require_role
 from app.schemas.dashboard import (
     DashboardStatsResponse,
+    CalendarDaySummary,
     MonthlySummaryResponse,
     PatientQueueResponse,
     RecentAlertsResponse,
@@ -26,6 +28,16 @@ router = APIRouter(
 )
 
 dashboard_service = DashboardService()
+
+
+@router.get("/calendar", response_model=list[CalendarDaySummary])
+async def calendar_summary(
+    day_starts: list[AwareDatetime] = Query(min_length=2, max_length=32),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    # Device-local midnight boundaries preserve DST and offset semantics.
+    return await dashboard_service.get_calendar_summary(db, current_user, day_starts)
 
 
 @router.get(
