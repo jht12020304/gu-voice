@@ -1,4 +1,5 @@
 import '../models/session.dart';
+import 'parse_page.dart';
 import '../models/soap_report.dart';
 import 'dio_client.dart';
 
@@ -96,14 +97,8 @@ class SessionsApi {
         'sortOrder': ?sortOrder,
       },
     );
-    final data = res.data;
-    final list = (data is Map ? data['data'] : data) as List? ?? const [];
-    final pagination = (data is Map ? data['pagination'] : null) as Map?;
-    return SessionsPage(
-      sessions: list.map((e) => Session.fromJson(e as Map)).toList(),
-      nextCursor: pagination?['nextCursor'] as String?,
-      hasMore: (pagination?['hasMore'] as bool?) ?? false,
-    );
+    final page = parsePage(res.data, Session.fromJson);
+    return SessionsPage(sessions: page.data, nextCursor: page.nextCursor, hasMore: page.hasMore);
   }
 
   Future<List<Map>> calendarSummary(List<DateTime> boundaries) async {

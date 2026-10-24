@@ -114,7 +114,7 @@ void main() {
     });
 
     test('沒有任何時間戳的場次不進桶（不是丟到今天）', () {
-      final ghost = Session(id: 'x', status: 'waiting', language: 'zh-TW');
+      const ghost = Session(id: 'x', status: 'waiting', language: 'zh-TW');
       expect(sessionLocalDay(ghost), isNull);
       expect(bucketByLocalDay([ghost]), isEmpty);
     });

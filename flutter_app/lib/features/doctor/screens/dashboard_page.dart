@@ -10,6 +10,7 @@ import '../../../shared/format.dart';
 import '../../../shared/widgets/ui_kit.dart';
 import '../../auth/auth_notifier.dart';
 import '../research/charts.dart';
+import '../state/request_seq.dart';
 
 // 醫師儀表板（2026-08-22 依 design-taste-frontend 重排）。
 // 版面決策（對照重排前的截圖問題）：
@@ -34,7 +35,7 @@ class DashboardPage extends ConsumerStatefulWidget {
 class _DashboardPageState extends ConsumerState<DashboardPage> {
   MonthlySummary? _summary;
   bool _loading = true;
-  int _request = 0;
+  final _seq = RequestSeq();
   late DateTime _selected; // first-of-month anchor
 
   String get _month => monthKey(_selected);
@@ -65,18 +66,18 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
 
   Future<void> _load() async {
     if (!mounted) return;
-    final request = ++_request;
+    final request = _seq.next();
     setState(() => _loading = true);
     try {
       final s = await DashboardApi().getMonthlySummary(_month);
-      if (mounted && request == _request) {
+      if (mounted && !_seq.isStale(request)) {
         setState(() {
           _summary = s;
           _loading = false;
         });
       }
     } catch (_) {
-      if (mounted && request == _request) setState(() => _loading = false);
+      if (mounted && !_seq.isStale(request)) setState(() => _loading = false);
     }
   }
 

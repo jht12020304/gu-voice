@@ -117,7 +117,7 @@ class _PatientHomePageState extends ConsumerState<PatientHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(t('common.patient.home.startEyebrow').toUpperCase(),
-                style: TextStyle(color: Colors.white70, letterSpacing: 1.2, fontSize: 12)),
+                style: const TextStyle(color: Colors.white70, letterSpacing: 1.2, fontSize: 12)),
             const SizedBox(height: 8),
             Text(t('common.patient.home.startTitle'),
                 style: theme.textTheme.titleLarge?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),

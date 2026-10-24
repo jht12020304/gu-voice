@@ -20,7 +20,7 @@ WilsonCi wilsonCi(int numerator, int denominator) {
   final x = numerator.clamp(0, denominator);
   final n = denominator.toDouble();
   final p = x / n;
-  final z2 = _z * _z;
+  const z2 = _z * _z;
   final denom = 1 + z2 / n;
   final center = (p + z2 / (2 * n)) / denom;
   final margin = (_z / denom) * sqrt(p * (1 - p) / n + z2 / (4 * n * n));

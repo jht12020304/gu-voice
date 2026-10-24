@@ -52,37 +52,6 @@
     "redFlagSession": "Red-Flag Session",
     "redFlagLoadFailedBadge": "⚠ Failed to load red-flag status"
   },
-  "metaCard": {
-    "patient": "Patient",
-    "complaint": "Chief Complaint",
-    "sessionStatus": "Session Status",
-    "report": "Report",
-    "createdHelper": "Session created {{date}}",
-    "completedAt": "Completed at {{date}}",
-    "startedAt": "Started at {{date}}",
-    "noTimeInfo": "Time information not available yet",
-    "notGeneratedTime": "Not generated yet",
-    "reviewStatusHelper": "Review status: {{status}}",
-    "awaitingReview": "Awaiting physician review"
-  },
-  "highlights": {
-    "positive": {
-      "title": "Key Positive Findings",
-      "empty": "No clear positive findings identified yet."
-    },
-    "negative": {
-      "title": "Key Negative Findings",
-      "empty": "No clear negative findings identified yet."
-    },
-    "riskFactors": {
-      "title": "Risk Factors",
-      "empty": "No significant risk factors identified."
-    },
-    "impression": {
-      "title": "Preliminary Impression",
-      "empty": "No clear impression identified yet."
-    }
-  },
   "diagnosis": {
     "title": "Diagnosis Codes",
     "empty": "No ICD-10 codes yet.",

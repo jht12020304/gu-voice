@@ -111,23 +111,23 @@ void main() {
 
   group('推播落點', () {
     test('report_ready 導到快速開單頁，不是完整報告頁', () {
-      final n = AppNotification(
+      const n = AppNotification(
         id: 'n-1',
         type: 'report_ready',
         title: '',
         createdAt: '',
-        data: const {'sessionId': _sessionId, 'reportId': _reportId},
+        data: {'sessionId': _sessionId, 'reportId': _reportId},
       );
       expect(n.route(), '/orders/$_sessionId');
     });
 
     test('session_complete 仍落在場次詳情（那時報告還沒生成）', () {
-      final n = AppNotification(
+      const n = AppNotification(
         id: 'n-2',
         type: 'session_complete',
         title: '',
         createdAt: '',
-        data: const {'sessionId': _sessionId},
+        data: {'sessionId': _sessionId},
       );
       expect(n.route(), '/sessions/$_sessionId');
     });

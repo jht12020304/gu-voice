@@ -6,6 +6,7 @@ import '../../../core/i18n/loc.dart';
 import '../../../data/api/alerts_api.dart';
 import '../../../data/models/alert.dart';
 import '../services/dashboard_ws.dart';
+import 'request_seq.dart';
 
 class AlertsState {
   final List<RedFlagAlert> alerts;
@@ -67,8 +68,8 @@ const _wsEvents = ['new_red_flag', 'red_flag_acknowledged', 'initial_state', 'st
 
 class AlertsController extends Notifier<AlertsState> {
   final _api = AlertsApi();
-  int _listRequest = 0;
-  int _countRequest = 0;
+  final _list = RequestSeq();
+  final _count = RequestSeq();
 
   bool? _ackParam(String filter) => switch (filter) {
     'unacknowledged' => false,
@@ -78,20 +79,13 @@ class AlertsController extends Notifier<AlertsState> {
 
   @override
   AlertsState build() {
-    ++_listRequest;
-    ++_countRequest;
+    _list.next();
+    _count.next();
     final lifecycle = ref;
     final ws = ref.watch(dashboardWsProvider);
     if (ws == null) return const AlertsState(hasMore: false);
     ws.ensureConnected();
-    for (final e in _wsEvents) {
-      ws.on(e, _onEvent);
-    }
-    ref.onDispose(() {
-      for (final e in _wsEvents) {
-        ws.off(e, _onEvent);
-      }
-    });
+    bindWsEvents(ref, ws, _wsEvents, _onEvent);
     Future.microtask(() async {
       if (!lifecycle.mounted || ws.isDisposed) return;
       await fetchAlerts();
@@ -106,10 +100,10 @@ class AlertsController extends Notifier<AlertsState> {
     final ws = ref.read(dashboardWsProvider);
     if (ws == null || ws.isDisposed) return;
     state = state.copyWith(isLoading: true, clearError: true, clearCursor: true);
-    final request = ++_listRequest;
+    final request = _list.next();
     try {
       final page = await _api.list(acknowledged: _ackParam(state.filter));
-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(
         alerts: page.data,
         cursor: page.nextCursor,
@@ -119,7 +113,7 @@ class AlertsController extends Notifier<AlertsState> {
         isLoading: false,
       );
     } catch (_) {
-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
     }
   }
@@ -130,10 +124,10 @@ class AlertsController extends Notifier<AlertsState> {
     if (ws == null || ws.isDisposed) return;
     if (!state.hasMore || state.isLoading || state.cursor == null) return;
     state = state.copyWith(isLoading: true);
-    final request = ++_listRequest;
+    final request = _list.next();
     try {
       final page = await _api.list(cursor: state.cursor, acknowledged: _ackParam(state.filter));
-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(
         alerts: [...state.alerts, ...page.data],
         cursor: page.nextCursor,
@@ -142,7 +136,7 @@ class AlertsController extends Notifier<AlertsState> {
         isLoading: false,
       );
     } catch (_) {
-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
     }
   }
@@ -216,10 +210,10 @@ class AlertsController extends Notifier<AlertsState> {
     final lifecycle = ref;
     final ws = ref.read(dashboardWsProvider);
     if (ws == null || ws.isDisposed) return;
-    final request = ++_countRequest;
+    final request = _count.next();
     try {
       final count = await _api.unacknowledgedCount();
-      if (!lifecycle.mounted || ws.isDisposed || request != _countRequest) return;
+      if (!lifecycle.mounted || ws.isDisposed || _count.isStale(request)) return;
       state = state.copyWith(unacknowledgedCount: count);
     } catch (_) {
       /* silent */

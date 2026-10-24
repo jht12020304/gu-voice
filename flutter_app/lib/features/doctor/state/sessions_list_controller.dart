@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/api/sessions_api.dart';
 import '../../../data/models/session.dart';
 import '../services/dashboard_ws.dart';
+import 'request_seq.dart';
 
 // These dashboard events mean "something changed, refetch over HTTP" — the payloads are
 // NOT merged into the list.
@@ -31,13 +32,13 @@ class SessionsListState {
 class SessionsListController extends Notifier<SessionsListState> {
   final _api = SessionsApi();
   Timer? _refreshTimer;
-  int _request = 0;
+  final _seq = RequestSeq();
   int _inFlight = 0;
   bool _pending = false;
 
   @override
   SessionsListState build() {
-    ++_request;
+    _seq.next();
     _refreshTimer?.cancel();
     _refreshTimer = null;
     _inFlight = 0;
@@ -46,16 +47,9 @@ class SessionsListController extends Notifier<SessionsListState> {
     final ws = ref.watch(dashboardWsProvider);
     if (ws == null) return const SessionsListState(isLoading: false);
     ws.ensureConnected();
+    ref.onDispose(() => _refreshTimer?.cancel());
     // Register once (ref-stable); the handler always calls the freshest reload().
-    for (final e in _reloadEvents) {
-      ws.on(e, _onEvent);
-    }
-    ref.onDispose(() {
-      _refreshTimer?.cancel();
-      for (final e in _reloadEvents) {
-        ws.off(e, _onEvent);
-      }
-    });
+    bindWsEvents(ref, ws, _reloadEvents, _onEvent);
     Future.microtask(() async {
       if (lifecycle.mounted && !ws.isDisposed) await reload();
     });
@@ -74,15 +68,15 @@ class SessionsListController extends Notifier<SessionsListState> {
     final lifecycle = ref;
     final ws = ref.read(dashboardWsProvider);
     if (ws == null || ws.isDisposed) return;
-    final request = ++_request;
+    final request = _seq.next();
     ++_inFlight;
     _pending = false;
     try {
       final data = await _api.getSessions(limit: 50);
-      if (!lifecycle.mounted || ws.isDisposed || request != _request) return;
+      if (!lifecycle.mounted || ws.isDisposed || _seq.isStale(request)) return;
       state = state.copyWith(sessions: data, isLoading: false, hasError: false);
     } catch (_) {
-      if (!lifecycle.mounted || ws.isDisposed || request != _request) return;
+      if (!lifecycle.mounted || ws.isDisposed || _seq.isStale(request)) return;
       // A failed background reload must NOT wipe an already-loaded list.
       state = state.copyWith(isLoading: false, hasError: true);
     } finally {

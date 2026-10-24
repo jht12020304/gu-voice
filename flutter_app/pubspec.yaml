@@ -31,15 +31,12 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
   dio: ^5.10.0
   go_router: ^17.3.0
   flutter_riverpod: ^3.3.2
   flutter_secure_storage: ^10.3.1
   google_fonts: ^8.2.0
-  intl: any
+  intl: ^0.20.2
   flutter_localizations:
     sdk: flutter
   # web-only：讓路由走真實 path 而不是 # fragment（見 lib/core/router/url_strategy*.dart）。
@@ -49,16 +46,14 @@ dependencies:
   record: ^6.2.1
   just_audio: ^0.10.6
   audio_session: ^0.2.4
-  permission_handler: ^12.0.3
   web_socket_channel: ^3.0.3
   uuid: ^4.6.0
   share_plus: ^13.3.0
-  path_provider: ^2.1.6
   fl_chart: ^1.2.0
   # web-only：SOAP PDF 在瀏覽器走 anchor download（見 lib/shared/pdf_download_web.dart）。
   # 桌面瀏覽器多不支援 navigator.share(files)，share_plus 那條路會直接拋。
   web: ^1.1.1
-  # iOS 醫師 App 的推播。Dart 端只在 isDoctorOnlyPlatform 才碰得到（見
+  # iOS 醫師 App 的推播。Dart 端只在 dart.library.io 分支（push_backend_firebase.dart） 才碰得到（見
   # lib/features/doctor/services/push_backend.dart 的 conditional import）；
   # web build 完全不匯入 Firebase 程式碼。
   firebase_core: ^4.13.0

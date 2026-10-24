@@ -164,7 +164,31 @@ doctor／臨床 admin 也只讀自己被指派的病患資料。system admin 仍
   - `kiosk_idle_logout_test.dart` — 真等逾時驗病患被登出＋token 清除
   - `patient_text_flow_test.dart` — **病患全流程（文字代替語音）**，打真後端＋真 OpenAI，見上方「已驗過的」
   - `demo_walkthrough_test.dart` — **不是測試，是產品介紹影片的驅動腳本**（見下方「介紹影片」）
+  - `doctor_walkthrough_test.dart` — **醫師端走查**：登入 → sessions 列表 → session detail（「指派給我」認領種子場次）
+    → dashboard 統計非零 → alerts 看紅旗／acknowledge → reports 開 SOAP 報告驗 S/O/A/P 與逐字稿分頁。
+    打真後端的**既有種子資料**（只讀，不觸發 OpenAI）；斷言用資料特徵（「血尿」、aborted_red_flag、critical），不寫死 id，可重跑。
+    需 `--dart-define=E2E_DOCTOR_EMAIL=… --dart-define=E2E_DOCTOR_PASSWORD=…`
+  - `doctor_dashboard_ws_test.dart` — **dashboard WS 即時性**：登入醫師停在 `/sessions`，印出
+    `L6_READY_FOR_EXTERNAL_TRIGGER marker=<E2E_L6_MARKER>` 後，由 host 端以病患帳號 `POST /sessions`
+    （`chiefComplaintText` 帶同一個 marker），斷言列表**不重進頁面**就出現新場次（走 `session_created` 推播 → `reload()`）。
+    兩段要分開跑（測試等外部觸發）；需 `E2E_DOCTOR_EMAIL` / `E2E_DOCTOR_PASSWORD` / `E2E_L6_MARKER`（唯一字串，例如帶時間戳）
+  - `lng_deep_link_test.dart` — **五語 deep link**：同一個 App 實例依序 `.go('/$lng/login')`，驗登入頁關鍵文字確實切成該語言
+    （釘「URL 是語言唯一權威、新路由要包 `_lngKeyed()`」這條鐵律）。不需要真後端、不需要憑證
 - 憑證一律只從 `--dart-define` 讀，沒給就 skip。
+- 跑單支（iOS simulator，先 `xcrun simctl list devices booted` 拿 `<simulator>` 名稱或 UDID；`API_BASE`／`WS_BASE`
+  依「跑法」一節帶 path 後綴）：
+
+  ```bash
+  fvm flutter test integration_test/doctor_walkthrough_test.dart -d <simulator> \
+    --dart-define=API_BASE=http://127.0.0.1:8000/api/v1 --dart-define=WS_BASE=ws://127.0.0.1:8000/api/v1/ws \
+    --dart-define=E2E_DOCTOR_EMAIL=… --dart-define=E2E_DOCTOR_PASSWORD=…
+  fvm flutter test integration_test/doctor_dashboard_ws_test.dart -d <simulator> \
+    --dart-define=API_BASE=… --dart-define=WS_BASE=… \
+    --dart-define=E2E_DOCTOR_EMAIL=… --dart-define=E2E_DOCTOR_PASSWORD=… --dart-define=E2E_L6_MARKER=L6WS$(date +%s)
+  fvm flutter test integration_test/lng_deep_link_test.dart -d <simulator>
+  ```
+
+  各檔檔頭另有 `flutter drive … -d web-server` 的 Chrome 跑法（Flutter Web 預覽用）。
 
 ## 介紹影片（自動產生，2026-09-09）
 

@@ -74,8 +74,6 @@ PODS:
     - nanopb/encode (= 3.30910.0)
   - nanopb/decode (3.30910.0)
   - nanopb/encode (3.30910.0)
-  - permission_handler_apple (9.4.8):
-    - Flutter
   - PromisesObjC (2.4.1)
   - record_ios (1.2.1):
     - Flutter
@@ -90,7 +88,6 @@ DEPENDENCIES:
   - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
   - integration_test (from `.symlinks/plugins/integration_test/ios`)
   - just_audio (from `.symlinks/plugins/just_audio/darwin`)
-  - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
   - record_ios (from `.symlinks/plugins/record_ios/ios`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
 
@@ -121,8 +118,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/integration_test/ios"
   just_audio:
     :path: ".symlinks/plugins/just_audio/darwin"
-  permission_handler_apple:
-    :path: ".symlinks/plugins/permission_handler_apple/ios"
   record_ios:
     :path: ".symlinks/plugins/record_ios/ios"
   share_plus:
@@ -144,7 +139,6 @@ SPEC CHECKSUMS:
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
   just_audio: 4e391f57b79cad2b0674030a00453ca5ce817eed
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
-  permission_handler_apple: 92d754bbaa7361d436db2d6c3c1c2a0fdcec462e
   PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
   record_ios: 980fd386a97a35987d0fce3dfda4b26a38c90f4c
   share_plus: 50da8cb520a8f0f65671c6c6a99b3617ed10a58a

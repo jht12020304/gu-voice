@@ -126,7 +126,7 @@ class DailyTrendCard extends StatelessWidget {
                       width: (days.length * 22).clamp(300, 5000).toDouble(),
                       child: BarChart(BarChartData(
                         maxY: maxV.toDouble(),
-                        barTouchData: BarTouchData(enabled: true),
+                        barTouchData: const BarTouchData(enabled: true),
                         gridData: const FlGridData(show: false),
                         borderData: FlBorderData(show: false),
                         titlesData: FlTitlesData(

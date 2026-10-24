@@ -61,19 +61,6 @@
       "switchFailed": "Could not switch. Your consultation is still in progress. Please try again, or let the staff here know."
     }
   },
-  "status": {
-    "waiting": "Waiting",
-    "in_progress": "In progress",
-    "completed": "Completed",
-    "aborted_red_flag": "Red-flag aborted",
-    "cancelled": "Cancelled",
-    "unknown": "Session status unavailable"
-  },
-  "severity": {
-    "critical": "Critical",
-    "high": "High",
-    "medium": "Medium"
-  },
   "gender": {
     "male": "Male",
     "female": "Female",
@@ -290,11 +277,5 @@
     "loadMore": "Load more",
     "loadingMore": "Loading more...",
     "allLoaded": "All items shown"
-  },
-  "patientUnsupported": {
-    "title": "For clinical staff only",
-    "message": "This app lets doctors and clinical staff review consultation reports and notifications. It does not provide voice intake.",
-    "kioskHint": "To complete a consultation, please use the voice intake kiosk in the waiting area. On-site staff can assist you.",
-    "logoutAction": "Log out and switch account"
   }
 }

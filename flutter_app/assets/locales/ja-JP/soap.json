@@ -52,37 +52,6 @@
     "redFlagSession": "レッドフラグ・セッション",
     "redFlagLoadFailedBadge": "⚠ レッドフラグ状態の読み込みに失敗"
   },
-  "metaCard": {
-    "patient": "患者",
-    "complaint": "主訴",
-    "sessionStatus": "セッション状態",
-    "report": "レポート",
-    "createdHelper": "セッション作成日 {{date}}",
-    "completedAt": "{{date}} に完了",
-    "startedAt": "{{date}} に開始",
-    "noTimeInfo": "時間情報はまだありません",
-    "notGeneratedTime": "生成時刻未定",
-    "reviewStatusHelper": "審査状態：{{status}}",
-    "awaitingReview": "医師の審査待ち"
-  },
-  "highlights": {
-    "positive": {
-      "title": "重要な陽性所見",
-      "empty": "明確な陽性症状は整理されていません。"
-    },
-    "negative": {
-      "title": "重要な陰性所見",
-      "empty": "明確な陰性症状は整理されていません。"
-    },
-    "riskFactors": {
-      "title": "リスク因子",
-      "empty": "明らかなリスク因子はありません。"
-    },
-    "impression": {
-      "title": "初期所見",
-      "empty": "明確な所見は整理されていません。"
-    }
-  },
   "diagnosis": {
     "title": "診断コード",
     "empty": "ICD-10コードはまだありません。",

@@ -27,11 +27,7 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(() {
-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) {
-        ref.read(alertsProvider.notifier).fetchMore();
-      }
-    });
+    _scroll.onNearEnd(() => ref.read(alertsProvider.notifier).fetchMore());
   }
 
   @override
@@ -130,22 +126,10 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
       'unacknowledged': 'dashboard.alertList.filters.unacknowledged',
       'acknowledged': 'dashboard.alertList.filters.acknowledged',
     };
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          for (final e in filters.entries)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                selected: filter == e.key,
-                label: Text(t(e.value)),
-                onSelected: (_) => ref.read(alertsProvider.notifier).setFilter(e.key),
-              ),
-            ),
-        ],
-      ),
+    return FilterChipBar<String>(
+      options: {for (final e in filters.entries) e.key: t(e.value)},
+      selected: filter,
+      onSelected: ref.read(alertsProvider.notifier).setFilter,
     );
   }
 
@@ -165,29 +149,22 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
         message: t('dashboard.alertList.emptyMessage'),
       );
     }
-    final items = <Object>[
-      for (final g in groups) ...[
-        GroupHeader('${g.key}  ·  ${t('dashboard.alertList.groupCount', args: {'count': g.value.length})}'),
-        ...g.value,
-      ],
-      // 分頁尾端小 spinner：非首次載入，保留轉圈（不佔整區）。
-      if (st.isLoading)
-        const Center(
-          child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
-        ),
-      if (!st.hasMore)
-        Center(
-          child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded'))),
-        ),
-    ];
-    return ListView.builder(
+    return GroupedListView<RedFlagAlert>(
       controller: _scroll,
-      padding: const EdgeInsets.all(16),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return item is Widget ? item : _card(context, item as RedFlagAlert);
-      },
+      groups: groups,
+      headerText: (key, count) => '$key  ·  ${t('dashboard.alertList.groupCount', args: {'count': count})}',
+      itemBuilder: _card,
+      trailing: [
+        // 分頁尾端小 spinner：非首次載入，保留轉圈（不佔整區）。
+        if (st.isLoading)
+          const Center(
+            child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
+          ),
+        if (!st.hasMore)
+          Center(
+            child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded'))),
+          ),
+      ],
     );
   }
 

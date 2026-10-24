@@ -275,7 +275,6 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
 
   @override
   Widget build(BuildContext context) {
-    final err = Theme.of(context).colorScheme.error;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -295,137 +294,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _card(
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    t('intake.medicalInfo.patient.title'),
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    key: ValueKey('${_doctors.length}:$_doctorId'),
-                    initialValue: _doctorId,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      labelText: t('intake.medicalInfo.patient.doctorLabel'),
-                      helperText: t(
-                        _doctorLoadFailed
-                            ? 'intake.medicalInfo.patient.doctorLoadFailed'
-                            : 'intake.medicalInfo.patient.doctorHint',
-                      ),
-                      errorText:
-                          _showErrors && !_doctorLoadFailed && _doctorId == null
-                          ? t('intake.medicalInfo.patient.doctorError')
-                          : null,
-                      suffixIcon: _loadingDoctors
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : null,
-                    ),
-                    hint: Text(
-                      t('intake.medicalInfo.patient.doctorPlaceholder'),
-                    ),
-                    items: [
-                      for (final doctor in _doctors)
-                        DropdownMenuItem(
-                          value: doctor.id,
-                          child: Text(
-                            [
-                              doctor.name,
-                              if (doctor.department?.isNotEmpty == true)
-                                doctor.department!,
-                            ].join(' · '),
-                          ),
-                        ),
-                    ],
-                    onChanged: _loadingDoctors
-                        ? null
-                        : (value) => setState(() => _doctorId = value),
-                  ),
-                  if (_doctorLoadFailed)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        onPressed: _loadDoctors,
-                        icon: const Icon(Icons.refresh),
-                        label: Text(t('common.retry')),
-                      ),
-                    ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _nameCtrl,
-                    maxLength: 100,
-                    onChanged: (_) { if (_showErrors) setState(() {}); },
-                    decoration: InputDecoration(
-                      labelText: t('intake.medicalInfo.patient.nameLabel'),
-                      errorText: _showErrors && _nameCtrl.text.trim().isEmpty
-                          ? t('intake.medicalInfo.patient.nameError')
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(t('intake.medicalInfo.patient.genderLabel')),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final g in const ['male', 'female', 'other'])
-                        ChoiceChip(
-                          selected: _gender == g,
-                          label: Text(
-                            t(
-                              'intake.medicalInfo.patient.gender${g[0].toUpperCase()}${g.substring(1)}',
-                            ),
-                          ),
-                          onSelected: (_) => setState(() => _gender = g),
-                        ),
-                    ],
-                  ),
-                  if (_showErrors && _gender == null)
-                    Text(
-                      t('intake.medicalInfo.patient.genderError'),
-                      style: TextStyle(color: err),
-                    ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.calendar_today),
-                    label: Text(
-                      _dob == null
-                          ? t('intake.medicalInfo.patient.dobLabel')
-                          : isoDate(_dob!),
-                    ),
-                    onPressed: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        firstDate: DateTime(1900),
-                        lastDate: DateTime.now(),
-                        initialDate: DateTime(1980),
-                      );
-                      if (picked != null) setState(() => _dob = picked);
-                    },
-                  ),
-                  if (_showErrors && _dob == null)
-                    Text(
-                      t('intake.medicalInfo.patient.dobError'),
-                      style: TextStyle(color: err),
-                    ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _phoneCtrl,
-                    maxLength: 20,
-                    keyboardType: TextInputType.phone,
-                    decoration: InputDecoration(
-                      labelText: t('intake.medicalInfo.patient.phoneLabel'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _card(_patientSection(context)),
             _card(_allergySection(context)),
             _card(_medicationSection(context)),
             _card(_historySection(context)),
@@ -449,6 +318,139 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
           ],
         ),
       ),
+    );
+  }
+
+  /// 病患基本資料 + 看診醫師（與下面四段 intake 同一個 _card 包法）。
+  Widget _patientSection(BuildContext context) {
+    final err = Theme.of(context).colorScheme.error;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          t('intake.medicalInfo.patient.title'),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          key: ValueKey('${_doctors.length}:$_doctorId'),
+          initialValue: _doctorId,
+          isExpanded: true,
+          decoration: InputDecoration(
+            labelText: t('intake.medicalInfo.patient.doctorLabel'),
+            helperText: t(
+              _doctorLoadFailed
+                  ? 'intake.medicalInfo.patient.doctorLoadFailed'
+                  : 'intake.medicalInfo.patient.doctorHint',
+            ),
+            errorText: _showErrors && !_doctorLoadFailed && _doctorId == null
+                ? t('intake.medicalInfo.patient.doctorError')
+                : null,
+            suffixIcon: _loadingDoctors
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : null,
+          ),
+          hint: Text(t('intake.medicalInfo.patient.doctorPlaceholder')),
+          items: [
+            for (final doctor in _doctors)
+              DropdownMenuItem(
+                value: doctor.id,
+                child: Text(
+                  [
+                    doctor.name,
+                    if (doctor.department?.isNotEmpty == true)
+                      doctor.department!,
+                  ].join(' · '),
+                ),
+              ),
+          ],
+          onChanged: _loadingDoctors
+              ? null
+              : (value) => setState(() => _doctorId = value),
+        ),
+        if (_doctorLoadFailed)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _loadDoctors,
+              icon: const Icon(Icons.refresh),
+              label: Text(t('common.retry')),
+            ),
+          ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _nameCtrl,
+          maxLength: 100,
+          onChanged: (_) {
+            if (_showErrors) setState(() {});
+          },
+          decoration: InputDecoration(
+            labelText: t('intake.medicalInfo.patient.nameLabel'),
+            errorText: _showErrors && _nameCtrl.text.trim().isEmpty
+                ? t('intake.medicalInfo.patient.nameError')
+                : null,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(t('intake.medicalInfo.patient.genderLabel')),
+        Wrap(
+          spacing: 8,
+          children: [
+            for (final g in const ['male', 'female', 'other'])
+              ChoiceChip(
+                selected: _gender == g,
+                label: Text(
+                  t(
+                    'intake.medicalInfo.patient.gender${g[0].toUpperCase()}${g.substring(1)}',
+                  ),
+                ),
+                onSelected: (_) => setState(() => _gender = g),
+              ),
+          ],
+        ),
+        if (_showErrors && _gender == null)
+          Text(
+            t('intake.medicalInfo.patient.genderError'),
+            style: TextStyle(color: err),
+          ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.calendar_today),
+          label: Text(
+            _dob == null
+                ? t('intake.medicalInfo.patient.dobLabel')
+                : isoDate(_dob!),
+          ),
+          onPressed: () async {
+            final picked = await showDatePicker(
+              context: context,
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+              initialDate: DateTime(1980),
+            );
+            if (picked != null) setState(() => _dob = picked);
+          },
+        ),
+        if (_showErrors && _dob == null)
+          Text(
+            t('intake.medicalInfo.patient.dobError'),
+            style: TextStyle(color: err),
+          ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _phoneCtrl,
+          maxLength: 20,
+          keyboardType: TextInputType.phone,
+          decoration: InputDecoration(
+            labelText: t('intake.medicalInfo.patient.phoneLabel'),
+          ),
+        ),
+      ],
     );
   }
 
@@ -515,7 +517,9 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                   child: TextField(
                     controller: _allergies[i].ctrl,
                     maxLength: 100,
-                    onChanged: (_) { if (_showErrors) setState(() {}); },
+                    onChanged: (_) {
+                      if (_showErrors) setState(() {});
+                    },
                     decoration: InputDecoration(
                       labelText: t('intake.medicalInfo.allergy.placeholder'),
                       counterText: '',
@@ -539,7 +543,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: () => setState(() => _allergies.removeAt(i).ctrl.dispose()),
+                  onPressed: () =>
+                      setState(() => _allergies.removeAt(i).ctrl.dispose()),
                 ),
               ],
             ),
@@ -598,7 +603,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: () => setState(() => _medications.removeAt(i).ctrl.dispose()),
+                  onPressed: () =>
+                      setState(() => _medications.removeAt(i).ctrl.dispose()),
                 ),
               ],
             ),
@@ -693,7 +699,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: () => setState(() => _families.removeAt(i).ctrl.dispose()),
+                  onPressed: () =>
+                      setState(() => _families.removeAt(i).ctrl.dispose()),
                 ),
               ],
             ),
@@ -741,7 +748,9 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                   child: TextField(
                     controller: _histories[i].ctrl,
                     maxLength: 100,
-                    onChanged: (_) { if (_showErrors) setState(() {}); },
+                    onChanged: (_) {
+                      if (_showErrors) setState(() {});
+                    },
                     decoration: InputDecoration(
                       labelText: t('intake.medicalInfo.history.placeholder'),
                       counterText: '',
@@ -775,7 +784,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: () => setState(() => _histories.removeAt(i).ctrl.dispose()),
+                  onPressed: () =>
+                      setState(() => _histories.removeAt(i).ctrl.dispose()),
                 ),
               ],
             ),

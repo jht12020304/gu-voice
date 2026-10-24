@@ -38,8 +38,14 @@ class _DoctorPushWatcherState extends ConsumerState<DoctorPushWatcher> {
     super.initState();
     // 冷啟動時使用者早就在 state 裡了（main() 先 bootstrap 才 runApp），ref.listen
     // 不會補一次舊值，所以第一幀後主動同步一次。
+    //
+    // 再多等 1.5 s（比照 main.dart 的 `warmRemaining`）：Firebase.initializeApp +
+    // 權限詢問如果緊貼第一幀起跑，會跟醫師的第一下點擊搶同一段主執行緒；推播註冊
+    // 晚一秒半沒人察覺。登入後才變成醫護的情況仍由 build 裡的 ref.listen 立刻同步。
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _sync(ref.read(authProvider).user);
+      unawaited(Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) _sync(ref.read(authProvider).user);
+      }));
     });
   }
 

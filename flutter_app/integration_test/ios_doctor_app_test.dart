@@ -11,7 +11,7 @@
 //
 // ── 三個 test ────────────────────────────────────────────────────────────
 //  A. doctor landing        — 醫師登入後停在 /notifications（不是 /dashboard）
-//  B. patient unsupported   — 病患帳號登入後停在 /patient-unsupported，按登出回登入頁
+//  B. patient landing       — 病患帳號登入後落在 /patient（平台閘門已拆），按登出回登入頁
 //  C. notifications live    — 醫師停在通知頁不動，後端建立一筆新通知並廣播 dashboard WS
 //                             事件，列表要在數秒內自己長出那筆（不重進頁面、不下拉重整）
 //

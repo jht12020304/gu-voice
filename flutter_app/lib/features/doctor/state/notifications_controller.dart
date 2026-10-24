@@ -7,6 +7,7 @@ import '../../../core/i18n/loc.dart';
 import '../../../data/api/notifications_api.dart';
 import '../../../data/models/notification.dart';
 import '../services/dashboard_ws.dart';
+import 'request_seq.dart';
 
 class NotifState {
   final List<AppNotification> notifications;
@@ -76,8 +77,8 @@ class NotificationsController extends Notifier<NotifState> {
   final NotificationsApi _api;
   final Duration _refreshDebounce;
   Timer? _refreshTimer;
-  int _listRequest = 0;
-  int _countRequest = 0;
+  final _list = RequestSeq();
+  final _count = RequestSeq();
   // build() already fetches, so the first initial_state (WS just connected) is redundant.
   bool _skipNextInitialState = true;
 
@@ -88,16 +89,11 @@ class NotificationsController extends Notifier<NotifState> {
     _skipNextInitialState = true;
     if (ws == null) return const NotifState(hasMore: false);
     ws.ensureConnected();
-    for (final e in _wsEvents) {
-      ws.on(e, _onEvent);
-    }
     ref.onDispose(() {
       _refreshTimer?.cancel();
       _refreshTimer = null;
-      for (final e in _wsEvents) {
-        ws.off(e, _onEvent);
-      }
     });
+    bindWsEvents(ref, ws, _wsEvents, _onEvent);
     // Concurrent, not sequential. These are two independent endpoints writing disjoint
     // fields of the same state, and on iOS this is the landing screen — chaining them
     // put a second full round trip to Railway between the doctor and their inbox for
@@ -115,11 +111,11 @@ class NotificationsController extends Notifier<NotifState> {
     final lifecycle = ref;
     final ws = ref.read(dashboardWsProvider);
     if (ws == null || ws.isDisposed) return;
-    final request = ++_listRequest;
+    final request = _list.next();
     state = state.copyWith(isLoading: true, clearError: true, clearCursor: true);
     try {
       final page = await _api.list();
-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(
         notifications: page.data,
         cursor: page.nextCursor,
@@ -127,7 +123,7 @@ class NotificationsController extends Notifier<NotifState> {
         isLoading: false,
       );
     } catch (_) {
-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
     }
   }
@@ -137,11 +133,11 @@ class NotificationsController extends Notifier<NotifState> {
     final ws = ref.read(dashboardWsProvider);
     if (ws == null || ws.isDisposed) return;
     if (!state.hasMore || state.isLoading || state.cursor == null) return;
-    final request = _listRequest;
+    final request = _list.current;
     state = state.copyWith(isLoading: true);
     try {
       final page = await _api.list(cursor: state.cursor);
-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(
         notifications: [...state.notifications, ...page.data],
         cursor: page.nextCursor,
@@ -149,7 +145,7 @@ class NotificationsController extends Notifier<NotifState> {
         isLoading: false,
       );
     } catch (_) {
-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
     }
   }
@@ -193,10 +189,10 @@ class NotificationsController extends Notifier<NotifState> {
     final lifecycle = ref;
     final ws = ref.read(dashboardWsProvider);
     if (ws == null || ws.isDisposed) return;
-    final request = ++_countRequest;
+    final request = _count.next();
     try {
       final count = await _api.unreadCount();
-      if (!lifecycle.mounted || ws.isDisposed || request != _countRequest) return;
+      if (!lifecycle.mounted || ws.isDisposed || _count.isStale(request)) return;
       state = state.copyWith(unreadCount: count);
     } catch (_) {/* silent */}
   }

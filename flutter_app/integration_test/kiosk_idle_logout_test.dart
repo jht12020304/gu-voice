@@ -36,7 +36,7 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('an idle patient is logged out; the app does not crash', (tester) async {
-    final window = Env.kioskIdleTimeoutSeconds;
+    const window = Env.kioskIdleTimeoutSeconds;
     if (_email.isEmpty || _password.isEmpty) {
       markTestSkipped('未提供 E2E_PATIENT_EMAIL / E2E_PATIENT_PASSWORD，跳過');
       return;
@@ -79,7 +79,7 @@ void main() {
     // `tester.pump()` alone is not enough — the guard uses a real `Timer`, which only
     // fires on the real event loop, and that requires `runAsync`.
     await tester.runAsync(() async {
-      await Future<void>.delayed(Duration(seconds: window + 4));
+      await Future<void>.delayed(const Duration(seconds: window + 4));
     });
     await tester.pumpAndSettle();
 

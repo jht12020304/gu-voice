@@ -34,9 +34,7 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(() {
-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) _fetchMore();
-    });
+    _scroll.onNearEnd(_fetchMore);
     Future.microtask(() => _fetch(reset: true));
   }
 

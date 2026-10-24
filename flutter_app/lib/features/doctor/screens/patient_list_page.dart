@@ -10,6 +10,7 @@ import '../../../data/models/patient.dart';
 import '../../../shared/format.dart';
 import '../../../shared/widgets/ui_kit.dart';
 import '../../../shared/widgets/dashboard_back_button.dart';
+import '../state/request_seq.dart';
 
 // Port of PatientListPage.tsx: month-scoped, cursor-paginated, date-grouped patient list
 // with debounced search + infinite scroll. ponytail: responsive table/card split reduced
@@ -30,7 +31,7 @@ class _PatientListPageState extends State<PatientListPage> {
   String? _cursor;
   bool _hasMore = true;
   bool _loading = true;
-  int _request = 0;
+  final _seq = RequestSeq();
   int _totalCount = 0;
   String _search = '';
   late String _month;
@@ -40,9 +41,7 @@ class _PatientListPageState extends State<PatientListPage> {
     super.initState();
     final now = DateTime.now();
     _month = monthKey(now);
-    _scroll.addListener(() {
-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) _fetchMore();
-    });
+    _scroll.onNearEnd(_fetchMore);
     Future.microtask(() => _fetch(reset: true));
   }
 
@@ -63,7 +62,7 @@ class _PatientListPageState extends State<PatientListPage> {
 
   Future<void> _fetch({required bool reset}) async {
     if (!mounted) return;
-    final request = ++_request;
+    final request = _seq.next();
     setState(() => _loading = true);
     final (from, to) = _range(_month);
     try {
@@ -73,7 +72,7 @@ class _PatientListPageState extends State<PatientListPage> {
         createdFrom: from,
         createdTo: to,
       );
-      if (!mounted || request != _request) return;
+      if (!mounted || _seq.isStale(request)) return;
       setState(() {
         _patients = reset ? page.data : [..._patients, ...page.data];
         _cursor = page.nextCursor;
@@ -82,7 +81,7 @@ class _PatientListPageState extends State<PatientListPage> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted && request == _request) setState(() => _loading = false);
+      if (mounted && !_seq.isStale(request)) setState(() => _loading = false);
     }
   }
 
@@ -177,24 +176,17 @@ class _PatientListPageState extends State<PatientListPage> {
         message: t(_search.isEmpty ? 'common.patientList.emptyMonthMessage' : 'common.patientList.emptySearchMessage'),
       );
     }
-    final items = <Object>[
-      for (final g in groups) ...[
-        GroupHeader('${g.key}  ·  ${t('common.patientList.patientCount', args: {'count': g.value.length})}'),
-        ...g.value,
-      ],
-      if (_loading && _patients.isNotEmpty)
-        const Center(
-          child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
-        ),
-    ];
-    return ListView.builder(
+    return GroupedListView<Patient>(
       controller: _scroll,
-      padding: const EdgeInsets.all(16),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return item is Widget ? item : _row(context, item as Patient);
-      },
+      groups: groups,
+      headerText: (key, count) => '$key  ·  ${t('common.patientList.patientCount', args: {'count': count})}',
+      itemBuilder: _row,
+      trailing: [
+        if (_loading && _patients.isNotEmpty)
+          const Center(
+            child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
+          ),
+      ],
     );
   }
 

@@ -10,6 +10,7 @@ import '../../../data/models/soap_report.dart';
 import '../../../shared/format.dart';
 import '../../../shared/widgets/ui_kit.dart';
 import '../../../shared/widgets/dashboard_back_button.dart';
+import '../state/request_seq.dart';
 
 class _Meta {
   final String patientName;
@@ -39,7 +40,7 @@ class _ReportListPageState extends State<ReportListPage> {
   bool _hasMore = true;
   bool _loading = true;
   String? _error;
-  int _request = 0;
+  final _seq = RequestSeq();
   String _reviewFilter = '';
   String _search = '';
   String _lastLng = currentLng;
@@ -47,11 +48,7 @@ class _ReportListPageState extends State<ReportListPage> {
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(() {
-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) {
-        _fetchMore();
-      }
-    });
+    _scroll.onNearEnd(_fetchMore);
     Future.microtask(() {
       _fetchReports(reset: true);
     });
@@ -67,11 +64,11 @@ class _ReportListPageState extends State<ReportListPage> {
 
   Future<void> _fetchReports({required bool reset}) async {
     if (!mounted) return;
-    final request = ++_request;
+    final request = _seq.next();
     setState(() => _loading = true);
     try {
       final page = await _reportsApi.list(cursor: reset ? null : _cursor, reviewStatus: _filterParam);
-      if (!mounted || request != _request) return;
+      if (!mounted || _seq.isStale(request)) return;
       setState(() {
         final counts = page.reviewCounts;
         if (counts != null) {
@@ -90,7 +87,7 @@ class _ReportListPageState extends State<ReportListPage> {
       if (page.reviewCounts == null && _counts == null) _fetchSummary();
       _loadMeta();
     } catch (_) {
-      if (mounted && request == _request) setState(() { _loading = false; _error = t('session.doctor.detail.loadError'); });
+      if (mounted && !_seq.isStale(request)) setState(() { _loading = false; _error = t('session.doctor.detail.loadError'); });
     }
   }
 
@@ -303,24 +300,14 @@ class _ReportListPageState extends State<ReportListPage> {
       'approved': 'dashboard.reportList.tabs.approved',
       'revision_needed': 'dashboard.reportList.tabs.revisionNeeded',
     };
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final e in filters.entries)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                selected: _reviewFilter == e.key,
-                label: Text(t(e.value)),
-                onSelected: (_) {
-                  setState(() => _reviewFilter = e.key);
-                  _fetchReports(reset: true);
-                },
-              ),
-            ),
-        ],
-      ),
+    return FilterChipBar<String>(
+      options: {for (final e in filters.entries) e.key: t(e.value)},
+      selected: _reviewFilter,
+      padding: EdgeInsets.zero,
+      onSelected: (key) {
+        setState(() => _reviewFilter = key);
+        _fetchReports(reset: true);
+      },
     );
   }
 

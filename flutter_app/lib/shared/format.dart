@@ -28,13 +28,21 @@ String monthKey(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.t
 /// `yyyy-MM-dd`（不轉時區：給的是什麼日期就印什麼日期）。
 String isoDate(DateTime d) => '${monthKey(d)}-${d.day.toString().padLeft(2, '0')}';
 
-/// ISO 時間字串 → **裝置本地**日期 key（`yyyy-MM-dd`）。
-/// 給「依日期分組」用；裸 `substring(0, 10)` 是 UTC 切日，23:30 的本地事件會掉到前一天。
-String? localDayKey(String? iso) {
+/// ISO 時間字串 → **裝置本地**的那一天（當地 00:00 的 `DateTime`）。
+/// 本地日只有這一份實作：日曆的 `sessionLocalDay`／`bucketByLocalDay` 與分組清單的
+/// [localDayKey] 都從這裡派生。裸 `substring(0, 10)` 是 UTC 切日，23:30 的本地事件會掉到前一天。
+DateTime? localDay(String? iso) {
   if (iso == null) return null;
   final dt = DateTime.tryParse(iso);
   if (dt == null) return null;
-  return isoDate(dt.toLocal());
+  final local = dt.toLocal();
+  return DateTime(local.year, local.month, local.day);
+}
+
+/// [localDay] 的 `yyyy-MM-dd` 字串版——給「依日期分組」的 map key 用。
+String? localDayKey(String? iso) {
+  final day = localDay(iso);
+  return day == null ? null : isoDate(day);
 }
 
 int durationMinutes(int? seconds) => seconds == null ? 0 : (seconds / 60).round();

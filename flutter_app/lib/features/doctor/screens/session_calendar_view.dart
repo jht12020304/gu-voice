@@ -6,6 +6,7 @@ import '../../../core/i18n/loc.dart';
 import '../../../core/router/lng.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/sessions_api.dart';
+import '../state/request_seq.dart';
 import '../state/sessions_list_controller.dart';
 import '../../../data/models/session.dart';
 import '../../../shared/format.dart';
@@ -30,14 +31,7 @@ import '../../../shared/widgets/ui_kit.dart';
 /// `sessions.created_at`，錨點與篩選欄位一致，抓回來的區間才不會有一頭一尾
 /// 落在桶外（建立於 23:58、隔天 00:01 才開口說話的那種場次）。
 /// 顯示時間仍用 `startedAt ?? createdAt`——病患真正開始講話的時間才是醫師要的。
-DateTime? sessionLocalDay(Session s) {
-  final iso = s.createdAt ?? s.startedAt;
-  if (iso == null) return null;
-  final dt = DateTime.tryParse(iso);
-  if (dt == null) return null;
-  final local = dt.toLocal();
-  return DateTime(local.year, local.month, local.day);
-}
+DateTime? sessionLocalDay(Session s) => localDay(s.createdAt ?? s.startedAt);
 
 /// 場次在時間軸上的位置（顯示用）：開始講話的時間。
 DateTime? sessionLocalStart(Session s) {
@@ -210,8 +204,8 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
   Map<DateTime, List<Session>> _buckets = const {};
   Map<DateTime, DayLoad> _summaries = const {};
   final _monthCache = <DateTime, ({DateTime at, Map<DateTime, DayLoad> data})>{};
-  int _monthRequest = 0;
-  int _dayRequest = 0;
+  final _monthSeq = RequestSeq();
+  final _daySeq = RequestSeq();
   bool _dayLoading = false;
   bool _dayError = false;
   String? _cursor;
@@ -232,7 +226,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
 
   Future<void> _load({bool useCache = false}) async {
     if (!mounted) return;
-    final request = ++_monthRequest;
+    final request = _monthSeq.next();
     final month = _month;
     setState(() {
       _loading = true;
@@ -244,7 +238,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
       final cached = _monthCache[month];
       if (widget.fetchMonth != null) {
         final sessions = await widget.fetchMonth!(month);
-        if (!mounted || request != _monthRequest) return;
+        if (!mounted || _monthSeq.isStale(request)) return;
         _buckets = bucketByLocalDay(sessions);
         summaries = _buckets.map((day, rows) => MapEntry(day, DayLoad.of(rows)));
       } else if (useCache && cached != null && DateTime.now().difference(cached.at).inSeconds < 60) {
@@ -267,13 +261,13 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
         _monthCache[month] = (at: DateTime.now(), data: summaries);
         if (_monthCache.length > 12) _monthCache.remove(_monthCache.keys.first);
       }
-      if (!mounted || request != _monthRequest) return;
+      if (!mounted || _monthSeq.isStale(request)) return;
       setState(() {
         _summaries = summaries;
         _loading = false;
       });
     } catch (_) {
-      if (!mounted || request != _monthRequest) return;
+      if (!mounted || _monthSeq.isStale(request)) return;
       setState(() {
         _loading = false;
         _error = true;
@@ -283,7 +277,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
 
   Future<void> _loadDay({bool more = false}) async {
     if (widget.fetchMonth != null || (more && (_dayLoading || !_hasMore))) return;
-    final request = ++_dayRequest;
+    final request = _daySeq.next();
     final day = _selected;
     setState(() {
       _dayLoading = true;
@@ -303,7 +297,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
         sortBy: 'created_at',
         sortOrder: 'asc',
       );
-      if (!mounted || request != _dayRequest) return;
+      if (!mounted || _daySeq.isStale(request)) return;
       if (page.hasMore && (page.nextCursor == null || (more && page.nextCursor == _cursor))) {
         throw StateError('Pagination did not advance');
       }
@@ -317,7 +311,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
         _dayLoading = false;
       });
     } catch (_) {
-      if (!mounted || request != _dayRequest) return;
+      if (!mounted || _daySeq.isStale(request)) return;
       setState(() {
         _dayLoading = false;
         _dayError = true;
@@ -345,16 +339,6 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
   );
 
   static String _weekdayKey(DateTime day) => const ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][day.weekday - 1];
-
-  /// 秒 → 「1 小時 20 分」／「20 分」。null → `—`。
-  String _duration(int? seconds) {
-    if (seconds == null) return '—';
-    final minutes = (seconds / 60).round();
-    if (minutes < 60) {
-      return t('session.doctor.calendar.minutesShort', args: {'minutes': minutes});
-    }
-    return t('session.doctor.calendar.hoursMinutes', args: {'hours': minutes ~/ 60, 'minutes': minutes % 60});
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -431,7 +415,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
               Row(
                 children: [
                   for (var col = 0; col < 7; col++)
-                    Expanded(child: _dayCell(context, days[row * 7 + col], today: today)),
+                    Expanded(child: _cell(days[row * 7 + col], today)),
                 ],
               ),
           ],
@@ -440,90 +424,29 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
     );
   }
 
-  Widget _dayCell(BuildContext context, DateTime day, {required DateTime today}) {
-    final theme = Theme.of(context);
-    final tk = theme.extension<AppTokens>()!;
-    final count = _summaries[day]?.total ?? 0;
+  /// 月曆格：純資料 → [_DayCell]（42 格每次 setState 都重建，widget 越薄越好）。
+  Widget _cell(DateTime day, DateTime today) {
+    final load = _summaries[day];
     final inMonth = day.month == _month.month && day.year == _month.year;
-    final isSelected = day == _selected;
-    final isToday = day == today;
-    final hasRedFlag = (_summaries[day]?.redFlags ?? 0) > 0;
-
-    // 顏色階梯：沒場次＝無底色；有場次＝品牌藍淡底，越多越深（上限 3 階）。
-    // 用底色深淺而不是點點數量：一眼看得出哪幾天忙，而且不會在小格子裡擠爆。
-    final level = count == 0 ? 0 : (count >= 5 ? 3 : (count >= 3 ? 2 : 1));
-    final fill = isSelected
-        ? theme.colorScheme.primary
-        : level == 0
-        ? null
-        : theme.colorScheme.primary.withValues(alpha: 0.06 * level + 0.04);
-    final textColor = isSelected
-        ? Colors.white
-        : inMonth
-        ? tk.inkHeading
-        : tk.inkMuted;
-
-    return Padding(
-      padding: const EdgeInsets.all(2),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: () {
-          setState(() {
-            _selected = day;
-            // 點到補格＝想看上／下個月那天，順手把月份也切過去（並重抓資料）。
-            if (!inMonth) {
-              _month = DateTime(day.year, day.month, 1);
-              _load(useCache: true);
-            } else {
-              _loadDay();
-            }
-          });
-        },
-        child: Container(
-          height: 46,
-          decoration: BoxDecoration(
-            color: fill,
-            borderRadius: BorderRadius.circular(10),
-            border: isToday && !isSelected ? Border.all(color: theme.colorScheme.primary, width: 1.5) : null,
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                '${day.day}',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: textColor,
-                  fontWeight: isSelected || isToday ? FontWeight.w700 : FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 2),
-              SizedBox(
-                height: 6,
-                child: count == 0
-                    ? null
-                    : Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            width: 4,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              // 紅旗那天用警示色的點，翻月份時一眼看得到
-                              color: hasRedFlag
-                                  ? tk.alertCritical
-                                  : isSelected
-                                  ? Colors.white
-                                  : theme.colorScheme.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return _DayCell(
+      day: day,
+      count: load?.total ?? 0,
+      hasRedFlag: (load?.redFlags ?? 0) > 0,
+      inMonth: inMonth,
+      isSelected: day == _selected,
+      isToday: day == today,
+      onTap: () {
+        setState(() {
+          _selected = day;
+          // 點到補格＝想看上／下個月那天，順手把月份也切過去（並重抓資料）。
+          if (!inMonth) {
+            _month = DateTime(day.year, day.month, 1);
+            _load(useCache: true);
+          } else {
+            _loadDay();
+          }
+        });
+      },
     );
   }
 
@@ -575,14 +498,14 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: StatCell(label: t('session.doctor.calendar.busyTime'), value: _duration(load.busySeconds)),
+                    child: StatCell(label: t('session.doctor.calendar.busyTime'), value: _durationLabel(load.busySeconds)),
                   ),
                   Container(width: 1, height: 48, color: tk.edge),
                   const SizedBox(width: 16),
                   Expanded(
                     child: StatCell(
                       label: t('session.doctor.calendar.averageDuration'),
-                      value: _duration(load.averageSeconds),
+                      value: _durationLabel(load.averageSeconds),
                     ),
                   ),
                   Container(width: 1, height: 48, color: tk.edge),
@@ -627,7 +550,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
                   );
                 },
               ),
-            _sessionRow(context, sessions[i]),
+            _SessionRow(sessions[i]),
           ],
           if (_hasMore)
             TextButton(
@@ -638,8 +561,120 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
       ],
     );
   }
+}
 
-  Widget _sessionRow(BuildContext context, Session s) {
+/// 秒 → 「1 小時 20 分」／「20 分」。null → `—`。
+String _durationLabel(int? seconds) {
+  if (seconds == null) return '—';
+  final minutes = (seconds / 60).round();
+  if (minutes < 60) {
+    return t('session.doctor.calendar.minutesShort', args: {'minutes': minutes});
+  }
+  return t('session.doctor.calendar.hoursMinutes', args: {'hours': minutes ~/ 60, 'minutes': minutes % 60});
+}
+
+/// 月曆的一格：日期數字 + 場次量底色 + 紅旗點。只吃算好的旗標，不碰頁面狀態。
+class _DayCell extends StatelessWidget {
+  const _DayCell({
+    required this.day,
+    required this.count,
+    required this.hasRedFlag,
+    required this.inMonth,
+    required this.isSelected,
+    required this.isToday,
+    required this.onTap,
+  });
+
+  final DateTime day;
+  final int count;
+  final bool hasRedFlag;
+  final bool inMonth;
+  final bool isSelected;
+  final bool isToday;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tk = theme.extension<AppTokens>()!;
+
+    // 顏色階梯：沒場次＝無底色；有場次＝品牌藍淡底，越多越深（上限 3 階）。
+    // 用底色深淺而不是點點數量：一眼看得出哪幾天忙，而且不會在小格子裡擠爆。
+    final level = count == 0 ? 0 : (count >= 5 ? 3 : (count >= 3 ? 2 : 1));
+    final fill = isSelected
+        ? theme.colorScheme.primary
+        : level == 0
+        ? null
+        : theme.colorScheme.primary.withValues(alpha: 0.06 * level + 0.04);
+    final textColor = isSelected
+        ? Colors.white
+        : inMonth
+        ? tk.inkHeading
+        : tk.inkMuted;
+
+    return Padding(
+      padding: const EdgeInsets.all(2),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          height: 46,
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: BorderRadius.circular(10),
+            border: isToday && !isSelected ? Border.all(color: theme.colorScheme.primary, width: 1.5) : null,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '${day.day}',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: textColor,
+                  fontWeight: isSelected || isToday ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 2),
+              SizedBox(
+                height: 6,
+                child: count == 0
+                    ? null
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 4,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              // 紅旗那天用警示色的點，翻月份時一眼看得到
+                              color: hasRedFlag
+                                  ? tk.alertCritical
+                                  : isSelected
+                                  ? Colors.white
+                                  : theme.colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 時間軸上的一場：起訖＋時長欄、病患／主訴、狀態標籤。
+class _SessionRow extends StatelessWidget {
+  const _SessionRow(this.session);
+
+  final Session session;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = session;
     final theme = Theme.of(context);
     final tk = theme.extension<AppTokens>()!;
     final start = sessionLocalStart(s);
@@ -715,7 +750,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
                 children: [
                   StatusBadge(s.status),
                   const SizedBox(height: 4),
-                  Text(_duration(seconds), style: theme.textTheme.labelSmall?.copyWith(color: tk.inkMuted)),
+                  Text(_durationLabel(seconds), style: theme.textTheme.labelSmall?.copyWith(color: tk.inkMuted)),
                 ],
               ),
             ],

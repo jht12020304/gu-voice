@@ -41,9 +41,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(() {
-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) _fetchMore();
-    });
+    _scroll.onNearEnd(_fetchMore);
     Future.microtask(() => _fetch(reset: true));
   }
 
@@ -185,8 +183,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
             TextButton(
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: info.password));
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(content: Text(t('admin.users.tempPasswordCopied'))));
+                showToast(ctx, t('admin.users.tempPasswordCopied'));
               },
               child: Text(t('admin.users.tempPasswordCopy')),
             ),
@@ -256,14 +253,6 @@ class _UserManagementPageState extends State<UserManagementPage> {
   }
 
   Widget _filters(BuildContext context) {
-    Widget roleChip(String? key, String label) => Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: ChoiceChip(
-            label: Text(label),
-            selected: _role == key,
-            onSelected: (_) => _setRole(key),
-          ),
-        );
     Widget activeChip(bool? key, String label) => Padding(
           padding: const EdgeInsets.only(right: 8),
           child: FilterChip(
@@ -272,18 +261,20 @@ class _UserManagementPageState extends State<UserManagementPage> {
             onSelected: (_) => _setActive(key),
           ),
         );
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Row(children: [
-        roleChip(null, t('admin.users.roleTab.all')),
-        roleChip('patient', t('admin.users.roleTab.patient')),
-        roleChip('doctor', t('admin.users.roleTab.doctor')),
-        roleChip('admin', t('admin.users.roleTab.admin')),
+    return FilterChipBar<String?>(
+      options: {
+        null: t('admin.users.roleTab.all'),
+        'patient': t('admin.users.roleTab.patient'),
+        'doctor': t('admin.users.roleTab.doctor'),
+        'admin': t('admin.users.roleTab.admin'),
+      },
+      selected: _role,
+      onSelected: _setRole,
+      trailing: [
         const SizedBox(width: 8),
         activeChip(true, t('admin.users.statusActive')),
         activeChip(false, t('admin.users.statusInactive')),
-      ]),
+      ],
     );
   }
 

@@ -70,7 +70,7 @@ class _KioskIdleGuardState extends ConsumerState<KioskIdleGuard> {
     if (_timer != null && now - _lastArmMs < 1000) return;
     _lastArmMs = now;
     _cancel();
-    _timer = Timer(Duration(seconds: Env.kioskIdleTimeoutSeconds), _onIdle);
+    _timer = Timer(const Duration(seconds: Env.kioskIdleTimeoutSeconds), _onIdle);
   }
 
   /// The route is checked HERE rather than during build. `GoRouterState.of(context)`
