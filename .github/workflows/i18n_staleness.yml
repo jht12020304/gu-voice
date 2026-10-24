@@ -10,6 +10,9 @@ name: i18n-staleness
   pull_request:
     paths:
       - "frontend/src/**"
+      - "frontend/public/locales/**"
+      - "flutter_app/assets/locales/**"
+      - "flutter_app/lib/**"
       - "frontend/i18next-parser.config.js"
       - "frontend/package.json"
       - "frontend/package-lock.json"
@@ -23,12 +26,24 @@ permissions:
 
 jobs:
   translation-coverage:
-    name: translation-coverage
+    name: translation-coverage (${{ matrix.client }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - client: web
+            locales: frontend/src/i18n/locales
+            mirrors: frontend/public/locales
+          - client: ios
+            locales: flutter_app/assets/locales
+            mirrors: ""
     env:
       # Tunable — raise once en-US catches up, lower for emergencies.
       THRESHOLD: "95"
-      COMMENT_MARKER: "<!-- urosense-i18n-staleness -->"
+      COMMENT_MARKER: "<!-- urosense-i18n-staleness-${{ matrix.client }} -->"
+      LOCALES_DIR: ${{ matrix.locales }}
+      MIRROR_DIRS: ${{ matrix.mirrors }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,6 +57,7 @@ jobs:
         id: json_report
         run: |
           python scripts/check_translations.py \
+            --locales-dir "${LOCALES_DIR}" --mirrors "${MIRROR_DIRS}" \
             --threshold "${THRESHOLD}" \
             --json > translations.json
         continue-on-error: true
@@ -55,6 +71,7 @@ jobs:
       - name: Append report to GITHUB_STEP_SUMMARY
         run: |
           python scripts/check_translations.py \
+            --locales-dir "${LOCALES_DIR}" --mirrors "${MIRROR_DIRS}" \
             --threshold "${THRESHOLD}" \
             --github-summary >> "$GITHUB_STEP_SUMMARY" || true
 
@@ -62,7 +79,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: i18n-translations-report
+          name: i18n-translations-report-${{ matrix.client }}
           path: translations.json
           if-no-files-found: ignore
 
@@ -73,8 +90,9 @@ jobs:
           {
             echo "${COMMENT_MARKER}"
             python scripts/check_translations.py \
+              --locales-dir "${LOCALES_DIR}" --mirrors "${MIRROR_DIRS}" \
               --threshold "${THRESHOLD}" \
-              --github-summary
+              --github-summary || true
           } > pr_comment.md
           # Expose body via heredoc-safe file path (github-script will read it)
           echo "path=pr_comment.md" >> "$GITHUB_OUTPUT"
@@ -170,10 +188,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 

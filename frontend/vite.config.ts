@@ -6,8 +6,6 @@ import fs from 'fs';
 // 必要環境變數清單（啟動時驗證）
 const REQUIRED_ENV_VARS = [
   'VITE_API_BASE_URL',
-  'VITE_SUPABASE_URL',
-  'VITE_SUPABASE_ANON_KEY',
 ];
 
 // i18n locale JSON 的 source of truth 路徑（相對於 frontend/）
