@@ -18,7 +18,7 @@
 | B08 | 每則 dashboard 事件新開 Redis 連線 | websocket/connection_manager.py、cache/redis_client.py | 中/中 | loop-aware 池重用 | 同 loop 用池、異 loop 短命 client | 新測試 ×2 + microbench | DONE | 0.73 → 0.21 ms |
 | B09 | 在職臨床人員查詢重複兩份 | conversation_handler._notify_doctors_red_flag | 中/中 | 共用 `_doctor_targets` | 相關 4 測試檔綠 | pytest | DONE | |
 | B10 | alembic SSL 看 DB_HOST | alembic/env.py:37 | 中/中 | 解析 DATABASE_URL host | pooler URL → SSL | `alembic current` + 表達式驗算 | DONE | 生產 URL 未實跑（UNVERIFIED 面） |
-| B11 | `tests/integration` 不在 CI | .github/workflows/ci.yml | 中/高 | 加 `alembic upgrade head` + `pytest tests/integration` 步驟 | 本機以全新 PG 容器模擬 CI 流程通過 | 本機模擬 | DONE | ci.yml 加 `alembic upgrade head` + `pytest tests/integration`（TEST_DATABASE_URL）；本機以全新 postgres:15 容器模擬：migrations + 13 integration 綠。GitHub 上首跑＝UNVERIFIED |
+| B11 | `tests/integration` 不在 CI | .github/workflows/ci.yml | 中/高 | 加 `alembic upgrade head` + `pytest tests/integration` 步驟 | 本機以全新 PG 容器模擬 CI 流程通過 | 本機模擬 | DONE | ci.yml 加 `alembic upgrade head` + `pytest tests/integration`；本機全新 PG 模擬通過；GitHub Actions run 40063230858 backend-tests 綠（13 integration 在 CI 真跑） |
 | B12 | 17 條兩端未呼叫路由 | routers/{dashboard,alerts,notifications,patients,complaints,reports,audit_logs}.py | 中/中 | 刪路由+service | 契約快照刻意更新 | — | NOT_APPLICABLE | 四條 `/dashboard/*` 路由背後的 service 方法正是 integration 測試用來釘「軟刪除對儀表板不可見」與 authz scope 的入口；拆路由等於要刪那些測試。保留為已加上限的 ops API；其餘 13 條同理待產品決定 |
 | B13 | keyset cursor 述詞複製 ×6 | report/alert/notification/admin/patient services vs session_service._apply_cursor_keyset | 中/中 | 抽到 utils/pagination、參數化 id 欄 | 分頁測試 + smoothness integration 綠 | pytest + integration | DONE | `utils/pagination.keyset_after()`；session/report/alert×2/notification/admin/patient×2 共 8 處改走；4,926 綠 |
 | B14 | `has_more/next_cursor` 收尾 ×11 | 同上 | 低/低 | `page_slice()` helper | 同上 | 同上 | DONE | `page_slice()` 取代 11 處收尾；next_cursor 一致 |
@@ -46,7 +46,7 @@
 | B36 | 歷史 JSON 每輪整包重寫、問候 TTS 逐句 | conversation_handler | 低 | — | — | — | NOT_APPLICABLE | KB 級、語音路徑；收益小於 e2e 驗證成本 |
 | B37 | `_handle_text_message` 1,202 行／CC 81、紅旗規則層／SOAP 複雜度 | conversation_handler、red_flag_detector、soap_generator | 高 | 拆分 | 真 OpenAI e2e | — | BLOCKED | 受 AST 跳閘器與臨床拍板保護；驗收需付費 e2e |
 | B38 | `ResearchService._assemble` CC 104 | services/research_service.py:392 | 中/低 | 拆子函式 | research 測試綠 | pytest | DONE | `_assemble` 拆成 8 個模組層 `_*_section`；最高 CC 104 → 21；research 測試 21 綠 |
-| B39 | Dockerfile 3.11 vs CI/venv 3.12 | backend/Dockerfile | 中/中 | 改 3.12-slim，本機 docker build | build 成功、容器 /health 200 | docker | UNVERIFIED | Dockerfile 3.11→3.12-slim；本機 `docker build` 成功、容器內 `import app.main` OK（3.12.15）；未在 Railway 實跑 |
+| B39 | Dockerfile 3.11 vs CI/venv 3.12 | backend/Dockerfile | 中/中 | 改 3.12-slim，本機 docker build | build 成功、容器 /health 200 | docker | UNVERIFIED | Dockerfile 3.11→3.12-slim；本機 `docker build` 成功、容器內 `import app.main` OK（3.12.15）；Railway 部署是手動流程，未實跑 |
 | B40 | railway worker/beat 套件描述未部署拓樸 | railway-*.toml、start_*.sh、docs/railway_celery_runbook.md | 低 | 留作拆分套件 | — | — | NOT_APPLICABLE | 四檔+runbook 一起保留，TODO.md:209 更正（B42） |
 | B41 | compose `APP_DEBUG` 非 Settings 欄位；docs `APP_LOG_LEVEL` 不存在 | docker-compose.yml:52、docs/system_overview.md:295 | 低 | 刪／改 | — | — | DONE | compose 移除 `APP_DEBUG`；docs `APP_LOG_LEVEL` 移除 |
 | B42 | `docs/TODO.md:209` 說 toml「可能需要建立」（已存在） | docs/TODO.md | 低 | 改字 | — | — | NOT_APPLICABLE | 工作區 TODO.md 已無該句（WIP 已改） |
@@ -140,7 +140,7 @@
 | R01 | 226+29 檔 WIP 未提交 | — | 高 | 6-commit 切法 | — | DONE | 依 6-commit 切法以暫存 index 從快照樹重建 WIP 提交（檔案與工作區逐位元相同），本稽核改動另 4 個 commit；推到 origin 並開草稿 PR #116 跑 CI |
 | R02 | 2026-10-10 的 35 項品質修正零文件 | docs/TODO.md | 中 | 寫入 TODO.md | — | DONE | docs/TODO.md 新增「2026-10-10 程式品質修正」段落（含行為變更清單） |
 | R03 | `.env.production` 入庫 | frontend | 中 | — | — | BLOCKED | 同 F30 |
-| R04 | 5.4 GB 可重建快取 | flutter_app/build、.dart_tool | 低 | — | — | BLOCKED | 使用者決定 |
+| R04 | 5.4 GB 可重建快取 | flutter_app/build、.dart_tool | 低 | — | — | DONE | 所有 Flutter 測試跑完後 `fvm flutter clean`（build 2.6 GB + .dart_tool 2.8 GB 釋放）並 `pub get` 還原可執行狀態；graphify-out 五個目錄保留（AGENTS.md 工具鏈使用，docs 版需 API key 重建） |
 | R05 | Dockerfile Python 版本 | backend/Dockerfile | — | — | — | — | 見 B39 |
 | R06 | 過時敘述：auto-deploy、e2e 佔位、supabase/、§U15 | system_overview、CLAUDE.md | 低 | 改 | — | DONE | |
 | R07 | `docs/DESIGN.md` 重複 | design_references | 低 | 刪一份 | — | DONE | |
@@ -152,7 +152,7 @@
 | R13 | `supabase_rls_policies.sql` 未索引 | docs/README.md | 低 | 加列 | — | DONE | |
 | R14 | `docs/AGENTS.md` 與根 `AGENTS.md` 同名 | docs | 低 | — | — | NOT_APPLICABLE | 改名 churn |
 | R15 | `.codex/skills/graphify` vendored | .codex | 低 | — | — | BLOCKED | 工具鏈決定 |
-| R16 | e2e-playwright 首次在 GitHub 跑 | CI | — | — | — | UNVERIFIED | 無法在本機跑 GitHub Actions |
+| R16 | e2e-playwright 首次在 GitHub 跑 | CI | — | — | — | DONE | 草稿 PR #116 首次 CI（run 40063230858）：backend-tests（含新 alembic+integration 步驟）、frontend-checks、flutter-checks、e2e-playwright、i18n 兩端矩陣與 extract-keys-check 全綠 |
 | R17 | migration CONCURRENTLY 重試冪等 | alembic/versions/20261003_1600 | 中 | 檢查 IF NOT EXISTS／INVALID 處理 | 本機重跑 upgrade 兩次 | DONE | 兩支 CONCURRENTLY migration 都加 pg_index 有效性檢查；drill：INVALID → 重建 valid=true；重跑 upgrade 無動作 |
 | R18 | requirements.txt 刪 5 套件的 transitive 影響 | backend/requirements.txt | 中 | 全新 venv `pip check` + import app | pip check 0 問題 | DONE | 全新 venv：`pip check` 117 套件相容、166 tests 綠 |
 | R19 | `useDashboardConnection` 是否掛在每個需要的 layout | frontend/src | 低 | grep 驗證 | — | NOT_APPLICABLE | 驗證：`useDashboardConnection` 掛在 MainLayout，所有 dashboard 事件消費者都在其下；無需修改 |
@@ -162,3 +162,4 @@
 ## 進度摘要（每次更新）
 - 2026-10-24 00:30：Backend 10 DONE／Frontend 9 DONE／Flutter 3 DONE／Repo 3 DONE。
 - 2026-10-24 01:10（自主執行輪結束）：135 項＝**DONE 88／NOT_APPLICABLE 21／BLOCKED 21／UNVERIFIED 2（B39 Dockerfile 3.12 未在 Railway 實跑、R16 CI 首跑）／PENDING 0**（R05、R21 為指向 B39、B11 的參照列）。最終驗證見 FINAL_REFACTORING_REPORT.md。
+- 2026-10-24 12:50（round 3，使用者授權「都做完」後）：WIP 與稽核改動已以 11 個 commit 推上 `refactor/codebase-audit-2026-10`，草稿 PR #116 CI 全綠；135 項＝**DONE 93／NOT_APPLICABLE 22／BLOCKED 17／UNVERIFIED 1／PENDING 0**（2 列為參照列）。BLOCKED：B15, B32, B35, B37, F10, F23, F26, F29, F30, F39, D13, D14, D16, D18, R03, R11, R15；UNVERIFIED：B39。

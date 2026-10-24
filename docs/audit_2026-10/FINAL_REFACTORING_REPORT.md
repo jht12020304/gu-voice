@@ -1,17 +1,21 @@
 # FINAL_REFACTORING_REPORT — 2026-10-24
 
-> 範圍：2026-10-23 稽核（round 1）＋ 2026-10-24 自主修復輪（round 2）。唯一進度真相是 [REFACTORING_TRACKER.md](REFACTORING_TRACKER.md)；本檔是結算。所有修改仍**未 commit**（使用者規則：不得提交既有未提交變更，而本輪改動與之共用檔案）；`git diff wip-snapshot-2026-10-23` 是本輪全部變更，分批 patch 在 [evidence/patches/](evidence/patches/)。
+> 範圍：2026-10-23 稽核（round 1）＋ 2026-10-24 自主修復輪（round 2）＋ 使用者授權「都做完」後的 round 3。唯一進度真相是 [REFACTORING_TRACKER.md](REFACTORING_TRACKER.md)；本檔是結算。
+>
+> **Round 3 結果（2026-10-24 12:50）**：全部工作已提交到 `refactor/codebase-audit-2026-10`——前 6 個 commit 是從 `wip-snapshot-2026-10-23` 快照樹以暫存 index 重建的 2026-10-03／10-10 未提交工作（檔案與工作區逐位元相同），之後 4 個稽核 commit + 1 個 round-3 commit；已推上 origin，**草稿 PR #116 的 CI 全綠**（backend-tests 含新的 `alembic upgrade head` + `tests/integration` 步驟、frontend-checks、flutter-checks、e2e-playwright、i18n 兩端矩陣）。Round 3 另完成：`GET /sessions/{id}/report` 一趟式端點（Flutter 輪詢由 2N 請求降為 N）、自助註冊不再存 `license_number`、F13 騰出的 75 個翻譯 entry 刪除、`verify:smoothness:perf` 實跑、Flutter 5.4 GB 快取清理；查證 Vercel production **零環境變數** → `.env.production` 暫不可移出版控。
 
 ## 1. 修復統計
 
 | 項目 | 數量 |
 |---|---|
 | 原始問題總數（Tracker 列） | 135（含 2 列參照列 R05／R21） |
-| 已修復並驗收（DONE） | **88** |
-| 經查證不需修改（NOT_APPLICABLE，皆附理由） | 21 |
-| 未驗證（UNVERIFIED） | 2：B39 Dockerfile 3.11→3.12（本機 docker build + 容器內 import 成功，未在 Railway 實跑）、R16 新 CI 步驟在 GitHub 的首跑 |
-| 阻礙（BLOCKED，需你授權或付費／裝置） | 21（見 §5） |
+| 已修復並驗收（DONE） | **93** |
+| 經查證不需修改（NOT_APPLICABLE，皆附理由） | 22 |
+| 未驗證（UNVERIFIED） | 1：B39 Dockerfile 3.11→3.12（本機 docker build + 容器內 import 成功；Railway 部署為手動流程，未實跑） |
+| 阻礙（BLOCKED，需你授權／付費／裝置／外部帳號） | 17（見 §5） |
 | 剩餘 PENDING | 0 |
+
+Git：11 個 commit、草稿 PR [#116](https://github.com/jht12020304/gu-voice/pull/116)，CI 兩次全綠（runs 40063230858、40063557906）。
 
 ## 2. 實際修改內容
 
@@ -88,14 +92,16 @@ PDF 子行程化（記憶體／loop）、dashboard publish 連線池重用、儀
 
 ## 5. 剩餘風險（全部列出）
 
-### BLOCKED（需你決定／授權／付費／裝置）
-B12 17 條未呼叫路由（對外契約）・B15 `REDIS_KEY_PREFIX` 政策（改 key 影響既有黑名單／限流）・B32 研究分析預設時間窗（API 語意）・B35 Celery 每 task 新 loop/engine（需 worker 環境觀測）・B37 `conversation_handler`／紅旗規則／SOAP 拆分（AST 跳閘器 + 付費 e2e）・B45 病患註冊存 `license_number`（驗證政策）・F10／F26 `ConversationPage`（語音路徑 + 付費 e2e）・F23 mock 集中化（新依賴決定）・F29 CSP `unsafe-eval`（正式 header 無法本機驗）・F30／R03 `.env.production` 移出版控（先確認 Vercel env）・F39 AudioWorklet（裝置）・D13／D14 語音服務微優化與 WAV isolate（真機）・D15 報告兩趟（需新端點）・D16 google_fonts 內建（產品決定）・D18 LaunchScreen（Xcode）・R01 WIP 提交方式・R04 5.4 GB 快取・R11 driver.py 拆分（付費 e2e）・R15 vendored graphify skill。
+### BLOCKED（需你決定／授權／付費／裝置／外部帳號）
+B15 `REDIS_KEY_PREFIX` 政策（改 key 影響既有黑名單／限流；本機 Railway CLI 未登入，無法確認生產值）・B32 研究分析預設時間窗（API 語意）・B35 Celery 每 task 新 loop/engine（需 worker 環境觀測）・B37 `conversation_handler`／紅旗規則／SOAP 拆分（AST 跳閘器 + 付費 e2e）・F10／F26 `ConversationPage`（語音路徑 + 付費 e2e）・F23 mock 集中化（是否引入 MSW 新依賴）・F29 CSP `unsafe-eval`（正式 header 無法本機驗）・F30／R03 `.env.production` 移出版控（**Vercel production 目前零環境變數**，先 `vercel env add VITE_API_BASE_URL／VITE_WS_BASE_URL／VITE_APP_ENV production`）・F39 AudioWorklet（裝置）・D13／D14 語音服務微優化與 WAV isolate（真機）・D16 google_fonts 內建（產品決定）・D18 LaunchScreen（Xcode）・R11 driver.py 拆分（付費 e2e）・R15 vendored graphify skill。
+
+已自行結案的原阻礙項：R01 WIP 提交（已拆 6 commit）、R04 快取（已清）、B12 四條 dashboard 路由（改判 NOT_APPLICABLE：其 service 方法是 integration 測試釘軟刪除規則的入口）、B45（已修）、D15（已以新端點完成）。
 
 ### UNVERIFIED
-B39 Dockerfile 3.12（Railway 未跑）、R16 CI 新步驟首跑；F38 `verify:smoothness:perf` 執行；D22 剩餘約 236 個 Flutter 翻譯 key 與 F13 騰出的 3 組 React key 未刪。
+B39 Dockerfile 3.12（Railway 未實跑）；D22 剩餘約 236 個 Flutter 翻譯 key（兩套掃描器結果不一致，無 UI 測試能抓到動態組字漏網，刻意不刪）。
 
 ### 其他已知
-- 所有修改未 commit；分批 patch 可逐批 `git apply -R`。
+- 所有修改已在分支上以 11 個 commit 提交；要回復某一批用 `git revert <commit>`，或對照 `evidence/patches/`。
 - F17 仍有 35 個 catch 刻意不改（13 在語音頁、22 設計上不顯示訊息）；store fallback 字串仍硬編中文。
 - `permission_handler` 移除改了 `Podfile.lock`（只少該 pod）；下次 TestFlight 建置會看到此差異，屬預期。
 - B46 子行程以 `spawn` 啟動：Railway 容器需允許子行程（一般允許）；首份 PDF 多 0.5 s。
