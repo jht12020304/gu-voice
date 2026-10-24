@@ -50,9 +50,8 @@ class Settings(BaseSettings):
 
     # ── APP ─────────────────────────────────────────────
     APP_ENV: str = "development"
-    APP_HOST: str = "0.0.0.0"
-    APP_PORT: int = 8000
-    APP_WORKERS: int = 4
+    # 綁定位址／埠／worker 數由 scripts/start.sh 的 shell 變數 PORT／WORKERS 決定，
+    # Settings 不讀它們（先前的 APP_HOST／APP_PORT／APP_WORKERS 欄位零讀取者，已移除）。
     # 單一日誌等級欄位，對齊 start.sh / docker-compose / .env.example 的 LOG_LEVEL
     LOG_LEVEL: str = "info"
     APP_SECRET_KEY: str = "change-me-in-production"
@@ -317,11 +316,6 @@ class Settings(BaseSettings):
     # NoDecode：阻止 pydantic-settings 在 source 層對 env 值做 json.loads，
     # 改由下方 field_validator(mode="before") 接手解析逗號分隔字串。
     MULTILANG_DISABLED_LANGUAGES: Annotated[list[str], NoDecode] = []  # 緊急 kill-switch（逗號分隔）
-
-    # TODO-M8：紅旗 semantic-only 比率閾值。
-    # 一個 session 的紅旗命中若 semantic_only / total > threshold → report 將
-    # 被後端視為 draft（非 zh-TW fail-safe 機制）。預設 0.3。
-    RED_FLAG_SEMANTIC_ONLY_THRESHOLD: float = 0.3
 
     # W1：紅旗規則層 kill-switch。
     # red_flag_rules 表在生產環境從未被 seed，查詢「成功但 0 筆」在語意上

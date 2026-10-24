@@ -26,7 +26,6 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 
 from app.cache import redis_client
 from app.core.exceptions import ServiceUnavailableException, UnauthorizedException
-from app.models.enums import UserRole
 from app.services import auth_service as auth_service_mod
 from app.services.auth_service import (
     AuthService,

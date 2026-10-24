@@ -18,7 +18,6 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 

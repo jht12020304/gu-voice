@@ -13,10 +13,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.utils.pagination import keyset_after, page_slice, parse_cursor
 from app.core.authz import (
     clinician_session_filter,
     get_clinician_scope_id,
-    get_user_role as _get_user_role,
+    get_user_role,
 )
 from app.core.exceptions import ForbiddenException, NotFoundException
 from app.models.enums import Gender, SessionStatus, UserRole
@@ -24,7 +25,6 @@ from app.models.patient import Patient
 from app.models.session import Session
 from app.services.session_visibility import session_not_deleted
 from app.utils.datetime_utils import parse_iso, utc_now
-from app.utils.pagination import parse_cursor
 
 # 「進行中」場次：尚未進入終態（completed / aborted / cancelled）的狀態。
 _ACTIVE_SESSION_STATUSES = (SessionStatus.WAITING, SessionStatus.IN_PROGRESS)
@@ -53,7 +53,7 @@ async def _authorize_patient_access(
     if current_user is None:
         raise ForbiddenException("errors.patient_access_no_principal")
 
-    role = _get_user_role(current_user)
+    role = get_user_role(current_user)
     clinician_id = get_clinician_scope_id(current_user)
     if clinician_id is not None:
         if patient.user_id == clinician_id:
@@ -324,31 +324,13 @@ class PatientService:
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:
-                cursor_value = getattr(cursor_record, sort_column.key)
-                if descending:
-                    query = query.where(
-                        (sort_column < cursor_value)
-                        | (
-                            (sort_column == cursor_value)
-                            & (Patient.id < cursor_record.id)
-                        )
-                    )
-                else:
-                    query = query.where(
-                        (sort_column > cursor_value)
-                        | (
-                            (sort_column == cursor_value)
-                            & (Patient.id > cursor_record.id)
-                        )
-                    )
+                query = keyset_after(query, cursor_record, sort_column, Patient.id, descending)
 
         # 多取一筆用於判斷是否有下一頁
         result = await db.execute(query.limit(limit + 1))
         patients = result.scalars().all()
 
-        has_more = len(patients) > limit
-        if has_more:
-            patients = patients[:limit]
+        patients, has_more, next_cursor = page_slice(patients, limit)
 
         # 近似總筆數（套用相同篩選）
         count_query = (
@@ -363,7 +345,7 @@ class PatientService:
         return {
             "data": patients,
             "pagination": {
-                "next_cursor": str(patients[-1].id) if has_more and patients else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,
@@ -515,20 +497,12 @@ class PatientService:
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:
-                query = query.where(
-                    (Session.created_at < cursor_record.created_at)
-                    | (
-                        (Session.created_at == cursor_record.created_at)
-                        & (Session.id < cursor_record.id)
-                    )
-                )
+                query = keyset_after(query, cursor_record, Session.created_at, Session.id)
 
         result = await db.execute(query.limit(limit + 1))
         sessions = result.scalars().all()
 
-        has_more = len(sessions) > limit
-        if has_more:
-            sessions = sessions[:limit]
+        sessions, has_more, next_cursor = page_slice(sessions, limit)
 
         # 總筆數（套用相同篩選）
         count_query = (
@@ -543,7 +517,7 @@ class PatientService:
         return {
             "data": sessions,
             "pagination": {
-                "next_cursor": str(sessions[-1].id) if has_more and sessions else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,

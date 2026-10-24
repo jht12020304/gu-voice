@@ -7,13 +7,14 @@ JWT 認證 + 密碼雜湊工具
 import asyncio
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any, Literal
 
 import jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
+from app.utils.datetime_utils import utc_now
 
 # ── 密碼雜湊 ───────────────────────────────────────────
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -63,7 +64,7 @@ def create_token(
         token_type: "access" 或 "refresh"
         extra_claims: 額外 claims
     """
-    now = datetime.now(timezone.utc)
+    now = utc_now()
 
     if token_type == "access":
         expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

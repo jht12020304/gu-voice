@@ -199,6 +199,8 @@ async def _announce_report_failure(db, session_id: str) -> None:
 
     report_id = ""
     patient_name = ""
+    from app.services.session_visibility import session_not_deleted
+
     doctor_id = None
     try:
         row = (
@@ -206,6 +208,7 @@ async def _announce_report_failure(db, session_id: str) -> None:
                 select(Session)
                 .options(selectinload(Session.patient))
                 .where(Session.id == session_id)
+                .where(session_not_deleted())
             )
         ).scalar_one_or_none()
         if row is not None and row.patient is not None:

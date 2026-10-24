@@ -7,8 +7,7 @@ import asyncio
 import logging
 import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Any, AsyncGenerator
+from typing import AsyncGenerator
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,9 +15,9 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 from prometheus_fastapi_instrumentator import Instrumentator
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.datetime_utils import utc_now
 from app.core.config import settings
 from app.core.database import engine
 from app.cache.redis_client import close_redis, init_redis
@@ -322,36 +321,11 @@ async def health_check() -> HealthResponse:
     return HealthResponse(
         status="ok",
         version="1.0.0",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=utc_now(),
     )
 
 
-# 深度健康檢查所用的單次檢查逾時；DB / Redis 任一超過 2 秒就判定 fail
-_DEEP_HEALTH_TIMEOUT_SECONDS = 2.0
-
-
-async def _deep_check_db(db: AsyncSession) -> str:
-    """對 DB 跑 SELECT 1；成功回 "ok"，失敗回 "fail: <err>"。"""
-    try:
-        async def _probe() -> None:
-            await db.execute(text("SELECT 1"))
-        await asyncio.wait_for(_probe(), timeout=_DEEP_HEALTH_TIMEOUT_SECONDS)
-        return "ok"
-    except asyncio.TimeoutError:
-        return f"fail: timeout >{_DEEP_HEALTH_TIMEOUT_SECONDS}s"
-    except Exception as exc:  # noqa: BLE001 — 要回報給呼叫端
-        return f"fail: {exc}"
-
-
-async def _deep_check_redis(redis: Any) -> str:
-    """對 Redis 跑 ping；成功回 "ok"，失敗回 "fail: <err>"。"""
-    try:
-        await asyncio.wait_for(redis.ping(), timeout=_DEEP_HEALTH_TIMEOUT_SECONDS)
-        return "ok"
-    except asyncio.TimeoutError:
-        return f"fail: timeout >{_DEEP_HEALTH_TIMEOUT_SECONDS}s"
-    except Exception as exc:  # noqa: BLE001
-        return f"fail: {exc}"
+from app.core.health import probe_db as _deep_check_db, probe_redis as _deep_check_redis  # noqa: E402
 
 
 @app.get("/api/v1/healthz/deep", tags=["系統"])

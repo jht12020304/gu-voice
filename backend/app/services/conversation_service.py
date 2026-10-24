@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
 from app.models.conversation import Conversation
-from app.models.session import Session
 from app.utils.datetime_utils import utc_now
 
 

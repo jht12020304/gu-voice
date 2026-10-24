@@ -14,11 +14,13 @@ from sqlalchemy import ColumnElement, and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.utils.pagination import keyset_after, page_slice, parse_cursor
 from app.core.authz import (
+    patient_owned_by,
     clinician_can_access_session,
     clinician_session_filter,
     get_clinician_scope_id,
-    get_user_role as _get_user_role,
+    get_user_role,
 )
 from app.core.exceptions import (
     ForbiddenException,
@@ -36,7 +38,6 @@ from app.services.audit_log_service import AuditLogService
 from app.services.session_visibility import session_not_deleted
 from app.utils.datetime_utils import parse_iso, utc_now
 from app.utils.language import resolve_language
-from app.utils.pagination import parse_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +304,7 @@ async def _authorize_session_access(
     if current_user is None:
         raise ForbiddenException("errors.session_access_no_principal")
 
-    role = _get_user_role(current_user)
+    role = get_user_role(current_user)
     user_id = getattr(current_user, "id", None)
 
     clinician_id = get_clinician_scope_id(current_user)
@@ -319,12 +320,7 @@ async def _authorize_session_access(
         return
 
     if role == UserRole.PATIENT:
-        # 取出 patient.user_id。避免 lazy-load 錯誤,用明確 query 核對。
-        result = await db.execute(
-            select(Patient.user_id).where(Patient.id == session.patient_id)
-        )
-        owner_user_id = result.scalar_one_or_none()
-        if owner_user_id is not None and owner_user_id == user_id:
+        if await patient_owned_by(db, session.patient_id, user_id):
             return
         raise ForbiddenException(
             "errors.session_forbidden_patient",
@@ -374,23 +370,8 @@ def _apply_sort(query: Any, column: Any, descending: bool) -> Any:
 def _apply_cursor_keyset(
     query: Any, cursor_record: Any, column: Any, descending: bool
 ) -> Any:
-    """
-    依排序方向套用 keyset 分頁條件，使 cursor 與 sort 一致。
-
-    descending → 取「排在 cursor 之後」= column < cursor_value，tie 時 id < cursor_id。
-    ascending  → column > cursor_value，tie 時 id > cursor_id。
-    """
-    cursor_value = getattr(cursor_record, column.key)
-    cursor_id = cursor_record.id
-    if descending:
-        return query.where(
-            (column < cursor_value)
-            | ((column == cursor_value) & (Session.id < cursor_id))
-        )
-    return query.where(
-        (column > cursor_value)
-        | ((column == cursor_value) & (Session.id > cursor_id))
-    )
+    """keyset 分頁（見 utils.pagination.keyset_after）；保留此名給既有呼叫端與測試。"""
+    return keyset_after(query, cursor_record, column, Session.id, descending)
 
 
 # 合法狀態轉移表已抽到 app/core/session_state.py 作為單一權威（REST + WS 共用）；
@@ -533,9 +514,7 @@ class SessionService:
         result = await db.execute(query.limit(limit + 1))
         sessions = result.scalars().all()
 
-        has_more = len(sessions) > limit
-        if has_more:
-            sessions = sessions[:limit]
+        sessions, has_more, next_cursor = page_slice(sessions, limit)
 
         # 近似總筆數
         count_query = select(func.count()).select_from(Session).where(session_not_deleted())
@@ -553,7 +532,7 @@ class SessionService:
         return {
             "data": sessions,
             "pagination": {
-                "next_cursor": str(sessions[-1].id) if has_more and sessions else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,
@@ -878,9 +857,7 @@ class SessionService:
         result = await db.execute(query.limit(limit + 1))
         conversations = result.scalars().all()
 
-        has_more = len(conversations) > limit
-        if has_more:
-            conversations = conversations[:limit]
+        conversations, has_more, next_cursor = page_slice(conversations, limit)
 
         count_result = await db.execute(
             select(func.count())
@@ -892,7 +869,7 @@ class SessionService:
         return {
             "data": conversations,
             "pagination": {
-                "next_cursor": str(conversations[-1].id) if has_more and conversations else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,
@@ -976,7 +953,7 @@ class SessionService:
         #     所以前端一律從病患清單帶真實 id）。存取控制與後續 WS 連線由
         #     _validate_session_access 把關（doctor 可存取 doctor_id 為 NULL 的場次，
         #     本場次建立時 doctor_id 即為 NULL，故建立者本人一定連得上）。
-        creator_role = _get_user_role(current_user)
+        creator_role = get_user_role(current_user)
         if requested_patient_id and creator_role in (UserRole.DOCTOR, UserRole.ADMIN):
             result = await db.execute(
                 select(Patient).where(Patient.id == requested_patient_id)
@@ -1119,7 +1096,7 @@ class SessionService:
         if current_user is None:
             raise ForbiddenException("errors.session_list_no_principal")
 
-        role = _get_user_role(current_user)
+        role = get_user_role(current_user)
         user_id = getattr(current_user, "id", None)
 
         _status: Optional[SessionStatus] = None
@@ -1186,7 +1163,7 @@ class SessionService:
         # 角色限制：紅旗 / 終止類狀態僅限 doctor / admin 變更，
         # 病患不得自行把場次改成 aborted_red_flag 等紅旗狀態。
         if new_status in self._PRIVILEGED_STATUSES:
-            role = _get_user_role(current_user)
+            role = get_user_role(current_user)
             if role not in (UserRole.DOCTOR, UserRole.ADMIN):
                 raise ForbiddenException(
                     "errors.session_forbidden_patient",
@@ -1243,7 +1220,7 @@ class SessionService:
         session = await SessionService.get_by_id(
             db, session_id, with_conversations=True
         )
-        role = _get_user_role(current_user)
+        role = get_user_role(current_user)
         if role == UserRole.ADMIN:
             # admin 可任意指派
             pass

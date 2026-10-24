@@ -12,7 +12,7 @@ DI 友善：`send_email` 可注入 `client` 替換 transport；單元測試直�
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional, Protocol
+from typing import Optional, Protocol
 
 from app.core.config import settings
 

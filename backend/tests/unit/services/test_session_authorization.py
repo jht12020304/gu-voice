@@ -24,9 +24,9 @@ import pytest
 
 from app.core.exceptions import ForbiddenException
 from app.models.enums import UserRole
+from app.core.authz import get_user_role as _get_user_role
 from app.services.session_service import (
     _authorize_session_access,
-    _get_user_role,
 )
 
 

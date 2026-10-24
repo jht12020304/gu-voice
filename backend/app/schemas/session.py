@@ -16,6 +16,17 @@ from app.schemas.conversation import ConversationResponse
 from app.utils.language import normalize_bcp47
 
 
+
+def _validated_supported_language(v: str, field_name: str) -> str:
+    """白名單驗證 + BCP-47 正規化；SessionCreate.language 與 to_language 共用。"""
+    normalized = normalize_bcp47(v)
+    if normalized is None or normalized not in settings.SUPPORTED_LANGUAGES:
+        raise ValueError(
+            f"{field_name} must be one of: {', '.join(settings.SUPPORTED_LANGUAGES)}"
+        )
+    return normalized
+
+
 class PromptSafeFreeText(BaseModel):
     """所有欄位皆為病患自由輸入、且會被插進 LLM system prompt 的 schema 基底。
 
@@ -135,12 +146,7 @@ class SessionCreate(BaseModel):
         """白名單驗證 + BCP-47 大小寫正規化（zh-tw → zh-TW）。"""
         if v is None or v == "":
             return None
-        normalized = normalize_bcp47(v)
-        if normalized is None or normalized not in settings.SUPPORTED_LANGUAGES:
-            raise ValueError(
-                f"language must be one of: {', '.join(settings.SUPPORTED_LANGUAGES)}"
-            )
-        return normalized
+        return _validated_supported_language(v, "language")
 
 
 class SessionUpdateStatus(BaseModel):
@@ -162,12 +168,7 @@ class SessionEndForLanguageSwitch(BaseModel):
     @field_validator("to_language")
     @classmethod
     def _validate_to_language(cls, v: str) -> str:
-        normalized = normalize_bcp47(v)
-        if normalized is None or normalized not in settings.SUPPORTED_LANGUAGES:
-            raise ValueError(
-                f"to_language must be one of: {', '.join(settings.SUPPORTED_LANGUAGES)}"
-            )
-        return normalized
+        return _validated_supported_language(v, "to_language")
 
 
 class SessionResponse(BaseModel):

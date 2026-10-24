@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import Text, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.pagination import page_slice, parse_cursor
 from app.core.authz import get_user_role
 from app.core.config import settings
 from app.core.exceptions import ForbiddenException, NotFoundException
@@ -24,7 +25,6 @@ from app.utils.complaint_fallback_i18n import (
 )
 from app.utils.datetime_utils import utc_now
 from app.utils.localized_field import pick
-from app.utils.pagination import parse_cursor
 
 
 def _seed_name_by_lang(name: str, name_en: Optional[str]) -> dict[str, str]:
@@ -99,41 +99,6 @@ def _serialize_complaint(complaint: ChiefComplaint, language: Optional[str]) -> 
 
 class ComplaintService:
     """主訴業務邏輯"""
-
-    @staticmethod
-    async def get_active_list(db: AsyncSession) -> list[dict[str, Any]]:
-        """
-        取得所有啟用中的主訴，依分類分組並依 display_order 排序
-
-        Returns:
-            依分類分組的主訴列表
-            [
-                {
-                    "category": "排尿症狀",
-                    "complaints": [ChiefComplaint, ...]
-                },
-                ...
-            ]
-        """
-        result = await db.execute(
-            select(ChiefComplaint)
-            .where(ChiefComplaint.is_active.is_(True))
-            .order_by(ChiefComplaint.category, ChiefComplaint.display_order)
-        )
-        complaints = result.scalars().all()
-
-        # 依分類分組
-        grouped: dict[str, list] = {}
-        for complaint in complaints:
-            category = complaint.category
-            if category not in grouped:
-                grouped[category] = []
-            grouped[category].append(complaint)
-
-        return [
-            {"category": category, "complaints": items}
-            for category, items in grouped.items()
-        ]
 
     @staticmethod
     async def create(
@@ -315,9 +280,7 @@ class ComplaintService:
         result = await db.execute(query.limit(limit + 1))
         items = result.scalars().all()
 
-        has_more = len(items) > limit
-        if has_more:
-            items = items[:limit]
+        items, has_more, next_cursor = page_slice(items, limit)
 
         # 符合篩選條件的總筆數（套用相同 where 條件，不含 cursor / limit）
         total_result = await db.execute(
@@ -328,7 +291,7 @@ class ComplaintService:
         return {
             "data": [_serialize_complaint(c, language) for c in items],
             "pagination": {
-                "next_cursor": str(items[-1].id) if has_more and items else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,

@@ -47,6 +47,10 @@ class _FakeResult:
     def first(self) -> Any:
         return self._first
 
+    def all(self) -> Any:
+        """批次語言查詢 `select(User.id, User.preferred_language)` 走 `.all()`。"""
+        return self._rows
+
     def scalars(self) -> Any:
         """未指派場次的 fan-out 會走 `select(User.id)` → `.scalars().all()`。"""
         rows = self._rows
@@ -131,12 +135,12 @@ def _report_ready_db(
     push_enabled: Any = True,
 ) -> _FakeDB:
     """notify_report_ready 的 execute 序列：
-    session+patient 列 → doctor lang → 類型開關 → push 通道開關。
+    session+patient 列 → 全部目標的 lang（一次）→ 類型開關 → push 通道開關。
     """
     return _FakeDB(
         results=[
             _FakeResult(first=_FakeRow(doctor_id, "王小明")),
-            _FakeResult(scalar="zh-TW"),
+            _FakeResult(rows=[(doctor_id, "zh-TW")]),
             _FakeResult(scalar=type_enabled),
             _FakeResult(scalar=push_enabled),
         ]
@@ -221,16 +225,17 @@ def _report_ready_fanout_db(
 ) -> _FakeDB:
     """未指派場次的 execute 序列：
     session+patient 列（doctor_id=None）→ 在職醫師清單
-    → 每位醫師各三次（lang → 類型開關 → push 開關）。
+    → 全部醫師的 lang（**一次**，B30 之前是每位各一次）→ 每位醫師各（類型開關 → push 開關）。
     """
     results = [
         _FakeResult(first=_FakeRow(None, "王小明")),
         _FakeResult(rows=list(doctors)),
+        _FakeResult(rows=[(d, "zh-TW") for d in doctors]),
     ]
     for _ in doctors:
         # 類型被抑制時 create() 提早 return，**不會**再查 push 通道開關——
         # 序列要跟著少一格，否則下一位醫師會吃到錯位的結果。
-        results.extend([_FakeResult(scalar="zh-TW"), _FakeResult(scalar=type_enabled)])
+        results.append(_FakeResult(scalar=type_enabled))
         if type_enabled:
             results.append(_FakeResult(scalar=push_enabled))
     return _FakeDB(results=results)

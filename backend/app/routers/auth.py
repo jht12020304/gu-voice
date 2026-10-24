@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -17,6 +16,7 @@ from app.core.csrf import (
     set_csrf_cookie,
     validate_csrf,
 )
+from app.core.net import get_client_ip
 from app.core.dependencies import get_current_user, get_db
 from app.core.exceptions import AppException, UnauthorizedException
 from app.schemas.auth import (
@@ -31,7 +31,6 @@ from app.schemas.auth import (
     RefreshResponse,
     RegisterRequest,
     ResetPasswordRequest,
-    TokenResponse,
     UpdateProfileRequest,
     UserResponse,
 )
@@ -130,7 +129,7 @@ async def login(
     - 每 IP 每分鐘 10 次
     - 帳號連續失敗 5 次鎖 10 分鐘
     """
-    client_ip = _extract_client_ip(request)
+    client_ip = get_client_ip(request)
     result = await auth_service.login(
         db,
         email=payload.email,
@@ -138,17 +137,6 @@ async def login(
         client_ip=client_ip,
     )
     return _auth_json_response(result)
-
-
-def _extract_client_ip(request: Request) -> str:
-    """取出 client IP。
-
-    委派 `app.core.net.get_client_ip`（預設不信任 X-Forwarded-For），
-    集中代理信任策略，避免無條件信任 XFF 首段被偽造（M-7）。
-    """
-    from app.core.net import get_client_ip
-
-    return get_client_ip(request)
 
 
 @router.post(
@@ -365,7 +353,7 @@ async def forgot_password(
     from app.core import rate_limit as rl
 
     redis = await get_redis()
-    await rl.enforce_password_reset_ip_rate_limit(redis, _extract_client_ip(request))
+    await rl.enforce_password_reset_ip_rate_limit(redis, get_client_ip(request))
 
     result = await auth_service.forgot_password(db, email=payload.email)
     lang = resolve_language(
@@ -397,7 +385,7 @@ async def reset_password(
     from app.core import rate_limit as rl
 
     redis = await get_redis()
-    await rl.enforce_password_reset_ip_rate_limit(redis, _extract_client_ip(request))
+    await rl.enforce_password_reset_ip_rate_limit(redis, get_client_ip(request))
 
     await auth_service.reset_password(
         db,

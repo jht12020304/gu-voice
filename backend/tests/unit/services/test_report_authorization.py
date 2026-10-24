@@ -25,10 +25,10 @@ import pytest
 
 from app.core.exceptions import NotFoundException
 from app.models.enums import UserRole
+from app.core.authz import get_user_role as _get_user_role
 from app.services.report_service import (
     ReportService,
     _authorize_report_access,
-    _get_user_role,
 )
 
 

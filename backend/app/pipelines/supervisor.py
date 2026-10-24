@@ -23,7 +23,6 @@ from typing import Any
 from redis.asyncio import Redis
 
 from app.core.config import Settings
-from app.core.exceptions import AIServiceUnavailableException
 from app.core.openai_client import (
     cache_kwargs,
     call_with_retry,
@@ -42,7 +41,6 @@ from app.pipelines.prompts.shared import (
     render_hpi_checklist,
     sanitize_for_prompt,
 )
-from app.utils.i18n_messages import get_message as _i18n_get
 
 
 # BCP-47 → 人類語言名稱，用在 Supervisor 的 next_focus 輸出語言規則。

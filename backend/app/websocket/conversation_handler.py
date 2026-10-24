@@ -14,7 +14,6 @@ import logging
 import re
 import time
 import uuid
-from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -22,6 +21,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.datetime_utils import utc_now
 from app.core.authz import clinician_can_access_session, get_clinician_scope_id
 from app.core.config import Settings
 from app.core.exceptions import RateLimitExceededException
@@ -32,7 +32,6 @@ from app.pipelines.llm_conversation import (
 )
 from app.pipelines.patient_context import build_patient_info
 from app.pipelines.prompts.shared import (
-    count_critical_risk_factors_for_complaint,
     sanitize_for_prompt,
 )
 from app.pipelines.red_flag_detector import RedFlagDetector
@@ -263,7 +262,7 @@ async def _cap_conversation_history(
             {
                 "role": "system",
                 "content": merged,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": utc_now().isoformat(),
             }
         )
     elif existing_summary:
@@ -272,7 +271,7 @@ async def _cap_conversation_history(
             {
                 "role": "system",
                 "content": existing_summary,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": utc_now().isoformat(),
             }
         )
     else:
@@ -291,7 +290,7 @@ async def _cap_conversation_history(
                     f"{_HISTORY_SUMMARY_PREFIX} 摘要暫時無法產生，"
                     "以下保留原始較舊對話內容以維持臨床脈絡完整。"
                 ),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": utc_now().isoformat(),
             }
         )
         history.extend(old_segment)
@@ -472,7 +471,7 @@ def _build_conversation_summary(
 # ── 自動結束政策與紅旗去重已抽到 app/pipelines/{conclusion_policy,alert_dedup}.py ──
 # 這裡以底線別名 re-import，保持既有呼叫端與測試（ch._should_auto_conclude 等）相容。
 from app.pipelines.conclusion_policy import (  # noqa: E402
-    coerce_hpi_pct as _coerce_hpi_pct,
+    coerce_hpi_pct as _coerce_hpi_pct,  # noqa: F401  (re-export used by tests)
     effective_hard_cap as _effective_hard_cap,
     hard_cap_reached as _hard_cap_reached,
     session_risk_factor_count as _session_risk_factor_count,
@@ -480,9 +479,7 @@ from app.pipelines.conclusion_policy import (  # noqa: E402
     should_conclude_now as _should_conclude_now,
 )
 from app.pipelines.alert_dedup import (  # noqa: E402
-    RED_FLAG_SEVERITY_RANK as _RED_FLAG_SEVERITY_RANK,
-    SESSION_EMITTED_RED_FLAGS_KEY as _SESSION_EMITTED_RED_FLAGS_KEY,
-    alert_dedup_identity as _alert_dedup_identity,
+    SESSION_EMITTED_RED_FLAGS_KEY as _SESSION_EMITTED_RED_FLAGS_KEY,  # noqa: F401  (re-export used by tests)
     record_emitted_alert as _record_emitted_alert,
     should_suppress_duplicate_alert as _should_suppress_duplicate_alert,
 )
@@ -767,7 +764,7 @@ async def conversation_websocket(
                     {
                         "type": "pong",
                         "payload": {
-                            "serverTime": datetime.now(timezone.utc).isoformat()
+                            "serverTime": utc_now().isoformat()
                         },
                     },
                 )
@@ -1082,7 +1079,7 @@ async def _send_initial_greeting(
             {
                 "role": "assistant",
                 "content": full_greeting,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": utc_now().isoformat(),
             }
         )
         # 儲存至 DB（metadata.message_id 對應開場的 ai_response_* WS 事件）
@@ -1678,7 +1675,7 @@ async def _handle_text_message(
         {
             "role": "patient",
             "content": text,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": utc_now().isoformat(),
         }
     )
 
@@ -1786,7 +1783,7 @@ async def _handle_text_message(
             {
                 "role": "assistant",
                 "content": full_response,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": utc_now().isoformat(),
             }
         )
 
@@ -2948,7 +2945,6 @@ async def _validate_session(
         場次資料字典，或 None（不存在時）
     """
     try:
-        from app.models.patient import Patient
         from app.models.session import Session
         from app.services.session_visibility import session_not_deleted
         from sqlalchemy import select
@@ -3060,10 +3056,8 @@ async def _notify_doctors_red_flag(
     """
     from uuid import UUID as _UUID
 
-    from sqlalchemy import select
 
-    from app.models.enums import NotificationType, UserRole
-    from app.models.user import User
+    from app.models.enums import NotificationType
     from app.services.notification_service import NotificationService
     from app.utils.i18n_messages import get_message as _i18n_get
 
@@ -3083,25 +3077,10 @@ async def _notify_doctors_red_flag(
                 return 0
         targets = [doctor_id]
     else:
-        # 未指派醫師 → 發給所有在職臨床人員（doctor + admin）。查詢自帶 try/except：
-        # 查不到不可讓已 commit 的狀態轉移連帶被外層 except 回滾稽核紀錄。
-        # admin 納入的理由見 notification_service._doctor_targets 的註解：升成 admin
-        # 的醫師否則會無聲地收不到紅旗推播。
-        try:
-            result = await db.execute(
-                select(User.id).where(
-                    User.role.in_((UserRole.DOCTOR, UserRole.ADMIN)),
-                    User.is_active.is_(True),
-                )
-            )
-            targets = list(result.scalars().all())
-        except Exception:
-            logger.warning(
-                "查詢在職醫師失敗，紅旗通知略過 | session=%s",
-                session_id,
-                exc_info=True,
-            )
-            return 0
+        # 未指派醫師 → 發給所有在職臨床人員（doctor + admin）。與報告通知共用同一支
+        # `_doctor_targets`（含 try/except：查不到回空清單，不可讓已 commit 的狀態
+        # 轉移連帶被外層 except 回滾稽核紀錄）。收件角色的理由見該函式註解。
+        targets = await NotificationService._doctor_targets(db, None, session_id)
 
     if not targets:
         logger.error(

@@ -46,7 +46,7 @@ def test_unsafe_or_rewritable_output_stays_buffered(monkeypatch, gate):
         yield 'May I ask another question?'
     monkeypatch.setattr(StubLLMEngine, 'generate_response', generate)
     settings = make_settings(MAX_PATIENT_TURNS_HARD_CAP=1) if gate == 'wrap_up' else None
-    result = run_text_turn(monkeypatch, manager=cap, detector=detector, settings=settings,
+    run_text_turn(monkeypatch, manager=cap, detector=detector, settings=settings,
                            red_flag_wait_timeout=.1)
     assert cap.messages_of_type('ai_response_end')
     if gate == 'wrap_up':

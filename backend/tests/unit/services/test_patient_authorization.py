@@ -16,17 +16,17 @@ from __future__ import annotations
 import inspect
 import asyncio
 import uuid
-from typing import Any, Optional
+from typing import Optional
 from types import SimpleNamespace
 
 import pytest
 
 from app.core.exceptions import ForbiddenException
 from app.models.enums import UserRole
+from app.core.authz import get_user_role as _get_user_role
 from app.services.patient_service import (
     PatientService,
     _authorize_patient_access,
-    _get_user_role,
 )
 from app.core.authz import get_clinician_scope_id
 

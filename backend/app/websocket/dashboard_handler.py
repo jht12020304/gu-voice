@@ -12,13 +12,13 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.datetime_utils import utc_now
 from app.core.config import Settings
 from app.websocket.auth import authenticate_websocket
 from app.websocket.connection_manager import (
@@ -113,7 +113,7 @@ async def dashboard_websocket(
                     manager._create_envelope(
                         msg_type="pong",
                         payload={
-                            "server_time": datetime.now(timezone.utc).isoformat()
+                            "server_time": utc_now().isoformat()
                         },
                     )
                 )
@@ -317,7 +317,6 @@ async def _build_initial_state(
     Returns:
         初始狀態字典
     """
-    import json
 
     # 嘗試從 Redis 快取載入
     queue_data = await _get_queue_status(db, redis, doctor_id)
@@ -328,7 +327,7 @@ async def _build_initial_state(
         "queue": queue_data,
         "active_alerts": active_alerts,
         "stats": stats,
-        "connected_at": datetime.now(timezone.utc).isoformat(),
+        "connected_at": utc_now().isoformat(),
     }
 
 

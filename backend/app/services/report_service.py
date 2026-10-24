@@ -6,8 +6,12 @@ SOAP 報告服務
 - PDF 匯出
 """
 
+import asyncio
+import concurrent.futures
 import html as _html
 import logging
+import multiprocessing
+import threading
 from datetime import timedelta, timezone
 from typing import Any, Optional
 from uuid import UUID
@@ -17,11 +21,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.utils.pagination import keyset_after, page_slice, parse_cursor
 from app.core.authz import (
+    patient_owned_by,
     clinician_can_access_session,
     clinician_session_filter,
     get_clinician_scope_id,
-    get_user_role as _get_user_role,
+    get_user_role,
 )
 from app.core.exceptions import (
     ConflictException,
@@ -43,7 +49,6 @@ from app.services.session_visibility import session_not_deleted, visible_session
 from app.models.soap_report import SOAPReport
 from app.models.soap_report_revision import SOAPReportRevision
 from app.utils.datetime_utils import parse_iso, utc_now
-from app.utils.pagination import parse_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +137,7 @@ async def _authorize_report_access(
     與 session_service._authorize_session_access 同權限模型。為避免洩漏報告存在與否，
     違規時 raise NotFoundException（與「報告不存在」回應一致），而非 403。
     """
-    role = _get_user_role(current_user)
+    role = get_user_role(current_user)
     user_id = getattr(current_user, "id", None)
 
     # 取出此報告對映 session 的 doctor_id / patient_id（明確 query 避免 lazy-load）。
@@ -160,11 +165,7 @@ async def _authorize_report_access(
         return
 
     if role == UserRole.PATIENT:
-        owner_result = await db.execute(
-            select(Patient.user_id).where(Patient.id == patient_id)
-        )
-        owner_user_id = owner_result.scalar_one_or_none()
-        if owner_user_id is not None and owner_user_id == user_id:
+        if await patient_owned_by(db, patient_id, user_id):
             return
         raise NotFoundException("errors.report_not_found")
 
@@ -301,7 +302,7 @@ class ReportService:
         # ── Row-level 範圍限縮（依角色，於 query 層過濾，非後處理）──────────
         # report 不帶 patient/doctor，故以 session_id IN (符合角色的 session 子查詢) 限縮。
         # 無 current_user 或未知角色 → 限縮為空集合（保守拒絕，回空清單）。
-        role = _get_user_role(current_user)
+        role = get_user_role(current_user)
         user_id = getattr(current_user, "id", None)
 
         # 軟刪除場次的報告對**所有角色**都不可見，admin 也一樣——所以 admin 這格
@@ -377,20 +378,12 @@ class ReportService:
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:
-                query = query.where(
-                    (SOAPReport.created_at < cursor_record.created_at)
-                    | (
-                        (SOAPReport.created_at == cursor_record.created_at)
-                        & (SOAPReport.id < cursor_record.id)
-                    )
-                )
+                query = keyset_after(query, cursor_record, SOAPReport.created_at, SOAPReport.id)
 
         result = await db.execute(query.limit(limit + 1))
         reports = result.scalars().all()
 
-        has_more = len(reports) > limit
-        if has_more:
-            reports = reports[:limit]
+        reports, has_more, next_cursor = page_slice(reports, limit)
 
         count_query = select(SOAPReport.review_status, func.count()).group_by(SOAPReport.review_status)
         if scope_subquery is not None:
@@ -420,7 +413,7 @@ class ReportService:
             "data": reports,
             "review_counts": review_counts,
             "pagination": {
-                "next_cursor": str(reports[-1].id) if has_more and reports else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,
@@ -737,13 +730,54 @@ class ReportService:
 
         # 使用 WeasyPrint 生成 PDF。url_fetcher 一律拒絕，
         # 防止注入內容經 img src / CSS url() 觸發 SSRF／本地檔讀取。
-        from weasyprint import HTML
-
-        pdf_bytes = HTML(
-            string=html_content, url_fetcher=_forbid_url_fetch
-        ).write_pdf()
+        # WeasyPrint 是 CPU-bound 同步 render（實測約 1.2 s）；直接在 async def 裡呼叫
+        # 會把共用的 API worker event loop 整個卡住（/health 由 1 ms 變 956 ms），
+        # 所有 kiosk WS 音訊跟著凍結。改丟到 **子行程**：thread 版雖不卡 loop，但
+        # 首次 render 會讓 API 行程常駐 +550 MB（字型解析快取）且 GIL 競爭留 100 ms 尾巴；
+        # 子行程做完 N 份就回收，記憶體跟著釋放，API 行程維持輕量。
+        # max_workers=1 維持原本「一次一份」的序列化語意。
+        loop = asyncio.get_running_loop()
+        pdf_bytes = await loop.run_in_executor(_pdf_executor(), _render_pdf_blocking, html_content)
         filename = f"SOAP_Report_{report.id}.pdf"
         return pdf_bytes, filename
+
+
+_PDF_EXECUTOR: Optional[concurrent.futures.Executor] = None
+_PDF_EXECUTOR_LOCK = threading.Lock()
+# 每個子行程 render 這麼多份後回收（釋放 WeasyPrint／字型快取佔用的記憶體）。
+_PDF_TASKS_PER_CHILD = 20
+
+
+def _pdf_executor() -> concurrent.futures.Executor:
+    """lazy 建立單 worker 的 process pool（spawn：不繼承 event loop／DB 連線）。
+
+    測試可用 `set_pdf_executor(ThreadPoolExecutor(1))` 換成 thread，讓 monkeypatch 生效。
+    """
+    global _PDF_EXECUTOR
+    with _PDF_EXECUTOR_LOCK:
+        if _PDF_EXECUTOR is None:
+            _PDF_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
+                max_workers=1,
+                mp_context=multiprocessing.get_context("spawn"),
+                max_tasks_per_child=_PDF_TASKS_PER_CHILD,
+            )
+        return _PDF_EXECUTOR
+
+
+def set_pdf_executor(executor: Optional[concurrent.futures.Executor]) -> None:
+    """替換（或以 None 重置）PDF render executor；測試與 shutdown 用。"""
+    global _PDF_EXECUTOR
+    with _PDF_EXECUTOR_LOCK:
+        old, _PDF_EXECUTOR = _PDF_EXECUTOR, executor
+    if old is not None and old is not executor:
+        old.shutdown(wait=False)
+
+
+def _render_pdf_blocking(html_content: str) -> bytes:
+    """在 executor（預設子行程）內同步 render；由 export_pdf 呼叫。"""
+    from weasyprint import HTML
+
+    return HTML(string=html_content, url_fetcher=_forbid_url_fetch).write_pdf()
 
 
 # PDF 版面語系標籤。key 為 BCP-47 locale；未支援的 language 一律 fallback 至 zh-TW

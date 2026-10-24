@@ -20,18 +20,15 @@ from __future__ import annotations
 import asyncio
 import inspect
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Optional
 
 import pytest
 
 from app.models.enums import UserRole
-from app.services.alert_service import (
-    AlertService,
-    _doctor_scope_id,
-    _get_user_role,
-)
+from app.core.authz import get_clinician_scope_id as _doctor_scope_id, get_user_role as _get_user_role
+from app.services.alert_service import AlertService
 
 
 def _run(coro):

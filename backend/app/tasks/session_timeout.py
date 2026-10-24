@@ -85,6 +85,7 @@ async def _async_check() -> dict:
     from app.models.conversation import Conversation
     from app.models.enums import SessionStatus
     from app.models.session import Session
+    from app.services.session_visibility import session_not_deleted
     from app.utils.datetime_utils import utc_now
 
     # 單一權威狀態機把關：in_progress → cancelled 目前合法，但不硬編碼這個事實，
@@ -104,6 +105,8 @@ async def _async_check() -> dict:
         result = await db.execute(
             select(Session.id, Session.updated_at)
             .where(Session.status == SessionStatus.IN_PROGRESS)
+            # CLAUDE.md 軟刪除鐵律：已刪場次不得被逾時取消再廣播回儀表板。
+            .where(session_not_deleted())
             .where(Session.updated_at < timeout_threshold)
             .where(
                 ~exists().where(

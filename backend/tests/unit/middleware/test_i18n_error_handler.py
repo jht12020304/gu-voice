@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

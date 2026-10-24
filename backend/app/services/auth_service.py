@@ -26,7 +26,6 @@ from app.core.exceptions import (
     NotFoundException,
     ServiceUnavailableException,
     UnauthorizedException,
-    ValidationException,
 )
 from app.core.security import (
     create_access_token,
@@ -42,8 +41,9 @@ from app.utils.datetime_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
-# JWT 黑名單 Redis key 前綴（與 dependencies.get_current_user 檢查端共用）
-BLACKLIST_KEY_PREFIX = "gu:token_blacklist:"
+# JWT 黑名單 Redis key 前綴：單一定義在讀取端 core/dependencies，這裡只 import，
+# 避免寫入端／讀取端各自寫死後漂移（漂移＝登出的 token 靜默繼續有效）。
+from app.core.dependencies import BLACKLIST_KEY_PREFIX  # noqa: E402
 
 # Refresh token rotation 登記表 key 前綴
 # 每發一張 refresh token，就寫一筆 gu:refresh:{user_id}:{jti} = "1"，TTL = token exp
@@ -57,15 +57,6 @@ RESET_TOKEN_TTL_SECONDS = 1800
 
 # 忘記密碼端點統一回傳訊息（不暴露帳號是否存在）
 FORGOT_PASSWORD_GENERIC_MESSAGE = "若此電子郵件已註冊，密碼重設連結已寄出"
-
-
-def _is_admin(current_user: Any) -> bool:
-    """current_user 是否為已認證的 ADMIN（role 容忍 string 或 enum）。
-
-    `core.authz.get_user_role` 的容錯解析：未登入 / 解不出角色一律視為非 admin，
-    公開註冊因此一律降級為 PATIENT（AUTH-3）。
-    """
-    return get_user_role(current_user) == UserRole.ADMIN
 
 
 def _refresh_key(user_id: Any, jti: str) -> str:
@@ -112,6 +103,15 @@ async def _revoke_all_refresh_tokens(redis: Any, user_id: Any) -> int:
     async for key in redis.scan_iter(match=pattern):
         count += int(await redis.delete(key))
     return count
+
+
+def _is_admin(current_user: Any) -> bool:
+    """current_user 是否為已認證的 ADMIN（role 容忍 string 或 enum）。
+
+    `core.authz.get_user_role` 的容錯解析：未登入 / 解不出角色一律視為非 admin，
+    公開註冊因此一律降級為 PATIENT（AUTH-3）。
+    """
+    return get_user_role(current_user) == UserRole.ADMIN
 
 
 class AuthService:

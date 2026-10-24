@@ -395,6 +395,8 @@ class DashboardService:
             .where(session_not_deleted())
             .where(Session.status.in_(status_filters))
             .order_by(Session.created_at.asc())
+            # 與 WS 版（dashboard_handler，上限 50）對齊：排隊清單不該隨歷史無上限成長。
+            .limit(50)
         )
         if scope_filter is not None:
             query = query.where(scope_filter)

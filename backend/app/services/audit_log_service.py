@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.pagination import page_slice
 from app.core.exceptions import NotFoundException
 from app.models.audit_log import AuditLog
 from app.models.enums import AuditAction
@@ -123,9 +124,7 @@ class AuditLogService:
         result = await db.execute(query.limit(limit + 1))
         logs = result.scalars().all()
 
-        has_more = len(logs) > limit
-        if has_more:
-            logs = logs[:limit]
+        logs, has_more, next_cursor = page_slice(logs, limit)
 
         # 精確總筆數（套用與 list 相同的篩選條件，含日期範圍）
         count_query = select(func.count()).select_from(AuditLog)
@@ -149,7 +148,7 @@ class AuditLogService:
         return {
             "data": logs,
             "pagination": {
-                "next_cursor": str(logs[-1].id) if has_more and logs else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,

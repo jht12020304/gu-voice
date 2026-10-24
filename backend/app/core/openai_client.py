@@ -56,17 +56,6 @@ def get_openai_client() -> AsyncOpenAI:
     return _client
 
 
-async def reset_openai_client() -> None:
-    """關閉並清除 singleton。主要給測試、app shutdown 使用。"""
-    global _client
-    if _client is not None:
-        try:
-            await _client.close()
-        except Exception:  # noqa: BLE001
-            pass
-        _client = None
-
-
 def _retryable_errors() -> tuple[type[Exception], ...]:
     return (APITimeoutError, RateLimitError, APIConnectionError)
 

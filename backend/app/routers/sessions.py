@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis, require_role
-from app.core.exceptions import AppException
 from app.core.metrics import record_session_created
 from app.core.sentry import set_language_scope
 from app.schemas.session import (
