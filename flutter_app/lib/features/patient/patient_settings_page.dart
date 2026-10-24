@@ -7,6 +7,7 @@ import '../../core/router/lng.dart';
 import '../../data/api/auth_api.dart';
 import '../auth/auth_notifier.dart';
 import '../voice/state/settings_notifier.dart';
+import '../../shared/toast.dart';
 
 // Port of PatientSettingsPage.tsx — profile / notifications / security tabs.
 // The language select is zh-TW/en-US only; per the Dart port note it drives the app's
@@ -48,11 +49,13 @@ class _PatientSettingsPageState extends ConsumerState<PatientSettingsPage> {
       await ref.read(authProvider.notifier).updateProfile({
         'phone': _phoneCtrl.text.trim(),
       });
+      if (!mounted) return;
       setState(() {
         _saveOk = true;
         _saveMsg = t('common.patient.settings.savedMessage');
       });
     } catch (_) {
+      if (!mounted) return;
       setState(() {
         _saveOk = false;
         _saveMsg = t('common.patient.settings.saveFailedMessage');
@@ -102,9 +105,9 @@ class _PatientSettingsPageState extends ConsumerState<PatientSettingsPage> {
           style: theme.textTheme.titleMedium,
         ),
         const SizedBox(height: 16),
-        TextField(
+        TextFormField(
           enabled: false,
-          controller: TextEditingController(text: user?.name ?? ''),
+          initialValue: user?.name ?? '',
           decoration: InputDecoration(
             labelText: t('common.patient.settings.fullName'),
             helperText: t('common.patient.settings.fullNameHint'),
@@ -289,10 +292,9 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
       await AuthApi().changePassword(_current.text, _new.text);
       if (!mounted) return;
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(t('common.patient.settings.passwordChanged'))),
-      );
+      showToast(context, t('common.patient.settings.passwordChanged'));
     } catch (_) {
+      if (!mounted) return;
       setState(() {
         _busy = false;
         _error = t('common.patient.settings.passwordChangeFailed');

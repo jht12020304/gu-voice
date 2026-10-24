@@ -88,11 +88,9 @@ from app.schemas.patient import (
 )
 from app.schemas.report import (
     GenerateReportRequest,
-    GenerateReportResponse,
     ReportDetail,
     ReportListResponse,
     ReviewReportRequest,
-    ReviewReportResponse,
     ReviewRequest,
     SOAPReportDetailResponse,
     SOAPReportResponse,
@@ -169,9 +167,7 @@ __all__ = [
     "ReportListResponse",
     "ReviewRequest",
     "ReviewReportRequest",
-    "ReviewReportResponse",
     "GenerateReportRequest",
-    "GenerateReportResponse",
     # Alert
     "RedFlagAlertResponse",
     "AlertAcknowledgeRequest",

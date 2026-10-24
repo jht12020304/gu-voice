@@ -24,6 +24,8 @@ from app.pipelines.next_focus_guard import (
     effective_next_focus,
 )
 from app.pipelines.prompts.shared import (
+    CORE_HPI_PRIORITY_RULE,
+    HPI_FIELD_IDS,
     SINGLE_QUESTION_RULE,
     count_critical_risk_factors_for_complaint,
     get_critical_risk_factors_for_complaint,
@@ -611,8 +613,8 @@ def known_history_fields(patient_info: dict[str, Any]) -> dict[str, str]:
 
     含 `patients` 表的舊資料，因此**不可**直接拿來當任何禁問／跳過的依據
     （BLOCKER E 就是這樣把回診病患的舊病歷變成硬性禁問）。目前只有兩個用途:
-    `session_intake_fields` 的無標記 fallback 起點，以及「來源不可證而被保守降級」
-    的日誌。所有面向 prompt 的清單一律走 `session_intake_fields`。
+    `session_intake_fields` 的無標記 fallback 起點。所有面向 prompt 的清單一律走
+    `session_intake_fields`。
     """
     provided: dict[str, str] = {}
     for key in INTAKE_FIELD_LABELS:
@@ -687,24 +689,11 @@ def split_risk_factors_by_intake(
         return [], []
     info = patient_info or {}
     intake = session_intake_fields(info)
-    # 沒有來源標記時，「值涵蓋但來源不可證」的欄位會被保守降級成必問（多問一句）。
-    # 這是暫時狀態，patient_context 補上 INTAKE_SOURCE_KEY 後就會精確判定；先讓它
-    # 在日誌可見，否則這種降級是靜默的、只會在真跑逐字稿裡才看得出來。
-    unprovable = (
-        {}
-        if isinstance(info.get(INTAKE_SOURCE_KEY), dict)
-        else {k: v for k, v in known_history_fields(info).items() if k not in intake}
-    )
     must_ask: list[str] = []
     covered: list[str] = []
-    downgraded: list[str] = []
     for group in groups:
         for factor in group["factors"]:
             state, field, value, uncovered = classify_risk_factor(factor, intake)
-            if state == MUST_ASK and field in unprovable:
-                rule = _rule_for_factor(factor)
-                if rule and evaluate_coverage(unprovable[field], rule)[0]:
-                    downgraded.append(factor)
             # D-1：`value` 是病患 intake 自填文字，會被插進 prompt 的條列行 →
             # 一律消毒（判定本身用未消毒原值，消毒只影響渲染，不影響三態結論）。
             safe_value = sanitize_for_prompt(value)
@@ -731,14 +720,6 @@ def split_risk_factors_by_intake(
                 )
             else:
                 must_ask.append(f"- {factor}")
-    if downgraded:
-        logger.warning(
-            "§3b 風險因子因無法證明來源而保守維持必問（patient_context 尚未提供 "
-            "%s 標記，無法分辨本次 intake 與 patients 表舊資料）| complaint=%s, factors=%s",
-            INTAKE_SOURCE_KEY,
-            chief_complaint,
-            downgraded,
-        )
     return must_ask, covered
 
 
@@ -769,8 +750,7 @@ def render_critical_risk_factor_items_with_intake(
 ) -> tuple[str, str]:
     """§3b 關鍵風險因子清單的 intake 感知渲染（生產路徑唯一入口）。
 
-    conversation 與 supervisor 都只呼叫這一支；`shared.render_critical_risk_factor_items`
-    是它的前身，已無生產呼叫端（見 needsFromOthers：待刪）。
+    conversation 與 supervisor 都只呼叫這一支（無 intake 感知的前身已刪除）。
 
     回 (必問條列字串, intake 已涵蓋條列字串)；無匹配主訴時兩者皆為 ""，
     §3b 段落完全不注入（不變式:其他主訴行為不變、不亂加問題）。
@@ -986,8 +966,10 @@ class LLMConversationEngine:
 根據病患的主訴「{chief_complaint}」，依序收集下列十個 HPI 面向：
 {hpi_section}
 
+{CORE_HPI_PRIORITY_RULE}
+
 {critical_risk_section}## 次要補問（HPI 完整度較高後才進入）
-當上述 HPI 十欄已大致問完（約 7 成以上），請視對話狀況補問下列臨床文件需要的資訊，
+當本主訴臨床相關的核心 HPI 已大致問完、沒有尚未問過的重要缺漏，才補問下列臨床文件需要的資訊，
 每次仍只問一題，且只在與主訴相關時才問：
 - 過往泌尿科相關疾病或手術史
 - 目前服用中的藥物（特別是抗凝血劑、利尿劑、攝護腺藥物）
@@ -1095,7 +1077,12 @@ class LLMConversationEngine:
                     "llm.supervisor_guidance_section", language
                 )
                 no_repeat = _i18n_get("llm.supervisor_guidance_no_repeat", language)
-                final_system_prompt += f"\n\n{section_title}\n{next_focus}\n{no_repeat}"
+                # Supervisor 輸出亦是 LLM 文字（上游吃過病患原文）→ 行首 `##` 一樣要剝
+                final_system_prompt += f"\n\n{section_title}\n{sanitize_for_prompt(next_focus)}\n{no_repeat}"
+            missing = supervisor_guidance.get("missing_hpi")
+            if isinstance(missing, list):
+                pending = [field for field in HPI_FIELD_IDS if field in missing]
+                final_system_prompt += f"\nPrevious-turn missing_hpi (latest patient answer takes precedence): {pending}"
 
         # (d) 2026-08-17 第三輪 e2e：把過期指導換掉之後，Supervisor 與注入文字都已不再
         # 提 Duration，對話 LLM **仍自己**問出「頻尿的感覺是一直都有，還是有時候才會出現」。

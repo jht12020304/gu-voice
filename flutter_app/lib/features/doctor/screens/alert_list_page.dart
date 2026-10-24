@@ -51,7 +51,7 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
     final sorted = [...alerts]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     final groups = <String, List<RedFlagAlert>>{};
     for (final a in sorted) {
-      final key = a.createdAt.length >= 10 ? a.createdAt.substring(0, 10) : 'unknown';
+      final key = localDayKey(a.createdAt) ?? 'unknown';
       groups.putIfAbsent(key, () => []).add(a);
     }
     for (final list in groups.values) {
@@ -94,7 +94,10 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: TextField(
-              decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: t('dashboard.alertList.searchPlaceholder')),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: t('dashboard.alertList.searchPlaceholder'),
+              ),
               onChanged: (v) => setState(() => _search = v),
             ),
           ),
@@ -117,7 +120,7 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
         ],
       ),
     );
-    if (ok != true) return;
+    if (ok != true || !mounted) return;
     await ref.read(alertsProvider.notifier).acknowledgeAll();
   }
 
@@ -130,17 +133,19 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(children: [
-        for (final e in filters.entries)
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ChoiceChip(
-              selected: filter == e.key,
-              label: Text(t(e.value)),
-              onSelected: (_) => ref.read(alertsProvider.notifier).setFilter(e.key),
+      child: Row(
+        children: [
+          for (final e in filters.entries)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                selected: filter == e.key,
+                label: Text(t(e.value)),
+                onSelected: (_) => ref.read(alertsProvider.notifier).setFilter(e.key),
+              ),
             ),
-          ),
-      ]),
+        ],
+      ),
     );
   }
 
@@ -160,60 +165,78 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
         message: t('dashboard.alertList.emptyMessage'),
       );
     }
-    return ListView(
+    final items = <Object>[
+      for (final g in groups) ...[
+        GroupHeader('${g.key}  ·  ${t('dashboard.alertList.groupCount', args: {'count': g.value.length})}'),
+        ...g.value,
+      ],
+      // 分頁尾端小 spinner：非首次載入，保留轉圈（不佔整區）。
+      if (st.isLoading)
+        const Center(
+          child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
+        ),
+      if (!st.hasMore)
+        Center(
+          child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded'))),
+        ),
+    ];
+    return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.all(16),
-      children: [
-        for (final g in groups) ...[
-          GroupHeader('${g.key}  ·  ${t('dashboard.alertList.groupCount', args: {'count': g.value.length})}'),
-          for (final a in g.value) _card(context, a),
-        ],
-        // 分頁尾端小 spinner：非首次載入，保留轉圈（不佔整區）。
-        if (st.isLoading) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
-        if (!st.hasMore) Center(child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded')))),
-      ],
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return item is Widget ? item : _card(context, item as RedFlagAlert);
+      },
     );
   }
 
   Widget _card(BuildContext context, RedFlagAlert a) {
     final tk = Theme.of(context).extension<AppTokens>()!;
-    final sevColor = switch (a.severity) {
-      'critical' => tk.alertCritical,
-      'high' => tk.alertHigh,
-      _ => tk.alertMedium,
-    };
+    final sevColor = tk.severityColor(a.severity);
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
         onTap: () => context.go(prefixLngToPath('/alerts/${a.id}', currentLng)),
         child: Padding(
           padding: const EdgeInsets.all(14),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              PillTag(a.severity.toUpperCase(), color: sevColor),
-              const SizedBox(width: 8),
-              Expanded(child: Text(a.title, style: const TextStyle(fontWeight: FontWeight.w600))),
-              PillTag(
-                a.acknowledged ? t('dashboard.alert.acknowledged') : t('dashboard.alert.pending'),
-                color: a.acknowledged ? tk.statusCompleted : tk.alertHigh,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  PillTag(a.severity.toUpperCase(), color: sevColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(a.title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                  PillTag(
+                    a.acknowledged ? t('dashboard.alert.acknowledged') : t('dashboard.alert.pending'),
+                    color: a.acknowledged ? tk.statusCompleted : tk.alertHigh,
+                  ),
+                ],
               ),
-            ]),
-            if (a.triggerReason.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(t('dashboard.alert.triggerLabel', args: {'value': a.triggerReason}),
-                  style: Theme.of(context).textTheme.bodySmall),
-            ],
-            const SizedBox(height: 6),
-            Row(children: [
-              Text(formatDateTime(a.createdAt), style: Theme.of(context).textTheme.bodySmall),
-              const Spacer(),
-              if (!a.acknowledged)
-                TextButton(
-                  onPressed: () => ref.read(alertsProvider.notifier).acknowledge(a.id),
-                  child: Text(t('dashboard.alert.acknowledge')),
+              if (a.triggerReason.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  t('dashboard.alert.triggerLabel', args: {'value': a.triggerReason}),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-            ]),
-          ]),
+              ],
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Text(formatDateTime(a.createdAt), style: Theme.of(context).textTheme.bodySmall),
+                  const Spacer(),
+                  if (!a.acknowledged)
+                    TextButton(
+                      onPressed: () => ref.read(alertsProvider.notifier).acknowledge(a.id),
+                      child: Text(t('dashboard.alert.acknowledge')),
+                    ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,8 +1,11 @@
 import { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../stores/authStore';
 import { User, Bell, Shield, KeyRound, Globe, ChevronRight } from 'lucide-react';
+import type { SupportedLanguage } from '../../i18n';
+import { buildSwitchedPath } from '../../i18n/paths';
 import { useSettingsStore } from '../../stores/settingsStore';
 import Modal from '../../components/common/Modal';
 import * as authApi from '../../services/api/auth';
@@ -14,12 +17,16 @@ export default function PatientSettingsPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security'>('profile');
   const {
     language,
-    setLanguage,
     notificationsEnabled,
     setNotificationsEnabled,
     soundEnabled,
     setSoundEnabled,
   } = useSettingsStore();
+  const navigate = useNavigate();
+  const location = useLocation();
+  // URL 是語言唯一權威：只改 `/:lng` 前綴，i18n / settingsStore 由 LanguageLayout 同步。
+  const switchLanguage = (lng: SupportedLanguage) =>
+    navigate(buildSwitchedPath(location.pathname, location.search, location.hash, lng), { replace: true });
 
   const [profile, setProfile] = useState({
     email: user?.email || '',
@@ -188,7 +195,7 @@ export default function PatientSettingsPage() {
                       <select
                         className="w-full px-4 py-2 border border-surface-200 rounded-xl appearance-none bg-white focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
                         value={language}
-                        onChange={(e) => setLanguage(e.target.value as 'zh-TW' | 'en-US')}
+                        onChange={(e) => switchLanguage(e.target.value as SupportedLanguage)}
                       >
                         <option value="zh-TW">{t('language.names.zh-TW')}</option>
                         <option value="en-US">{t('language.names.en-US')}</option>

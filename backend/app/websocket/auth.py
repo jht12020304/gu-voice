@@ -173,4 +173,6 @@ async def _verify_and_close_on_fail(
 
     # 角色以 DB 為準覆蓋 token claim（降權後舊 token 不得沿用舊角色）
     payload["role"] = user.role.value
+    # 臨床 admin（有執照號）與 doctor 同受 row-level scope（authz.get_clinician_scope_id）
+    payload["license_number"] = user.license_number
     return payload

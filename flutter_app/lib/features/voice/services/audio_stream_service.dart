@@ -248,6 +248,8 @@ class AudioStreamService {
     // any in-flight capture so no orphan PCM leaks into the next utterance.
     if (next == MuteMode.none || (prev == MuteMode.hard && next == MuteMode.soft)) {
       _isSpeaking = false;
+      _durationTimer?.cancel();
+      _durationTimer = null;
       _candidateStartAt = 0;
       _lastAboveThresholdAt = _now;
       _capturingPcm = false;
@@ -288,6 +290,10 @@ class AudioStreamService {
   void _processVad(double rms) {
     if (_muteMode == MuteMode.hard) return; // no detection at all
     final effective = _muteMode == MuteMode.soft ? _bargeInThreshold : _threshold;
+
+    // ponytail: 60 s cap, backend hard limit is 600 s (config.py MAX_AUDIO_SECONDS-ish);
+    // tune after real-device run. 沒有上限時一段不停的環境噪音會讓 segment 無限長。
+    if (_isSpeaking && _now - _segmentStartAt >= 60000) _endSegment(notify: true);
 
     if (rms > effective) {
       if (_isSpeaking) {

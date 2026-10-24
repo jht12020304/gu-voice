@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -76,7 +77,6 @@ class WebSocketManager {
   // may 4001-close after open. Reset only on the FIRST received message (= auth passed).
   bool _hasAttemptedAuthRecovery = false;
 
-  bool get isConnected => _isOpen;
   WsConnState get connectionState => _connectionState;
 
   void connect(String url, TokenProvider token) {
@@ -96,15 +96,6 @@ class WebSocketManager {
     _hasAttemptedAuthRecovery = false;
     _closeChannel(1000, 'Client disconnect');
     _setState(WsConnState.closed);
-  }
-
-  void retry() {
-    if (_isOpen || _url.isEmpty) return;
-    _clearTimers();
-    _isManualClose = false;
-    _retryCount = 0;
-    _setState(WsConnState.connecting);
-    unawaited(_reconnectWithResume());
   }
 
   void send(String type, [Object payload = const {}]) {
@@ -145,6 +136,9 @@ class WebSocketManager {
 
     // ready completes when the transport handshake is done (the onopen equivalent).
     channel.ready.then((_) {
+      // disconnect() 或新一輪 _createConnection 可能已經換掉 channel：舊 handshake
+      // 不得把已關閉／被取代的 socket 標成 open（會多發 auth、多開一支 ping timer）。
+      if (_isManualClose || !identical(channel, _channel)) return;
       _isOpen = true;
       // Raw top-level {type:'auth', token} — NOT the envelope send() wraps.
       channel.sink.add(jsonEncode({'type': 'auth', 'token': _resolveToken()}));
@@ -165,8 +159,9 @@ class WebSocketManager {
         try {
           final message = jsonDecode(data as String) as Map;
           _emit(message['type'] as String, message['payload'], message);
-        } catch (_) {
-          // ignore malformed frames
+        } catch (e) {
+          // 壞 frame 或 handler 拋例外都只記錄：一則壞事件不得殺掉整條 listener。
+          debugPrint('ws handler error: $e');
         }
       },
       onError: (_) => _emit('_error', {'message': 'WebSocket error'}),
@@ -259,6 +254,7 @@ class WebSocketManager {
   }
 
   void _startPing() {
+    _pingTimer?.cancel();
     _pingTimer = Timer.periodic(Duration(milliseconds: pingIntervalMs), (_) => send('ping', {}));
   }
 

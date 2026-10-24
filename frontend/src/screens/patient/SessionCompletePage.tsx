@@ -52,6 +52,7 @@ export default function SessionCompletePage() {
 
   useEffect(() => {
     if (!sessionId) return;
+    const id = sessionId;
 
     async function load() {
       if (IS_MOCK) {
@@ -60,7 +61,7 @@ export default function SessionCompletePage() {
         setIsLoadingSession(false);
       } else {
         try {
-          const s = await sessionsApi.getSession(sessionId!);
+          const s = await sessionsApi.getSession(id);
           setSession(s);
         } catch {
           // 靜默
@@ -68,7 +69,7 @@ export default function SessionCompletePage() {
           setIsLoadingSession(false);
         }
       }
-      fetchReportBySession(sessionId!);
+      fetchReportBySession(id);
     }
     load();
     // 不把 i18n.resolvedLanguage 放進 deps：session 內容是病患自述 / SOAP 報告

@@ -17,6 +17,12 @@ interface FilterState {
 
 const EMPTY_FILTERS: FilterState = { action: '', userId: '', startDate: '', endDate: '' };
 
+/** `YYYY-MM-DD` → 裝置本地日界（帶時區位移的 ISO）；裸日期字串會被後端當成 UTC。 */
+function localDayIso(date: string, endOfDay: boolean): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return (endOfDay ? new Date(y, m - 1, d, 23, 59, 59, 999) : new Date(y, m - 1, d, 0, 0, 0, 0)).toISOString();
+}
+
 export default function AuditLogsPage() {
   const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState('');
@@ -36,8 +42,8 @@ export default function AuditLogsPage() {
       const params: AuditLogListParams = { limit: 100 };
       if (filters.action.trim()) params.action = filters.action.trim();
       if (filters.userId.trim()) params.userId = filters.userId.trim();
-      if (filters.startDate) params.startDate = filters.startDate;
-      if (filters.endDate) params.endDate = filters.endDate;
+      if (filters.startDate) params.startDate = localDayIso(filters.startDate, false);
+      if (filters.endDate) params.endDate = localDayIso(filters.endDate, true);
       const response = await adminApi.getAuditLogs(params);
       setLogs(response.data);
     } catch {

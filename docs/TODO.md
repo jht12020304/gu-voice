@@ -1,5 +1,33 @@
 # GU-Voice TODO 清單
 
+## 2026-10-03 整體流暢度修正
+
+F01–F12 已完成程式修正與本機回歸；獨立 staging 後端與 React preview 已部署，iOS 候選包六關通過、尚未上傳 TestFlight。Apple 必要協議由使用者稍後處理；production 未變更。真機效能及麥克風等裝置驗收仍待完成，結果與重跑入口集中在 [效能驗收紀錄](perf_audit_2026-08-22.md)。
+
+## 2026-10-03 iOS 可維護性修正
+
+現行範圍是 **iOS App + React 網頁版 + 共用後端**，見 [README.md](README.md)。M1–M3 已修復並驗證，包含在 2026-10-03 staging IPA，尚待 TestFlight／真機驗收；下方較早的部署與驗證紀錄保留其原日期。
+
+- [x] **M1／高：帳號切換時重置醫師資料與 dashboard WebSocket。**（2026-10-03，本機未提交）
+  `dashboardWsProvider` 依帳號 ID／角色重建；通知、紅旗、場次 controller 訂閱同一個連線生命週期。
+  登出或切為病患時回到空清單，A → B 時重建連線並載入 B 的資料；同帳號更新個人資料不重連。
+  舊連線已結束或 provider 已重建的請求不得寫回；登入世代也隔離 HTTP 回覆與 token 刷新，Keychain 寫入依序完成。
+  回歸：[doctor_session_lifecycle_test.dart](../flutter_app/test/doctor_session_lifecycle_test.dart) 涵蓋主動登出、認證失效、醫師切換、病患切換，以及延遲完成的清單、分頁、計數與寫入。
+- [x] **M2／高：暫時網路錯誤保留登入，憑證被拒才登出。**（2026-10-03，本機未提交）
+  `ApiClient` 分開處理刷新與重送：timeout／5xx 保留憑證並回傳實際錯誤；刷新 401／403 或重送 401 才清除登入，資源 403 保留登入。
+  並行 401 共用一次刷新；過期帳號的成功／失敗回覆不能覆蓋或登出新帳號。bootstrap 的離線重試行為保持一致。
+  回歸：[api_auth_recovery_test.dart](../flutter_app/test/api_auth_recovery_test.dart)，包含 Keychain 寫入順序與 bootstrap 遇刷新 503。
+- [x] **M3／中：通知列表與未讀數只接受最新請求。**（2026-10-03，本機未提交）
+  列表與未讀數各自保留請求序號；較早的成功／失敗回覆都丟棄，重新整理也會使舊游標的分頁失效。
+  WS 延遲重抓跟著連線生命週期取消，避免舊帳號排程在新帳號執行。
+  回歸：[notifications_ws_refresh_test.dart](../flutter_app/test/notifications_ws_refresh_test.dart) 刻意倒轉列表、未讀數、錯誤與分頁回覆順序。
+
+驗證：新增 23 項回歸，`fvm flutter analyze --no-pub` 無問題，`fvm flutter test --no-pub` **308 項全數通過**。本輪未進行真機語音驗證。
+
+現有 `features/`、`data/api/`、`data/models/` 與語音服務分層繼續沿用，後續按具體功能拆分大頁面，不引入新狀態框架。
+
+## 較早的工作與部署紀錄
+
 > 依據 [`system_issues_and_risks.md`](archive/system_issues_and_risks.md) 整理的可執行待辦事項。
 > 完成一項就把 `[ ]` 改成 `[x]`，並在後面加上完成日期與 commit hash。
 >
@@ -300,7 +328,7 @@
   - [x] `.env.example`：方案 A（顯式 URL）/ 方案 B（元件）並列並加註解；JWT 兩種用法都寫
   - [x] `docker-compose.yml`：註解標明顯式 URL 走優先分支、HS256 是 dev 用替代
   - [x] 測試：`tests/unit/core/test_config_env_precedence.py` 15 項（URL 優先序 / 驅動標準化 / PEM-vs-path / `\n` 還原 / HS256 略過 PEM / LOG_LEVEL 單一來源）
-- **驗收**：`venv/bin/python -m pytest tests/unit/ -q --ignore=tests/unit/api` → 96 passed；`from app.main import app` 乾淨載入
+- **驗收**：`venv/bin/python -m pytest tests/unit/ -q` → 96 passed；`from app.main import app` 乾淨載入
 
 ### [x] 13. Conversation 表加唯一性保證 + `updated_at`（2026-04-18 完成）
 
@@ -412,7 +440,7 @@
 - 原內容：`frontend/src/types/api.ts` 的 `unknown[]` 換具體 interface、新裝 `zod` 驗 API response
 - **作廢理由**：這是 TS 生態的技術債，Flutter 端由語言本身解掉——Dart 靜態型別 + `flutter_app/lib/data/models/*.dart`
   的 `fromJson` 已是邊界轉型層。**不要因此在 Flutter 引入 freezed / json_serializable**，現行手寫 fromJson 夠用。
-- React `frontend/` 下線前若仍要動，就當它是遺留碼庫的舊債，不要新投入
+- 2026-10-03 更正：React `frontend/` 與 iOS 都持續維護（見 [README.md](README.md)）。本項當時的作廢狀態是歷史紀錄；遇到具體解析問題再補型別／驗證，不預先引入新套件。
 
 ### [x] 23. GoRouter 補 `onException` — 2026-07-26 完成（PR #42，見 §G21）
 
@@ -455,7 +483,7 @@
 
 - **檔案**：`.github/workflows/ci.yml`（新增）
 - **已做**：
-  - [x] `backend-tests` job：ubuntu-latest、Postgres 15 + Redis 7 services、Python 3.12、pip cache；跑 `pytest tests/unit/ -q --ignore=tests/unit/api`
+  - [x] `backend-tests` job：ubuntu-latest、Postgres 15 + Redis 7 services、Python 3.12、pip cache；跑 `pytest tests/unit/ -q`
   - [x] `frontend-checks` job：Node 20、npm cache；跑 `npm run type-check` + `npm run build`（lint 暫緩直到前端補 ESLint 設定）
   - [x] `e2e-playwright` job：`if: false` 留位；前端 happy path Playwright 待 Phase 5 追加
   - [x] Trigger：PR + push to main；YAML `"on":` 加引號避免 YAML 1.1 boolean 誤讀
@@ -714,12 +742,12 @@ V4 擋的是實體麥克風驗證，那條仍未做（見 V1 與檔頭未竟事�
 
 ### [ ] V7. 🟡 iOS 端 — 2026-08-22 再度轉向：**iOS 單一 App（含語音問診）**
 
-> ⚠️ **2026-08-22 拍板推翻下方 2026-08-20 的分工**：只留 App、網頁走向除役。
+> **2026-10-03 維護範圍更正**：iOS 與 React 網頁版都持續維護，取代當時的網頁除役規劃；見 [README.md](README.md)。以下保留 iOS 角色調整與驗證紀錄。
 > kiosk iPad（候診區共用機）跑病患語音問診，醫師/管理員用自己的裝置跑同一顆 App。
 > 平台閘門已拆（branch feat/ios-full-app）：route_guard 只剩角色守衛，
 > **拆之前先修掉 `/patients` 前綴誤中的病患越權洞**（web 上原本就開著）。
 > 散佈先走 TestFlight（90 天到期照舊），正式散佈另議。
-> **§V1 的紅字現在直接落在產品的唯一路徑上**：語音管線從未對真麥克風跑過，
+> **當時 §V1 的待驗項也適用於 iOS 語音流程**：語音管線尚未對真麥克風跑過，
 > 而 iOS 現在就是要跑它的平台——kiosk iPad 首次驗證前，語音問診不得對病患開放。
 >
 > **2026-08-22 當天後續（皆已 merge＋後端已部署）**：
@@ -923,9 +951,9 @@ automatic signing 會覆寫它）③ 把 iOS build 加進 `.github/workflows/ci.
 ①② 已寫進 CLAUDE.md 鐵律，驗法（`codesign -d --entitlements :-`）見
 [`deployment_guide.md`](deployment_guide.md) 二、。
 
-#### ⚠️ 送測前未解的資料風險（2026-09-03 更新）
+#### ⚠️ production 送測前未解的資料風險（2026-10-03 更新）
 
-這是醫療系統，**內測包打的是生產後端**，本專案沒有 staging（`deployment_guide.md` 只有 production 一組）。
+舊內測包及打包腳本預設連 production。2026-10-03 已建立獨立 staging 與候選 IPA，見 [發佈設定 §0](ios_release_settings.md#0-2026-10-03-staging-候選包與測試環境)；以下是 production 的資料邊界。
 
 1. **已指派通知仍含 PHI。** `session_complete`／`report_ready`／`report_failed` 會帶病患姓名，
    紅旗推播會帶 LLM 生成的醫師向臨床描述；現在只送 `session.doctor_id` 指向的醫師，
@@ -974,11 +1002,9 @@ automatic signing 會覆寫它）③ 把 iOS build 加進 `.github/workflows/ci.
 - **A) 第 2 人已獲授權接觸真實病歷**（院內醫護）：建立臨床帳號、補正執照／科別，
   由病患在問診前明確指派；另以書面記錄授權依據。若鎖定畫面不得顯示姓名，再做通知去識別化。
 - **B) 第 2 人未獲授權**（工程師／PM）：**不得給 production 帳號**。最小安全集是
-  **開 staging 環境**：獨立 Railway service ＋ 空的 Supabase DB ＋ 3–5 筆
-  明顯假名的病患資料，內測包改打 staging。**估時 4–8 小時。** 附帶好處：同時解鎖 V1／V4 的
-  實體麥克風驗證（不必拿生產資料練習）與日後的 external TestFlight。
+  使用 **2026-10-03 已建立的 staging**：獨立 Railway API、Postgres、Redis 與合成帳號，候選 IPA 明確連至 staging。Apple 協議完成、TestFlight 安裝後，才進行 V1／V4 的實體麥克風驗證。
 
-⚠️ **尚未實作**：鎖定畫面去識別化、`unregister()` 失敗重試、staging。臨床 row-level scope
+⚠️ **尚未實作**：鎖定畫面去識別化、`unregister()` 失敗重試。staging 已建立；臨床 row-level scope
 已於 2026-09-02 上線，不要再把它列成未完成。
 
 #### 兩條沒人提過、但第一次上傳就定生死的風險

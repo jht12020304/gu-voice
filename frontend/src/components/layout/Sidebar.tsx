@@ -3,7 +3,6 @@
 // =============================================================================
 
 import { NavLink } from 'react-router-dom';
-import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
 import { useAlertStore } from '../../stores/alertStore';
@@ -23,16 +22,11 @@ interface NavSection {
   items: NavItem[];
 }
 
-export default function Sidebar() {
+export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { t } = useTranslation(['dashboard', 'common']);
   const user = useAuthStore((s) => s.user);
   const unacknowledgedCount = useAlertStore((s) => s.unacknowledgedCount);
-  const fetchUnacknowledgedCount = useAlertStore((s) => s.fetchUnacknowledgedCount);
   const lng = useCurrentLng();
-
-  useEffect(() => {
-    fetchUnacknowledgedCount();
-  }, [fetchUnacknowledgedCount]);
 
   const navSections: NavSection[] = [
     {
@@ -204,7 +198,7 @@ export default function Sidebar() {
     : '';
 
   return (
-    <aside className="flex w-sidebar flex-col border-r border-edge bg-surface-secondary dark:bg-dark-surface dark:border-dark-border">
+    <aside className="flex w-sidebar max-w-full flex-col border-r border-edge bg-surface-secondary dark:bg-dark-surface dark:border-dark-border">
       {/* Logo 區域 */}
       <div className="flex h-14 items-center gap-2 border-b border-edge px-5 dark:border-dark-border">
         <img src="/logo.png" alt="UroSense" className="h-8 w-8 object-contain" />
@@ -224,6 +218,7 @@ export default function Sidebar() {
                   <NavLink
                     key={item.path}
                     to={`/${lng}${item.path}`}
+                    onClick={onNavigate}
                     className={({ isActive }) =>
                       `sidebar-item ${isActive ? 'sidebar-item-active' : ''}`
                     }

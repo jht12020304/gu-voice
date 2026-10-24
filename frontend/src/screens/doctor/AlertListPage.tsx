@@ -8,6 +8,7 @@ import type { TFunction } from 'i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import { useAlertStore } from '../../stores/alertStore';
 import { useRedFlagAlerts } from '../../hooks/useRedFlagAlerts';
+import { useInfiniteScroll } from '../../hooks/useInfiniteScroll';
 import AlertItem from '../../components/dashboard/AlertItem';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
@@ -142,7 +143,6 @@ export default function AlertListPage() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sessionMeta, setSessionMeta] = useState<Record<string, AlertSessionMeta>>({});
-  const observerRef = useRef<IntersectionObserver>();
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   // H-8 / M-17：訂閱儀表板 WS（new_red_flag / red_flag_acknowledged / initial_state /
@@ -151,22 +151,7 @@ export default function AlertListPage() {
 
   // §1e 安全：接上 store 的 fetchMore/hasMore 無限捲動，讓超過 20 筆的未處理 critical
   // 也能從 UI 取得（過去只抓首 20 筆，超出者永久看不到）。搜尋為前端過濾，仍持續載入更多至 store。
-  useEffect(() => {
-    if (observerRef.current) observerRef.current.disconnect();
-
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
-          fetchMore();
-        }
-      },
-      { threshold: 0.1 },
-    );
-
-    if (sentinelRef.current) observerRef.current.observe(sentinelRef.current);
-
-    return () => observerRef.current?.disconnect();
-  }, [hasMore, isLoading, fetchMore]);
+  useInfiniteScroll(sentinelRef, { hasMore, isLoading, onMore: fetchMore });
 
   // 切換 UI 語言時 refetch：紅旗 title / triggerReason / suggestedActions 由後端依 Accept-Language 在地化。
   useEffect(() => {

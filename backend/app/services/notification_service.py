@@ -404,27 +404,16 @@ class NotificationService:
         if has_more:
             notifications = notifications[:limit]
 
-        # total_count 須與 list 套用相同篩選，分頁總數才一致
-        count_query = (
-            select(func.count())
-            .select_from(Notification)
-            .where(Notification.user_id == user_id)
-        )
+        filters = []
         if is_read is not None:
-            count_query = count_query.where(Notification.is_read.is_(is_read))
+            filters.append(Notification.is_read.is_(is_read))
         if notification_type is not None:
-            count_query = count_query.where(Notification.type == notification_type)
-        count_result = await db.execute(count_query)
-        total_count = count_result.scalar() or 0
-
-        # unread_count 不受篩選影響，永遠回傳該使用者的未讀總數
-        unread_result = await db.execute(
-            select(func.count())
-            .select_from(Notification)
-            .where(Notification.user_id == user_id)
-            .where(Notification.is_read.is_(False))
-        )
-        unread_count = unread_result.scalar() or 0
+            filters.append(Notification.type == notification_type)
+        total = func.count().filter(*filters) if filters else func.count()
+        counts = await db.execute(select(
+            total, func.count().filter(Notification.is_read.is_(False)),
+        ).select_from(Notification).where(Notification.user_id == user_id))
+        total_count, unread_count = counts.one()
 
         return {
             "data": notifications,

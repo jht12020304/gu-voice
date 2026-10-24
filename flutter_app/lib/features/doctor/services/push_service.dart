@@ -125,6 +125,9 @@ class PushService {
       debugPrint('[push] Firebase 初始化失敗，推播停用：$e');
       return;
     }
+    // 每個 await 之後都重驗：stop() 可能在等待期間到（登出），之後掛上的串流
+    // 就沒人能取消，前一位醫師的推播會繼續導頁。
+    if (!_started) return;
 
     // 使用者拒絕權限也照樣往下走：token 仍然拿得到，通知中心（站內）不受影響，
     // 而且使用者之後在系統設定打開就會直接生效，不必重登。
@@ -134,8 +137,10 @@ class PushService {
     } catch (e) {
       debugPrint('[push] 通知權限請求失敗：$e');
     }
+    if (!_started) return;
 
     await _syncToken();
+    if (!_started) return;
 
     _refreshSub = _backend.onTokenRefresh.listen(
       _register,

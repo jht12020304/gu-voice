@@ -15,7 +15,8 @@
     "themeToDark": "다크 모드로 전환",
     "notifications": "알림",
     "settings": "설정",
-    "logout": "로그아웃"
+    "logout": "로그아웃",
+    "navigation": "탐색 메뉴"
   },
   "login": {
     "prompt": "계정으로 로그인해 주세요",

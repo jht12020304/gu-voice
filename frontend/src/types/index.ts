@@ -3,12 +3,14 @@
 // 所有欄位使用 camelCase，由 API 層自動轉換 snake_case
 // =============================================================================
 
+import type { UserRole } from './enums';
+
 /** 使用者 */
 export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'patient' | 'doctor' | 'admin';
+  role: UserRole;
   phone?: string;
   department?: string;
   licenseNumber?: string;
@@ -177,6 +179,10 @@ export interface PatientFacingLocalized {
 
 /** SOAP 報告 */
 export interface SOAPReport {
+  patientName?: string | null;
+  chiefComplaintText?: string | null;
+  sessionStatus?: Session['status'] | null;
+  sessionRedFlag?: boolean | null;
   id: string;
   sessionId: string;
   status: 'generating' | 'generated' | 'failed';

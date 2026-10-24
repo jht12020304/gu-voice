@@ -80,6 +80,14 @@ HPI_STEPS: list[dict[str, str]] = [
 # 給 SOAP validator 與 supervisor missing_hpi 合法值檢查用
 HPI_FIELD_IDS: list[str] = [step["id"] for step in HPI_STEPS]
 
+# Conversation and Supervisor must agree on when optional history may begin.
+CORE_HPI_PRIORITY_RULE = """- 除急症線索及本主訴必問風險因子外,依上方 HPI 框架順序優先補齊 missing_hpi。
+- 一個面向已有足夠答案後就前進,不要反覆列舉同一面向的每種症狀,擠掉未問過的核心欄位。
+- 核心 HPI 仍有臨床相關且尚未問過的重要缺漏時,不得改問次要病史、用藥或生活習慣。
+- Onset 與 Duration 分開判定:不知道「何時開始」只代表 Onset 已盡力採集,
+  不代表已回答「每次持續多久／持續或間歇」;Duration 尚未問過就仍須問一次。
+- 已回答或已表示不知道的欄位不可重問;上輪 missing_hpi 若尚未反映最新回答,以對話為準。"""
+
 
 def render_hpi_checklist() -> str:
     """把 HPI 步驟渲染成 prompt 可讀的條列清單(1-indexed)。"""
@@ -1656,19 +1664,6 @@ def get_critical_risk_factors_for_complaint(
         if any(kw.lower() in haystack for kw in group["complaint_keywords"]):
             matched.append(group)
     return matched
-
-
-def render_critical_risk_factor_items(chief_complaint: Any) -> str:
-    """
-    把匹配主訴的關鍵風險因子渲染成條列(無匹配回空字串)。
-
-    conversation(必問段)與 supervisor(收尾前 gate 段)共用此單一來源,各自在外層
-    包不同的標題與規則說明,避免必問清單兩邊漂移。
-    """
-    groups = get_critical_risk_factors_for_complaint(chief_complaint)
-    if not groups:
-        return ""
-    return "\n".join(f"- {f}" for g in groups for f in g["factors"])
 
 
 def count_critical_risk_factors_for_complaint(chief_complaint: Any) -> int:

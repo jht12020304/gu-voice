@@ -28,21 +28,12 @@ bool get isNativeMobile =>
     (defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.android);
 
-/// 問診相關路由＝病患首頁子樹 + 語音問診子樹。
+/// 病患帳號可以待的區域：自己的首頁子樹與問診子樹。
 ///
 /// 一律用「整段比對」而不是 `startsWith('/patient')`：
 ///   - `/patient-unsupported` 若被算進來，病患會被 redirect 回自己這一頁 → go_router 迴圈
-///   - `/patients`、`/patients/:id` 是醫師端的病患清單，在醫師 App 上必須開著
-bool isConsultationArea(String rest) =>
-    rest == '/patient' ||
-    rest.startsWith('/patient/') ||
-    rest == '/conversation' ||
-    rest.startsWith('/conversation/');
-
-/// 病患帳號可以待的區域：自己的首頁子樹與問診子樹。
-///
-/// 一律整段比對。`startsWith('/patient')` 會把醫師端的 `/patients`（病患**清單**）
-/// 一起放進來——那正是 2026-08-22 修掉的越權洞。
+///   - `/patients`、`/patients/:id` 是醫師端的病患清單（病患**清單**），在醫師 App 上
+///     必須開著——那正是 2026-08-22 修掉的越權洞。
 bool _isPatientOwnArea(String rest) =>
     rest == '/patient' ||
     rest.startsWith('/patient/') ||
@@ -72,7 +63,6 @@ String? resolveGuardRedirect({
   required String rest,
   required bool isAuthenticated,
   required bool isPatient,
-  required bool isAdmin,
   required bool nativeMobile,
 }) {
   final landing = landingPath(lng: lng, isPatient: isPatient, nativeMobile: nativeMobile);
@@ -91,19 +81,16 @@ String? resolveGuardRedirect({
   // 舊書籤/推播裡可能還存著已刪除的 iOS 提示頁路徑；當作不存在，交回角色 landing。
   if (rest == '/patient-unsupported') return landing;
 
-  // ---- RoleGuard：病患只能待在病患/問診區；admin 頁需 admin ----
+  // ---- RoleGuard：病患只能待在病患/問診區 ----
   //
   // ⚠️ 2026-08-22 修正：這裡原本是 `rest.startsWith('/patient')`，而醫師端的病患清單
   // 路由是 `/patients`——**開頭就是 `/patient`**，於是病患帳號可以直接走進
   // `/patients` 與 `/patients/:id`，讀到全院病患的姓名與病歷（實測放行）。
   // 這個洞在 iOS 上一直被平台閘門蓋住（病患整個被擋在提示頁），web 上則是真的開著；
   // 平台閘門拆掉（iOS 開放語音問診）之後它就是唯一的防線，所以改成**整段比對**——
-  // 與上方 `isConsultationArea` 的註解警告的是同一個坑，只是當初這一行漏了。
-  final isPatientArea = _isPatientOwnArea(rest);
-  final isAdminArea = rest == '/admin' || rest.startsWith('/admin/');
-  if (isPatient && !isPatientArea) return landing; // patient blocked from doctor/admin
+  // 與 `_isPatientOwnArea` 的註解警告的是同一個坑，只是當初這一行漏了。
   // 2026-08-22 拍板「醫師＝管理員」：admin 四頁對醫師開放（後端 admin router 同步
-  // 改收 doctor）。病患仍然進不來——上一行已經把病患擋在自己的區域裡。
-  if (isAdminArea && isPatient) return landing;
+  // 改收 doctor）。病患仍然進不來——下一行已經把病患擋在自己的區域裡。
+  if (isPatient && !_isPatientOwnArea(rest)) return landing; // patient blocked from doctor/admin
   return null;
 }

@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow';
 // =============================================================================
 // 語音問診對話頁（病患端核心頁面）
 // =============================================================================
@@ -98,8 +99,6 @@ export default function ConversationPage() {
     userPaused,
     sttPartialText,
     aiStreamingText,
-    recordingDuration,
-    waveformData,
     activeRedFlags,
     supervisorGuidance,
     supervisorDegraded,
@@ -121,7 +120,37 @@ export default function ConversationPage() {
     resetSession,
     markMessageTtsFailed,
     appendTtsAudioChunk,
-  } = useConversationStore();
+  } = useConversationStore(useShallow((s) => ({
+    currentSession: s.currentSession,
+    conversations: s.conversations,
+    isRecording: s.isRecording,
+    isAIResponding: s.isAIResponding,
+    sttProcessing: s.sttProcessing,
+    userPaused: s.userPaused,
+    sttPartialText: s.sttPartialText,
+    aiStreamingText: s.aiStreamingText,
+    activeRedFlags: s.activeRedFlags,
+    supervisorGuidance: s.supervisorGuidance,
+    supervisorDegraded: s.supervisorDegraded,
+    error: s.error,
+    setCurrentSession: s.setCurrentSession,
+    addConversation: s.addConversation,
+    setConversations: s.setConversations,
+    updateSTTPartial: s.updateSTTPartial,
+    setSttProcessing: s.setSttProcessing,
+    setUserPaused: s.setUserPaused,
+    setAIResponding: s.setAIResponding,
+    appendAIStreamingText: s.appendAIStreamingText,
+    finalizeAIResponse: s.finalizeAIResponse,
+    addRedFlag: s.addRedFlag,
+    acknowledgeRedFlag: s.acknowledgeRedFlag,
+    setSupervisorGuidance: s.setSupervisorGuidance,
+    setSupervisorDegraded: s.setSupervisorDegraded,
+    setError: s.setError,
+    resetSession: s.resetSession,
+    markMessageTtsFailed: s.markMessageTtsFailed,
+    appendTtsAudioChunk: s.appendTtsAudioChunk,
+  })));
 
   const { on, off, send, retry, connectionState } = useConversationWebSocket(sessionId ?? null);
 
@@ -511,12 +540,16 @@ export default function ConversationPage() {
       return () => { resetSession(); };
     }
 
+    const id = sessionId;
+    // 卸載 / 切換場次後，晚到的回應不得再寫進全域 store（resetSession 之後會污染下一場）。
+    let cancelled = false;
     async function load() {
       try {
         const [session, convs] = await Promise.all([
-          sessionsApi.getSession(sessionId!),
-          sessionsApi.getSessionConversations(sessionId!, { limit: 100 }),
+          sessionsApi.getSession(id),
+          sessionsApi.getSessionConversations(id, { limit: 100 }),
         ]);
+        if (cancelled) return;
         setCurrentSession(session);
         // 只在 WS 尚未開始串流訊息時才從 API 載入歷史記錄
         // 若已有訊息（WS 開場語正在串流），則不覆蓋
@@ -524,10 +557,11 @@ export default function ConversationPage() {
           setConversations(convs.data.map(conversationToMessage));
         }
       } catch (err) {
+        if (cancelled) return;
         console.error('[ConversationPage] load failed', err);
-        const anyErr = err as any;
-        if (anyErr?.response) {
-          console.error('[ConversationPage] response.status=', anyErr.response.status, 'data=', anyErr.response.data);
+        const { response } = err as { response?: { status?: number; data?: unknown } };
+        if (response) {
+          console.error('[ConversationPage] response.status=', response.status, 'data=', response.data);
         }
         setError(t('conversation:error.loadFailed'));
       }
@@ -535,6 +569,7 @@ export default function ConversationPage() {
     load();
 
     return () => {
+      cancelled = true;
       resetSession();
     };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -553,14 +588,15 @@ export default function ConversationPage() {
       redFlagAnnouncedRef.current = true;
       const utter = new SpeechSynthesisUtterance(text);
       // 場次語言（zh-TW/en-US/ja-JP/ko-KR/vi-VN）即為合法 BCP-47 lang tag；缺省則交瀏覽器預設。
-      const lang = currentSession?.language;
+      // 讀 store 當下值而非閉包：WS 監聽 effect 不依賴 currentSession，閉包會停在掛載時的 null。
+      const lang = useConversationStore.getState().currentSession?.language;
       if (lang) utter.lang = lang;
       synth.cancel(); // 清掉任何殘留佇列，確保安全語音立即開口
       synth.speak(utter);
     } catch {
       // 語音僅為輔助，任何例外（瀏覽器策略 / 未支援）都靜默吞掉，不影響導頁與警示流程
     }
-  }, [t, currentSession]);
+  }, [t]);
 
   // S4：卸載清理——一般導頁離開時停掉殘留語音（避免 bleed 到下一頁）；
   // 但紅旗安全語音（redFlagAnnouncedRef）要延續播到感謝頁，故已播報時不 cancel。
@@ -578,6 +614,11 @@ export default function ConversationPage() {
 
   // WebSocket 事件處理
   useEffect(() => {
+    if (!sessionId) return; // 無 sessionId 時 useConversationWebSocket 也不會連線
+    const id = sessionId;
+    // resume_failed 的非同步重抓：卸載 / 切換場次後不得再寫進全域 store。
+    let cancelled = false;
+
     // STT 最終結果（後端僅送 stt_final，無 stt_partial）
     on('stt_final', (payload) => {
       const data = payload as STTFinalPayload;
@@ -594,7 +635,7 @@ export default function ConversationPage() {
       }
       addConversation({
         id: data.messageId,
-        sessionId: sessionId!,
+        sessionId: id,
         sender: 'patient',
         content: data.text,
         timestamp: new Date().toISOString(),
@@ -620,7 +661,7 @@ export default function ConversationPage() {
       }
       addConversation({
         id: data.messageId,
-        sessionId: sessionId!,
+        sessionId: id,
         sender: 'assistant',
         content: '',
         timestamp: new Date().toISOString(),
@@ -729,6 +770,8 @@ export default function ConversationPage() {
 
     // WebSocket 連線確認 → 更新場次狀態為進行中
     on('connection_ack', () => {
+      // 讀 store 當下值：本 effect 刻意不依賴 currentSession，避免每次狀態變動都拆掉重掛監聽。
+      const currentSession = useConversationStore.getState().currentSession;
       if (currentSession && currentSession.status === 'waiting') {
         setCurrentSession({ ...currentSession, status: 'in_progress' as SessionStatus });
       }
@@ -737,6 +780,7 @@ export default function ConversationPage() {
     // 場次狀態變更（TODO-E2：canonical code payload；code/params 渲染走 i18n）
     on('session_status', (payload) => {
       const data = payload as SessionStatusPayload;
+      const currentSession = useConversationStore.getState().currentSession;
       if (currentSession && data.status) {
         setCurrentSession({ ...currentSession, status: data.status as SessionStatus });
       }
@@ -775,12 +819,13 @@ export default function ConversationPage() {
     on('resume_failed', (payload) => {
       const data = payload as ResumeFailedPayload;
       console.warn('[ConversationPage] resume 失敗，改以 REST 重建逐字稿', data);
-      if (!sessionId) return;
       void (async () => {
         try {
-          const convs = await sessionsApi.getSessionConversations(sessionId, { limit: 100 });
+          const convs = await sessionsApi.getSessionConversations(id, { limit: 100 });
+          if (cancelled) return;
           useConversationStore.setState(resumedConversationsPatch(convs.data));
         } catch (err) {
+          if (cancelled) return;
           // 重抓失敗才走既有錯誤顯示路徑：這時本地列表確實與伺服器分岔且無從修復。
           console.error('[ConversationPage] resume 後重抓逐字稿失敗', err);
           setError(t('conversation:error.loadFailed'));
@@ -839,6 +884,7 @@ export default function ConversationPage() {
     });
 
     return () => {
+      cancelled = true;
       off('connection_ack');
       off('stt_final');
       off('ai_response_start');
@@ -853,7 +899,9 @@ export default function ConversationPage() {
       off('_disconnected');
       off('_connected');
     };
-  }, [sessionId, currentSession]); // eslint-disable-line react-hooks/exhaustive-deps
+    // 刻意不含 currentSession：connection_ack / session_status / speakRedFlagAlert 都改讀
+    // store 當下值，狀態每變一次就拆掉重掛 13 個監聽器既沒必要也有漏事件的空窗。
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 使用者 barge-in：AI 正在講話時 VAD 觸發錄音 → 立即停掉 TTS 並清空句級佇列，
   // 讓使用者接手。否則佇列中剩餘句子會在 stopActiveTTS 後繼續播放。
@@ -1393,6 +1441,48 @@ export default function ConversationPage() {
           </button>
         </div>
 
+        <VoiceMeter isSessionActive={isSessionActive} />
+
+        {/* 打字輸入備援：語音收不到時可直接打字（送後端 text_message，仍走紅旗篩檢） */}
+        {isSessionActive && (
+          <form
+            className="mt-3 flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSendText();
+            }}
+          >
+            <input
+              type="text"
+              value={textDraft}
+              onChange={(e) => setTextDraft(e.target.value)}
+              maxLength={2000}
+              placeholder={t('conversation:input.textPlaceholder')}
+              aria-label={t('conversation:input.textPlaceholder')}
+              className="input-base h-11 flex-1"
+            />
+            <button
+              type="submit"
+              disabled={!textDraft.trim() || connectionState !== 'open'}
+              className="btn-primary h-11 shrink-0 px-4 text-body disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t('conversation:input.send')}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// High-frequency microphone data stays in this small subtree.
+function VoiceMeter({ isSessionActive }: { isSessionActive: boolean }) {
+  const { t } = useTranslation(['conversation']);
+  const { waveformData, recordingDuration, isRecording, userPaused, sttProcessing, isAIResponding } =
+    useConversationStore(useShallow((s) => ({ waveformData: s.waveformData,
+      recordingDuration: s.recordingDuration, isRecording: s.isRecording,
+      userPaused: s.userPaused, sttProcessing: s.sttProcessing, isAIResponding: s.isAIResponding })));
+  return <>
         {/* 波形視覺化：錄音時顯示即時頻譜彩條，閒置時顯示低透明度呼吸動畫佔位 */}
         <div className="mt-3 flex items-end justify-center gap-1 h-10">
           {isRecording
@@ -1453,34 +1543,5 @@ export default function ConversationPage() {
           </p>
         )}
 
-        {/* 打字輸入備援：語音收不到時可直接打字（送後端 text_message，仍走紅旗篩檢） */}
-        {isSessionActive && (
-          <form
-            className="mt-3 flex items-center gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSendText();
-            }}
-          >
-            <input
-              type="text"
-              value={textDraft}
-              onChange={(e) => setTextDraft(e.target.value)}
-              maxLength={2000}
-              placeholder={t('conversation:input.textPlaceholder')}
-              aria-label={t('conversation:input.textPlaceholder')}
-              className="input-base h-11 flex-1"
-            />
-            <button
-              type="submit"
-              disabled={!textDraft.trim() || connectionState !== 'open'}
-              className="btn-primary h-11 shrink-0 px-4 text-body disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {t('conversation:input.send')}
-            </button>
-          </form>
-        )}
-      </div>
-    </div>
-  );
+  </>;
 }

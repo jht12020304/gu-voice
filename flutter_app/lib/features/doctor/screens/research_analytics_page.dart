@@ -8,7 +8,8 @@ import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/loc.dart';
-import '../../../shared/png_share.dart';
+import '../../../core/theme/app_tokens.dart';
+import '../../../shared/share_bytes.dart';
 import '../../../shared/widgets/ui_kit.dart';
 import '../../../data/api/research_api.dart';
 import '../../../data/models/research_analytics.dart';
@@ -16,6 +17,7 @@ import '../research/charts.dart' show researchPalette;
 import '../research/research_figures.dart';
 import '../services/dashboard_ws.dart';
 import '../../../shared/widgets/dashboard_back_button.dart';
+import '../../../shared/toast.dart';
 
 const _refetchDebounceMs = 1500;
 const _tnum = TextStyle(fontFeatures: [FontFeature.tabularFigures()]);
@@ -41,14 +43,14 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
   // 會丟「Using "ref" when a widget is about to or has been unmounted is unsafe」。
   // 症狀是**離開這一頁**（切到任何其他分頁）時炸一次——2026-08-22 的手機版面走查
   // （mobile_layout_walkthrough_test）抓到的；在 web 上它一直存在，只是沒人看 console。
-  late final DashboardWs _ws;
+  late final DashboardWs? _ws;
 
   @override
   void initState() {
     super.initState();
-    _ws = ref.read(dashboardWsProvider)..ensureConnected();
+    _ws = ref.read(dashboardWsProvider)?..ensureConnected();
     for (final e in _wsEvents) {
-      _ws.on(e, _onWs);
+      _ws?.on(e, _onWs);
     }
     Future.microtask(_fetch);
   }
@@ -57,7 +59,7 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
   void dispose() {
     _debounce?.cancel();
     for (final e in _wsEvents) {
-      _ws.off(e, _onWs);
+      _ws?.off(e, _onWs);
     }
     super.dispose();
   }
@@ -243,12 +245,10 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
       if (bytes == null) return;
       final safe = label.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_');
-      await sharePngBytes(bytes.buffer.asUint8List(), 'research_$safe.png');
+      await shareBytes(bytes.buffer.asUint8List(), 'research_$safe.png', 'image/png');
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(t('research.page.exportFailed'))));
-      }
+      if (!mounted) return;
+      showToast(context, t('research.page.exportFailed'));
     }
   }
 
@@ -260,17 +260,12 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
         ? '—'
         : '${(p.value! * 100).toStringAsFixed(1)}%'
             '${p.ciLow == null ? '' : ' (${(p.ciLow! * 100).toStringAsFixed(1)}–${(p.ciHigh! * 100).toStringAsFixed(1)})'}';
-    return Card(
+    return TitledCard(
       margin: const EdgeInsets.symmetric(vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(t('research.table.title'),
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-          Text(t('research.table.subtitle'), style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 8),
-          // Wide table: scroll horizontally rather than squeezing columns unreadably.
-          SingleChildScrollView(
+      title: t('research.table.title'),
+      subtitle: t('research.table.subtitle'),
+      // Wide table: scroll horizontally rather than squeezing columns unreadably.
+      child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: DataTable(
               columns: [
@@ -298,8 +293,6 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
               ],
             ),
           ),
-        ]),
-      ),
     );
   }
 
@@ -310,15 +303,12 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
           padding: const EdgeInsets.only(bottom: 8),
           child: Text('• $label — $body', style: Theme.of(context).textTheme.bodySmall),
         );
-    return Card(
+    return TitledCard(
       margin: const EdgeInsets.symmetric(vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(t('research.methods.title'),
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-          Text(t('research.methods.subtitle'), style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 12),
+      title: t('research.methods.title'),
+      subtitle: t('research.methods.subtitle'),
+      gap: 12,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           item('DECIDE-AI', t('research.methods.decideAi')),
           item('AMIE (Nature 2025)', t('research.methods.amie')),
           item(t('research.methods.triageLabel'), t('research.methods.triage')),
@@ -327,7 +317,6 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
           const SizedBox(height: 4),
           Text(t('research.methods.disclaimer'), style: Theme.of(context).textTheme.bodySmall),
         ]),
-      ),
     );
   }
 
@@ -453,17 +442,8 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
 
   // Semantic (ordinal) colors + translated labels for the categorical distributions —
   // replaces the raw enum keys + index palette regression the audit flagged.
-  Color _severityColor(String k) => switch (k) {
-        'critical' => const Color(0xFFDC2626),
-        'high' => const Color(0xFFEA580C),
-        _ => const Color(0xFFD97706),
-      };
-  Color _urgencyColor(String k) => switch (k) {
-        'er_now' => const Color(0xFFDC2626),
-        '24h' => const Color(0xFFEA580C),
-        'this_week' => const Color(0xFFD97706),
-        _ => const Color(0xFF64748B),
-      };
+  // 色值走 AppTokens（與警示頁同一套 severity/urgency 語意色）。
+  AppTokens _tk(BuildContext context) => Theme.of(context).extension<AppTokens>()!;
   String _labelOr(String path, String rawKey) {
     final v = t(path);
     return v == path ? rawKey : v;
@@ -480,7 +460,7 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
       GroupHeader(t('research.safety.severityTitle')),
       StackedShareBar(items: [
         for (final b in d.severityDistribution)
-          (label: _labelOr('research.safety.severity.${b.key}', b.key), count: b.count, color: _severityColor(b.key)),
+          (label: _labelOr('research.safety.severity.${b.key}', b.key), count: b.count, color: _tk(context).severityColor(b.key)),
       ]),
     ]);
   }
@@ -491,7 +471,7 @@ class _ResearchAnalyticsPageState extends ConsumerState<ResearchAnalyticsPage> {
       GroupHeader(t('research.safety.urgencyTitle')),
       StackedShareBar(items: [
         for (final b in d.urgencyDistribution)
-          (label: _labelOr('research.safety.urgency.${b.key}', b.key), count: b.count, color: _urgencyColor(b.key)),
+          (label: _labelOr('research.safety.urgency.${b.key}', b.key), count: b.count, color: _tk(context).urgencyColor(b.key)),
       ]),
       GroupHeader(t('research.safety.layerTitle')),
       StackedShareBar(items: [

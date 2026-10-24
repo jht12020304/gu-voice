@@ -28,6 +28,75 @@ import 'package:gu_voice/features/doctor/state/notifications_controller.dart';
 import 'package:gu_voice/features/voice/services/ws_manager.dart';
 
 void main() {
+  group('通知請求順序', () {
+    test('較早的列表回覆不能覆蓋最新重新整理', () async {
+      final h = await _mounted();
+      final old = Completer<NotifPage>();
+      final recent = Completer<NotifPage>();
+      var calls = 0;
+      h.api.respond = (_) => (++calls == 1 ? old : recent).future;
+      final controller = h.container.read(notificationsProvider.notifier);
+      final first = controller.fetch();
+      final second = controller.fetch();
+      recent.complete(_page('new'));
+      await second;
+      old.complete(_page('old'));
+      await first;
+      expect(h.state.notifications.single.id, 'new');
+      expect(h.state.cursor, 'new-cursor');
+      expect(h.state.error, isNull);
+    });
+
+    test('過期錯誤不停止較新請求的 loading，也不顯示錯誤', () async {
+      final h = await _mounted();
+      final old = Completer<NotifPage>();
+      final recent = Completer<NotifPage>();
+      var calls = 0;
+      h.api.respond = (_) => (++calls == 1 ? old : recent).future;
+      final controller = h.container.read(notificationsProvider.notifier);
+      final first = controller.fetch();
+      final second = controller.fetch();
+      old.completeError(StateError('old failure'));
+      await first;
+      expect(h.state.isLoading, isTrue);
+      expect(h.state.error, isNull);
+      recent.complete(_page('new'));
+      await second;
+      expect(h.state.notifications.single.id, 'new');
+    });
+
+    test('重新整理後丟棄舊游標的分頁結果', () async {
+      final h = await _mounted();
+      h.api.respond = (_) async => _page('first');
+      final controller = h.container.read(notificationsProvider.notifier);
+      await controller.fetch();
+      final oldPage = Completer<NotifPage>();
+      h.api.respond = (cursor) => cursor == null ? Future.value(_page('new')) : oldPage.future;
+      final pendingPage = controller.fetchMore();
+      await controller.fetch();
+      oldPage.complete(_page('stale-page'));
+      await pendingPage;
+      expect(h.state.notifications.map((n) => n.id), ['new']);
+      expect(h.state.cursor, 'new-cursor');
+    });
+
+    test('未讀數也保留最新請求的結果', () async {
+      final h = await _mounted();
+      final old = Completer<int>();
+      final recent = Completer<int>();
+      var calls = 0;
+      h.api.countResponse = () => (++calls == 1 ? old : recent).future;
+      final controller = h.container.read(notificationsProvider.notifier);
+      final first = controller.fetchUnreadCount();
+      final second = controller.fetchUnreadCount();
+      recent.complete(2);
+      await second;
+      old.complete(9);
+      await first;
+      expect(h.state.unreadCount, 2);
+    });
+  });
+
   group('dashboard WS → 通知列表 / 未讀數重抓', () {
     test('訂閱的事件字串與後端廣播的一致（不變式 #27）', () async {
       final h = await _mounted();
@@ -141,6 +210,8 @@ void main() {
 AppNotification _notif(String id, String type) =>
     AppNotification(id: id, type: type, title: id, createdAt: '2026-08-20T00:00:00Z');
 
+NotifPage _page(String id) => (data: [_notif(id, 'system')], nextCursor: '$id-cursor', hasMore: true);
+
 class _Harness {
   _Harness(this.container, this.ws, this.api);
   final ProviderContainer container;
@@ -192,10 +263,13 @@ class _FakeNotificationsApi extends NotificationsApi {
   int unreadCalls = 0;
   int unread = 0;
   List<AppNotification> items = const [];
+  Future<NotifPage> Function(String? cursor)? respond;
+  Future<int> Function()? countResponse;
 
   @override
   Future<NotifPage> list({String? cursor, int limit = 20, String? type, bool? isRead}) async {
     listCalls++;
+    if (respond != null) return respond!(cursor);
     if (listCalls == 1 && gate != null) await gate!.future;
     return (data: items, nextCursor: null, hasMore: false);
   }
@@ -203,6 +277,7 @@ class _FakeNotificationsApi extends NotificationsApi {
   @override
   Future<int> unreadCount() async {
     unreadCalls++;
+    if (countResponse != null) return countResponse!();
     return unread;
   }
 }

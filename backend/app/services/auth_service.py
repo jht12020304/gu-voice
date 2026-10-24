@@ -17,6 +17,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authz import get_user_role
 from app.core.config import settings
 from app.core.exceptions import (
     AccountDisabledException,
@@ -61,18 +62,10 @@ FORGOT_PASSWORD_GENERIC_MESSAGE = "若此電子郵件已註冊，密碼重設連
 def _is_admin(current_user: Any) -> bool:
     """current_user 是否為已認證的 ADMIN（role 容忍 string 或 enum）。
 
-    與 session_service._get_user_role 相同的容錯解析慣例：未登入 / 解不出角色
-    一律視為非 admin，公開註冊因此一律降級為 PATIENT（AUTH-3）。
+    `core.authz.get_user_role` 的容錯解析：未登入 / 解不出角色一律視為非 admin，
+    公開註冊因此一律降級為 PATIENT（AUTH-3）。
     """
-    if current_user is None:
-        return False
-    raw = getattr(current_user, "role", None)
-    if isinstance(raw, UserRole):
-        return raw == UserRole.ADMIN
-    try:
-        return UserRole(raw) == UserRole.ADMIN
-    except ValueError:
-        return False
+    return get_user_role(current_user) == UserRole.ADMIN
 
 
 def _refresh_key(user_id: Any, jti: str) -> str:

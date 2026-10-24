@@ -6,6 +6,7 @@ import '../../../data/api/complaints_api.dart';
 import '../../../data/models/session.dart';
 import '../../../shared/widgets/ui_kit.dart';
 import '../../../shared/widgets/dashboard_back_button.dart';
+import '../../../shared/toast.dart';
 
 // Port of ComplaintManagementPage.tsx: chief-complaint template admin.
 // Loads all templates (activeOnly:false), client-side search, create/edit dialog
@@ -46,6 +47,7 @@ class _ComplaintManagementPageState extends State<ComplaintManagementPage> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -76,11 +78,6 @@ class _ComplaintManagementPageState extends State<ComplaintManagementPage> {
     }).toList();
   }
 
-  void _toast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
   Future<void> _openForm({Complaint? editing}) async {
     final saved = await showDialog<bool>(
       context: context,
@@ -91,7 +88,8 @@ class _ComplaintManagementPageState extends State<ComplaintManagementPage> {
       ),
     );
     if (saved == true) {
-      _toast(t('admin.complaints.saveSuccess'));
+      if (!mounted) return;
+      showToast(context, t('admin.complaints.saveSuccess'));
       await _load();
     }
   }
@@ -115,10 +113,12 @@ class _ComplaintManagementPageState extends State<ComplaintManagementPage> {
     if (ok != true) return;
     try {
       await _api.delete(c.id);
-      _toast(t('admin.complaints.deleteSuccess'));
+      if (!mounted) return;
+      showToast(context, t('admin.complaints.deleteSuccess'));
       await _load();
     } catch (_) {
-      _toast(t('admin.complaints.deleteFailed'));
+      if (!mounted) return;
+      showToast(context, t('admin.complaints.deleteFailed'));
     }
   }
 

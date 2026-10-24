@@ -68,7 +68,10 @@ class _SessionCompletePageState extends State<SessionCompletePage> {
         _pollTimer = Timer(const Duration(seconds: 3), _loadReport);
       }
     } catch (_) {
-      if (mounted) setState(() => _loadingReport = false);
+      if (!mounted) return;
+      setState(() => _loadingReport = false);
+      // 一次網路失敗不該讓病患永遠看著「產生中」：照 generating 的節奏重試到上限。
+      if (_attempts < _maxAttempts) _pollTimer = Timer(const Duration(seconds: 3), _loadReport);
     }
   }
 

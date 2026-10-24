@@ -1,5 +1,5 @@
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as dashboardApi from '../../services/api/dashboard';
 import type {
@@ -321,6 +321,7 @@ export default function DashboardPage() {
     IS_MOCK ? createMockMonthlySummary(new Date()) : null,
   );
   const [isLoading, setIsLoading] = useState(!IS_MOCK);
+  const requestId = useRef(0);
 
   useEffect(() => {
     if (IS_MOCK) {
@@ -330,13 +331,18 @@ export default function DashboardPage() {
     }
 
     async function loadDashboard() {
+      // 快速切月時只採用最後一次請求的回應；失敗時保留上一份摘要（不另設錯誤態）。
+      const request = ++requestId.current;
       setIsLoading(true);
       try {
         const month = format(selectedMonth, 'yyyy-MM');
         const summary = await dashboardApi.getMonthlySummary(month);
+        if (request !== requestId.current) return;
         setMonthlySummary(summary);
+      } catch (err) {
+        if (request === requestId.current) console.error('[DashboardPage] loadDashboard failed', err);
       } finally {
-        setIsLoading(false);
+        if (request === requestId.current) setIsLoading(false);
       }
     }
 

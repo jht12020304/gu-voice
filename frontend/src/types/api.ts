@@ -2,7 +2,8 @@
 // API 請求/回應型別
 // =============================================================================
 
-import type { User, SessionIntake } from './index';
+import type { User, SessionIntake, RedFlagAlert } from './index';
+import type { UserRole } from './enums';
 
 // ---- 認證 ----
 
@@ -24,7 +25,7 @@ export interface RegisterRequest {
   password: string;
   name: string;
   // 對齊後端 UserRole（patient/doctor/admin）；後端註冊預設為 patient
-  role: 'patient' | 'doctor' | 'admin';
+  role: UserRole;
   phone?: string;
   licenseNumber?: string;
   department?: string;
@@ -152,11 +153,15 @@ export interface AlertAcknowledgeRequest {
   acknowledgeNotes?: string;
 }
 
+/** 後端 AcknowledgeAlertResponse：只回 4 個欄位，呼叫端須 merge 進既有 alert */
+export type AlertAcknowledgeResponse = Pick<RedFlagAlert, 'id' | 'acknowledgedBy' | 'acknowledgedAt' | 'acknowledgeNotes'>;
+
 export interface AlertListParams {
   cursor?: string;
   limit?: number;
   severity?: string;
-  acknowledged?: boolean;
+  /** 後端 query param 是 is_acknowledged（client 攔截器轉 snake_case） */
+  isAcknowledged?: boolean;
   sessionId?: string;
 }
 
@@ -321,7 +326,7 @@ export interface UserCreateRequest {
   email: string;
   password: string;
   name: string;
-  role: 'patient' | 'doctor' | 'admin';
+  role: UserRole;
   phone?: string;
   department?: string;
   licenseNumber?: string;
@@ -335,7 +340,7 @@ export interface UserUpdateRequest {
   department?: string;
   licenseNumber?: string;
   isActive?: boolean;
-  role?: 'patient' | 'doctor' | 'admin';
+  role?: UserRole;
 }
 
 export interface UserListParams {

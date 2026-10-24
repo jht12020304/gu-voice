@@ -23,8 +23,8 @@ from app.models.enums import Gender, SessionStatus, UserRole
 from app.models.patient import Patient
 from app.models.session import Session
 from app.services.session_visibility import session_not_deleted
-from app.utils.datetime_utils import parse_iso
-from app.utils.datetime_utils import utc_now
+from app.utils.datetime_utils import parse_iso, utc_now
+from app.utils.pagination import parse_cursor
 
 # 「進行中」場次：尚未進入終態（completed / aborted / cancelled）的狀態。
 _ACTIVE_SESSION_STATUSES = (SessionStatus.WAITING, SessionStatus.IN_PROGRESS)
@@ -317,9 +317,10 @@ class PatientService:
         query = query.order_by(*order_clause)
 
         # Cursor 分頁：取得游標之後的資料（比較鍵須與當前排序欄位一致）
-        if cursor:
+        _cursor = parse_cursor(cursor)
+        if _cursor is not None:
             result = await db.execute(
-                select(Patient).where(Patient.id == cursor)
+                select(Patient).where(Patient.id == _cursor)
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:
@@ -602,11 +603,6 @@ class PatientService:
         patient = await self.soft_delete(db, patient_id)
         await db.commit()
         return patient
-
-    async def list_patient_sessions(self, db, patient_id, cursor=None, limit=20, current_user=None):
-        return await self.get_sessions(
-            db, patient_id=patient_id, cursor=cursor, limit=limit, current_user=current_user
-        )
 
     async def get_patient_sessions(
         self,

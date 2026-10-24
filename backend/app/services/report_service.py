@@ -43,6 +43,7 @@ from app.services.session_visibility import session_not_deleted, visible_session
 from app.models.soap_report import SOAPReport
 from app.models.soap_report_revision import SOAPReportRevision
 from app.utils.datetime_utils import parse_iso, utc_now
+from app.utils.pagination import parse_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -369,9 +370,10 @@ class ReportService:
         if _date_to:
             query = query.where(SOAPReport.created_at <= _date_to)
 
-        if cursor:
+        _cursor = parse_cursor(cursor)
+        if _cursor is not None:
             result = await db.execute(
-                select(SOAPReport).where(SOAPReport.id == cursor)
+                select(SOAPReport).where(SOAPReport.id == _cursor)
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:
@@ -390,15 +392,13 @@ class ReportService:
         if has_more:
             reports = reports[:limit]
 
-        count_query = select(func.count()).select_from(SOAPReport)
+        count_query = select(SOAPReport.review_status, func.count()).group_by(SOAPReport.review_status)
         if scope_subquery is not None:
             count_query = count_query.where(
                 SOAPReport.session_id.in_(scope_subquery)
             )
         if status:
             count_query = count_query.where(SOAPReport.status == status)
-        if review_status:
-            count_query = count_query.where(SOAPReport.review_status == review_status)
         if doctor_id:
             count_query = count_query.where(SOAPReport.reviewed_by == doctor_id)
         if session_id:
@@ -412,10 +412,13 @@ class ReportService:
         if _date_to:
             count_query = count_query.where(SOAPReport.created_at <= _date_to)
         total_result = await db.execute(count_query)
-        total_count = total_result.scalar() or 0
+        review_counts = {str(key.value if hasattr(key, "value") else key): count
+                         for key, count in total_result.all()}
+        total_count = review_counts.get(review_status, 0) if review_status else sum(review_counts.values())
 
         return {
             "data": reports,
+            "review_counts": review_counts,
             "pagination": {
                 "next_cursor": str(reports[-1].id) if has_more and reports else None,
                 "has_more": has_more,
@@ -457,10 +460,15 @@ class ReportService:
         regenerate: bool = False,
         additional_notes: Optional[str] = None,
         requested_by: Optional[UUID] = None,
+        current_user: Any = None,
     ) -> SOAPReport:
         """
         觸發 SOAP 報告生成
 
+        0. row-level 授權：`current_user` 提供時（所有來自 router 的呼叫）借用
+           `SessionService.get_session()`——與 exam_order_service 同一條，能讀這場
+           問診的臨床帳號才能（重）生它的報告；以前任何醫師都能對任何場次
+           regenerate。內部／已授權路徑不帶 current_user 則略過（同 get_report）。
         1. 建立（或重置）status=generating 的報告記錄
         2. **先 commit**，再派送 Celery 任務進行非同步生成
 
@@ -480,6 +488,13 @@ class ReportService:
             ReportAlreadyExistsException: 此場次已有報告（且未要求重新產生）
             ConflictException: 報告正在生成中
         """
+        if current_user is not None:
+            from app.services.session_service import SessionService
+
+            await SessionService().get_session(
+                db, session_id, current_user=current_user
+            )
+
         # 場次必須存在且處於可產報告的終態
         session_result = await db.execute(
             select(Session.status).where(Session.id == session_id, session_not_deleted())

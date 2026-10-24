@@ -98,6 +98,19 @@ const CSRF_HEADER_NAME = 'X-CSRF-Token';
 // cookie 不會送出，cookie 路徑不可用）。sentry.ts 已將 'refresh_token' 列入 redact。
 const REFRESH_TOKEN_STORAGE_KEY = 'refresh_token';
 
+// Account boundaries, unlike token rotation, invalidate every outstanding request.
+let authEpoch = 0;
+export const getAuthEpoch = () => authEpoch;
+export function invalidateAuthSession(): number {
+  refreshPromise = null;
+  return ++authEpoch;
+}
+export function isAuthRejected(error: unknown): boolean {
+  const status = (error as { response?: { status?: number } })?.response?.status;
+  return status === 401 || status === 403;
+}
+type SessionRequest = InternalAxiosRequestConfig & { _authEpoch?: number };
+
 // F7 #1：/auth/logout 的 401 自動重試若原樣重放舊 request body，會把
 // refreshAccessToken() 剛輪換掉的「舊」refresh token 送給後端黑名單——舊 token
 // 本就該死無妨，但輪換出的「新」refresh token 完全沒被撤銷，殘留到 7 天自然到期
@@ -132,6 +145,7 @@ const _CSRF_SAFE_METHODS = new Set(['get', 'head', 'options']);
 
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    (config as SessionRequest)._authEpoch ??= authEpoch;
     // 從 localStorage 取得 access token（避免循環依賴 authStore）
     const token = localStorage.getItem('access_token');
     if (token && config.headers) {
@@ -180,13 +194,15 @@ apiClient.interceptors.request.use(
 let refreshPromise: Promise<string> | null = null;
 
 function clearAuthAndRedirect(): void {
+  invalidateAuthSession();
   localStorage.removeItem('access_token');
   // 雙路徑 refresh：localStorage 的 refresh_token 是跨站後備 token 的正式儲存位置
   // （httpOnly cookie 那份由後端 /auth/logout 或過期負責失效），401 / 會話失效時
   // 必須一併清除，避免殘留已被 reuse-detection 判死的舊 token。
   localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
   if (typeof window !== 'undefined') {
-    window.location.href = '/login';
+    const lng = getLangFromUrl();
+    window.location.href = lng ? `/${lng}/login` : '/login';
   }
 }
 
@@ -207,8 +223,8 @@ function clearAuthAndRedirect(): void {
  */
 export async function refreshAccessToken(): Promise<string> {
   if (refreshPromise) return refreshPromise;
-
-  refreshPromise = (async () => {
+  const epoch = authEpoch;
+  const pending = (async () => {
     const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
     // 使用裸 axios（非 apiClient）避免走入本檔的 request/response 攔截器，
     // 否則 refresh 失敗又會進入 401 分支造成遞迴。
@@ -226,6 +242,7 @@ export async function refreshAccessToken(): Promise<string> {
       body,
       { timeout: 30000, withCredentials: true, headers },
     );
+    if (epoch !== authEpoch) throw new axios.CanceledError('Account changed');
     localStorage.setItem('access_token', data.access_token);
     if (data.refresh_token) {
       // rotation：舊 refresh token 已被後端消耗，必須立刻換存新的
@@ -234,17 +251,21 @@ export async function refreshAccessToken(): Promise<string> {
     // 同步 authStore，讓 WS 重連 / UI 拿得到最新 token；動態 import 避免
     // client.ts ↔ authStore 靜態循環依賴。
     const { useAuthStore } = await import('../../stores/authStore');
+    if (epoch !== authEpoch) throw new axios.CanceledError('Account changed');
     useAuthStore.setState({ accessToken: data.access_token });
     return data.access_token;
   })().finally(() => {
-    refreshPromise = null;
+    if (refreshPromise === pending) refreshPromise = null;
   });
-
+  refreshPromise = pending;
   return refreshPromise;
 }
 
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
+    if ((response.config as SessionRequest)._authEpoch !== authEpoch) {
+      throw new axios.CanceledError('Account changed');
+    }
     // 轉換回應 body
     if (response.data) {
       response.data = snakeToCamel(response.data);
@@ -253,13 +274,17 @@ apiClient.interceptors.response.use(
   },
   async (error) => {
     const originalRequest = error.config;
+    if (originalRequest?._authEpoch !== undefined && originalRequest._authEpoch !== authEpoch) {
+      return Promise.reject(new axios.CanceledError('Account changed'));
+    }
 
     // Mock 模式下不做 401 重導
     if (import.meta.env.VITE_ENABLE_MOCK === 'true') {
       return Promise.reject(error);
     }
 
-    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry
+      && !/\/auth\/(login|register|refresh)$/.test(originalRequest.url ?? '')) {
       originalRequest._retry = true;
       try {
         const newToken = await refreshAccessToken();
@@ -285,7 +310,7 @@ apiClient.interceptors.response.use(
         }
         return apiClient(originalRequest);
       } catch (refreshError) {
-        clearAuthAndRedirect();
+        if (originalRequest._authEpoch === authEpoch && isAuthRejected(refreshError)) clearAuthAndRedirect();
         return Promise.reject(refreshError);
       }
     }
@@ -298,10 +323,5 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   },
 );
-
-// 測試 / debug 用：暴露目前 refresh 狀態（undefined 代表沒有 in-flight 的 refresh）
-export function _getInflightRefresh(): Promise<string> | null {
-  return refreshPromise;
-}
 
 export default apiClient;

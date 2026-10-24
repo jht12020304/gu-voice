@@ -303,3 +303,28 @@ def test_acknowledge_all_updates_only_unacknowledged_and_returns_count():
     sql = _stmt_sql(db.executed_stmt)
     assert sql.startswith("update")
     assert "acknowledged_by is null" in sql
+
+
+def test_acknowledge_all_admin_still_excludes_soft_deleted_sessions():
+    """`visible_session_ids()` 以前只套在 clinician 分支：system admin 一鍵確認
+    會連已軟刪除場次的警示一起確認。所有角色都要套，clinician 限縮疊在上面。"""
+    db = _ExecCapturingDB(rowcount=3)
+    admin = _make_user(UserRole.ADMIN)
+
+    _run(AlertService.acknowledge_all(db, user_id=admin.id, current_user=admin))
+
+    sql = _stmt_sql(db.executed_stmt)
+    assert "is_deleted" in sql
+    assert "acknowledged_by is null" in sql
+
+
+def test_get_list_rejects_garbage_date_filter():
+    """`date_from=garbage` 以前被靜默丟掉、回整張未過濾清單；現在是 422。"""
+    from app.core.exceptions import ValidationException
+
+    with pytest.raises(ValidationException):
+        _run(
+            AlertService.get_list(
+                _FakeDB(None), date_from="not-a-date", current_user=_make_user(UserRole.ADMIN)
+            )
+        )

@@ -8,6 +8,7 @@ import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
 import ErrorState from '../../components/common/ErrorState';
+import { useInfiniteScroll } from '../../hooks/useInfiniteScroll';
 import { useNotificationStore } from '../../stores/notificationStore';
 import { formatDate } from '../../utils/format';
 
@@ -38,33 +39,17 @@ export default function NotificationPage() {
     markAllRead,
   } = useNotificationStore();
 
-  const observerRef = useRef<IntersectionObserver>();
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchNotifications(true);
   }, [fetchNotifications]);
 
-  useEffect(() => {
-    if (observerRef.current) observerRef.current.disconnect();
+  useInfiniteScroll(sentinelRef, { hasMore, isLoading, onMore: fetchMore });
 
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
-          fetchMore();
-        }
-      },
-      { threshold: 0.1 },
-    );
-
-    if (sentinelRef.current) observerRef.current.observe(sentinelRef.current);
-
-    return () => observerRef.current?.disconnect();
-  }, [hasMore, isLoading, fetchMore]);
-
-  const handleOpen = async (notification: (typeof notifications)[number]) => {
+  const handleOpen = (notification: (typeof notifications)[number]) => {
     if (!notification.isRead) {
-      await markRead(notification.id);
+      void markRead(notification.id);
     }
 
     const route = getNotificationRoute(notification);
@@ -103,7 +88,7 @@ export default function NotificationPage() {
             return (
               <button
                 key={notification.id}
-                className={`card w-full text-left transition-colors ${
+                className={`list-card card w-full text-left transition-colors ${
                   route ? 'card-interactive' : ''
                 } ${notification.isRead ? 'opacity-80' : 'ring-1 ring-primary-200 dark:ring-primary-900'}`}
                 onClick={() => handleOpen(notification)}

@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gu_voice/core/router/lng.dart';
 import 'package:gu_voice/data/models/session.dart';
 import 'package:gu_voice/features/doctor/screens/session_calendar_view.dart';
+import 'package:gu_voice/shared/format.dart';
 
 /// 以**本地時間**造一個場次：測試不該依賴跑測試那台機器的時區。
 Session _session({
@@ -48,10 +49,12 @@ void main() {
         DateTime(2026, 8, 1), // 8/1 是週六 → 前面補 6 格
         DateTime(2026, 2, 1), // 短月
         DateTime(2024, 2, 1), // 閏年
+        DateTime(2026, 3, 1), // America/New_York 夏令時間開始
         DateTime(2026, 11, 1), // 11/1 是週日 → 不補
         DateTime(2026, 12, 1), // 跨年邊界
       ]) {
         final days = monthGridDays(month);
+        expect(days.every((day) => day.hour == 0), isTrue);
         expect(days.length % 7, 0, reason: '$month 的格數不是 7 的倍數');
         expect(days.first.weekday % 7, 0, reason: '$month 的第一格不是週日');
         expect(days.last.weekday, DateTime.saturday, reason: '$month 的最後一格不是週六');
@@ -223,7 +226,6 @@ void main() {
       ];
       final load = DayLoad.of(sessions);
       expect(load.total, 3);
-      expect(load.completed, 1);
       expect(load.redFlags, 1);
       expect(load.busySeconds, 1800);
       // 平均只除以「有時長」的兩場（進行中那場不該把平均拉低）
@@ -333,5 +335,18 @@ void main() {
         }
       });
     }
+  });
+
+  group('localDayKey', () {
+    test('分組 key 走裝置本地日期；裸 substring(0,10) 是 UTC 切日，23:30 的本地事件會掉到前一天', () {
+      final local = DateTime(2026, 8, 23, 23, 30);
+      expect(localDayKey(local.toUtc().toIso8601String()), '2026-08-23');
+      expect(localDayKey(local.toIso8601String()), '2026-08-23');
+    });
+
+    test('null／解析不了 → null（呼叫端自己決定 unknown 桶）', () {
+      expect(localDayKey(null), isNull);
+      expect(localDayKey('not-a-date'), isNull);
+    });
   });
 }

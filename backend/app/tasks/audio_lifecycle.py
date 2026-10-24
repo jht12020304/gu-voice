@@ -18,7 +18,7 @@ from datetime import timedelta
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from app.tasks import celery_app
+from app.tasks import celery_app, run_async
 from app.utils.datetime_utils import utc_now
 
 logger = logging.getLogger(__name__)
@@ -52,12 +52,7 @@ def cleanup_old_audio_files(self, dry_run: bool = False) -> dict[str, Any]:
     Args:
         dry_run: True 時只盤點，不動 DB 也不刪 blob。
     """
-    import asyncio
-
-    try:
-        return asyncio.get_event_loop().run_until_complete(_async_cleanup(dry_run))
-    except Exception:
-        return asyncio.run(_async_cleanup(dry_run))
+    return run_async(lambda: _async_cleanup(dry_run))
 
 
 async def _async_cleanup(dry_run: bool = False) -> dict[str, Any]:

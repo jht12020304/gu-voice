@@ -15,7 +15,7 @@ Rate limiter：Redis sliding window + 三個預設 policy。
   避免 Redis 掛掉時把登入打成 500、問診 WS 斷線。RateLimitExceededException 是
   正常業務例外，不在攔截範圍（它也不是 RedisError 子類）。
 
-與 auth_service.py 的 BLACKLIST_KEY_PREFIX 一樣不走 `_prefixed_key()`：rate limit keys
+與 auth_service.py 的 BLACKLIST_KEY_PREFIX 一樣不另加前綴：rate limit keys
 在 namespace 上自帶 `gu:rl:` 前綴，方便維運 `SCAN` 分類。
 """
 

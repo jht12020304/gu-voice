@@ -508,3 +508,33 @@ def test_snapshot_reraises_when_retry_exhausted():
             )
         )
     assert db.flush_calls == 2
+
+
+# ──────────────────────────────────────────────────────
+# row-level 授權：借用 SessionService.get_session（同 exam_order_service）
+# ──────────────────────────────────────────────────────
+
+def test_clinician_cannot_generate_report_for_other_doctors_session(spy_delay):
+    """以前 generate_report 沒有 row-level scope：任何醫師都能對任何場次重生報告。"""
+    from types import SimpleNamespace
+
+    from app.core.exceptions import ForbiddenException
+    from app.models.enums import UserRole
+
+    calls, _ = spy_delay
+    other_doctor = uuid.uuid4()
+    session_obj = SimpleNamespace(
+        id=uuid.uuid4(), doctor_id=other_doctor, status=SessionStatus.COMPLETED
+    )
+    db = _FakeDB(session_obj)  # get_session → get_by_id 的查詢
+    clinician = SimpleNamespace(id=uuid.uuid4(), role=UserRole.DOCTOR, license_number=None)
+
+    with pytest.raises(ForbiddenException):
+        _run(
+            ReportService.generate_report(
+                db, session_id=session_obj.id, regenerate=True, current_user=clinician
+            )
+        )
+
+    assert calls == []
+    assert "commit" not in db.events

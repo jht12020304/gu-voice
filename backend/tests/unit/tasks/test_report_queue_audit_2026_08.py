@@ -550,6 +550,23 @@ def test_mark_failed_broadcasts_a_dashboard_event(monkeypatch):
     assert event["patient_name"] == "王大明"
 
 
+def test_mark_failed_announces_only_when_status_actually_changes(monkeypatch):
+    """`_run_task` 標完 FAILED 後 Celery 仍會呼叫 `on_failure` 兜底，兩邊都走
+    `_mark_report_failed`——只有真的把狀態改掉的那一次可以廣播，否則醫師端
+    同一份報告收到兩則失敗通知。"""
+    session_obj = _fake_session()
+    report_obj = _fake_report()
+    db = _AnnounceDB(session_obj, report_obj)
+    published, notified = _install_announce(monkeypatch, db)
+
+    asyncio.run(report_queue._mark_report_failed(str(session_obj.id)))
+    asyncio.run(report_queue._mark_report_failed(str(session_obj.id)))
+
+    assert report_obj.status == ReportStatus.FAILED
+    assert len(published) == 1
+    assert len(notified) == 1
+
+
 def test_mark_failed_creates_a_doctor_notification(monkeypatch):
     session_obj = _fake_session()
     db = _AnnounceDB(session_obj, _fake_report())
@@ -598,8 +615,11 @@ def test_notification_failure_does_not_break_mark_failed(monkeypatch):
 
 
 def test_missing_session_row_still_announces(monkeypatch):
-    """場次查不到（已刪）時 payload 少幾個欄位，但事件仍要發出去。"""
-    db = _AnnounceDB(None, None)
+    """場次查不到（已刪）時 payload 少幾個欄位，但事件仍要發出去。
+
+    報告列要在：沒有報告列＝沒有東西可以標 FAILED＝沒有狀態變更可廣播。
+    """
+    db = _AnnounceDB(None, _fake_report())
     published, notified = _install_announce(monkeypatch, db)
 
     session_id = str(uuid.uuid4())
@@ -631,3 +651,22 @@ def test_retry_exhaustion_path_reaches_the_announcement(monkeypatch):
     assert report_obj.status == ReportStatus.FAILED
     assert published and published[0]["status"] == "failed"
     assert len(notified) == 1
+
+
+def test_report_event_follows_notification_commit(monkeypatch):
+    from app.services.notification_service import NotificationService
+    db = _FakeDB(_fake_session(), _fake_report())
+    _install(monkeypatch, db)
+    notified_at = []
+    published_at = []
+    async def notify(*args, **kwargs):
+        notified_at.append(db.commits)
+        return []
+    async def publish(**kwargs):
+        published_at.append(db.commits)
+    monkeypatch.setattr(NotificationService, "notify_report_ready", staticmethod(notify))
+    monkeypatch.setattr(report_queue, "_publish_report_generated", publish)
+    result = asyncio.run(report_queue._async_generate(str(db._session_obj.id)))
+    assert result['status'] == 'generated'
+    assert len(notified_at) == len(published_at) == 1
+    assert published_at[0] > notified_at[0], 'Notification must commit before the event'

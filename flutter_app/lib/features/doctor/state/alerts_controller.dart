@@ -1,11 +1,11 @@
+import 'dart:math' show max;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/loc.dart';
 import '../../../data/api/alerts_api.dart';
 import '../../../data/models/alert.dart';
 import '../services/dashboard_ws.dart';
-
-int _clampNonNeg(int v) => v < 0 ? 0 : v;
 
 class AlertsState {
   final List<RedFlagAlert> alerts;
@@ -49,35 +49,41 @@ class AlertsState {
     String? filter,
     String? error,
     bool clearError = false,
-  }) =>
-      AlertsState(
-        alerts: alerts ?? this.alerts,
-        unacknowledgedCount: unacknowledgedCount ?? this.unacknowledgedCount,
-        newAlertSeq: newAlertSeq ?? this.newAlertSeq,
-        totalCount: totalCount ?? this.totalCount,
-        allTotalCount: allTotalCount ?? this.allTotalCount,
-        isLoading: isLoading ?? this.isLoading,
-        cursor: clearCursor ? null : (cursor ?? this.cursor),
-        hasMore: hasMore ?? this.hasMore,
-        filter: filter ?? this.filter,
-        error: clearError ? null : (error ?? this.error),
-      );
+  }) => AlertsState(
+    alerts: alerts ?? this.alerts,
+    unacknowledgedCount: unacknowledgedCount ?? this.unacknowledgedCount,
+    newAlertSeq: newAlertSeq ?? this.newAlertSeq,
+    totalCount: totalCount ?? this.totalCount,
+    allTotalCount: allTotalCount ?? this.allTotalCount,
+    isLoading: isLoading ?? this.isLoading,
+    cursor: clearCursor ? null : (cursor ?? this.cursor),
+    hasMore: hasMore ?? this.hasMore,
+    filter: filter ?? this.filter,
+    error: clearError ? null : (error ?? this.error),
+  );
 }
 
 const _wsEvents = ['new_red_flag', 'red_flag_acknowledged', 'initial_state', 'stats_updated'];
 
 class AlertsController extends Notifier<AlertsState> {
   final _api = AlertsApi();
+  int _listRequest = 0;
+  int _countRequest = 0;
 
   bool? _ackParam(String filter) => switch (filter) {
-        'unacknowledged' => false,
-        'acknowledged' => true,
-        _ => null,
-      };
+    'unacknowledged' => false,
+    'acknowledged' => true,
+    _ => null,
+  };
 
   @override
   AlertsState build() {
-    final ws = ref.read(dashboardWsProvider)..ensureConnected();
+    ++_listRequest;
+    ++_countRequest;
+    final lifecycle = ref;
+    final ws = ref.watch(dashboardWsProvider);
+    if (ws == null) return const AlertsState(hasMore: false);
+    ws.ensureConnected();
     for (final e in _wsEvents) {
       ws.on(e, _onEvent);
     }
@@ -87,16 +93,23 @@ class AlertsController extends Notifier<AlertsState> {
       }
     });
     Future.microtask(() async {
+      if (!lifecycle.mounted || ws.isDisposed) return;
       await fetchAlerts();
+      if (!lifecycle.mounted || ws.isDisposed) return;
       await fetchUnacknowledgedCount();
     });
     return const AlertsState(isLoading: true);
   }
 
   Future<void> fetchAlerts() async {
+    final lifecycle = ref;
+    final ws = ref.read(dashboardWsProvider);
+    if (ws == null || ws.isDisposed) return;
     state = state.copyWith(isLoading: true, clearError: true, clearCursor: true);
+    final request = ++_listRequest;
     try {
       final page = await _api.list(acknowledged: _ackParam(state.filter));
+      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
       state = state.copyWith(
         alerts: page.data,
         cursor: page.nextCursor,
@@ -106,15 +119,21 @@ class AlertsController extends Notifier<AlertsState> {
         isLoading: false,
       );
     } catch (_) {
+      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
     }
   }
 
   Future<void> fetchMore() async {
+    final lifecycle = ref;
+    final ws = ref.read(dashboardWsProvider);
+    if (ws == null || ws.isDisposed) return;
     if (!state.hasMore || state.isLoading || state.cursor == null) return;
     state = state.copyWith(isLoading: true);
+    final request = ++_listRequest;
     try {
       final page = await _api.list(cursor: state.cursor, acknowledged: _ackParam(state.filter));
+      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
       state = state.copyWith(
         alerts: [...state.alerts, ...page.data],
         cursor: page.nextCursor,
@@ -123,6 +142,7 @@ class AlertsController extends Notifier<AlertsState> {
         isLoading: false,
       );
     } catch (_) {
+      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
     }
   }
@@ -134,52 +154,76 @@ class AlertsController extends Notifier<AlertsState> {
   }
 
   Future<void> acknowledge(String id, {String? actionTaken, String? notes}) async {
+    final lifecycle = ref;
+    final ws = ref.read(dashboardWsProvider);
+    if (ws == null || ws.isDisposed) return;
     try {
       final resp = await _api.acknowledge(id, actionTaken: actionTaken, notes: notes);
+      if (!lifecycle.mounted || ws.isDisposed) return;
       final ackAt = resp['acknowledgedAt'] as String? ?? DateTime.now().toUtc().toIso8601String();
       final ackBy = resp['acknowledgedBy'] as String?;
       if (state.filter == 'unacknowledged') {
         state = state.copyWith(
           alerts: state.alerts.where((a) => a.id != id).toList(),
-          totalCount: _clampNonNeg(state.totalCount - 1),
-          unacknowledgedCount: _clampNonNeg(state.unacknowledgedCount - 1),
+          totalCount: max(0, state.totalCount - 1),
+          unacknowledgedCount: max(0, state.unacknowledgedCount - 1),
         );
       } else {
         state = state.copyWith(
           alerts: [
             for (final a in state.alerts)
               if (a.id == id)
-                a.mergeAck(acknowledgedAt: ackAt, acknowledgedBy: ackBy, acknowledgeNotes: notes, actionTaken: actionTaken)
+                a.mergeAck(
+                  acknowledgedAt: ackAt,
+                  acknowledgedBy: ackBy,
+                  acknowledgeNotes: notes,
+                  actionTaken: actionTaken,
+                )
               else
-                a
+                a,
           ],
-          unacknowledgedCount: _clampNonNeg(state.unacknowledgedCount - 1),
+          unacknowledgedCount: max(0, state.unacknowledgedCount - 1),
         );
       }
       // 靜默收斂伺服器真值（toast 已改鎖 newAlertSeq，計數修正不會誤鳴）
       fetchUnacknowledgedCount();
     } catch (_) {
+      if (!lifecycle.mounted || ws.isDisposed) return;
       state = state.copyWith(error: t('common.unknownError'));
     }
   }
 
   /// 一鍵確認全部（U1 全院視野後歷史積壓的收斂出口）。回傳實際確認筆數。
   Future<int> acknowledgeAll() async {
+    final lifecycle = ref;
+    final ws = ref.read(dashboardWsProvider);
+    if (ws == null || ws.isDisposed) return 0;
     try {
       final n = await _api.acknowledgeAll();
+      if (!lifecycle.mounted || ws.isDisposed) return 0;
       await fetchAlerts();
+      if (!lifecycle.mounted || ws.isDisposed) return 0;
       await fetchUnacknowledgedCount();
       return n;
     } catch (_) {
+      if (!lifecycle.mounted || ws.isDisposed) return 0;
       state = state.copyWith(error: t('common.unknownError'));
       return 0;
     }
   }
 
   Future<void> fetchUnacknowledgedCount() async {
+    final lifecycle = ref;
+    final ws = ref.read(dashboardWsProvider);
+    if (ws == null || ws.isDisposed) return;
+    final request = ++_countRequest;
     try {
-      state = state.copyWith(unacknowledgedCount: await _api.unacknowledgedCount());
-    } catch (_) {/* silent */}
+      final count = await _api.unacknowledgedCount();
+      if (!lifecycle.mounted || ws.isDisposed || request != _countRequest) return;
+      state = state.copyWith(unacknowledgedCount: count);
+    } catch (_) {
+      /* silent */
+    }
   }
 
   // ---- WS ----
@@ -236,18 +280,21 @@ class AlertsController extends Notifier<AlertsState> {
       // 在「未處理」篩選下別的醫師確認 → 該列移出（否則停在此 tab 會看到
       // 一筆標著已確認的列，稽核 finding）。
       state = state.copyWith(
-        alerts: [for (final a in state.alerts) if (a.id != id) a],
-        totalCount: _clampNonNeg(state.totalCount - 1),
-        unacknowledgedCount: _clampNonNeg(state.unacknowledgedCount - 1),
+        alerts: [
+          for (final a in state.alerts)
+            if (a.id != id) a,
+        ],
+        totalCount: max(0, state.totalCount - 1),
+        unacknowledgedCount: max(0, state.unacknowledgedCount - 1),
       );
       return;
     }
     state = state.copyWith(
       alerts: [
         for (final a in state.alerts)
-          if (a.id == id) a.mergeAck(acknowledgedAt: now, acknowledgedBy: by) else a
+          if (a.id == id) a.mergeAck(acknowledgedAt: now, acknowledgedBy: by) else a,
       ],
-      unacknowledgedCount: _clampNonNeg(state.unacknowledgedCount - 1),
+      unacknowledgedCount: max(0, state.unacknowledgedCount - 1),
     );
   }
 }

@@ -15,12 +15,14 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authz import clinician_can_access_session, get_clinician_scope_id
 from app.core.config import Settings
 from app.core.exceptions import RateLimitExceededException
 from app.core.rate_limit import enforce_llm_per_user_rate_limit
@@ -29,7 +31,10 @@ from app.pipelines.llm_conversation import (
     LLMConversationEngine,
 )
 from app.pipelines.patient_context import build_patient_info
-from app.pipelines.prompts.shared import count_critical_risk_factors_for_complaint
+from app.pipelines.prompts.shared import (
+    count_critical_risk_factors_for_complaint,
+    sanitize_for_prompt,
+)
 from app.pipelines.red_flag_detector import RedFlagDetector
 from app.pipelines.stt_pipeline import (
     STTPipeline,
@@ -49,10 +54,9 @@ _SESSION_CONTEXT_KEY = "gu:session:{session_id}:context"
 _SESSION_STATE_KEY = "gu:session:{session_id}:state"
 _SESSION_CONTEXT_TTL = 3600  # 1 小時
 _SESSION_STATE_TTL = 1800  # 30 分鐘
-_SESSION_SUPERVISOR_KEY = "gu:session:{session_id}:supervisor_guidance"
 
 # 句子邊界（中文句號、驚嘆號、問號、換行）— 用於串流時的增量切句
-_SENTENCE_BOUNDARY_CHARS = "。！？\n"
+_SENTENCE_BOUNDARY_CHARS = "。！？!?\n"
 
 # fire-and-forget 背景任務的強參照集合（見 _spawn_background）
 _BACKGROUND_TASKS: set["asyncio.Task[Any]"] = set()
@@ -110,12 +114,13 @@ def _has_valid_audio_magic(buf: bytes) -> bool:
 
 
 def _authorize_ws_session_access(
-    session_data: dict[str, Any], user_id: Any, role: Any
+    session_data: dict[str, Any], user_id: Any, role: Any, license_number: Any = None
 ) -> bool:
     """問診 WS 的 row-level 授權（純函式，與 REST _authorize_session_access 同模型）。
 
-    - admin：放行
-    - doctor：場次未指派醫師、或指派醫師即本人 → 放行
+    - 臨床帳號（doctor、或帶執照號的臨床 admin；判定同 REST `get_clinician_scope_id`）：
+      場次未指派醫師、或指派醫師即本人 → 放行
+    - 系統 admin（無執照號）：放行
     - patient：場次病患的 user_id 即本人 → 放行
     - 其餘（含 role 缺失 / user_id 缺失）→ 拒絕（fail-closed）
     """
@@ -123,11 +128,16 @@ def _authorize_ws_session_access(
         return False
     role_value = getattr(role, "value", role)
     uid = str(user_id)
+    clinician_id = get_clinician_scope_id(
+        SimpleNamespace(id=uid, role=role_value, license_number=license_number)
+    )
+    if clinician_id is not None:
+        doctor_id = session_data.get("doctor_id")
+        return clinician_can_access_session(
+            None if doctor_id is None else str(doctor_id), clinician_id
+        )
     if role_value == "admin":
         return True
-    if role_value == "doctor":
-        doctor_id = session_data.get("doctor_id")
-        return doctor_id is None or str(doctor_id) == uid
     if role_value == "patient":
         patient_user_id = session_data.get("patient_user_id")
         return patient_user_id is not None and str(patient_user_id) == uid
@@ -165,7 +175,7 @@ async def _summarize_history_segment(
             role_label = {"patient": "病患", "user": "病患", "assistant": "AI", "ai": "AI"}.get(role, role)
             content = entry.get("content", "")
             if content:
-                lines.append(f"{role_label}：{content}")
+                lines.append(f"{role_label}：{sanitize_for_prompt(content)}")
         transcript = "\n".join(lines)
         if not transcript.strip():
             return None
@@ -189,12 +199,12 @@ async def _summarize_history_segment(
                 ],
                 # 摘要是壓縮任務，reasoning 家族 effort="none" 即可
                 **sampling_kwargs(model, effort="none", temperature=0.2),
-                max_tokens=400,
+                max_completion_tokens=400,
             ),
             timeout=15.0,
         )
-        content = (resp.choices[0].message.content or "").strip()
-        return content or None
+        # 摘要會以 role=system 進主 LLM（HISTORY_SUMMARY_PREFIX 放行）→ 同樣消毒
+        return sanitize_for_prompt(resp.choices[0].message.content) or None
     except Exception as exc:
         logger.warning(
             "對話歷史摘要失敗，將保留原始舊輪次以免遺失臨床脈絡 | error=%s",
@@ -293,13 +303,16 @@ def _split_completed_sentences(buffer: str) -> tuple[list[str], str]:
     """
     將緩衝字串依句子邊界切分為 (已完成句子列表, 殘餘未完句)。
 
-    規則：遇到 [。！？\n] 任一字元即視為一個句子結束；結束字元保留在句子尾端
+    規則：CJK／ASCII 問號、驚嘆號、換行結句；句點須有空白前瞻且非常見縮寫。結束字元保留在句子尾端
     （換行會被 strip 掉以避免純空白句）。殘餘字串為尚未遇到邊界的尾段。
     """
     completed: list[str] = []
     start = 0
     for i, ch in enumerate(buffer):
-        if ch in _SENTENCE_BOUNDARY_CHARS:
+        # Require lookahead for periods so a split token cannot cut a decimal.
+        period_end = (ch == "." and i + 1 < len(buffer) and buffer[i + 1].isspace()
+                      and not re.search(r"(?:\b(?:dr|mr|mrs|ms|prof|vs|etc)|e\.g|i\.e)\.$", buffer[:i + 1], re.I))
+        if ch in _SENTENCE_BOUNDARY_CHARS or period_end:
             sentence = buffer[start : i + 1].strip()
             if sentence:
                 completed.append(sentence)
@@ -525,7 +538,7 @@ async def conversation_websocket(
         # ── 步驟 2.5：row-level 授權（與 REST _authorize_session_access 同模型）──
         # 未授權回與「不存在」相同的 close code，避免場次存在性洩漏。
         if not _authorize_ws_session_access(
-            session_data, user_id, payload.get("role")
+            session_data, user_id, payload.get("role"), payload.get("license_number")
         ):
             logger.warning(
                 "問診 WS 授權拒絕 | session=%s, user=%s", session_id, user_id
@@ -624,7 +637,7 @@ async def conversation_websocket(
         )
         # H-8：場次狀態變更會改變排隊 / 統計數字，順帶推播 queue_updated +
         # stats_updated（非致命，內部已 swallow 例外）。
-        await _broadcast_dashboard_queue_and_stats(db, redis)
+        _spawn_background(_broadcast_dashboard_queue_and_stats(None, redis))
 
         logger.info(
             "問診 WebSocket 已就緒 | session=%s, user=%s",
@@ -1355,6 +1368,7 @@ async def _handle_audio_chunk(
     whisper_lang = to_whisper_language(session_context.get("language"))
     final_text = ""
     stt_confidence: float | None = None
+    stt_started = time.perf_counter()
     try:
         result = await stt_pipeline.transcribe(
             complete_audio,
@@ -1367,6 +1381,8 @@ async def _handle_audio_chunk(
         # `sttConfidence !== undefined` 判斷是否顯示百分比，null 會渲染成 0%。
         stt_confidence = result.get("confidence")
         message_id = str(uuid.uuid4())
+        logger.info("voice_timing round=%s phase=stt_complete elapsed_ms=%.1f bytes=%d",
+                    message_id, (time.perf_counter() - stt_started) * 1000, len(complete_audio))
 
         stt_payload: dict[str, Any] = {
             "messageId": message_id,
@@ -1416,6 +1432,7 @@ async def _handle_audio_chunk(
             db=db,
             settings=settings,
             stt_confidence=stt_confidence,
+            timing_round=message_id,
             patient_metadata={
                 "input_source": "voice",
                 "stt_language": whisper_lang,
@@ -1493,7 +1510,7 @@ async def _emit_supervisor_degraded(session_id: str) -> None:
 
 # ── 儀表板 queue/stats 順帶推播（H-8） ───────────────────
 async def _broadcast_dashboard_queue_and_stats(
-    db: AsyncSession,
+    db: AsyncSession | None,
     redis: Redis,
 ) -> None:
     """場次狀態變更後，順帶向儀表板推播最新 queue_updated + stats_updated。
@@ -1504,7 +1521,12 @@ async def _broadcast_dashboard_queue_and_stats(
     try:
         from app.websocket.dashboard_handler import broadcast_queue_and_stats
 
-        await broadcast_queue_and_stats(db, redis)
+        if db is None:
+            from app.core.database import async_session_factory
+            async with async_session_factory() as background_db:
+                await broadcast_queue_and_stats(background_db, redis)
+        else:
+            await broadcast_queue_and_stats(db, redis)
     except Exception as exc:
         logger.warning(
             "順帶推播儀表板 queue/stats 失敗（非致命） | error=%s", str(exc)
@@ -1613,6 +1635,7 @@ async def _handle_text_message(
     settings: Settings,
     stt_confidence: float | None = None,
     patient_metadata: dict[str, Any] | None = None,
+    timing_round: str | None = None,
 ) -> bool:
     """
     處理文字訊息：加入歷史 → LLM 回應 → TTS → 紅旗偵測
@@ -1682,6 +1705,8 @@ async def _handle_text_message(
             pass
 
     message_id = str(uuid.uuid4())
+    timing_round = timing_round or message_id
+    turn_started = time.perf_counter()
 
     # 從 Redis 取得 Supervisor 指導
     import json
@@ -1755,6 +1780,88 @@ async def _handle_text_message(
 
     session_language = session_context.get("language")
 
+    async def _persist_response():
+        # Preserve what the patient heard, including interrupted generations.
+        conversation_history.append(
+            {
+                "role": "assistant",
+                "content": full_response,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+        # 儲存 AI 回應至資料庫（metadata.message_id 對應本輪 ai_response_* WS 事件）
+        try:
+            from app.services.conversation_service import ConversationService
+            from uuid import UUID as _UUID
+            await ConversationService.create(
+                db,
+                _UUID(session_id),
+                "assistant",
+                full_response,
+                metadata={"message_id": message_id},
+            )
+            await db.commit()
+        except Exception as _e:
+            logger.warning("AI 回應記錄儲存失敗 | session=%s, error=%s", session_id, str(_e))
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+
+    emitted_sentences = 0
+    emitted_offset = 0
+    early_sender: asyncio.Task | None = None
+    streaming_closed = False
+
+    async def _send_sentence(idx: int, sentence: str, tts_task) -> bool:
+        nonlocal emitted_offset
+        audio_b64: str | None = ""
+        tts_failed = False
+        try:
+            audio_bytes = await asyncio.shield(tts_task)
+            if audio_bytes:
+                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        except Exception as exc:
+            tts_failed = True
+            audio_b64 = None
+            logger.warning("句級 TTS 合成失敗 | round=%s, idx=%d, error=%s", message_id, idx, str(exc))
+        if session_context.get("_terminated"):
+            return False
+        # Preserve source spacing when Latin punctuation produces several chunks.
+        end = full_response.find(sentence, emitted_offset) + len(sentence)
+        chunk_text = full_response[emitted_offset:end]
+        await manager.send_to_session(session_id, {
+            "type": "ai_response_chunk",
+            "payload": {"messageId": message_id, "text": chunk_text, "chunkIndex": idx,
+                        "audioB64": audio_b64, "ttsFailed": tts_failed},
+        })
+        emitted_offset = end
+        if idx == 0:
+            logger.info("voice_timing round=%s phase=first_chunk elapsed_ms=%.1f audio=%s",
+                        timing_round, (time.perf_counter() - turn_started) * 1000, bool(audio_b64))
+        return True
+
+    async def _send_ready_sentences():
+        nonlocal emitted_sentences
+        while emitted_sentences < len(pending_sentences):
+            idx = emitted_sentences
+            if not await _send_sentence(idx, pending_sentences[idx], pending_tts_tasks[idx]):
+                return
+            emitted_sentences += 1
+
+    def _try_early_stream(_task=None):
+        nonlocal early_sender
+        # Fail closed: any warning, failure, pending gate, or wrap-up stays on the
+        # existing buffered path. Wrap-up text may still be replaced by its guard.
+        if streaming_closed or should_conclude or not red_flag_task.done() or red_flag_task.cancelled():
+            return
+        if red_flag_task.exception() is not None or red_flag_task.result() != []:
+            return
+        if early_sender is None or (early_sender.done() and early_sender.exception() is None):
+            early_sender = asyncio.create_task(_send_ready_sentences())
+
     def _spawn_tts_task(sentence: str) -> None:
         """將一個句子排入 TTS 合成任務佇列（順序保持）。"""
         pending_sentences.append(sentence)
@@ -1763,6 +1870,8 @@ async def _handle_text_message(
                 tts_pipeline.synthesize(text=sentence, language=session_language)
             )
         )
+
+        _try_early_stream()
 
     # 啟動紅旗偵測（背景執行）
     # 先把「前幾輪」壓成摘要寫進 session_context，語意層才看得到跨輪累積的急症線索
@@ -1774,6 +1883,7 @@ async def _handle_text_message(
     red_flag_task = asyncio.create_task(
         red_flag_detector.detect(text, session_context)
     )
+    red_flag_task.add_done_callback(_try_early_stream)
 
     try:
         async for text_chunk in llm_engine.generate_response(
@@ -1791,7 +1901,27 @@ async def _handle_text_message(
             _spawn_tts_task(tail)
         sentence_buffer = ""
 
+    except asyncio.CancelledError:
+        streaming_closed = True
+        red_flag_task.cancel()
+        if early_sender is not None:
+            early_sender.cancel()
+        for task in pending_tts_tasks:
+            task.cancel()
+        raise
     except Exception as exc:
+        streaming_closed = True
+        if early_sender is not None:
+            early_sender.cancel()
+            await asyncio.gather(early_sender, return_exceptions=True)
+        if emitted_offset:
+            # An interrupted stream is still part of the patient's history.
+            full_response = full_response[:emitted_offset]
+            await _persist_response()
+            await _save_conversation_history(redis, session_id, conversation_history)
+            await manager.send_to_session(session_id, {"type": "ai_response_end", "payload": {
+                "messageId": message_id, "fullText": full_response, "ttsAudioUrl": "",
+            }})
         logger.error(
             "LLM 回應生成失敗 | session=%s, error=%s",
             session_id,
@@ -1811,9 +1941,15 @@ async def _handle_text_message(
                 _tts_task.cancel()
         return False
 
+    logger.info("voice_timing round=%s phase=llm_complete elapsed_ms=%.1f", timing_round,
+                (time.perf_counter() - turn_started) * 1000)
+
     # ── A1 [D5] 空回應守衛：LLM 正常結束但無內容 → 單次 retry → 仍空送在地化 fallback ──
     used_empty_fallback = False
     if not full_response.strip():
+        streaming_closed = True
+        if early_sender is not None:
+            await early_sender
         logger.warning(
             "LLM 回傳空回應 | session=%s, retry_enabled=%s",
             session_id,
@@ -1855,7 +1991,7 @@ async def _handle_text_message(
                 sentence_buffer = ""
         if not full_response.strip():
             # 仍空：送在地化 fallback，「直接」整句 _spawn_tts_task —— 不可走切句：
-            # _SENTENCE_BOUNDARY_CHARS 是 CJK-only，en/ko/vi 的 ASCII '?' 切不出句子
+            # 舊切句規則未支援 ASCII 標點
             # → 會變成 0 個 chunk 的空泡泡（D5 根因之一）。
             # （`_i18n_get` 已在模組層 import；這裡再 import 一次會讓它變成
             #   `_handle_text_message` 的區域變數，`_persist_and_emit_alert`
@@ -1880,7 +2016,7 @@ async def _handle_text_message(
     #
     # 換掉 full_response 前必須連同 in-flight TTS 一起作廢並整句重排（與空回應
     # fallback 同一套處理）：否則病患會「聽到」原本那句問句，只是螢幕文字被換掉。
-    # 整句 _spawn_tts_task 不走切句 —— _SENTENCE_BOUNDARY_CHARS 是 CJK-only。
+    # 整句 _spawn_tts_task 不走切句 —— 保持 fallback 為一段完整文字。
     if should_conclude and not used_empty_fallback and _looks_like_question(full_response):
         logger.warning(
             "收尾輪 LLM 仍發問，改送制式收尾語 | session=%s, patient_turns=%s, "
@@ -1900,33 +2036,7 @@ async def _handle_text_message(
         )
         _spawn_tts_task(full_response)
 
-    # 加入 AI 回應到對話歷史
-    conversation_history.append(
-        {
-            "role": "assistant",
-            "content": full_response,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    )
-
-    # 儲存 AI 回應至資料庫（metadata.message_id 對應本輪 ai_response_* WS 事件）
-    try:
-        from app.services.conversation_service import ConversationService
-        from uuid import UUID as _UUID
-        await ConversationService.create(
-            db,
-            _UUID(session_id),
-            "assistant",
-            full_response,
-            metadata={"message_id": message_id},
-        )
-        await db.commit()
-    except Exception as _e:
-        logger.warning("AI 回應記錄儲存失敗 | session=%s, error=%s", session_id, str(_e))
-        try:
-            await db.rollback()
-        except Exception:
-            pass
+    await _persist_response()
 
     # 觸發 Supervisor 背景分析（含 30 秒逾時與 fallback 指導）
     supervisor_timeout = getattr(settings, "SUPERVISOR_TIMEOUT_SECONDS", 30)
@@ -2379,36 +2489,10 @@ async def _handle_text_message(
     # Step D：依序等待每一句的 TTS 合成結果，並以 ai_response_chunk 同時夾帶 text + audio
     # （前端會把每個 chunk 的音訊排入序列播放，視覺上字幕與語音逐句推進）
     # 若 TTS 失敗，仍送出文字 chunk（audioB64=null, ttsFailed=true）讓前端提示。
-    for idx, (sentence, tts_task) in enumerate(zip(pending_sentences, pending_tts_tasks)):
-        audio_b64: str | None = ""
-        tts_failed = False
-        try:
-            audio_bytes = await tts_task
-            if audio_bytes:
-                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-        except Exception as exc:
-            tts_failed = True
-            audio_b64 = None
-            logger.warning(
-                "句級 TTS 合成失敗，仍送出文字 | session=%s, idx=%d, error=%s",
-                session_id,
-                idx,
-                str(exc),
-            )
-
-        await manager.send_to_session(
-            session_id,
-            {
-                "type": "ai_response_chunk",
-                "payload": {
-                    "messageId": message_id,
-                    "text": sentence,
-                    "chunkIndex": idx,
-                    "audioB64": audio_b64,
-                    "ttsFailed": tts_failed,
-                },
-            },
-        )
+    streaming_closed = True
+    if early_sender is not None:
+        await early_sender
+    await _send_ready_sentences()
 
     # 發送 AI 回應結束（音訊改由逐句 chunk 送出，end 不再承載 ttsAudioUrl）
     await manager.send_to_session(
@@ -3247,6 +3331,12 @@ async def _update_session_status(
                 await db.rollback()
             except Exception:
                 pass
+
+        if new_status in ("completed", "aborted_red_flag", "cancelled"):
+            # 終態改變儀表板當日統計 → 清 `/dashboard/stats` 快取（非致命，內部自吞例外）
+            from app.services.dashboard_service import invalidate_stats_cache
+
+            await invalidate_stats_cache()
 
         return True
 

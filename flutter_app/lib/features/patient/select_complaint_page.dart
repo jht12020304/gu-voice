@@ -9,6 +9,7 @@ import '../../data/models/session.dart';
 import '../../shared/widgets/language_action.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../shared/widgets/ui_kit.dart';
+import '../../shared/toast.dart';
 import 'intake_route.dart';
 
 // ── Pure helpers ───────────────────────────────────────────────────────────────
@@ -147,7 +148,7 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
       return;
     }
     if (_selected.length >= complaintMaxSelect) {
-      _toast(t('intake.selectComplaint.maxReached', args: {'max': complaintMaxSelect}));
+      showToast(context, t('intake.selectComplaint.maxReached', args: {'max': complaintMaxSelect}), duration: const Duration(seconds: 2));
       return;
     }
     // First pick always allowed; a later pick that would push joined NAMES past the budget
@@ -155,15 +156,12 @@ class _SelectComplaintPageState extends ConsumerState<SelectComplaintPage> {
     if (_selected.isNotEmpty && c.id != otherComplaintId) {
       final next = joinedComplaintNames([..._selected, c], currentLng);
       if (_cp(next) > complaintNameBudget) {
-        _toast(t('intake.selectComplaint.nameLimitReached'));
+        showToast(context, t('intake.selectComplaint.nameLimitReached'), duration: const Duration(seconds: 2));
         return;
       }
     }
     setState(() => _selected.add(c));
   }
-
-  void _toast(String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
 
   void _start() {
     if (!_ready) return;

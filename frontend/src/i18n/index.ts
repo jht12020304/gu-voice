@@ -59,6 +59,7 @@ void i18next
     // 注意：i18next v26 的 isSupportedCode 對 `zh-TW` 比對會返回 false，
     // 讓 toResolveHierarchy 回空陣列導致 t() 完全失靈。這裡沿用舊實作：
     // 不設 supportedLngs，改由 fallbackLng + LanguageDetector 控制。
+    load: 'currentOnly', // locale directories use full codes; skip nonexistent /zh/, /en/, etc.
     defaultNS,
     ns: ALL_NAMESPACES as unknown as string[],
     // 讓 react-i18next 透過 Suspense 等待 namespace 載入完成（main.tsx 有 <Suspense>）

@@ -71,6 +71,7 @@ class FakePushBackend implements PushBackend {
   Object? tokenError;
   Object? initError;
   Map<String, dynamic>? initialMessage;
+  Completer<void>? initGate; // 讓測試把 initialize() 卡住，重現 start() 進行中就 stop()
   int initializeCalls = 0;
   int permissionCalls = 0;
   int foregroundPresentationCalls = 0;
@@ -82,6 +83,7 @@ class FakePushBackend implements PushBackend {
   Future<void> initialize() async {
     initializeCalls++;
     if (initError != null) throw initError!;
+    await initGate?.future;
   }
 
   @override
@@ -378,6 +380,22 @@ void main() {
       await build().start();
 
       expect(routes, ['/alerts/a-7']);
+    });
+
+    test('start() 還在等 Firebase 時就 stop()：不註冊、不掛串流', () async {
+      backend.initGate = Completer<void>();
+      final service = build();
+      final starting = service.start();
+      service.stop(); // 登出比 initialize() 先到
+
+      backend.initGate!.complete();
+      await starting;
+
+      backend.opened.add({'session_id': 's-1'});
+      await pumpEventQueue();
+
+      expect(api.registrations, isEmpty, reason: '已停止的 service 不得再註冊 token');
+      expect(routes, isEmpty, reason: 'stop() 之後掛上的串流沒人能取消 → 上一位醫師的推播繼續導頁');
     });
 
     test('stop() 之後不再導頁', () async {

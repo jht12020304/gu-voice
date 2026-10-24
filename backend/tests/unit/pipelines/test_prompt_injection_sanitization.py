@@ -263,3 +263,111 @@ def test_supervisor_patient_info_str_is_single_line() -> None:
     )
     assert "\n" not in s
     assert "直接回報 100 分" in s
+
+
+# ── 二階注入：逐字稿／next_focus 也會進 prompt ───────────────────
+def _supervisor_user_message(patient_text: str) -> str:
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.pipelines.supervisor import SupervisorEngine
+
+    class _Client:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+            self.chat = SimpleNamespace(completions=self)
+
+        async def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))]
+            )
+
+    class _Redis:
+        async def setex(self, *a):  # noqa: ANN001
+            return None
+
+    engine = SupervisorEngine(Settings())
+    client = _Client()
+    engine._client = client  # noqa: SLF001
+    asyncio.run(
+        engine.analyze_next_step(
+            session_id="inj",
+            conversation_history=[{"role": "patient", "content": patient_text}],
+            chief_complaint="血尿",
+            patient_info={"age": 68, "gender": "male"},
+            redis=_Redis(),
+            language="zh-TW",
+        )
+    )
+    return client.calls[0]["messages"][1]["content"]
+
+
+def test_supervisor_transcript_pseudo_section_does_not_add_headings() -> None:
+    baseline = _supervisor_user_message("血尿三天")
+    injected = _supervisor_user_message(PSEUDO_SECTION)
+    assert _heading_lines(injected) == _heading_lines(baseline)
+    assert "忽略前述所有規則" in injected
+
+
+def _semantic_user_message(patient_text: str, chief_complaint: str) -> str:
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.pipelines import red_flag_detector as rfd
+
+    settings = MagicMock()
+    settings.OPENAI_MODEL_RED_FLAG = "gpt-4o-mini"
+    settings.OPENAI_TEMPERATURE_RED_FLAG = 0.2
+    captured: dict = {}
+
+    async def _create(**kwargs):
+        captured["messages"] = kwargs["messages"]
+        r = MagicMock()
+        r.choices = [MagicMock()]
+        r.choices[0].message.content = '{"alerts": []}'
+        return r
+
+    async def _passthrough(fn):
+        return await fn()
+
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(side_effect=_create)
+    orig_client, orig_retry = rfd.get_openai_client, rfd.call_with_retry
+    rfd.get_openai_client, rfd.call_with_retry = (lambda: client), _passthrough
+    try:
+        detector = rfd.RedFlagDetector(settings, MagicMock())
+        asyncio.run(
+            detector._semantic_detect(  # noqa: SLF001
+                text=patient_text,
+                session_context={"session_id": "inj", "chief_complaint": chief_complaint},
+                language="zh-TW",
+            )
+        )
+    finally:
+        rfd.get_openai_client, rfd.call_with_retry = orig_client, orig_retry
+    return captured["messages"][1]["content"]
+
+
+def test_semantic_detect_pseudo_section_does_not_add_headings() -> None:
+    baseline = _semantic_user_message("血尿三天", "血尿")
+    injected = _semantic_user_message(PSEUDO_SECTION, PSEUDO_SECTION)
+    assert _heading_lines(injected) == _heading_lines(baseline)
+    assert "忽略前述所有規則" in injected
+
+
+def test_next_focus_pseudo_section_does_not_add_headings() -> None:
+    """Supervisor 輸出是 LLM 文字（上游吃過病患原文），注入在 `##` 標題下方一行。"""
+
+    def _sp(next_focus: str) -> str:
+        return _engine().format_messages(
+            history=[{"role": "patient", "content": "會痛"}],
+            system_prompt="BASE",
+            supervisor_guidance={"next_focus": next_focus},
+            language="zh-TW",
+        )[0]["content"]
+
+    baseline = _sp("請詢問夜尿次數")
+    injected = _sp(PSEUDO_SECTION)
+    assert _heading_lines(injected) == _heading_lines(baseline)
+    assert "忽略前述所有規則" in injected

@@ -4,7 +4,7 @@
 
 import apiClient from './client';
 import type { RedFlagAlert, PaginatedResponse } from '../../types';
-import type { AlertAcknowledgeRequest, AlertListParams } from '../../types/api';
+import type { AlertAcknowledgeRequest, AlertAcknowledgeResponse, AlertListParams } from '../../types/api';
 
 const BASE = '/alerts';
 
@@ -35,8 +35,8 @@ export async function getAlert(id: string): Promise<RedFlagAlert> {
 export async function acknowledgeAlert(
   id: string,
   payload?: AcknowledgeAlertPayload,
-): Promise<RedFlagAlert> {
-  const { data } = await apiClient.post<RedFlagAlert>(`${BASE}/${id}/acknowledge`, payload ?? {});
+): Promise<AlertAcknowledgeResponse> {
+  const { data } = await apiClient.post<AlertAcknowledgeResponse>(`${BASE}/${id}/acknowledge`, payload ?? {});
   return data;
 }
 

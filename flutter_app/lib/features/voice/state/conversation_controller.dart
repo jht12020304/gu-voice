@@ -624,7 +624,3 @@ final conversationControllerProvider =
     NotifierProvider.autoDispose<ConversationController, ConversationState>(
   ConversationController.new,
 );
-
-extension _FirstOrNull<E> on Iterable<E> {
-  E? get firstOrNull => isEmpty ? null : first;
-}

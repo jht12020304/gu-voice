@@ -387,7 +387,8 @@ def _rest_fakes(monkeypatch, status_in):
             self.commits = 0
 
         async def execute(self, stmt):
-            return SimpleNamespace(scalar_one_or_none=lambda: None)
+            # rowcount=1：狀態轉移改走 compare-and-set，UPDATE 要回「命中」
+            return SimpleNamespace(scalar_one_or_none=lambda: None, rowcount=1)
 
         async def flush(self):
             return None

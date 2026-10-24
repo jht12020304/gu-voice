@@ -2,81 +2,62 @@
 // 頂部導航列 — Stripe 精緻邊框 + 藍調陰影
 // =============================================================================
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
 import { useNotificationStore } from '../../stores/notificationStore';
-import { useSettingsStore } from '../../stores/settingsStore';
 import { useLocalizedNavigate } from '../../i18n/paths';
+import { useClickOutside } from '../../hooks/useClickOutside';
 import LanguageSwitcher from '../common/LanguageSwitcher';
+import ThemeToggle from '../common/ThemeToggle';
 
-export default function Header() {
+export default function Header({ navigationOpen, onOpenNavigation }: {
+  navigationOpen: boolean;
+  onOpenNavigation: () => void;
+}) {
   const navigate = useLocalizedNavigate();
   const { t } = useTranslation('common');
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const unreadCount = useNotificationStore((s) => s.unreadCount);
-  const fetchUnreadCount = useNotificationStore((s) => s.fetchUnreadCount);
-  const { theme, setTheme } = useSettingsStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // 點擊外部關閉選單
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
-  useEffect(() => {
-    fetchUnreadCount();
-  }, [fetchUnreadCount]);
+  useClickOutside(menuRef, () => setMenuOpen(false));
 
   const handleLogout = async () => {
     await logout();
     navigate('/login');
   };
 
-  const toggleTheme = () => {
-    setTheme(theme === 'dark' ? 'light' : 'dark');
-  };
-
   return (
-    <header className="flex h-14 items-center justify-between border-b border-edge bg-surface-primary px-6 shadow-card dark:bg-dark-bg dark:border-dark-border">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-edge bg-surface-primary px-3 shadow-card sm:px-6 dark:bg-dark-bg dark:border-dark-border">
       {/* 左側：標題 */}
-      <div className="flex items-center gap-3">
-        <h1 className="text-h3 text-ink-heading dark:text-white">{t('appTitle')}</h1>
+      <div className="flex min-w-0 items-center gap-2">
+        <button type="button" className="btn-ghost h-11 min-w-11 shrink-0 p-2 md:hidden"
+          onClick={onOpenNavigation} aria-label={t('header.navigation')}
+          aria-haspopup="dialog" aria-expanded={navigationOpen}>
+          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <h1 className="truncate text-h3 text-ink-heading dark:text-white">
+          <span className="hidden sm:inline">{t('appTitle')}</span><span className="sm:hidden">UroSense</span>
+        </h1>
       </div>
 
       {/* 右側：功能區 */}
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center sm:gap-2">
         {/* 語言切換 */}
         <LanguageSwitcher />
 
         {/* 暗色模式切換 */}
-        <button
-          className="btn-ghost p-2"
-          onClick={toggleTheme}
-          aria-label={theme === 'dark' ? t('header.themeToLight') : t('header.themeToDark')}
-        >
-          {theme === 'dark' ? (
-            <svg className="h-5 w-5 text-ink-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
-            </svg>
-          ) : (
-            <svg className="h-5 w-5 text-ink-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
-            </svg>
-          )}
-        </button>
+        <ThemeToggle />
 
         {/* 通知鈴鐺 */}
         <button
-          className="btn-ghost relative p-2"
+          className="btn-ghost relative h-11 min-w-11 p-2"
           onClick={() => navigate('/notifications')}
           aria-label={t('header.notifications')}
         >
@@ -93,16 +74,18 @@ export default function Header() {
         {/* 使用者選單 */}
         <div className="relative" ref={menuRef}>
           <button
-            className="flex items-center gap-2 rounded-card px-2 py-1.5 transition-colors hover:bg-surface-tertiary"
+            className="flex h-11 min-w-11 items-center justify-center gap-2 rounded-card px-1 py-1.5 transition-colors hover:bg-surface-tertiary sm:px-2"
             onClick={() => setMenuOpen(!menuOpen)}
+            aria-label={user?.name || t('user')}
+            aria-expanded={menuOpen}
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 text-caption font-semibold text-primary-700 dark:bg-primary-900 dark:text-primary-200">
               {user?.name?.charAt(0) || 'U'}
             </div>
-            <span className="text-body font-medium text-ink-heading dark:text-white">
+            <span className="hidden max-w-40 truncate text-body font-medium text-ink-heading md:block dark:text-white">
               {user?.name || t('user')}
             </span>
-            <svg className={`h-4 w-4 text-ink-muted transition-transform ${menuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className={`hidden h-4 w-4 text-ink-muted transition-transform sm:block ${menuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
           </button>

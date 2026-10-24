@@ -245,6 +245,7 @@ class Settings(BaseSettings):
     OPENAI_TEMPERATURE_CONVERSATION: float = 0.7
     OPENAI_TEMPERATURE_SOAP: float = 0.3
     OPENAI_TEMPERATURE_RED_FLAG: float = 0.2
+    OPENAI_TEMPERATURE_SUPERVISOR: float = 0.2
     OPENAI_MAX_TOKENS_CONVERSATION: int = 2048
     OPENAI_MAX_TOKENS_SOAP: int = 4096
     # Supervisor 走 reasoning 模型時要留足夠 token 給 CoT + JSON 輸出,

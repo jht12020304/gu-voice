@@ -11,6 +11,7 @@ import EmptyState from '../../components/common/EmptyState';
 import Modal from '../../components/common/Modal';
 import * as adminApi from '../../services/api/admin';
 import type { User } from '../../types';
+import type { UserRole } from '../../types/enums';
 import { formatDate } from '../../utils/format';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
@@ -55,7 +56,7 @@ export default function UserManagementPage() {
     email: '',
     name: '',
     password: '',
-    role: 'patient' as 'patient' | 'doctor' | 'admin',
+    role: 'patient' as UserRole,
     phone: '',
     isActive: true,
   });
@@ -433,7 +434,7 @@ export default function UserManagementPage() {
             <select
               value={formData.role}
               onChange={(e) =>
-                setFormData({ ...formData, role: e.target.value as 'patient' | 'doctor' | 'admin' })
+                setFormData({ ...formData, role: e.target.value as UserRole })
               }
               className="input-base mt-1"
             >

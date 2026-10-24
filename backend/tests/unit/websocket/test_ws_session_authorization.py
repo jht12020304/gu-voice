@@ -63,3 +63,16 @@ def test_patient_session_without_user_link_denied():
     """病患記錄無 user_id（kiosk 代建）→ patient 角色一律拒絕，不得誤放行。"""
     data = {"patient_user_id": None, "doctor_id": None}
     assert _authorize_ws_session_access(data, PATIENT_USER, "patient") is False
+
+
+# ── 臨床 admin（有執照號）與 REST get_clinician_scope_id 同模型 ─────
+def test_clinical_admin_scoped_like_doctor():
+    """有執照號的 admin 是臨床帳號：別人的指派場次必須拒絕（否則可開任何病患串流、
+    透過 connect_session 的 4008 把 kiosk 踢下線）；未指派或指派給本人才放行。"""
+    assert _authorize_ws_session_access(SESSION, OTHER_USER, "admin", "UR-001") is False
+    assert _authorize_ws_session_access(SESSION, DOCTOR_USER, "admin", "UR-001") is True
+    unassigned = {"patient_user_id": PATIENT_USER, "doctor_id": None}
+    assert _authorize_ws_session_access(unassigned, OTHER_USER, "admin", "UR-001") is True
+    # 系統 admin（無執照號）維持全院
+    assert _authorize_ws_session_access(SESSION, OTHER_USER, "admin", None) is True
+    assert _authorize_ws_session_access(SESSION, OTHER_USER, UserRole.ADMIN, "") is True

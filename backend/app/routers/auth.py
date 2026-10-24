@@ -8,7 +8,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request, Response, status
 from fastapi.responses import JSONResponse
-import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -20,7 +19,6 @@ from app.core.csrf import (
 )
 from app.core.dependencies import get_current_user, get_db
 from app.core.exceptions import AppException, UnauthorizedException
-from app.core.security import verify_access_token
 from app.schemas.auth import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
@@ -92,29 +90,23 @@ def _auth_json_response(result: dict, status_code: int = status.HTTP_200_OK) -> 
 
 
 async def _get_optional_current_user(
+    request: Request,
     authorization: str | None = Header(None, alias="Authorization"),
     db: AsyncSession = Depends(get_db),
 ):
     """
     嘗試解析 Bearer Token；若未提供或無效則回傳 None。
     用於「病患可匿名註冊、管理員需驗證」的場景。
-    """
-    if not authorization or not authorization.startswith("Bearer "):
-        return None
-    token = authorization[7:]
-    try:
-        payload = verify_access_token(token)
-    except jwt.InvalidTokenError:
-        return None
-    from app.models.user import User
-    from sqlalchemy import select
-    from uuid import UUID as _UUID
 
-    user_id = payload.get("sub")
-    if not user_id:
+    直接包 `get_current_user`：以前自己 decode，跳過了黑名單與 is_active 檢查，
+    登出過或停用的 admin token 仍能用來註冊特權帳號。
+    """
+    if not authorization:
         return None
-    result = await db.execute(select(User).where(User.id == _UUID(user_id)))
-    return result.scalar_one_or_none()
+    try:
+        return await get_current_user(request, authorization, db)
+    except AppException:
+        return None
 
 
 @router.post(

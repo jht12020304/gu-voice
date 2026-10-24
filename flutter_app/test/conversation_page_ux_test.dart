@@ -21,36 +21,22 @@ void main() {
   setUp(() => setCurrentLng('en-US'));
   tearDown(() => setCurrentLng('zh-TW'));
 
-  testWidgets('English controls fit a narrow phone and speed stays numeric', (
-    tester,
-  ) async {
+  testWidgets('English controls fit a narrow phone and speed stays numeric', (tester) async {
     final fake = _FakeConversationController(_state());
     await _pumpPage(tester, fake);
 
     expect(find.text('1.0x'), findsOneWidget);
-    expect(
-      find.text('Speed 1.0x'),
-      findsNothing,
-      reason: '完整英文語速標籤放在窄控制列會造成 RenderFlex overflow',
-    );
+    expect(find.text('Speed 1.0x'), findsNothing, reason: '完整英文語速標籤放在窄控制列會造成 RenderFlex overflow');
     expect(find.byKey(const ValueKey('tts-speed-control')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('keyboard compacts guidance and sending releases text focus', (
-    tester,
-  ) async {
+  testWidgets('keyboard compacts guidance and sending releases text focus', (tester) async {
     final fake = _FakeConversationController(_state());
     await _pumpPage(tester, fake);
 
-    expect(
-      find.byKey(const ValueKey('supervisor-guidance-expanded')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('supervisor-guidance-compact')),
-      findsNothing,
-    );
+    expect(find.byKey(const ValueKey('supervisor-guidance-expanded')), findsOneWidget);
+    expect(find.byKey(const ValueKey('supervisor-guidance-compact')), findsNothing);
 
     final field = find.byKey(const ValueKey('conversation-text-input'));
     await tester.tap(field);
@@ -59,15 +45,9 @@ void main() {
     addTearDown(tester.view.resetViewInsets);
     await tester.pump();
 
-    expect(
-      find.byKey(const ValueKey('supervisor-guidance-compact')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('supervisor-guidance-compact')), findsOneWidget);
     expect(find.text('2 left'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('supervisor-guidance-expanded')),
-      findsNothing,
-    );
+    expect(find.byKey(const ValueKey('supervisor-guidance-expanded')), findsNothing);
 
     await tester.enterText(field, 'It started yesterday');
     await tester.testTextInput.receiveAction(TextInputAction.send);
@@ -82,34 +62,30 @@ void main() {
 
     tester.view.resetViewInsets();
     await tester.pump();
-    expect(
-      find.byKey(const ValueKey('supervisor-guidance-expanded')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('supervisor-guidance-expanded')), findsOneWidget);
   });
 
-  testWidgets('only assistant messages render the UroSense mascot', (
-    tester,
-  ) async {
+  testWidgets('waveform and duration updates do not rebuild transcript', (tester) async {
+    final fake = _FakeConversationController(_state());
+    await _pumpPage(tester, fake);
+    final before = tester.widget<Text>(find.text('Yesterday'));
+    for (var i = 0; i < 60; i++) {
+      fake.tickMeter(i);
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(tester.widget<Text>(find.text('Yesterday')), same(before));
+    }
+  });
+
+  testWidgets('only assistant messages render the UroSense mascot', (tester) async {
     final fake = _FakeConversationController(_state());
     await _pumpPage(tester, fake);
 
     expect(find.byKey(const ValueKey('urosense-avatar-ai-1')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('urosense-avatar-patient-1')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey('urosense-avatar-system-1')),
-      findsNothing,
-    );
+    expect(find.byKey(const ValueKey('urosense-avatar-patient-1')), findsNothing);
+    expect(find.byKey(const ValueKey('urosense-avatar-system-1')), findsNothing);
 
     final list = tester.widget<ListView>(find.byType(ListView));
-    expect(
-      list.keyboardDismissBehavior,
-      ScrollViewKeyboardDismissBehavior.onDrag,
-      reason: '拖曳逐字稿必須能收起鍵盤，不能只靠送出按鈕',
-    );
+    expect(list.keyboardDismissBehavior, ScrollViewKeyboardDismissBehavior.onDrag, reason: '拖曳逐字稿必須能收起鍵盤，不能只靠送出按鈕');
   });
 }
 
@@ -147,10 +123,7 @@ ConversationState _state() => ConversationState(
   ],
 );
 
-Future<void> _pumpPage(
-  WidgetTester tester,
-  _FakeConversationController fake,
-) async {
+Future<void> _pumpPage(WidgetTester tester, _FakeConversationController fake) async {
   tester.view.physicalSize = const Size(375, 812);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -175,6 +148,7 @@ class _FakeConversationController extends ConversationController {
 
   final ConversationState initial;
   final sent = <String>[];
+  void tickMeter(int tick) => state = state.copyWith(waveform: [tick / 60], recordingDuration: tick / 20);
 
   @override
   ConversationState build() => initial;

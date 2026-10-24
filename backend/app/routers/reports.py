@@ -125,6 +125,7 @@ async def generate_report(
         regenerate=regenerate,
         additional_notes=additional_notes,
         requested_by=current_user.id,
+        current_user=current_user,
     )
 
 

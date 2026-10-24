@@ -8,6 +8,12 @@ import * as reportsApi from '../services/api/reports';
 import * as sessionsApi from '../services/api/sessions';
 import type { ReportListParams, ReviewRequest } from '../types/api';
 import i18n from '../i18n';
+import { useAuthStore } from './authStore';
+import { getAuthEpoch } from '../services/api/client';
+
+let listRequest = 0;
+let detailRequest = 0;
+let conversationRequest = 0;
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 
@@ -99,6 +105,7 @@ const mockConversations = [
 ];
 
 interface ReportState {
+  reviewCounts: Record<string, number> | null;
   reports: SOAPReport[];
   selectedReport: SOAPReport | null;
   conversations: Conversation[];
@@ -124,6 +131,7 @@ interface ReportActions {
 export const useReportStore = create<ReportState & ReportActions>((set, get) => ({
   // ---- State ----
   reports: [],
+  reviewCounts: null,
   selectedReport: null,
   conversations: [],
   isLoading: false,
@@ -135,18 +143,25 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
   // ---- Actions ----
 
   fetchReports: async (params, reset = true) => {
+    const request = ++listRequest;
+    const epoch = getAuthEpoch();
     set({ isLoading: true, error: null });
-    if (reset) set({ cursor: null, reports: [] });
+    if (reset) set({ cursor: null });
 
     try {
       const response = await reportsApi.getReports({ ...params, limit: 20 });
+      if (epoch !== getAuthEpoch() || request !== listRequest) return;
+      const previous = get();
+      const ids = new Set(response.data.map((r) => r.id));
       set({
-        reports: response.data,
-        cursor: response.pagination.nextCursor,
-        hasMore: response.pagination.hasMore,
+        reports: reset ? response.data : [...response.data, ...previous.reports.filter((r) => !ids.has(r.id))],
+        reviewCounts: response.reviewCounts ?? null,
+        cursor: !reset && previous.reports.length > 20 ? previous.cursor : response.pagination.nextCursor,
+        hasMore: !reset && previous.reports.length > 20 ? previous.hasMore : response.pagination.hasMore,
         isLoading: false,
       });
     } catch {
+      if (epoch !== getAuthEpoch() || request !== listRequest) return;
       set({ isLoading: false, error: '無法載入報告列表' });
     }
   },
@@ -154,10 +169,13 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
   fetchMore: async (params) => {
     const { cursor, hasMore, isLoading, reports } = get();
     if (!hasMore || isLoading || !cursor) return;
+    const request = ++listRequest;
+    const epoch = getAuthEpoch();
 
     set({ isLoading: true });
     try {
       const response = await reportsApi.getReports({ ...params, cursor, limit: 20 });
+      if (epoch !== getAuthEpoch() || request !== listRequest) return;
       set({
         reports: [...reports, ...response.data],
         cursor: response.pagination.nextCursor,
@@ -165,21 +183,28 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
         isLoading: false,
       });
     } catch {
+      if (epoch !== getAuthEpoch() || request !== listRequest) return;
       set({ isLoading: false, error: '無法載入更多' });
     }
   },
 
   fetchReport: async (id) => {
+    const request = ++detailRequest;
+    const epoch = getAuthEpoch();
     set({ isLoading: true, error: null });
     try {
       const report = await reportsApi.getReport(id);
+      if (epoch !== getAuthEpoch() || request !== detailRequest) return;
       set({ selectedReport: report, isLoading: false });
     } catch {
+      if (epoch !== getAuthEpoch() || request !== detailRequest) return;
       set({ isLoading: false, error: '無法載入報告' });
     }
   },
 
   fetchReportBySession: async (sessionId) => {
+    const request = ++detailRequest;
+    const epoch = getAuthEpoch();
     if (IS_MOCK) {
       // 英文系 locale 用英文摘要 / ICD-10，避免中文 mock 洩漏到 en-US 頁
       // （W6：e2e i18n_en_no_cjk 稽核發現 session-complete 頁的洩漏源）。
@@ -193,13 +218,17 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
     set({ isLoading: true, error: null });
     try {
       const report = await reportsApi.getReportBySession(sessionId);
+      if (epoch !== getAuthEpoch() || request !== detailRequest) return;
       set({ selectedReport: report, isLoading: false });
     } catch {
+      if (epoch !== getAuthEpoch() || request !== detailRequest) return;
       set({ isLoading: false, error: '無法載入報告' });
     }
   },
 
   fetchConversations: async (sessionId) => {
+    const request = ++conversationRequest;
+    const epoch = getAuthEpoch();
     if (IS_MOCK) {
       set({ conversations: mockConversations, isLoadingConversations: false });
       return;
@@ -211,21 +240,27 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
       // Fetch all pages
       do {
         const response = await sessionsApi.getSessionConversations(sessionId, { cursor, limit: 200 });
+      if (epoch !== getAuthEpoch() || request !== conversationRequest) return;
         allConversations.push(...response.data);
         cursor = response.pagination.nextCursor ?? undefined;
       } while (cursor);
       set({ conversations: allConversations, isLoadingConversations: false });
     } catch {
+      if (epoch !== getAuthEpoch() || request !== conversationRequest) return;
       set({ isLoadingConversations: false });
     }
   },
 
   generateReport: async (sessionId) => {
+    const request = ++detailRequest;
+    const epoch = getAuthEpoch();
     set({ isLoading: true, error: null });
     try {
       const report = await reportsApi.generateReport(sessionId);
+      if (epoch !== getAuthEpoch() || request !== detailRequest) return;
       set({ selectedReport: report, isLoading: false });
     } catch {
+      if (epoch !== getAuthEpoch() || request !== detailRequest) return;
       set({ isLoading: false, error: '報告生成失敗' });
     }
   },
@@ -242,6 +277,16 @@ export const useReportStore = create<ReportState & ReportActions>((set, get) => 
     }
   },
 
-  clearSelectedReport: () => set({ selectedReport: null, conversations: [] }),
+  clearSelectedReport: () => {
+    ++detailRequest; ++conversationRequest;
+    set({ selectedReport: null, conversations: [], isLoading: false, isLoadingConversations: false });
+  },
   clearError: () => set({ error: null }),
 }));
+
+useAuthStore.subscribe((state, previous) => {
+  if (state.user?.id !== previous.user?.id) {
+    ++listRequest; ++detailRequest; ++conversationRequest;
+    useReportStore.setState(useReportStore.getInitialState());
+  }
+});

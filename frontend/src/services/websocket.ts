@@ -91,6 +91,7 @@ export class WebSocketManager {
    * `_auth_exhausted` 永遠不會 emit（見 onmessage 的歸零時機說明）。
    */
   private hasAttemptedAuthRecovery = false;
+  private generation = 0;
 
   constructor(options?: WebSocketManagerOptions) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
@@ -118,6 +119,7 @@ export class WebSocketManager {
 
   /** 建立 WebSocket 連線；token 可傳字串（舊行為）或 provider（每次重連重新解析）。 */
   connect(url: string, token: string | TokenProvider): void {
+    ++this.generation;
     this.url = url;
     this.tokenSource = token;
     this.isManualClose = false;
@@ -128,6 +130,7 @@ export class WebSocketManager {
 
   /** 斷開連線 */
   disconnect(): void {
+    ++this.generation;
     this.isManualClose = true;
     this.clearTimers();
     // CONV-1：清除 resume provider，避免下一個場次沿用上一場的 checksum。
@@ -225,14 +228,26 @@ export class WebSocketManager {
     // P2 #15：改用 handshake message 認證；URL 不再帶 ?token=
     // 伺服器端先 `accept()`，等 client 送第一個訊息 `{type:"auth", token:...}` 才驗證。
     // CONV-1：重連時可帶 ?resumeFrom=<checksum>，後端比對歷史連續性後跳過開場白。
-    this.ws = new WebSocket(this.buildUrl(resumeToken));
+    //
+    // 舊 socket 先拆 handler 再關：瀏覽器的 onclose 是非同步補發的，若舊 socket（StrictMode
+    // 重掛、sessionId 切換、CONNECTING 中按重試）的 onclose 晚一步才到，會對新 socket
+    // clearTimers() + scheduleReconnect()，結果同時長出兩條活連線。下方每個 handler 再以
+    // `ws !== this.ws` 守一次，涵蓋 disconnect() 後舊 socket 補發的事件。
+    const prev = this.ws;
+    if (prev) {
+      prev.onopen = prev.onmessage = prev.onclose = prev.onerror = null;
+      prev.close(1000, 'Client reconnect');
+    }
+    const ws = new WebSocket(this.buildUrl(resumeToken));
+    this.ws = ws;
 
-    this.ws.onopen = () => {
+    ws.onopen = () => {
+      if (ws !== this.ws) return;
       // 連線建立後第一件事：送 auth handshake。
       // 注意：**不走 `this.send()`**（後者會包 WSMessage 信封 `{type,id,timestamp,payload}`），
       // 這裡需要頂層 `{type:"auth", token:...}` 才對得上後端 schema。
       try {
-        this.ws?.send(JSON.stringify({ type: 'auth', token: this.resolveToken() }));
+        ws.send(JSON.stringify({ type: 'auth', token: this.resolveToken() }));
       } catch (err) {
         console.error('[WS] 送 auth handshake 失敗:', err);
       }
@@ -245,7 +260,8 @@ export class WebSocketManager {
       this.emit('_connected', {});
     };
 
-    this.ws.onmessage = (event: MessageEvent) => {
+    ws.onmessage = (event: MessageEvent) => {
+      if (ws !== this.ws) return;
       // F7 #3：後端 authenticate_websocket 必定「先驗證成功、才可能送出任何
       // 應用層訊息」（驗證失敗只會 close(4001)，不會送訊息）。因此收到第一筆
       // 訊息即是本連線週期認證已通過的確實訊號，才在此歸零「已嘗試過 auth
@@ -260,7 +276,8 @@ export class WebSocketManager {
       }
     };
 
-    this.ws.onclose = (event: CloseEvent) => {
+    ws.onclose = (event: CloseEvent) => {
+      if (ws !== this.ws) return;
       this.clearTimers();
       this.emit('_disconnected', { code: event.code, reason: event.reason });
 
@@ -289,7 +306,8 @@ export class WebSocketManager {
       this.scheduleReconnect();
     };
 
-    this.ws.onerror = () => {
+    ws.onerror = () => {
+      if (ws !== this.ws) return;
       this.emit('_error', { message: 'WebSocket error' });
     };
   }
@@ -320,22 +338,26 @@ export class WebSocketManager {
   /**
    * F7 #3：處理 4001 認證失敗——呼叫 `authFailureHandler` 嘗試刷新 token。
    * 成功：重設退避計數並立即重連（token 已是新的，不需要再等退避延遲）。
-   * 失敗 / 拋例外：視為刷新也救不回來，停止重連並發 `_auth_exhausted`
-   * （由呼叫端決定登出流程），避免對已徹底失效的 token 無窮重試。
+   * 回傳 false：憑證已被拒，停止重連並發 `_auth_exhausted`。
+   * 拋例外：暫時服務故障，保留登入並按退避重試。
    */
   private async recoverFromAuthFailure(): Promise<void> {
     if (this.isManualClose || !this.authFailureHandler) return;
+    const generation = this.generation;
 
     let recovered = false;
     try {
       recovered = await this.authFailureHandler();
     } catch (err) {
       console.warn('[WS] 認證失敗後刷新 token 失敗:', err);
-      recovered = false;
+      if (this.isManualClose || generation !== this.generation) return;
+      this.hasAttemptedAuthRecovery = false;
+      this.scheduleReconnect();
+      return;
     }
 
     // 刷新期間可能已被手動 disconnect()，放棄本次重連。
-    if (this.isManualClose) return;
+    if (this.isManualClose || generation !== this.generation) return;
 
     if (!recovered) {
       this.setConnectionState('closed');
@@ -349,6 +371,7 @@ export class WebSocketManager {
 
   /** 解析 resume token（若有 provider）後重新建立連線；任何錯誤都退回無 resume 重連。 */
   private async reconnectWithResume(): Promise<void> {
+    const generation = this.generation;
     // 重連途中若已被手動關閉 / 已重新連上，放棄這次重連。
     if (this.isManualClose) return;
 
@@ -363,7 +386,7 @@ export class WebSocketManager {
     }
 
     // await 期間可能已被 disconnect()，再檢查一次避免殘留連線。
-    if (this.isManualClose) return;
+    if (this.isManualClose || generation !== this.generation) return;
     this.createConnection(resumeToken);
   }
 

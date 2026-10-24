@@ -296,3 +296,21 @@ def test_publish_failure_does_not_break_the_batch(
     assert result["timed_out"] == 2
     # queue/stats 仍會嘗試（其失敗同樣被吞掉）
     assert [kind for kind, _ in spy_broadcasts] == ["queue_and_stats"]
+
+
+def test_stale_query_excludes_sessions_with_recent_conversations(
+    patch_factory, spy_broadcasts
+):
+    """`sessions.updated_at` 只在 waiting→in_progress 時動；對話每一輪都不碰它。
+    只看 updated_at 會把講了 60 分鐘還在講的活場次腰斬——判定必須排除
+    threshold 之後仍有新 conversations 的場次。"""
+    session = _FakeSession(_stale(1))
+    patch_factory(session)
+
+    _run(st._async_check())
+
+    select_sql = session.executed_sql[0].lower()
+    assert select_sql.lstrip().startswith("select")
+    assert "not (exists" in select_sql
+    assert "conversations" in select_sql
+    assert "conversations.created_at >=" in select_sql

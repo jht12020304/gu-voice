@@ -18,7 +18,6 @@ from app.pipelines.prompts.shared import (
     CRITICAL_RISK_FACTORS,
     count_critical_risk_factors_for_complaint,
     get_critical_risk_factors_for_complaint,
-    render_critical_risk_factor_items,
 )
 
 
@@ -90,24 +89,6 @@ def test_catalogue_shape():
     """資料結構含必要欄位,避免 render 時 KeyError。"""
     for g in CRITICAL_RISK_FACTORS:
         assert g["id"] and g["complaint_keywords"] and g["factors"]
-
-
-# ── render items ────────────────────────────────────────────
-
-
-def test_render_items_hematuria_contains_key_factors():
-    items = render_critical_risk_factor_items("血尿持續三天")
-    assert "吸菸" in items
-    assert "抗凝血" in items
-    assert "家族史" in items
-
-
-def test_render_items_ed_contains_cardiovascular():
-    assert "心血管" in render_critical_risk_factor_items("勃起功能障礙")
-
-
-def test_render_items_empty_for_unrelated():
-    assert render_critical_risk_factor_items("頻尿") == ""
 
 
 # ── count helper（動態硬上限用 K） ──────────────────────────
@@ -249,7 +230,7 @@ def test_supervisor_wires_risk_factor_gate():
     from app.pipelines import supervisor
 
     src = inspect.getsource(supervisor.SupervisorEngine.analyze_next_step)
-    assert "render_critical_risk_factor_items" in src
+    assert "render_critical_risk_factor_items_with_intake" in src
     assert "絕對不可評為 80 以上" in src   # 逐項嚴格 gate
     assert "逐項" in src                     # 每一項風險因子個別檢查
     assert "已盡力採集" in src

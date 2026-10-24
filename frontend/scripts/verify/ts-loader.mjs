@@ -17,7 +17,7 @@
 // 不處理：瀏覽器全域（window / document / localStorage / WebSocket）一律由
 // 個別測試腳本自行 stub，保持這支 loader 通用、不綁死特定模組的假設。
 //
-// 唯一的例外：client.ts 的 `import i18n, { SUPPORTED_LANGUAGES } from '../../i18n'`。
+// 唯一的例外：API client / stores 對 i18n 的 import。
 // 真正的 src/i18n/index.ts 會即時 `void i18next.use(HttpBackend)...init(...)`
 // （fire-and-forget，未 await），若在 Node 這個 promise chain 中途對瀏覽器 API
 // （fetch 相對路徑、navigator 等）拋錯，會變成 unhandled rejection —— Node 預設
@@ -29,7 +29,7 @@
 const STUB_I18N_URL = 'f7-verify-stub:i18n';
 
 export async function resolve(specifier, context, nextResolve) {
-  if (specifier === '../../i18n' && context.parentURL?.endsWith('/services/api/client.ts')) {
+  if (specifier === '../../i18n' || (specifier === '../i18n' && context.parentURL?.includes('/stores/'))) {
     return { url: STUB_I18N_URL, shortCircuit: true };
   }
   try {

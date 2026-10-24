@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import Text, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authz import get_user_role
 from app.core.config import settings
 from app.core.exceptions import ForbiddenException, NotFoundException
 from app.models.chief_complaint import ChiefComplaint
@@ -23,6 +24,7 @@ from app.utils.complaint_fallback_i18n import (
 )
 from app.utils.datetime_utils import utc_now
 from app.utils.localized_field import pick
+from app.utils.pagination import parse_cursor
 
 
 def _seed_name_by_lang(name: str, name_en: Optional[str]) -> dict[str, str]:
@@ -93,14 +95,6 @@ def _serialize_complaint(complaint: ChiefComplaint, language: Optional[str]) -> 
         "description_by_lang": complaint.description_by_lang,
         "category_by_lang": complaint.category_by_lang or None,
     }
-
-
-def _is_admin(current_user: Any) -> bool:
-    """判斷 current_user 是否為 admin（容忍 enum / str / 缺欄位）。"""
-    role = getattr(current_user, "role", None)
-    if role is None:
-        return False
-    return role == UserRole.ADMIN or role == UserRole.ADMIN.value
 
 
 class ComplaintService:
@@ -300,9 +294,10 @@ class ComplaintService:
         query = _apply_filters(select(ChiefComplaint))
 
         # Keyset 分頁：取得游標錨點之後的資料
-        if cursor:
+        _cursor = parse_cursor(cursor)
+        if _cursor is not None:
             anchor_result = await db.execute(
-                select(ChiefComplaint).where(ChiefComplaint.id == cursor)
+                select(ChiefComplaint).where(ChiefComplaint.id == _cursor)
             )
             anchor = anchor_result.scalar_one_or_none()
             if anchor is not None:
@@ -408,7 +403,7 @@ class ComplaintService:
         不存在的主訴交由後續 update / delete 統一拋 NotFoundException，
         以保留既有錯誤語意。
         """
-        if _is_admin(current_user):
+        if get_user_role(current_user) == UserRole.ADMIN:
             return
         result = await db.execute(
             select(ChiefComplaint.is_default).where(ChiefComplaint.id == complaint_id)

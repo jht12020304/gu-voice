@@ -1,5 +1,6 @@
 import '../models/user.dart';
 import 'dio_client.dart';
+import 'parse_page.dart';
 
 typedef UserPage = ({List<User> data, String? nextCursor, bool hasMore, int totalCount});
 
@@ -15,15 +16,7 @@ class AdminApi {
       'isActive': ?isActive,
       'search': ?search,
     });
-    final data = res.data as Map;
-    final list = (data['data'] as List? ?? const []).map((e) => User.fromJson(e as Map)).toList();
-    final p = (data['pagination'] as Map?) ?? const {};
-    return (
-      data: list,
-      nextCursor: p['nextCursor'] as String?,
-      hasMore: (p['hasMore'] ?? false) as bool,
-      totalCount: (p['totalCount'] as num?)?.toInt() ?? list.length,
-    );
+    return parsePage(res.data, User.fromJson);
   }
 
   Future<User> createUser(Map<String, dynamic> payload) async {
@@ -66,9 +59,7 @@ class AdminApi {
     // /audit-logs 而非 /admin/*——React 端 AUDIT_BASE 同此。曾寫成
     // /admin/audit-logs 404 了一輪（2026-08-22 巡頁截圖抓到）。
     final res = await _dio.get('/audit-logs', queryParameters: {'cursor': ?cursor, 'limit': limit, 'action': ?action});
-    final data = res.data as Map;
-    final list = (data['data'] as List? ?? const []).cast<Map>();
-    final p = (data['pagination'] as Map?) ?? const {};
-    return (data: list, nextCursor: p['nextCursor'] as String?, hasMore: (p['hasMore'] ?? false) as bool);
+    final page = parsePage<Map>(res.data, (e) => e);
+    return (data: page.data, nextCursor: page.nextCursor, hasMore: page.hasMore);
   }
 }

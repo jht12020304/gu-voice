@@ -15,7 +15,8 @@
     "themeToDark": "Switch to dark mode",
     "notifications": "Notifications",
     "settings": "Settings",
-    "logout": "Log out"
+    "logout": "Log out",
+    "navigation": "Navigation menu"
   },
   "login": {
     "prompt": "Please sign in to your account",

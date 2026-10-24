@@ -9,8 +9,9 @@ import type { ReviewRequest, ReportListParams } from '../../types/api';
 const BASE = '/reports';
 
 /** 取得報告列表 */
-export async function getReports(params?: ReportListParams): Promise<PaginatedResponse<SOAPReport>> {
-  const { data } = await apiClient.get<PaginatedResponse<SOAPReport>>(BASE, { params });
+export type ReportListResponse = PaginatedResponse<SOAPReport> & { reviewCounts?: Record<string, number> };
+export async function getReports(params?: ReportListParams): Promise<ReportListResponse> {
+  const { data } = await apiClient.get<ReportListResponse>(BASE, { params });
   return data;
 }
 

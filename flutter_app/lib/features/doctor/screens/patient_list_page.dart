@@ -30,6 +30,7 @@ class _PatientListPageState extends State<PatientListPage> {
   String? _cursor;
   bool _hasMore = true;
   bool _loading = true;
+  int _request = 0;
   int _totalCount = 0;
   String _search = '';
   late String _month;
@@ -38,7 +39,7 @@ class _PatientListPageState extends State<PatientListPage> {
   void initState() {
     super.initState();
     final now = DateTime.now();
-    _month = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
+    _month = monthKey(now);
     _scroll.addListener(() {
       if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) _fetchMore();
     });
@@ -61,6 +62,8 @@ class _PatientListPageState extends State<PatientListPage> {
   }
 
   Future<void> _fetch({required bool reset}) async {
+    if (!mounted) return;
+    final request = ++_request;
     setState(() => _loading = true);
     final (from, to) = _range(_month);
     try {
@@ -70,6 +73,7 @@ class _PatientListPageState extends State<PatientListPage> {
         createdFrom: from,
         createdTo: to,
       );
+      if (!mounted || request != _request) return;
       setState(() {
         _patients = reset ? page.data : [..._patients, ...page.data];
         _cursor = page.nextCursor;
@@ -78,7 +82,7 @@ class _PatientListPageState extends State<PatientListPage> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && request == _request) setState(() => _loading = false);
     }
   }
 
@@ -98,7 +102,7 @@ class _PatientListPageState extends State<PatientListPage> {
   void _shiftMonth(int delta) {
     final p = _month.split('-');
     final d = DateTime(int.parse(p[0]), int.parse(p[1]) + delta, 1);
-    setState(() => _month = '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}');
+    setState(() => _month = monthKey(d));
     _fetch(reset: true);
   }
 
@@ -115,7 +119,7 @@ class _PatientListPageState extends State<PatientListPage> {
   List<MapEntry<String, List<Patient>>> get _groups {
     final groups = <String, List<Patient>>{};
     for (final p in _patients) {
-      final key = (p.createdAt != null && p.createdAt!.length >= 10) ? p.createdAt!.substring(0, 10) : 'unknown';
+      final key = localDayKey(p.createdAt) ?? 'unknown';
       groups.putIfAbsent(key, () => []).add(p);
     }
     final entries = groups.entries.toList()..sort((a, b) => b.key.compareTo(a.key));
@@ -126,8 +130,7 @@ class _PatientListPageState extends State<PatientListPage> {
   Widget build(BuildContext context) {
     final groups = _groups;
     return Scaffold(
-      appBar: AppBar(
-        leading: const DashboardBackButton(),title: Text(t('common.patientList.title'))),
+      appBar: AppBar(leading: const DashboardBackButton(), title: Text(t('common.patientList.title'))),
       body: Column(
         children: [
           // ── 月份＋統計：步進器是卡片標題列，月份只在這裡出現 ──
@@ -145,18 +148,17 @@ class _PatientListPageState extends State<PatientListPage> {
                   value: '$_totalCount',
                   loading: _loading,
                 ),
-                StatCell(
-                  label: t('common.patientList.dateGroups'),
-                  value: '${groups.length}',
-                  loading: _loading,
-                ),
+                StatCell(label: t('common.patientList.dateGroups'), value: '${groups.length}', loading: _loading),
               ],
             ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: TextField(
-              decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: t('common.patientList.searchPlaceholder')),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: t('common.patientList.searchPlaceholder'),
+              ),
               onChanged: _onSearch,
             ),
           ),
@@ -175,16 +177,24 @@ class _PatientListPageState extends State<PatientListPage> {
         message: t(_search.isEmpty ? 'common.patientList.emptyMonthMessage' : 'common.patientList.emptySearchMessage'),
       );
     }
-    return ListView(
+    final items = <Object>[
+      for (final g in groups) ...[
+        GroupHeader('${g.key}  ·  ${t('common.patientList.patientCount', args: {'count': g.value.length})}'),
+        ...g.value,
+      ],
+      if (_loading && _patients.isNotEmpty)
+        const Center(
+          child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
+        ),
+    ];
+    return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.all(16),
-      children: [
-        for (final g in groups) ...[
-          GroupHeader('${g.key}  ·  ${t('common.patientList.patientCount', args: {'count': g.value.length})}'),
-          for (final p in g.value) _row(context, p),
-        ],
-        if (_loading && _patients.isNotEmpty) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
-      ],
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return item is Widget ? item : _row(context, item as Patient);
+      },
     );
   }
 
@@ -196,11 +206,13 @@ class _PatientListPageState extends State<PatientListPage> {
         onTap: () => context.go(prefixLngToPath('/patients/${p.id}', currentLng)),
         leading: CircleAvatar(child: Text(p.name.isNotEmpty ? p.name.characters.first : '?')),
         title: Text(p.name),
-        subtitle: Text([
-          if (p.medicalRecordNumber != null) p.medicalRecordNumber!,
-          if (gender.isNotEmpty) gender,
-          p.phone ?? t('common.patientList.noPhone'),
-        ].join(' · ')),
+        subtitle: Text(
+          [
+            if (p.medicalRecordNumber != null) p.medicalRecordNumber!,
+            if (gender.isNotEmpty) gender,
+            p.phone ?? t('common.patientList.noPhone'),
+          ].join(' · '),
+        ),
         trailing: Text(formatDateTime(p.createdAt), style: Theme.of(context).textTheme.bodySmall),
       ),
     );

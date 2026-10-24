@@ -10,7 +10,7 @@ export default function RegisterPage() {
   const { t } = useTranslation('common');
   const navigate = useLocalizedNavigate();
   const lng = useCurrentLng();
-  const hydrateFromStorage = useAuthStore((state) => state.hydrateFromStorage);
+  const applySession = useAuthStore((state) => state.applySession);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -61,14 +61,8 @@ export default function RegisterPage() {
         role: 'patient',
       });
 
-      // 雙路徑 refresh（與 authStore.login 同契約）：後端 body 與 httpOnly cookie 同時
-      // 下發 refresh token；跨站部署（Vercel↔Railway，SameSite=lax cookie 送不出去）只有
-      // localStorage 這份能用，漏存會讓新註冊者在 access token 過期後被踢回登入頁。
-      localStorage.setItem('access_token', response.accessToken);
-      if (response.refreshToken) {
-        localStorage.setItem('refresh_token', response.refreshToken);
-      }
-      await hydrateFromStorage();
+      // 與 authStore.login 同契約（含跨站後備 refresh token 的 localStorage 存放）。
+      applySession(response);
       navigate('/patient');
     } catch (err: unknown) {
       const message =

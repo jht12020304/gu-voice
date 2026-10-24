@@ -2,12 +2,13 @@
 // 病患列表狀態管理 (Zustand)
 // =============================================================================
 
+import { format } from 'date-fns';
 import { create } from 'zustand';
 import type { Patient } from '../types';
 import * as patientsApi from '../services/api/patients';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
-const DEFAULT_MONTH = new Date().toISOString().slice(0, 7);
+const DEFAULT_MONTH = format(new Date(), 'yyyy-MM');
 
 const mockPatients: Patient[] = [
   { id: 'p1', userId: 'u1', medicalRecordNumber: 'MRN-2026-0001', name: '陳小明', gender: 'male', dateOfBirth: '1985-03-15', phone: '0912-345-678', createdAt: '2026-01-15T08:00:00Z', updatedAt: '2026-04-10T10:00:00Z' },

@@ -65,7 +65,7 @@ SupervisorGuidance? normalizeSupervisorGuidance(Map? payload) {
   final missing = payload['missingHpi'] ?? payload['missing_hpi'];
   final pct = payload['hpiCompletionPercentage'] ?? payload['hpi_completion_percentage'];
   return SupervisorGuidance(
-    nextFocus: (payload['nextFocus'] ?? payload['next_focus']) as String? ?? '',
+    nextFocus: (payload['nextFocus'] ?? payload['next_focus'])?.toString() ?? '',
     missingHpi: missing is List ? missing.cast<String>() : const [],
     hpiCompletionPercentage: pct is num ? pct : 0,
     fallback: (payload['fallback'] as bool?) ?? false,

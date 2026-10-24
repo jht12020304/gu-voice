@@ -11,9 +11,10 @@ import SearchBar from '../../components/form/SearchBar';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
 import ErrorState from '../../components/common/ErrorState';
+import { useInfiniteScroll } from '../../hooks/useInfiniteScroll';
 import { usePatientListStore } from '../../stores/patientListStore';
 import type { Patient } from '../../types';
-import { formatDate, formatMRN } from '../../utils/format';
+import { formatDate, formatMRN, formatNumber } from '../../utils/format';
 
 function formatMonthRange(monthDate: Date): string {
   return `${format(startOfMonth(monthDate), 'yyyy/MM/dd')} - ${format(endOfMonth(monthDate), 'yyyy/MM/dd')}`;
@@ -67,7 +68,7 @@ function PatientMetricCard({
     <div className={`rounded-panel border border-edge bg-white p-5 shadow-card dark:border-dark-border dark:bg-dark-card ${accentClass}`}>
       <p className="text-small font-semibold text-ink-secondary">{title}</p>
       <p className="mt-4 text-display font-bold text-ink-heading dark:text-white font-tnum">
-        {value.toLocaleString('zh-TW')}
+        {formatNumber(value)}
       </p>
       <p className="mt-2 text-caption text-ink-muted">{helper}</p>
     </div>
@@ -91,7 +92,6 @@ export default function PatientListPage() {
     setSelectedMonth,
   } = usePatientListStore();
 
-  const observerRef = useRef<IntersectionObserver>();
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -106,24 +106,7 @@ export default function PatientListPage() {
     [setSearch, fetchPatients],
   );
 
-  useEffect(() => {
-    if (observerRef.current) observerRef.current.disconnect();
-
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
-          fetchMore();
-        }
-      },
-      { threshold: 0.1 },
-    );
-
-    if (sentinelRef.current) {
-      observerRef.current.observe(sentinelRef.current);
-    }
-
-    return () => observerRef.current?.disconnect();
-  }, [hasMore, isLoading, fetchMore]);
+  useInfiniteScroll(sentinelRef, { hasMore, isLoading, onMore: fetchMore });
 
   const selectedMonthDate = new Date(`${selectedMonth}-01T00:00:00`);
   const selectedMonthLabel = format(selectedMonthDate, 'yyyy 年 M 月');

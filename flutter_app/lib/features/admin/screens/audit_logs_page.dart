@@ -144,18 +144,20 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
         message: t('admin.audit.emptyMessage'),
       );
     }
+    final items = <Widget>[
+      ..._groupedRows(context),
+      if (_loading && _logs.isNotEmpty)
+        const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
+      if (!_hasMore)
+        Center(child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded')))),
+    ];
     return RefreshIndicator(
       onRefresh: () => _fetch(reset: true),
-      child: ListView(
+      child: ListView.builder(
         controller: _scroll,
         padding: const EdgeInsets.all(16),
-        children: [
-          ..._groupedRows(context),
-          if (_loading && _logs.isNotEmpty)
-            const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
-          if (!_hasMore)
-            Center(child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded')))),
-        ],
+        itemCount: items.length,
+        itemBuilder: (context, index) => items[index],
       ),
     );
   }
@@ -167,7 +169,7 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
     String? lastKey;
     for (final log in _logs) {
       final createdAt = _read(log, ['createdAt', 'created_at']);
-      final key = (createdAt != null && createdAt.length >= 10) ? createdAt.substring(0, 10) : null;
+      final key = localDayKey(createdAt);
       if (key != null && key != lastKey) {
         rows.add(GroupHeader(key));
         lastKey = key;

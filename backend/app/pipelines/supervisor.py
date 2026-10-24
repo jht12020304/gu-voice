@@ -17,6 +17,7 @@
 
 import json
 import logging
+import re
 from typing import Any
 
 from redis.asyncio import Redis
@@ -35,6 +36,7 @@ from app.pipelines.llm_conversation import (
 )
 from app.pipelines.next_focus_guard import sanitize_guidance
 from app.pipelines.prompts.shared import (
+    CORE_HPI_PRIORITY_RULE,
     HPI_FIELD_IDS,
     SINGLE_QUESTION_RULE,
     render_hpi_checklist,
@@ -77,6 +79,7 @@ SUPERVISOR_SYSTEM_PROMPT = f"""你是一位泌尿科資深主治醫師(Superviso
 - 必須是具體、可立即執行的指示,而非抽象建議。
   - ❌ 「請更深入詢問疼痛」→ ✅ 「請詢問疼痛是否會放射到鼠蹊部」
 - 若目前 HPI 某一項尚未完成,繼續追問該項;完成後才移動到下一項。
+{CORE_HPI_PRIORITY_RULE}
 - 若實習醫師問錯方向或重複問已得到答案的項目,next_focus 要明確拉回正確方向。
 - 病患已明確表示不知道、記不得或無法回答的項目,**不得**再讓 next_focus 指向它
   (換句話、換角度重問同樣禁止),一律改問其他尚未覆蓋的面向。
@@ -106,8 +109,8 @@ SUPERVISOR_SYSTEM_PROMPT = f"""你是一位泌尿科資深主治醫師(Superviso
   - Severity(嚴重度)已覆蓋 → 不得改問「大概幾分」「有多痛」「多嚴重」。
 - 正確作法:直接改問 missing_hpi 裡**還在**的其中一欄(每次一題);
   若 missing_hpi 已空,改為「做一次簡短確認後收尾」。
-- 例外:本主訴的關鍵風險因子與次要補問(用藥/家族史/生活習慣)不屬 HPI 十欄,
-  next_focus 指向它們不受本規則限制。
+- 例外:本主訴的關鍵風險因子不屬 HPI 十欄,仍依風險規則優先詢問;
+  次要補問(用藥/家族史/生活習慣)留待核心 HPI 足夠後,不可擠掉尚未問過的核心欄位。
 
 {SINGLE_QUESTION_RULE}
 
@@ -203,7 +206,7 @@ class SupervisorEngine:
         self._max_tokens = settings.OPENAI_MAX_TOKENS_SUPERVISOR
         # reasoning_effort != "none" 時 API 會拒絕 temperature,走 reasoning
         # 路徑就不帶 temperature;fallback 到 "none"(目前 default)才用 0.2。
-        self._temperature = 0.2
+        self._temperature = settings.OPENAI_TEMPERATURE_SUPERVISOR
 
         logger.info(
             "SupervisorEngine 初始化 | model=%s, reasoning_effort=%s, max_tokens=%d",
@@ -251,15 +254,17 @@ class SupervisorEngine:
         for entry in conversation_history:
             role = "病患" if entry.get("role") in ("patient", "user") else "AI"
             content = entry.get("content", "")
-            transcript_lines.append(f"{role}: {content}")
+            transcript_lines.append(f"{role}: {sanitize_for_prompt(content)}")
         transcript_text = "\n".join(transcript_lines)
 
         user_message = f"【當前對話紀錄】\n{transcript_text}\n\n請以 JSON 格式提供指導。"
 
-        system_prompt = SUPERVISOR_SYSTEM_PROMPT.replace(
-            "{patient_info_str}", patient_info_str
-        ).replace(
-            "{chief_complaint}", chief_complaint
+        # 單趟替換：逐次 .replace() 會把病患值裡的字面 "{chief_complaint}" 在第二趟再代換。
+        _subs = {"{patient_info_str}": patient_info_str, "{chief_complaint}": chief_complaint}
+        system_prompt = re.sub(
+            r"\{patient_info_str\}|\{chief_complaint\}",
+            lambda m: _subs[m.group(0)],
+            SUPERVISOR_SYSTEM_PROMPT,
         )
 
         # §3b：特定高風險主訴(血尿 / PSA / ED)在關鍵風險因子問到之前不得判「完整可收尾」。

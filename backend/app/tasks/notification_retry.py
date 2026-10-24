@@ -11,7 +11,7 @@ import httpx
 import jwt
 
 from app.core.config import settings
-from app.tasks import celery_app
+from app.tasks import celery_app, run_async
 
 logger = logging.getLogger(__name__)
 
@@ -160,16 +160,7 @@ def send_push_notification_task(
     Returns:
         發送結果字典
     """
-    import asyncio
-
-    try:
-        result = asyncio.get_event_loop().run_until_complete(
-            _async_send(user_id, title, body, data)
-        )
-        return result
-    except Exception:
-        result = asyncio.run(_async_send(user_id, title, body, data))
-        return result
+    return run_async(lambda: _async_send(user_id, title, body, data))
 
 
 async def _async_send(

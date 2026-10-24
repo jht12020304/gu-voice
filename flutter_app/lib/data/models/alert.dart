@@ -5,7 +5,6 @@ import 'dart:convert';
 class RedFlagAlert {
   final String id;
   final String sessionId;
-  final String conversationId;
   final String alertType; // rule_based | semantic | combined
   final String severity; // critical | high | medium
   final String title;
@@ -23,7 +22,6 @@ class RedFlagAlert {
   const RedFlagAlert({
     required this.id,
     required this.sessionId,
-    this.conversationId = '',
     this.alertType = 'combined',
     required this.severity,
     required this.title,
@@ -57,7 +55,6 @@ class RedFlagAlert {
     return RedFlagAlert(
       id: j['id'] as String,
       sessionId: (j['sessionId'] ?? '') as String,
-      conversationId: (j['conversationId'] ?? '') as String,
       alertType: (j['alertType'] ?? 'combined') as String,
       severity: (j['severity'] ?? 'medium') as String,
       title: (j['title'] ?? '') as String,
@@ -79,7 +76,6 @@ class RedFlagAlert {
       RedFlagAlert(
         id: id,
         sessionId: sessionId,
-        conversationId: conversationId,
         alertType: alertType,
         severity: severity,
         title: title,

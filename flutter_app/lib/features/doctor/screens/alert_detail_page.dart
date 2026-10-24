@@ -6,6 +6,7 @@ import '../../../data/api/alerts_api.dart';
 import '../../../data/models/alert.dart';
 import '../../../shared/format.dart';
 import '../../../shared/widgets/ui_kit.dart';
+import '../../../shared/toast.dart';
 
 // Port of AlertDetailPage.tsx. Uses the alerts API directly with partial-response MERGE on
 // acknowledge (never replace the whole alert). llmAnalysis renders string-or-object.
@@ -69,10 +70,11 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
         _recordedActionTaken = action.isEmpty ? null : action;
         _submitting = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t('dashboard.alert.detail.acknowledgeSuccess'))));
+      showToast(context, t('dashboard.alert.detail.acknowledgeSuccess'));
     } catch (_) {
-      if (mounted) setState(() => _submitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t('dashboard.alert.detail.acknowledgeError'))));
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      showToast(context, t('dashboard.alert.detail.acknowledgeError'));
     }
   }
 
@@ -97,11 +99,7 @@ class _AlertDetailPageState extends State<AlertDetailPage> {
     }
     final a = _alert!;
     final tk = Theme.of(context).extension<AppTokens>()!;
-    final sevColor = switch (a.severity) {
-      'critical' => tk.alertCritical,
-      'high' => tk.alertHigh,
-      _ => tk.alertMedium,
-    };
+    final sevColor = tk.severityColor(a.severity);
 
     return Scaffold(
       appBar: AppBar(title: Text(t('dashboard.alert.detail.title'))),

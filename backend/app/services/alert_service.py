@@ -6,7 +6,6 @@
 """
 
 import logging
-from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
@@ -33,7 +32,8 @@ from app.models.red_flag_alert import RedFlagAlert
 from app.models.red_flag_rule import RedFlagRule
 from app.models.session import Session
 from app.services.session_visibility import visible_session_ids
-from app.utils.datetime_utils import utc_now
+from app.utils.datetime_utils import parse_iso, utc_now
+from app.utils.pagination import parse_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -71,18 +71,6 @@ async def _broadcast_red_flag_acknowledged(
             getattr(alert, "id", None),
             str(exc),
         )
-
-
-def _parse_iso_datetime(value: Any) -> Optional[datetime]:
-    """將 ISO-8601 字串轉成 datetime；無效或 None 時回 None（不拋例外）。"""
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        return value
-    try:
-        return datetime.fromisoformat(str(value))
-    except ValueError:
-        return None
 
 
 def _doctor_scope_id(current_user: Any) -> Optional[UUID]:
@@ -127,8 +115,9 @@ class AlertService:
         """
         limit = min(limit, 100)
 
-        parsed_date_from = _parse_iso_datetime(date_from)
-        parsed_date_to = _parse_iso_datetime(date_to)
+        # 非法日期 → 422（parse_iso），不再靜默丟掉篩選回整張未過濾清單
+        parsed_date_from = parse_iso(date_from)
+        parsed_date_to = parse_iso(date_to)
 
         # 醫師範圍限制：join Session 並以 session.doctor_id == self.id 過濾。
         # 在 query 層過濾（非 post-hoc），確保分頁 / 計數一致。
@@ -175,9 +164,10 @@ class AlertService:
             else:
                 query = query.where(RedFlagAlert.acknowledged_by.is_(None))
 
-        if cursor:
+        _cursor = parse_cursor(cursor)
+        if _cursor is not None:
             result = await db.execute(
-                select(RedFlagAlert).where(RedFlagAlert.id == cursor)
+                select(RedFlagAlert).where(RedFlagAlert.id == _cursor)
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:
@@ -237,19 +227,18 @@ class AlertService:
         呼叫後自行 refetch 收斂。回傳實際確認筆數。
         """
         now = utc_now()
+        # 已軟刪除場次的警示對所有角色（含 admin）都不可見，一鍵確認也不該碰到它們
         stmt = (
             update(RedFlagAlert)
             .where(RedFlagAlert.acknowledged_by.is_(None))
+            .where(RedFlagAlert.session_id.in_(visible_session_ids()))
             .values(acknowledged_by=user_id, acknowledged_at=now, acknowledge_notes=notes)
         )
         doctor_scope_id = _doctor_scope_id(current_user)
         if doctor_scope_id is not None:
             stmt = stmt.where(
                 RedFlagAlert.session_id.in_(
-                    select(Session.id).where(
-                        clinician_session_filter(doctor_scope_id),
-                        Session.id.in_(visible_session_ids()),
-                    )
+                    select(Session.id).where(clinician_session_filter(doctor_scope_id))
                 )
             )
         result = await db.execute(stmt)
@@ -497,25 +486,6 @@ class AlertService:
         return alert
 
     # ── 紅旗規則管理 ──────────────────────────────────────
-
-    @staticmethod
-    async def get_rules(
-        db: AsyncSession,
-        is_active: Optional[bool] = None,
-    ) -> list[RedFlagRule]:
-        """
-        取得紅旗規則列表
-
-        Args:
-            is_active: 篩選啟用狀態（None 表示全部）
-        """
-        query = select(RedFlagRule).order_by(RedFlagRule.created_at.desc())
-
-        if is_active is not None:
-            query = query.where(RedFlagRule.is_active == is_active)
-
-        result = await db.execute(query)
-        return list(result.scalars().all())
 
     @staticmethod
     async def get_rules_paginated(

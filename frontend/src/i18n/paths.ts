@@ -139,12 +139,6 @@ export function useLocalizedNavigate() {
   );
 }
 
-/** 給 <Link to={...}> / <Navigate to={...}> 用：把絕對 path 補 lng 前綴。 */
-export function useLocalizedTo() {
-  const lng = useCurrentLng();
-  return useCallback((path: string) => prefixLngToPath(path, lng), [lng]);
-}
-
 /** 供 LanguageSwitcher 使用：切語言時計算新 URL（保留現有子路徑 + search + hash）。 */
 export function buildSwitchedPath(
   pathname: string,

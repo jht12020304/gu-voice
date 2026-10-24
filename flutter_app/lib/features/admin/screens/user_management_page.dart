@@ -9,6 +9,7 @@ import '../../../data/api/admin_api.dart';
 import '../../../data/models/user.dart';
 import '../../../shared/widgets/ui_kit.dart';
 import '../../../shared/widgets/dashboard_back_button.dart';
+import '../../../shared/toast.dart';
 
 // Port of frontend/src/screens/admin/UserManagementPage.tsx: admin user list with
 // search + role/active filter + cursor infinite scroll, create/edit dialog, and a
@@ -54,6 +55,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
   }
 
   Future<void> _fetch({required bool reset}) async {
+    if (!mounted) return;
     setState(() => _loading = true);
     try {
       final page = await _api.getUsers(
@@ -99,11 +101,6 @@ class _UserManagementPageState extends State<UserManagementPage> {
     _fetch(reset: true);
   }
 
-  void _toast(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-  }
-
   Future<void> _openForm({User? user}) async {
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -113,14 +110,17 @@ class _UserManagementPageState extends State<UserManagementPage> {
     try {
       if (user != null) {
         await _api.updateUser(user.id, result);
-        _toast(t('admin.users.updateSuccess'));
+        if (!mounted) return;
+        showToast(context, t('admin.users.updateSuccess'));
       } else {
         await _api.createUser(result);
-        _toast(t('admin.users.createSuccess'));
+        if (!mounted) return;
+        showToast(context, t('admin.users.createSuccess'));
       }
       await _fetch(reset: true);
     } catch (_) {
-      _toast(t('admin.users.operationFailed'));
+      if (!mounted) return;
+      showToast(context, t('admin.users.operationFailed'));
     }
   }
 
@@ -153,10 +153,8 @@ class _UserManagementPageState extends State<UserManagementPage> {
       setState(() => _tempPassword = (email: r.email, password: r.tempPassword));
       await _showTempPasswordDialog();
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(t('admin.users.resetPasswordFailed'))));
-      }
+      if (!mounted) return;
+      showToast(context, t('admin.users.resetPasswordFailed'));
     } finally {
       if (mounted) setState(() => _resettingId = null);
     }
@@ -213,10 +211,12 @@ class _UserManagementPageState extends State<UserManagementPage> {
     setState(() => _togglingId = user.id);
     try {
       await _api.toggleUserActive(user.id);
-      _toast(user.isActive ? t('admin.users.deactivateSuccess') : t('admin.users.activateSuccess'));
+      if (!mounted) return;
+      showToast(context, user.isActive ? t('admin.users.deactivateSuccess') : t('admin.users.activateSuccess'));
       await _fetch(reset: true);
     } catch (_) {
-      _toast(t('admin.users.toggleFailed'));
+      if (!mounted) return;
+      showToast(context, t('admin.users.toggleFailed'));
     } finally {
       if (mounted) setState(() => _togglingId = null);
     }
@@ -296,20 +296,25 @@ class _UserManagementPageState extends State<UserManagementPage> {
         message: t('admin.users.emptyMessage'),
       );
     }
-    return ListView(
+    final items = <Object>[
+      Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Text('${t('admin.users.title')} · $_totalCount',
+            style: Theme.of(context).textTheme.bodySmall),
+      ),
+      ..._users,
+      if (_loading && _users.isNotEmpty)
+        const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
+      if (!_hasMore) Center(child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded')))),
+    ];
+    return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.all(16),
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 4),
-          child: Text('${t('admin.users.title')} · $_totalCount',
-              style: Theme.of(context).textTheme.bodySmall),
-        ),
-        for (final u in _users) _row(context, u),
-        if (_loading && _users.isNotEmpty)
-          const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
-        if (!_hasMore) Center(child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded')))),
-      ],
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return item is Widget ? item : _row(context, item as User);
+      },
     );
   }
 

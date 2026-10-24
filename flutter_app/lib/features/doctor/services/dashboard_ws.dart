@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/config/env.dart';
 import '../../../data/api/dio_client.dart';
 import '../../../data/api/token_store.dart';
+import '../../auth/auth_notifier.dart';
 import '../../voice/services/ws_manager.dart';
 
 // Shared doctor dashboard WebSocket (/api/v1/ws/dashboard). One connection fans events to
@@ -17,9 +18,12 @@ class DashboardWs {
 
   final WebSocketManager _ws;
   bool _connected = false;
+  bool _disposed = false;
+
+  bool get isDisposed => _disposed;
 
   void ensureConnected() {
-    if (_connected) return;
+    if (_connected || _disposed) return;
     _connected = true;
     _ws.connect('${Env.wsBase}/dashboard', () => TokenStore.instance.accessToken);
   }
@@ -27,10 +31,17 @@ class DashboardWs {
   void on(String type, WsHandler handler) => _ws.on(type, handler);
   void off(String type, WsHandler handler) => _ws.off(type, handler);
 
-  void dispose() => _ws.disconnect();
+  void dispose() {
+    _disposed = true;
+    _ws.disconnect();
+  }
 }
 
-final dashboardWsProvider = Provider<DashboardWs>((ref) {
+// The socket also defines the lifetime of doctor data. Profile edits keep it;
+// account/role changes close it and rebuild every controller watching it.
+final dashboardWsProvider = Provider<DashboardWs?>((ref) {
+  final (id, role) = ref.watch(authProvider.select((s) => (s.user?.id, s.user?.role)));
+  if (id == null || (role != 'doctor' && role != 'admin')) return null;
   final ws = DashboardWs();
   ref.onDispose(ws.dispose);
   return ws;

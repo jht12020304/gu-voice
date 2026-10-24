@@ -60,6 +60,8 @@ class _FakeUser:
 
 
 class _Result:
+    rowcount = 1  # compare-and-set UPDATE 命中
+
     def __init__(self, value: Any) -> None:
         self._value = value
 
@@ -85,6 +87,8 @@ class _FakeDB:
 
     async def execute(self, stmt: Any) -> _Result:
         sql = str(stmt).lower()
+        if sql.lstrip().startswith("update sessions"):
+            return _Result(None)  # compare-and-set 轉移
         if "from sessions" in sql:
             return _Result(self._session)
         if "from patients" in sql:

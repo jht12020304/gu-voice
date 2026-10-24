@@ -15,7 +15,8 @@
     "themeToDark": "Chuyển sang chế độ tối",
     "notifications": "Thông báo",
     "settings": "Cài đặt",
-    "logout": "Đăng xuất"
+    "logout": "Đăng xuất",
+    "navigation": "Menu điều hướng"
   },
   "login": {
     "prompt": "Vui lòng đăng nhập vào tài khoản của bạn",

@@ -2,7 +2,7 @@
 // Every numeric summary field (except n/outliers) and Proportion value/ci are nullable.
 double? _d(dynamic v) => (v as num?)?.toDouble();
 int _i(dynamic v) => (v as num?)?.toInt() ?? 0;
-List<double> _dl(dynamic v) => v is List ? [for (final e in v) (e as num).toDouble()] : const [];
+List<double> _dl(dynamic v) => v is List ? [for (final e in v) (e as num?)?.toDouble() ?? 0] : const [];
 List<T> _list<T>(dynamic v, T Function(Map) f) => v is List ? [for (final e in v) f(e as Map)] : const [];
 
 class NumericSummary {

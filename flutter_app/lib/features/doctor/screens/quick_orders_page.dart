@@ -10,7 +10,9 @@ import '../../../data/api/sessions_api.dart';
 import '../../../data/models/exam_order.dart';
 import '../../../data/models/session.dart';
 import '../../../data/models/soap_report.dart';
+import '../../../shared/format.dart';
 import '../../../shared/widgets/ui_kit.dart';
+import '../../../shared/toast.dart';
 
 /// 快速開單：摘要 → 勾選 AI 建議檢查 → 確認送出。
 ///
@@ -152,17 +154,12 @@ class _QuickOrdersPageState extends State<QuickOrdersPage> {
         _latestOrder = saved;
         _submitting = false;
       });
-      _toast(t('soap.quickOrders.submitted'));
+      showToast(context, t('soap.quickOrders.submitted'));
     } catch (_) {
       if (!mounted) return;
       setState(() => _submitting = false);
-      _toast(t('soap.quickOrders.submitError'));
+      showToast(context, t('soap.quickOrders.submitError'));
     }
-  }
-
-  void _toast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
@@ -175,14 +172,12 @@ class _QuickOrdersPageState extends State<QuickOrdersPage> {
   }
 
   Widget _body(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const SkeletonList();
     if (_error) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(t('soap.quickOrders.loadError'), textAlign: TextAlign.center),
-          const SizedBox(height: 12),
-          OutlinedButton(onPressed: _load, child: Text(t('soap.quickOrders.retry'))),
-        ]),
+      return ErrorState(
+        message: t('soap.quickOrders.loadError'),
+        retryLabel: t('soap.quickOrders.retry'),
+        onRetry: _load,
       );
     }
     final tk = Theme.of(context).extension<AppTokens>()!;
@@ -205,7 +200,7 @@ class _QuickOrdersPageState extends State<QuickOrdersPage> {
         if (_latestOrder != null) ...[
           const SizedBox(height: 8),
           Text(
-            t('soap.quickOrders.lastOrdered', args: {'time': _shortTime(_latestOrder!.createdAt)}),
+            t('soap.quickOrders.lastOrdered', args: {'time': formatShortTime(_latestOrder!.createdAt)}),
             style: TextStyle(color: tk.inkMuted, fontSize: 12),
           ),
         ],
@@ -242,13 +237,6 @@ class _QuickOrdersPageState extends State<QuickOrdersPage> {
   }
 
   Widget _testsCard(BuildContext context, AppTokens tk) {
-    Color urgColor(String? u) => switch (u) {
-          'er_now' => tk.alertCritical,
-          '24h' => tk.alertHigh,
-          'this_week' => tk.alertMedium,
-          _ => tk.statusWaiting,
-        };
-
     if (_candidates.isEmpty) {
       return _card(context, t('soap.quickOrders.testsTitle'), Text(t('soap.quickOrders.noTests')));
     }
@@ -293,7 +281,7 @@ class _QuickOrdersPageState extends State<QuickOrdersPage> {
               if (item.urgency != null)
                 Text(
                   t('soap.plan.urgency.${item.urgency}'),
-                  style: TextStyle(color: urgColor(item.urgency), fontSize: 12),
+                  style: TextStyle(color: tk.urgencyColor(item.urgency), fontSize: 12),
                 ),
             ]),
             subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -353,26 +341,5 @@ class _QuickOrdersPageState extends State<QuickOrdersPage> {
     );
   }
 
-  Widget _card(BuildContext context, String title, Widget body) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title,
-                style: Theme.of(context)
-                    .textTheme
-                    .titleSmall
-                    ?.copyWith(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            body,
-          ]),
-        ),
-      );
-
-  /// `2026-09-09T01:23:45Z` → `09-09 01:23`。解析不了就原樣顯示，不要吞掉。
-  static String _shortTime(String iso) {
-    final dt = DateTime.tryParse(iso)?.toLocal();
-    if (dt == null) return iso;
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(dt.month)}-${two(dt.day)} ${two(dt.hour)}:${two(dt.minute)}';
-  }
+  Widget _card(BuildContext context, String title, Widget body) => TitledCard(title: title, child: body);
 }

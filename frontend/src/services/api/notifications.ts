@@ -19,8 +19,8 @@ const BASE = '/notifications';
 /** 取得通知列表 */
 export async function getNotifications(
   params?: NotificationListParams,
-): Promise<PaginatedResponse<Notification>> {
-  const { data } = await apiClient.get<PaginatedResponse<Notification>>(BASE, { params });
+): Promise<PaginatedResponse<Notification> & { unreadCount: number }> {
+  const { data } = await apiClient.get<PaginatedResponse<Notification> & { unreadCount: number }>(BASE, { params });
   return data;
 }
 

@@ -65,7 +65,7 @@ export default function AlertDetailPage() {
       });
       // acknowledge 回應為部分欄位（id / acknowledged_*），merge 進現有 alert
       // 以免覆蓋掉 title / severity / triggerReason 等已載入的詳情。
-      setAlert((prev) => (prev ? { ...prev, ...updated } : updated));
+      setAlert((prev) => (prev ? { ...prev, ...updated } : prev));
       setRecordedActionTaken(trimmedAction);
       toast.success(t('alert.detail.acknowledgeSuccess', '已標示為已處理'));
     } catch {

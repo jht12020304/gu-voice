@@ -3,14 +3,22 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { SupportedLanguage } from '../../i18n';
+import { buildSwitchedPath } from '../../i18n/paths';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAuthStore } from '../../stores/authStore';
 
 export default function SettingsPage() {
   const { t } = useTranslation('common');
-  const { theme, setTheme, language, setLanguage, notificationsEnabled, setNotificationsEnabled, soundEnabled, setSoundEnabled } = useSettingsStore();
+  const { theme, setTheme, language, notificationsEnabled, setNotificationsEnabled, soundEnabled, setSoundEnabled } = useSettingsStore();
   const user = useAuthStore((s) => s.user);
+  const navigate = useNavigate();
+  const location = useLocation();
+  // URL 是語言唯一權威：只改 `/:lng` 前綴，i18n / settingsStore 由 LanguageLayout 同步。
+  const switchLanguage = (lng: SupportedLanguage) =>
+    navigate(buildSwitchedPath(location.pathname, location.search, location.hash, lng), { replace: true });
 
   // 音訊裝置列表
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
@@ -118,7 +126,7 @@ export default function SettingsPage() {
             </div>
             <select
               value={language}
-              onChange={(e) => setLanguage(e.target.value as 'zh-TW' | 'en-US')}
+              onChange={(e) => switchLanguage(e.target.value as SupportedLanguage)}
               className="input-base w-40"
             >
               <option value="zh-TW">{t('language.names.zh-TW')}</option>

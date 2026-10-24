@@ -8,8 +8,9 @@ import '../../../data/api/reports_api.dart';
 import '../../../data/api/sessions_api.dart';
 import '../../../data/models/session.dart';
 import '../../../data/models/soap_report.dart';
-import '../../../shared/pdf_share.dart';
+import '../../../shared/share_bytes.dart';
 import '../../../shared/widgets/ui_kit.dart';
+import '../../../shared/toast.dart';
 
 // `unknown` is the window before the Session has come back. It must be its own case:
 // collapsing it into `clear` renders a red-flag session as "no red flag" for as long as
@@ -133,16 +134,14 @@ class _SoapReportPageState extends State<SoapReportPage> {
     setState(() => _exporting = true);
     try {
       final bytes = await _reportsApi.getPdf(r.id);
-      await sharePdfBytes(bytes, 'soap-report-${r.id}.pdf');
-      if (mounted) _toast(t('soap.export.success'));
+      await shareBytes(bytes, 'soap-report-${r.id}.pdf', 'application/pdf');
+      if (mounted) showToast(context, t('soap.export.success'));
     } catch (_) {
-      if (mounted) _toast(t('soap.export.error'));
+      if (mounted) showToast(context, t('soap.export.error'));
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
   }
-
-  void _toast(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
   Future<void> _regenerate() async {
     final r = _report;
@@ -173,11 +172,11 @@ class _SoapReportPageState extends State<SoapReportPage> {
       final updated = await _reportsApi.generateReport(widget.sessionId);
       if (!mounted) return;
       setState(() { _report = updated; _regenerating = false; });
-      _toast(t('soap.regenerate.success'));
+      showToast(context, t('soap.regenerate.success'));
     } catch (_) {
       if (!mounted) return;
       setState(() => _regenerating = false);
-      _toast(t('soap.regenerate.error'));
+      showToast(context, t('soap.regenerate.error'));
     }
   }
 
@@ -191,10 +190,12 @@ class _SoapReportPageState extends State<SoapReportPage> {
     if (result == null) return;
     try {
       final updated = await _reportsApi.review(r.id, result.status, notes: result.notes);
-      if (mounted) setState(() => _report = updated);
-      _toast(t('soap.review.actionEyebrow'));
+      if (!mounted) return;
+      setState(() => _report = updated);
+      showToast(context, t('soap.review.actionEyebrow'));
     } catch (_) {
-      _toast(t('soap.review.submitError'));
+      if (!mounted) return;
+      showToast(context, t('soap.review.submitError'));
     }
   }
 
@@ -579,18 +580,12 @@ class _SoapReportPageState extends State<SoapReportPage> {
     // 併入處置建議的條列（同屬處置語彙，不另開翻譯 key）。
     final planMeds = _arr(p['medications']);
     final tk = Theme.of(context).extension<AppTokens>()!;
-    Color urgColor(String u) => switch (u) {
-          'er_now' => tk.alertCritical,
-          '24h' => tk.alertHigh,
-          'this_week' => tk.alertMedium,
-          _ => tk.statusWaiting,
-        };
     return _card(context, t('soap.section.plan.title'), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       if (overallUrgency.isNotEmpty)
         Padding(
           padding: const EdgeInsets.only(bottom: 6),
           child: Row(children: [
-            PillTag(t('soap.plan.urgency.$overallUrgency'), color: urgColor(overallUrgency)),
+            PillTag(t('soap.plan.urgency.$overallUrgency'), color: tk.urgencyColor(overallUrgency)),
           ]),
         ),
       if (reasoning.isNotEmpty) ...[
@@ -607,7 +602,7 @@ class _SoapReportPageState extends State<SoapReportPage> {
                   Expanded(child: Text(_s(test['testName'] ?? test['test_name']))),
                   Builder(builder: (_) {
                     final u = _s(test['urgency']).isEmpty ? 'routine' : _s(test['urgency']);
-                    return Text(t('soap.plan.urgency.$u'), style: TextStyle(color: urgColor(u), fontSize: 12));
+                    return Text(t('soap.plan.urgency.$u'), style: TextStyle(color: tk.urgencyColor(u), fontSize: 12));
                   }),
                 ]),
                 if (_s(test['rationale']).isNotEmpty)
@@ -679,16 +674,7 @@ class _SoapReportPageState extends State<SoapReportPage> {
     );
   }
 
-  Widget _card(BuildContext context, String title, Widget body) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            body,
-          ]),
-        ),
-      );
+  Widget _card(BuildContext context, String title, Widget body) => TitledCard(title: title, child: body);
 
   Widget _kv(String k, String v) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),

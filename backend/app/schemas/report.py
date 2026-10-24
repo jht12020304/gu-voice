@@ -134,34 +134,16 @@ class GenerateReportRequest(BaseModel):
     additional_notes: Optional[str] = None
 
 
-class GenerateReportResponse(BaseModel):
-    """報告產生回應"""
-    report_id: UUID
-    session_id: UUID
-    status: ReportStatus
-    message: str = "報告產生中"
-
-
 class ReportListResponse(BaseModel):
     """報告列表回應"""
     data: list[SOAPReportResponse]
     pagination: CursorPagination
+    review_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class ReviewReportRequest(ReviewRequest):
     """審閱報告請求（別名）"""
     pass
-
-
-class ReviewReportResponse(BaseModel):
-    """審閱報告回應"""
-    id: UUID
-    review_status: ReviewStatus
-    reviewed_by: UUID
-    reviewed_at: datetime
-    review_notes: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 class SOAPReportRevisionResponse(BaseModel):

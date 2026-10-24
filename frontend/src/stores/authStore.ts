@@ -4,18 +4,21 @@
 
 import { create } from 'zustand';
 import type { User } from '../types';
+import type { LoginResponse } from '../types/api';
 import * as authApi from '../services/api/auth';
-import { refreshAccessToken } from '../services/api/client';
+import { refreshAccessToken, getAuthEpoch, invalidateAuthSession, isAuthRejected } from '../services/api/client';
 import i18n from '../i18n';
 
 // 注意：偏好語言（preferredLanguage）刻意「不」在這裡直接寫 i18n。
 // 改由 LanguageLayout 於登入 / 還原後把 URL 導到偏好語系，i18n 再由 URL 同步，
 // 維持「URL 為語言唯一權威」，避免 i18n 與 URL desync（Accept-Language 讀 URL、畫面讀 i18n）。
 
+let hydrationRequest = 0;
+
 interface AuthState {
+  recoveryRequired: boolean;
   user: User | null;
   accessToken: string | null;
-  refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
@@ -26,6 +29,8 @@ interface AuthActions {
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   updateProfile: (data: Partial<User>) => Promise<void>;
+  /** 登入 / 註冊成功後套用 token 與使用者（寫 localStorage + store）。 */
+  applySession: (response: LoginResponse) => void;
   clearError: () => void;
   setLoading: (loading: boolean) => void;
   hydrateFromStorage: () => Promise<void>;
@@ -34,8 +39,8 @@ interface AuthActions {
 export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
   // ---- State ----
   user: null,
+  recoveryRequired: false,
   accessToken: null,
-  refreshToken: null,
   isAuthenticated: false,
   isLoading: true,
   error: null,
@@ -43,24 +48,14 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
   // ---- Actions ----
 
   login: async (email, password) => {
-    set({ isLoading: true, error: null });
+    const epoch = invalidateAuthSession();
+    set({ isLoading: true, error: null, recoveryRequired: false });
     try {
       const response = await authApi.login(email, password);
-      localStorage.setItem('access_token', response.accessToken);
-      // 雙路徑 refresh：後端 body 與 httpOnly cookie 同時下發；跨站部署只有
-      // localStorage 這份能用。sentry 已 redact 'refresh_token'。state 的
-      // refreshToken 維持 null——記憶體不留副本，localStorage 為唯一來源。
-      if (response.refreshToken) {
-        localStorage.setItem('refresh_token', response.refreshToken);
-      }
-      set({
-        user: response.user,
-        accessToken: response.accessToken,
-        refreshToken: null,
-        isAuthenticated: true,
-        isLoading: false,
-      });
+      if (epoch !== getAuthEpoch()) return;
+      get().applySession(response);
     } catch (error: unknown) {
+      if (epoch !== getAuthEpoch()) return;
       const message =
         (error as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
           ?.message || '登入失敗';
@@ -70,28 +65,34 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
   },
 
   logout: async () => {
-    try {
-      // 雙路徑 refresh：把 localStorage 的 refresh token 放進 body 交給後端黑名單
-      // （跨站部署 httpOnly cookie 不會送達，body 是唯一管道；同站部署後端以 cookie
-      // 優先）。CSRF header 與 cookie 由 apiClient 攔截器 + withCredentials 自動帶上。
-      await authApi.logout(localStorage.getItem('refresh_token') ?? undefined);
-    } catch {
-      // 忽略登出 API 錯誤
-    } finally {
-      localStorage.removeItem('access_token');
-      // 清除跨站後備 refresh token（httpOnly cookie 那份由後端 /auth/logout 清除）。
-      localStorage.removeItem('refresh_token');
-      set({
-        user: null,
-        accessToken: null,
-        refreshToken: null,
-        isAuthenticated: false,
-        error: null,
+    invalidateAuthSession();
+    // 先在本機登出（localStorage + store），再背景通知後端黑名單；API 快慢 / 失敗都不該
+    // 讓畫面停在已登入態。token 先快照：localStorage 一清，攔截器就拿不到 Bearer 了。
+    const accessToken = localStorage.getItem('access_token');
+    // 雙路徑 refresh：把 localStorage 的 refresh token 放進 body 交給後端黑名單
+    // （跨站部署 httpOnly cookie 不會送達，body 是唯一管道；同站部署後端以 cookie
+    // 優先）。CSRF header 與 cookie 由 apiClient 攔截器 + withCredentials 自動帶上。
+    const refreshToken = localStorage.getItem('refresh_token') ?? undefined;
+    localStorage.removeItem('access_token');
+    // 清除跨站後備 refresh token（httpOnly cookie 那份由後端 /auth/logout 清除）。
+    localStorage.removeItem('refresh_token');
+    set({
+      user: null,
+      accessToken: null,
+      isAuthenticated: false,
+      isLoading: false,
+      recoveryRequired: false,
+      error: null,
+    });
+    if (accessToken) {
+      void authApi.logout(refreshToken, accessToken).catch(() => {
+        // 忽略登出 API 錯誤
       });
     }
   },
 
   refreshSession: async () => {
+    const epoch = getAuthEpoch();
     // M-22：refresh token 改由 httpOnly cookie 持有，前端讀不到，故不再以 localStorage
     // 的 refresh_token 當作有無 session 的判斷；是否有有效 refresh cookie 交由後端裁定
     // （無 cookie 時 /auth/refresh 會 401，下方 catch 走 logout）。
@@ -104,26 +105,49 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
     // 以 Set-Cookie 旋轉），這裡再同步回 store state。
     try {
       const accessToken = await refreshAccessToken();
+      if (epoch !== getAuthEpoch()) return;
       set({ accessToken });
-    } catch {
-      await get().logout();
+    } catch (error) {
+      if (epoch !== getAuthEpoch()) return;
+      if (isAuthRejected(error)) await get().logout();
     }
   },
 
   updateProfile: async (data) => {
+    const epoch = getAuthEpoch();
     set({ isLoading: true });
     try {
       const updatedUser = await authApi.updateMe(data);
+      if (epoch !== getAuthEpoch()) return;
       set({ user: updatedUser, isLoading: false });
     } catch {
+      if (epoch !== getAuthEpoch()) return;
       set({ isLoading: false, error: '更新失敗' });
     }
+  },
+
+  applySession: (response) => {
+    localStorage.setItem('access_token', response.accessToken);
+    // 雙路徑 refresh：後端 body 與 httpOnly cookie 同時下發；跨站部署只有
+    // localStorage 這份能用。sentry 已 redact 'refresh_token'。記憶體不留副本，
+    // localStorage 為唯一來源。
+    if (response.refreshToken) {
+      localStorage.setItem('refresh_token', response.refreshToken);
+    }
+    set({
+      user: response.user,
+      accessToken: response.accessToken,
+      isAuthenticated: true,
+      isLoading: false,
+    });
   },
 
   clearError: () => set({ error: null }),
   setLoading: (loading) => set({ isLoading: loading }),
 
   hydrateFromStorage: async () => {
+    const epoch = getAuthEpoch();
+    const request = ++hydrationRequest;
     // === DEV MOCK MODE ===
     if (import.meta.env.VITE_ENABLE_MOCK === 'true') {
       // 透過 VITE_MOCK_ROLE 切換角色: 'patient' | 'doctor' (預設 doctor)
@@ -160,7 +184,6 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
       set({
         user: mockUser,
         accessToken: 'mock-token',
-        refreshToken: 'mock-refresh',
         isAuthenticated: true,
         isLoading: false,
       });
@@ -177,30 +200,29 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
       return;
     }
 
-    set({ isLoading: true });
+    set({ isLoading: true, recoveryRequired: false });
     try {
       const user = await authApi.getMe();
+      if (epoch !== getAuthEpoch() || request !== hydrationRequest) return;
       set({
         user,
         // getMe 可能觸發 401→refresh（client.ts 已把「新」access token 寫回 localStorage
         // 與 store），這裡必須重讀當下值而非進函式時的快取，否則會把 store 蓋回過期舊
         // token —— WS token provider 以 store 優先，語音 WS handshake 會拿舊 token 無限重連。
         accessToken: localStorage.getItem('access_token'),
-        refreshToken: null,
         isAuthenticated: true,
         isLoading: false,
       });
-    } catch {
-      localStorage.removeItem('access_token');
-      // 會話已失效：連跨站後備 refresh token 一併清除，避免殘留舊 token。
-      localStorage.removeItem('refresh_token');
-      set({ isLoading: false });
+    } catch (error) {
+      if (epoch !== getAuthEpoch() || request !== hydrationRequest) return;
+      if (isAuthRejected(error)) {
+        invalidateAuthSession();
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        set({ user: null, accessToken: null, isAuthenticated: false, isLoading: false });
+      } else {
+        set({ isLoading: false, recoveryRequired: true });
+      }
     }
   },
 }));
-
-// ---- Selectors ----
-
-export const selectIsPatient = (state: AuthState) => state.user?.role === 'patient';
-export const selectIsDoctor = (state: AuthState) => state.user?.role === 'doctor';
-export const selectIsAdmin = (state: AuthState) => state.user?.role === 'admin';

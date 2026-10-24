@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow';
 // =============================================================================
 // 音訊串流 Hook（自動 VAD）
 // 當 enabled=true 時自動開啟麥克風持續監聽，偵測到語音自動錄製、
@@ -62,7 +63,15 @@ export function useAudioStream(enabled: boolean) {
     updateSTTPartial,
     setSttProcessing,
     setError,
-  } = useConversationStore();
+  } = useConversationStore(useShallow((s) => ({
+    isRecording: s.isRecording,
+    setRecording: s.setRecording,
+    setRecordingDuration: s.setRecordingDuration,
+    setWaveformData: s.setWaveformData,
+    updateSTTPartial: s.updateSTTPartial,
+    setSttProcessing: s.setSttProcessing,
+    setError: s.setError,
+  })));
 
   // 開啟 / 關閉麥克風（根據 enabled）
   useEffect(() => {
@@ -166,19 +175,10 @@ export function useAudioStream(enabled: boolean) {
     audioStreamService.forceEndSegment();
   }, []);
 
-  /**
-   * 進入 barge-in 模式：AI 播放 TTS 期間仍保持 VAD，但用較高門檻，
-   * 使用者可大聲說話打斷 AI。
-   */
-  const enableBargeIn = useCallback(() => {
-    audioStreamService.setMuted(true, 'soft');
-  }, []);
-
   return {
     isRecording,
     muteVAD,
     unmuteVAD,
     forceEndSegment,
-    enableBargeIn,
   };
 }

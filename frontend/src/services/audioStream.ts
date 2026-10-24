@@ -287,9 +287,14 @@ class AudioStreamService {
     const timeData = new Uint8Array(this.analyser.fftSize);
     const freqData = new Uint8Array(bufferLength);
 
+    let lastWaveformAt = 0;
     const update = () => {
       if (!this.analyser) return;
 
+      // Visual feedback at 20 Hz; VAD continues at the original frame rate.
+      const now = performance.now();
+      if (now - lastWaveformAt >= 50) {
+        lastWaveformAt = now;
       // 波形視覺化（頻域）
       this.analyser.getByteFrequencyData(freqData);
       const barCount = 32;
@@ -299,6 +304,8 @@ class AudioStreamService {
         waveformData.push(freqData[i * step] / 255);
       }
       this.callbacks.onWaveformData?.(waveformData);
+
+      }
 
       // VAD：時域 RMS 能量
       this.analyser.getByteTimeDomainData(timeData);

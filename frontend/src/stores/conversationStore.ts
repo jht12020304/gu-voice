@@ -107,6 +107,10 @@ export interface SupervisorGuidancePayload {
   next_focus?: string;
   missing_hpi?: string[];
   hpi_completion_percentage?: number;
+  /** conversation_handler._emit_supervisor_guidance 實際送的是 camelCase 鍵 */
+  nextFocus?: string;
+  missingHpi?: string[];
+  hpiCompletionPercentage?: number | null;
   fallback?: boolean;
 }
 
@@ -118,13 +122,14 @@ export function normalizeSupervisorGuidance(
   payload: SupervisorGuidancePayload | null | undefined,
 ): SupervisorGuidance | null {
   if (!payload) return null;
+  // 兩種拼法都收（後端 WS 送 camelCase、Redis/REST 為 snake_case），與 Flutter vad_logic 一致。
+  const nextFocus = payload.nextFocus ?? payload.next_focus;
+  const missingHpi = payload.missingHpi ?? payload.missing_hpi;
+  const pct = payload.hpiCompletionPercentage ?? payload.hpi_completion_percentage;
   return {
-    nextFocus: payload.next_focus ?? '',
-    missingHpi: Array.isArray(payload.missing_hpi) ? payload.missing_hpi : [],
-    hpiCompletionPercentage:
-      typeof payload.hpi_completion_percentage === 'number'
-        ? payload.hpi_completion_percentage
-        : 0,
+    nextFocus: nextFocus ?? '',
+    missingHpi: Array.isArray(missingHpi) ? missingHpi : [],
+    hpiCompletionPercentage: typeof pct === 'number' ? pct : 0,
     fallback: payload.fallback ?? false,
   };
 }

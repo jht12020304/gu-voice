@@ -74,6 +74,7 @@ export const AuditAction = {
   ACKNOWLEDGE: 'acknowledge',
   SESSION_START: 'session_start',
   SESSION_END: 'session_end',
+  LANGUAGE_SWITCH_END_SESSION: 'language_switch_end_session',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 

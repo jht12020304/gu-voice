@@ -5,6 +5,10 @@ Celery 應用程式設定
 - 時區設定為 Asia/Taipei
 """
 
+import asyncio
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
+
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import worker_process_init
@@ -45,6 +49,27 @@ celery_app.autodiscover_tasks([
     "app.tasks.audit_retention",
     "app.tasks.audio_lifecycle",
 ])
+
+_T = TypeVar("_T")
+
+
+def run_async(factory: Callable[[], Awaitable[_T]]) -> _T:
+    """在同步 Celery task body 裡跑一個 coroutine。
+
+    只守「拿 event loop」這一步：拿不到（或已關閉）才退回 ``asyncio.run``。
+    舊寫法是 ``try: loop.run_until_complete(coro) except Exception: asyncio.run(coro)``
+    ——business exception 也會落進 except，整個 task body 被**重跑一次**（推播
+    送兩遍、同一筆報告標兩次 FAILED）。傳 factory 而不是 coroutine，是因為
+    coroutine 只能 await 一次；每條執行路徑各自建一個新的。
+    """
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+    if loop is None or loop.is_closed():
+        return asyncio.run(factory())
+    return loop.run_until_complete(factory())
+
 
 # ── Worker 啟動：初始化 Firebase（推播任務需要） ─────────────
 @worker_process_init.connect
