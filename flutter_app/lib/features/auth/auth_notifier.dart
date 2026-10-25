@@ -3,9 +3,11 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/config/env.dart';
+import '../../core/i18n/loc.dart';
 import '../../data/api/auth_api.dart';
 import '../../data/api/token_store.dart';
 import '../../data/models/user.dart';
+import '../voice/state/settings_notifier.dart';
 
 // Port of frontend/src/stores/authStore.ts. `booted` gates the splash: until it flips,
 // `BootGate` covers the tree and the router's redirect stays out of the way, so no route
@@ -115,10 +117,17 @@ class AuthNotifier extends Notifier<AuthState> {
       return;
     }
 
+    final epoch = TokenStore.instance.sessionEpoch;
     try {
       final user = await _api.getMe().timeout(bootProfileTimeout);
+      if (epoch != TokenStore.instance.sessionEpoch) return;
       state = AuthState(user: user, booted: true);
     } catch (e) {
+      // A login/logout can finish while boot is waiting. Do not overwrite it.
+      if (epoch != TokenStore.instance.sessionEpoch) {
+        if (TokenStore.instance.accessToken == null) state = const AuthState(booted: true);
+        return;
+      }
       // Only an actual rejection means the session is gone. Until 2026-08-22 every
       // failure took this branch and wiped the refresh token, so one flaky moment on
       // hospital wifi silently signed the doctor out and made them type a password
@@ -158,7 +167,7 @@ class AuthNotifier extends Notifier<AuthState> {
   /// a reason to destroy a session.
   ///
   /// Note a 401 usually never reaches here: the Dio interceptor refreshes and retries
-  /// first, and only a failed refresh clears the store and calls `onAuthCleared`. This
+  /// first, and only rejected credentials clear the store and call `onAuthCleared`. This
   /// covers the case where it does (refresh token itself rejected).
   static bool _isSessionRejection(Object e) {
     if (e is! DioException) return false;
@@ -191,9 +200,18 @@ class AuthNotifier extends Notifier<AuthState> {
   }
 
   Future<void> logout() async {
-    await runPreLogoutHooks();
-    await _api.logout();
-    await TokenStore.instance.clear();
+    try {
+      await runPreLogoutHooks();
+      await _api.logout();
+      await TokenStore.instance.clear();
+    } finally {
+      _clearSession();
+    }
+  }
+
+  // 登出／認證失效共用：kiosk 跨病患不得殘留上一位的 TTS 靜音與字級。
+  void _clearSession() {
+    ref.invalidate(settingsProvider);
     state = const AuthState(booted: true);
   }
 
@@ -203,7 +221,7 @@ class AuthNotifier extends Notifier<AuthState> {
   }
 
   // Called by the Dio interceptor when a 401 refresh fails.
-  void forceLoggedOut() => state = const AuthState(booted: true);
+  void forceLoggedOut() => _clearSession();
 
   String _errorMessage(Object e) {
     if (e is DioException) {
@@ -214,7 +232,7 @@ class AuthNotifier extends Notifier<AuthState> {
         if (data['detail'] != null) return data['detail'].toString();
       }
     }
-    return 'errorGeneric';
+    return t('common.unknownError');
   }
 }
 

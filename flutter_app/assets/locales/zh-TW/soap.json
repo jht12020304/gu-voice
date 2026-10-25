@@ -52,37 +52,6 @@
     "redFlagSession": "紅旗場次",
     "redFlagLoadFailedBadge": "⚠ 紅旗狀態載入失敗"
   },
-  "metaCard": {
-    "patient": "病患",
-    "complaint": "主訴",
-    "sessionStatus": "場次狀態",
-    "report": "報告",
-    "createdHelper": "場次建立 {{date}}",
-    "completedAt": "完成於 {{date}}",
-    "startedAt": "開始於 {{date}}",
-    "noTimeInfo": "尚未取得時間資訊",
-    "notGeneratedTime": "尚未產生時間",
-    "reviewStatusHelper": "審閱狀態：{{status}}",
-    "awaitingReview": "等待醫師審閱"
-  },
-  "highlights": {
-    "positive": {
-      "title": "重要陽性",
-      "empty": "目前沒有整理出明確的陽性症狀。"
-    },
-    "negative": {
-      "title": "重要陰性",
-      "empty": "目前沒有整理出明確的陰性症狀。"
-    },
-    "riskFactors": {
-      "title": "風險因子",
-      "empty": "目前沒有明顯風險因子。"
-    },
-    "impression": {
-      "title": "初步判斷",
-      "empty": "目前沒有整理出明確判斷。"
-    }
-  },
   "diagnosis": {
     "title": "診斷索引",
     "empty": "目前沒有 ICD-10 編碼。",

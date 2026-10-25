@@ -3,11 +3,14 @@
 // =============================================================================
 
 import { create } from 'zustand';
+import i18n from '../i18n';
 import type { Patient } from '../types';
 import * as patientsApi from '../services/api/patients';
+import { apiErrorMessage } from '../services/api/client';
+import { localMonthRange, monthKey } from '../utils/date';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
-const DEFAULT_MONTH = new Date().toISOString().slice(0, 7);
+const DEFAULT_MONTH = monthKey(new Date());
 
 const mockPatients: Patient[] = [
   { id: 'p1', userId: 'u1', medicalRecordNumber: 'MRN-2026-0001', name: '陳小明', gender: 'male', dateOfBirth: '1985-03-15', phone: '0912-345-678', createdAt: '2026-01-15T08:00:00Z', updatedAt: '2026-04-10T10:00:00Z' },
@@ -42,10 +45,8 @@ interface PatientListActions {
 }
 
 function getMonthDateRange(month: string): { createdFrom: string; createdTo: string } {
-  const [year, monthIndex] = month.split('-').map(Number);
-  const createdFrom = new Date(year, monthIndex - 1, 1, 0, 0, 0, 0).toISOString();
-  const createdTo = new Date(year, monthIndex, 0, 23, 59, 59, 999).toISOString();
-  return { createdFrom, createdTo };
+  const { start, end } = localMonthRange(month);
+  return { createdFrom: start.toISOString(), createdTo: end.toISOString() };
 }
 
 export const usePatientListStore = create<PatientListState & PatientListActions>((set, get) => ({
@@ -103,8 +104,8 @@ export const usePatientListStore = create<PatientListState & PatientListActions>
         totalCount: response.pagination.totalCount,
         isLoading: false,
       });
-    } catch {
-      set({ isLoading: false, error: '無法載入病患列表' });
+    } catch (err) {
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入病患列表') });
     }
   },
 
@@ -129,8 +130,8 @@ export const usePatientListStore = create<PatientListState & PatientListActions>
         totalCount: response.pagination.totalCount ?? totalCount,
         isLoading: false,
       });
-    } catch {
-      set({ isLoading: false, error: '無法載入更多' });
+    } catch (err) {
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入更多') });
     }
   },
 

@@ -1,4 +1,195 @@
-# 效能稽核與最佳化 — 2026-08-22
+# 效能與整體流暢度稽核
+
+## 2026-10-03 隔離測試環境與送測準備
+
+獨立 staging 後端、Postgres、Redis 與 React preview 已建立；production 未變更，也尚未 commit／push。環境網址、合成帳號位置、IPA build／雜湊以 [iOS 發佈設定 §0](ios_release_settings.md#0-2026-10-03-staging-候選包與測試環境) 為準。
+
+| 檢查 | 結果與範圍 |
+|---|---|
+| 後端／資料層 | 三個服務在 Singapore；DB／Redis deep health 均 ok，migration `smoothness_20261003` 與通知索引已存在，Celery worker／beat 啟動。DB 僅有合成 doctor／patient 帳號，沒有 production 裝置 token；建立帳號用的臨時 DB TCP proxy 已移除。 |
+| 真實 staging API | API 移至新加坡後 **8 組完整通過**：health、OpenAPI 版本／匿名保護、CORS、雙角色登入、7 個醫師列表／摘要端點、31 天月曆／角色界線、實際 LLM＋TTS＋緊急紅旗中止＋SOAP generated＋dashboard 事件＋通知／月曆更新，以及跨站 token 續期。另有無 cookie 客戶端用換發的新 token 讀取 `/auth/me` 的獨立驗收。 |
+| 真實瀏覽器連線 | Chrome 154 桌面與 Playwright WebKit 26.4 iPhone 尺寸登入、報告、通知、場次與重新整理保留登入通過；HTTP／WS 確認指向 staging。此處未攔截 API，也不等於實體 iPhone Safari。 |
+| iOS 候選產物 | `build_ios_testflight.sh` 六關全過、analyze 無問題、317 tests 通過；已簽章、確認 API／WS 為 staging，未內嵌 E2E／KIOSK 帳密。 |
+| Apple | ASC 回 `FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`；使用者選擇稍後處理。尚未確認 ASC 最新 build 號、未 validate／upload／分發，不能把本機 IPA 稱為 TestFlight 驗收完成。 |
+
+送測準備中額外修正：
+
+- Railway 實際部署 manifest 顯示 API 仍在美西，不能只因 `railway.toml` 寫了新加坡就判定已同區。已對 staging API 設定單一新加坡 replica，確認三個服務的最新 deployment 均 SUCCESS、舊 API 已退出。相同本機連線各 5 次暖連線樣本：deep health 中位數 **1,624.6ms → 133.6ms**，普通 health **157.1ms → 138.0ms**；這是本次外部請求耗時樣本，**不是生產 P95 或真機效能**。保留前後區域與原始樣本，後續部署也須查實際 manifest（[Railway 區域設定格式](https://docs.railway.com/config-as-code/reference#multi-region-configuration)）。
+- Vite 原本強制要求 React 已不使用的 Supabase URL／anon key，造成乾淨的 preview 建置失敗；移除這兩項舊檢查，API URL 仍必填。乾淨 Vercel 建置成功，lint 與 14 個 React 測試檔通過。
+- iOS 打包訊息會顯示實際指定的 API／WS，避免 staging 被標成 production；保留預設 production 的資料風險提醒。有一個可重跑 banner 合約測試，驗收工具共 **20 tests 通過**。
+- 手機尺寸目視驗收發現醫師固定側欄擠壓主內容、兩種角色的長姓名撐高 Header。修正共用外殼：窄畫面收合側欄、沿用現有 Modal 展開導覽、收整姓名、採用動態視窗高度；Sidebar 計數沿用既有全域更新，開選單不另發請求。本機 Chrome／WebKit 各 **9 情境通過**，新增 320／390px、Escape／焦點返回與角色外殼檢查。真機鍵盤、瀏覽器工具列與安全區仍待裝置實測。
+
+完整證據保存在 `~/.local/share/gu-voice/releases/202610031213-staging/acceptance/`，包含來源 SHA-256 清單、部署識別、API／瀏覽器 JSON、截圖與建置紀錄。保留首輪失敗：API 腳本先誤認月曆應回 31 個非空日、續期時混用帳號 cookie；瀏覽器腳本先等待了頁面沒有呼叫的 stats 端點。修正驗收假設後重驗相關步驟，未放寬 CSRF 或產品權限。初次啟動的兩個 API worker 亦有已被既有程式捕捉的分區 `DuplicateTableError` 競爭；服務繼續啟動，不宣稱啟動 log 零錯誤。
+
+## 2026-10-03 修復與驗收
+
+維護範圍維持 **Flutter iOS App + React 網頁 + FastAPI 共用後端**。F01–F12 的程式修正已完成並有可重跑的驗收；以下是本機驗收結果；後續 staging 進度見上節。**尚未提交或部署 production，也尚未達成真機整體流暢度的最終驗收**。下方修復前基線和 8 月紀錄保留作比較。
+
+### 逐項結果
+
+| ID | 已完成的修正 | 本機驗收與限制 |
+|---|---|---|
+| F01 | go_router 保留五個醫師分頁；帳號變更重建 navigator。 | 20 次分頁往返保留搜尋、選中月份與捲動位置，月摘要不因回訪重抓；切語言／帳號無舊帳號狀態。 |
+| F02 | 報告列表直接使用已附病患資訊；後端回傳符合篩選／權限的 review counts，兩端共用。 | 20 列從 **22 次降至 1 次**請求，0 次逐列場次明細；150 份報告正確計數。舊後端未提供 counts 時 iOS 才走相容備援。 |
+| F03 | 通知立即導頁，背景樂觀標示已讀；失敗恢復權威資料。 | 注入 1,200ms 已讀延遲：Chrome 約 **31ms**、WebKit 約 **51ms** 導頁；250ms 時已在目標頁。已讀失敗、舊回覆及帳號切換皆有回歸檢查。 |
+| F04 | Suspense 放進醫師／病患內容區，保留導航外殼。 | 路由 chunk 延遲 1,000ms，250ms 時 Header、Sidebar 仍顯示。 |
+| F05 | 100ms 合併事件；請求中來新事件完成後補刷；請求序號／帳號版本排除遲到結果。 | 3 個連續事件只追加 1 次列表請求；同帳號成功／失敗反序、請求中事件及跨帳號結果均受檢查。刷新保留現有內容。 |
+| F06 | React 對 503／timeout 保留登入並顯示重試；憑證被拒才清除；refresh singleflight 與 WS 世代隔離。 | 503、timeout、重試、401、token 刷新合併、登入切換期間的舊請求／舊 WS callback 通過。 |
+| F07 | 只有紅旗判定已完成且無警示、非收尾輪時，逐句提前送文字／音訊；加入拉丁標點斷句與匿名階段計時。 | 五語、待判定／失敗／high／critical／收尾、串流中斷等 12 項測試通過；中斷只保存已送出的文字。真 OpenAI 一般問診及中英文緊急紅旗情境通過，SOAP 為 generated。**2 秒 VAD 保留；真麥克風與端到端首音訊仍待真機量測。** |
+| F08 | 波形／錄音秒數獨立訂閱；網頁波形節流 20Hz，VAD 判斷頻率維持。 | Flutter 60 次波形／時間更新不重建既有文字；Chrome 40／200 則對話各測 3 秒，歷史泡泡 props 各只更新一輪，皆無 >50ms long task。Root commit 54／55 次主要仍包含狀態子樹，不能等同全頁重建或真機幀率。 |
+| F09 | 新增按本地日界線聚合 API；月份快取 60 秒、最多 12 月；選日明細 20 筆分頁，移除 1,000 筆截斷。 | 1,001 筆月統計正確，首屏 1 次聚合 + 1 次日明細；載入更多、跨月回訪快取、DST、時區與醫師權限驗證通過。 |
+| F10 | queue／stats 合併查詢並省掉廣播未用明細；開場廣播以獨立 DB session 背景處理；月摘要改 SQL 聚合；通知合併計數並加索引。 | PostgreSQL 實際 1,001／10,001 筆資料驗證：通知列表 2 次 SQL、queue＋stats 廣播 2 次 SQL；通知排序 EXPLAIN 使用複合索引。這是 round-trip 減少，**不是宣稱整個 DB 只掃一次**。 |
+| F11 | 登入後由醫師外殼共用 dashboard socket；報告／通知頁即時失效更新，斷線才輪詢；通知 commit 後才發 report_generated。 | 停留通知／報告頁即可看到新資料；跨頁保持 1 條 socket；事件 burst 合併，斷線備援仍會提示新增紅旗；另有通知 commit→事件順序測試。 |
+| F12 | iOS 三種長列表使用 builder；網頁使用原生 content-visibility 跳過畫面外繪製。 | iOS 1,000 筆時捲動前後只建可見列（<30 張 Card）。Chrome 1,000 筆報告搜尋 **43ms**、通知點擊 **116ms**；末列鍵盤焦點往返通過。DOM 仍隨已載列數增長（18,157／7,125 節點）；超過此規模或實測超預算再加虛擬化。 |
+
+以上瀏覽器毫秒數是這台 Mac 的單次合成資料樣本，**不是生產 P95、真實使用者 INP p75 或 iPhone 成績**。網頁原生繪製策略依 [MDN content-visibility](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/content-visibility)，保留 DOM 與鍵盤順序，不新增套件。
+
+### 驗收中額外修正
+
+- 真 OpenAI 發現 Supervisor 在核心 HPI 未齊前優先補選配病史；對話模型與 Supervisor 改用同一份順序規則，必問風險／急症優先，其餘先補核心 HPI；下一輪同時收到合法的 missing_hpi 欄位，不再只讀一段 next_focus。onset 回答不知道不代表 duration 已回答。驗收中曾有核心完整度停在 70% 的失敗場次，已另存結果供對照；不以只保留 PASS 的方式宣稱穩定。修正未降低紅旗或回合上限。
+- E2E 分析器原本只在「重問」識別持續／間歇同義句，卻不在「第一次問」識別，造成錯誤 INCOMPLETE。現在兩者使用同一規則；有回歸測試證明真正重問仍 FAIL、只有單邊詞彙不會誤建拒答 cutoff。另把指定情境的 onset／duration 拒答固定為測試輸入，其餘回答仍由模擬 LLM 生成，避免模擬器把持續／間歇問題誤答成加重因素，導致拒答路徑根本沒測到。
+- 網頁語言解析跳過不存在的短語碼目錄：zh-TW 啟動 locale URL 從 20 降至 10，五個完整 locale 與既有 fallback 保留；尚未改成逐頁載入全部 namespace。
+- CocoaPods 最低版本對齊 Runner 原有的 iOS 15，修正 Xcode 27 把舊 pod 的 iOS 9／12／13 deployment target 視為錯誤；未提高 App 原本的最低支援版本。
+- WAV 編碼保留既有實作：Mac AOT、每種長度 30 樣本，10／30／60 秒音訊 P95 約 4.4／9.4／11.9ms。量測工具：`flutter_app/tool/voice_encode_benchmark.dart`（`fvm dart compile exe tool/voice_encode_benchmark.dart -o /tmp/gu-voice-encode && /tmp/gu-voice-encode`）。這無法證明 iPhone 成本，但不足以支持現在增加 isolate 或改音訊協定。
+
+### 可重跑檢查
+
+| 檢查 | 結果／入口 |
+|---|---|
+| Flutter | `fvm flutter analyze --no-pub` 無問題；`fvm flutter test --no-pub` **317 通過**；[smoothness_regression_test.dart](../flutter_app/test/smoothness_regression_test.dart)、[conversation_page_ux_test.dart](../flutter_app/test/conversation_page_ux_test.dart)。使用釘定 Flutter 3.41.3。 |
+| iOS 編譯／啟動 | Xcode 27、arm64 iOS 27 模擬器編譯成功；全新 `GU Smoothness Acceptance` 模擬器啟動到登入頁。此為 debug smoke，不當作 profile 效能成績。 |
+| React | `npm run lint`、`npm test`（14 個測試檔）、production build 成功；[狀態回歸](../frontend/scripts/verify/smoothness-state.test.mjs)。 |
+| 瀏覽器流程 | [smoothness-browser.mjs](../frontend/scripts/verify/smoothness-browser.mjs)：Chrome 154、Playwright WebKit 26.4 各 9 情境通過（包含後續補上的手機導覽）；WebKit 引擎測試不等於實體 iPhone Safari。 |
+| 長列表／語音 UI | [smoothness-performance.mjs](../frontend/scripts/verify/smoothness-performance.mjs)：40／200 則逐字稿，100／1,000 列報告和通知，6 組量測與門檻通過。 |
+| 後端 | `venv/bin/pytest tests/unit -q` **4,879 通過、2 skipped**；環境須提供純測試 RS256 金鑰（下方歷史紀錄有產生方式）。包含逐句串流與中途失敗的 12 項檢查。 |
+| 真 PostgreSQL | [test_smoothness_queries_pg.py](../backend/tests/integration/test_smoothness_queries_pg.py) ＋既有 doctor authz 測試 **10 通過**；local migration 已成功執行。非 SQLite／mock SQL。 |
+| 真 OpenAI | `dontknow_zh`、`torsion_critical_zh`、`torsion_critical_en`：PASS、SOAP generated、受測工作區 provenance verified；緊急情境為 rule_hit 並阻止繼續問診。採文字 WS 輸入，**沒有驗到真 STT／麥克風**。 |
+| 翻譯／驗收工具 | `backend/venv/bin/pytest scripts/tests -q` **20 通過**；`scripts/check_translations.py --mirrors frontend/public/locales,flutter_app/assets/locales` 通過。 |
+
+瀏覽器流程跑法（frontend 目錄；build 未開 mock mode，腳本攔截全部後端 HTTP／WS，使用合成資料）：
+
+```bash
+npm run build -- --outDir /tmp/gu-smoothness-dist
+npm run preview -- --outDir /tmp/gu-smoothness-dist --host 127.0.0.1 --port 4317
+# 另一終端，同樣在 frontend：
+node scripts/verify/smoothness-browser.mjs
+SMOOTHNESS_BROWSER=webkit node scripts/verify/smoothness-browser.mjs
+node scripts/verify/smoothness-performance.mjs
+```
+
+iOS 本機已驗過的建置（flutter_app 目錄，`<simulator-id>` 替換成 `xcrun simctl list devices` 的 arm64 目標）：
+
+```bash
+(cd ios && pod install)
+xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Debug \
+  -sdk iphonesimulator -destination 'platform=iOS Simulator,id=<simulator-id>' \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
+```
+
+本機 Xcode 27 的通用雙架構 `fvm flutter build ios --simulator --debug --no-pub` 尚會卡在 SDK 工具的 `lipo -verify_arch arm64 x86_64`（報 `requires exactly one input file`，但 `lipo -info` 顯示兩架構都存在）；單 arm64 命令已成功，未修改 Flutter SDK 或排除真機架構。
+
+本次量測產物在 `/tmp/gu-smoothness-{chrome,webkit}-final2.json`、`/tmp/gu-smoothness-performance-final.json`、`/tmp/gu-smoothness-ios-launch.png`；真 OpenAI 紀錄在已忽略版控的 `scripts/e2e_realopenai/results/`。可重跑的驗收程式已留在 repository，不依賴暫存腳本。
+
+### 發佈與剩餘驗收
+
+- 發佈先上後端與 Alembic `smoothness_20261003` migration，再上兩端，因新版 iOS 月曆依賴 `/dashboard/calendar`。新通知索引用 concurrent 建置；production 尚未變更；獨立 staging 已完成此順序中的後端與 React preview，iOS 候選 IPA 尚待 Apple 協議／上傳。
+- **待真機**：最慢支援 iPhone／60Hz／120Hz／iPad profile build 的捲動和鍵盤幀時間；冷暖啟動、真實慢速／中斷網路、麥克風與慢速說話、電話／背景打斷恢復、VoiceOver／大字體／減少動態效果。
+- **待實際環境量測**：Web INP p75／LCP、DB／Redis RTT 與 P95、完整「最後語音→VAD→上傳→STT→首音訊」。現有 log 僅提供匿名 STT／LLM／首 chunk 階段，不能拿文字 E2E 換算全程。
+- 字型載入與首次通知權限對實機啟動的影響仍是待量測候選，尚未證實為瓶頸；沒有為此增加套件或重寫框架。
+
+## 2026-10-03 修復前基線（歷史對照）
+
+維護範圍是 **Flutter iOS App、React 網頁、共用 FastAPI 後端**。本輪依使用者「整體操作都要流暢」的要求，檢查啟動、醫師分頁、列表／搜尋、通知、語音問診、資料規模及失敗恢復。**目前最明確的問題是重複請求、導頁等待、不保留操作狀態，以及語音頁重繪範圍過大。**
+
+本節保留同日修復前的問題與數字；目前狀態以上方修復驗收表為準。下方 2026-08-22 的數字及部署敘述只代表當時。2026-10-03 前一輪 iOS M1–M3 的修正仍在工作區，這次以修正後程式碼為基準；React 的同類路徑、場次列表同帳號內的請求排序並不在先前通知修正的涵蓋範圍。
+
+### 證據與限制
+
+- React 以 `npm run build -- --outDir /tmp/gu-voice-smoothness-dist` 建置 production bundle，再由 Chrome 154 + Playwright 操作。HTTP／WebSocket 全部攔截，使用合成資料與假 token，禁止瀏覽器連至外部服務。沒有使用內建 mock mode，故走的是正式頁面及 API 邏輯。
+- Flutter 使用釘定 SDK 的 `fvm flutter test --no-pub test/_smoothness_audit_test.dart`，3 個診斷情境都重現預期問題。使用真實 router／頁面／controller、假的 HTTP 與 socket；這是行為診斷，**不是 iPhone 幀率測試**。診斷檔刻意未入庫（一次性、已丟棄），不把「舊 bug 必須存在」的斷言放進正式回歸套件。
+- Chrome 的 1,000ms chunk 延遲與 1,200ms API 延遲都是刻意注入的條件；下列耗時不能當成目前生產環境的 P95。沒有量測真機耗電、真實麥克風、Safari 或線上 DB 查詢計畫，也未呼叫真實 LLM。
+- `mobile-app-ux-auditor` 掃描 185 個檔案。lib 內 268 條訊號多為 tooltip、label、權限等關鍵字提示，含跨框架誤判，**不計為 268 個已確認缺陷**。本表只列實際核對的流暢度問題。
+- 本輪只新增稽核紀錄，未修改產品行為或部署。
+
+### 優先處理的 12 個問題
+
+P1 是核心操作明確受影響，P2 是規模或特定條件下的瓶頸。每項標出「重現」或「程式路徑確認」；後者不代表已測得真機掉幀或生產延遲。
+
+| ID／優先 | 操作與問題 | 證據、使用者影響 | 最小改善方向與驗收 |
+|---|---|---|---|
+| F01／P1 | **iOS 切分頁丟狀態並重抓資料** | **重現**：dashboard → sessions → dashboard，月摘要 API 從 1 次變 2 次；sessions 輸入搜尋字串後切走再回來，字串變空。五個分頁是獨立 route，頁面 State 被銷毀。 | 保留各分頁的 navigator／頁面狀態，沿用 go_router 的狀態分支；依帳號清除。連續切換 20 次，搜尋、月份、捲動位置保留；資料未失效時不重抓。 |
+| F02／P1 | **網頁報告清單仍有逐筆查詢** | **重現**：20 份報告 → 1 次列表 + 1 次 `limit=100` 統計用列表 + 20 次場次明細＝**22 次**，不含登入與導覽列請求。後端列表已附病患／主訴／場次欄位，React 仍不使用。統計又只數首 100 份，超過後會少算。 | 直接使用現成列表欄位，沿用已修 iOS 的相容策略；計數使用真正總數。報告頁請求數不隨首屏列數增加；用 >100 份資料驗證計數。 |
+| F03／P1 | **網頁點通知，要等已讀 API 才跳頁** | **重現**：對已讀 API 注入 1,200ms 延遲，250ms 時仍在通知頁且無 loading spinner，約 **1,249ms** 才導頁。`handleOpen` 在導航前 `await markRead`。 | 導頁先回應，已讀背景處理並處理失敗；使用相同 1,200ms 條件，導頁不應等待該請求。 |
+| F04／P1 | **網頁第一次換頁會連導覽列一起消失** | **重現**：未下載的病患頁 chunk 延遲 1,000ms，250ms 時 Header、Sidebar 都不可見，只剩整頁 spinner。根層 Suspense 包住整個 Routes。 | 將 loading boundary 放在內容區，保留外殼；必要時預抓常用 route。慢速 chunk 載入期間導覽持續可見可用。 |
+| F05／P1 | **即時事件連發造成重抓，舊結果還能倒灌** | **兩端重現**：連續送出 `session_created`、`session_status_changed`、`queue_updated`，各產生 **3 次**場次列表請求。**Flutter 另重現**同帳號兩個 reload 反序完成後，較舊的 `waiting` 列表覆蓋較新的 `completed` 列表。上一輪只讓通知列表接受最新請求，場次列表尚未套用。 | 合併短時間事件；請求中有新事件時記為待刷新，完成後補一次；用請求序號丟棄舊回覆。驗收事件 burst 與反序成功／失敗回覆；保留帳號隔離。 |
+| F06／P1 | **網頁暫時故障會把使用者踢回登入** | **重現**：儲存登入憑證後，讓 `/auth/me` 回 503，頁面轉 `/login`，access／refresh token 都被刪除。`hydrateFromStorage` 的 catch 不區分故障原因；refresh 失敗也統一清登入。 | 將暫時網路／5xx 與憑證失效分開，提供可重試狀態。移植已驗證的 iOS 行為契約，測試 503、timeout、401、切帳號期間的遲到回覆。 |
+| F07／P1 | **每個語音回合有多段必等路徑** | **程式路徑確認**：兩端自然停講都等 2 秒；iOS 整段 WAV 在結束時才編碼並 base64 上傳。後端雖從 LLM 接收串流並預先合成 TTS，對病患的第一個文字／音訊 chunk 卻要等生成迴圈完成、持久化與紅旗 gate 後才送。斷句又只認 `。！？\n`，使用拉丁標點的回覆要等尾段。 | 先分段量「停講→送出→STT→首文字→首音訊」，保留「我說完了」即送入口；設計能保持安全判定與結束規則的串流。**不可直接刪掉紅旗 gate、硬縮 VAD 或先播未通過的內容**。修改前依語音不變式驗證，五語與慢速說話都要驗。 |
+| F08／P2 | **波形更新牽動整個語音頁** | **量測重建，未證明掉幀**：40 則合成逐字稿，開 fake mic 的 3,002ms 內 **181 次 React root commit**；關 mic 對照 3,003ms 內 1 次。React 每個 rAF 都寫 Zustand，頁面訂閱整個 store，所有 ChatBubble 再建 props；iOS 雖節流到最高 20Hz，仍整頁 watch state。本機兩組皆無 >50ms long task。 | 將波形／秒數的訂閱限於對應元件、避免重建歷史逐字稿；沿用既有狀態框架。用 40／200 則對話在真機 profile 測 build／raster、鍵盤與捲動；安全橫幅及終態兩欄必須維持一致更新。 |
+| F09／P2 | **iOS 日曆載入整月，資料多就等更久且截斷** | **重現**：後端每頁 100 筆、持續回 hasMore；`fetchRange` 發出 **10 次循序請求**後只回 1,000 筆，沒有告訴呼叫者仍有資料。日曆等全部載完才分桶顯示，跨月也不快取。 | 月曆先取按日聚合數量，選日再分頁取明細；維持本地時區定義。用 1,001+ 筆資料驗證不默默少算、首屏不等十頁。 |
+| F10／P2 | **後端把統計成本放進即時互動路徑** | **程式路徑確認，尚未 EXPLAIN／壓測**：病患 WS 開場前 await `broadcast_queue_and_stats`；內部 queue 3 次＋全域 stats 4 次 SQL 依序執行，取得 50 筆 queue 明細後廣播卻只送空 queue。月摘要搬出整月 Session ORM 再於 Python 統計；通知列表查列表、總數、未讀數，client 又另查未讀。模型及 migrations 未見匹配通知排序的複合索引。 | 先移除沒有消費者的明細計算、合併聚合與重複計數，再測 1k／10k 資料的 SQL 計畫。若將廣播移至背景，要有獨立 DB 生命週期並保持跨 worker 事件可靠性；不能只跳過通知。 |
+| F11／P2 | **網頁資訊更新速度不一致** | **程式路徑確認**：Header 未讀數只在掛載時抓；通知頁只在掛載時抓列表，沒有即時訂閱。醫師外殼的紅旗輪詢是 **20 秒**；dashboard socket 綁於個別頁面，離頁就 disconnect。使用者需重新進頁才看見某些變化。 | 以登入生命週期維護共用 dashboard 連線，集中通知失效／去重，避免每頁各開關 socket；輪詢僅作恢復手段。停留通知／報告頁時，新事件要在約定延遲內出現；切頁不拆共用連線。 |
+| F12／P2 | **長列表的 UI 工作量隨已載資料一直增長** | **程式路徑確認，尚未真機掉幀量測**：Flutter 病患／報告／紅旗列表使用 `ListView(children: [for ...])`，每次先建立全部列；React 通知／報告以 `.map` 渲染全部已載列，無視窗化。分頁限制下載量，並沒有限制累積 UI 建構／DOM 數量。 | Flutter 先用既有 builder／sliver，只建立可見列；React 先量 100／1,000 筆的 DOM 與互動，再決定是否需要視窗化。保留搜尋、分組、鍵盤焦點及讀屏順序。 |
+
+### 程式定位
+
+以下行號以本輪檢查時工作區為準。
+
+| 問題 | 入口與共同根因 |
+|---|---|
+| F01 | [app_router.dart](../flutter_app/lib/core/router/app_router.dart):176、[doctor_shell.dart](../flutter_app/lib/features/doctor/screens/doctor_shell.dart):31、[dashboard_page.dart](../flutter_app/lib/features/doctor/screens/dashboard_page.dart):62、[session_list_page.dart](../flutter_app/lib/features/doctor/screens/session_list_page.dart):26 |
+| F02 | [ReportListPage.tsx](../frontend/src/screens/doctor/ReportListPage.tsx):215／256、[reportStore.ts](../frontend/src/stores/reportStore.ts):151、[report.py](../backend/app/schemas/report.py):60 |
+| F03 | [NotificationPage.tsx](../frontend/src/screens/doctor/NotificationPage.tsx):67、[notificationStore.ts](../frontend/src/stores/notificationStore.ts):73 |
+| F04 | [RootNavigator.tsx](../frontend/src/navigation/RootNavigator.tsx):107／126、[MainLayout.tsx](../frontend/src/components/layout/MainLayout.tsx):24 |
+| F05 | [sessions_list_controller.dart](../flutter_app/lib/features/doctor/state/sessions_list_controller.dart):47、[SessionListPage.tsx](../frontend/src/screens/doctor/SessionListPage.tsx):63／97；同類無請求排序保護的篩選入口：[alerts_controller.dart](../flutter_app/lib/features/doctor/state/alerts_controller.dart):101／144 |
+| F06 | [authStore.ts](../frontend/src/stores/authStore.ts):177、[client.ts](../frontend/src/services/api/client.ts):257 |
+| F07 | [audio_stream_service.dart](../flutter_app/lib/features/voice/services/audio_stream_service.dart):37／332、[audioStream.ts](../frontend/src/services/audioStream.ts):132、[conversation_handler.py](../backend/app/websocket/conversation_handler.py):55／1779／1997／2379 |
+| F08 | [audioStream.ts](../frontend/src/services/audioStream.ts):286、[useAudioStream.ts](../frontend/src/hooks/useAudioStream.ts):57、[ConversationPage.tsx](../frontend/src/screens/patient/ConversationPage.tsx):88／1247、[conversation_page.dart](../flutter_app/lib/features/voice/screens/conversation_page.dart):51 |
+| F09 | [sessions_api.dart](../flutter_app/lib/data/api/sessions_api.dart):118、[session_calendar_view.dart](../flutter_app/lib/features/doctor/screens/session_calendar_view.dart):229 |
+| F10 | [conversation_handler.py](../backend/app/websocket/conversation_handler.py):627、[dashboard_handler.py](../backend/app/websocket/dashboard_handler.py):252／393／595、[dashboard_service.py](../backend/app/services/dashboard_service.py):484、[notification_service.py](../backend/app/services/notification_service.py):346 |
+| F11 | [Header.tsx](../frontend/src/components/layout/Header.tsx):37、[NotificationPage.tsx](../frontend/src/screens/doctor/NotificationPage.tsx):47、[DoctorAlertPoller.tsx](../frontend/src/components/DoctorAlertPoller.tsx):18、[useWebSocket.ts](../frontend/src/hooks/useWebSocket.ts):144 |
+| F12 | Flutter [patient_list_page.dart](../flutter_app/lib/features/doctor/screens/patient_list_page.dart):178、[report_list_page.dart](../flutter_app/lib/features/doctor/screens/report_list_page.dart):229、[alert_list_page.dart](../flutter_app/lib/features/doctor/screens/alert_list_page.dart):163；React [NotificationPage.tsx](../frontend/src/screens/doctor/NotificationPage.tsx):110 |
+
+### 次要候選與排除項目
+
+- **啟動資源**：本次 zh-TW 網頁載入 20 個 locale URL，其中 10 個是程式未提供的 `/locales/zh/`；只有五個完整 locale 目錄。i18next 同時預載所有 namespace，語言解析還包含短語碼。應調整語言解析及按頁 namespace 載入，保留 fallback 行為。這次沒有證明它是啟動最大的耗時。
+- **iOS 字型／權限**：Inter 由 `GoogleFonts.interTextTheme` 取用，pubspec 未 bundle 字型；通知權限在登入後首幀即啟動。列為冷啟動重排與首次互動的候選，未量測實體裝置的影響，不能把非同步 Firebase 初始化直接說成 UI thread 被阻塞。
+- **不把 bundle 大小當成目前主因**：production 建置成功，路由已 lazy load；入口 JS 約 100.87KB（gzip 33.30KB），React vendor 約 165.97KB（gzip 54.31KB）。這不構成改框架／全面重寫的證據。
+- **不沿用舊部署測速當今天的數值**：2026-08-22 的 Railway／Redis 跨區測量是歷史紀錄，本輪沒有重新連線測量。需在實際測試環境另查 DB／Redis RTT、冷啟動及 P95。
+- **不把上一輪 308 個 Flutter 測試通過視為效能達標**：現有 CI 守編譯、靜態分析與功能，但沒有 frame timing、頁面請求預算、首音訊及 route 回應延遲的驗收。
+
+### 執行順序與驗收標準
+
+1. **先縮短日常操作等待**：F01–F06。保留分頁、立即導頁、縮小 loading 範圍、拿掉逐列查詢、合併事件並排除舊回覆；同步處理網頁的暫時故障恢復。
+2. **再處理長時間與資料增加後的流暢度**：F08、F09、F11、F12。分離波形更新、修月曆資料形狀與上限、統一即時資料生命週期；在 40／200 則對話及 100／1,000 筆列表下量測。
+3. **量出語音及後端關鍵路徑再修改**：F07、F10。採同一個匿名回合 ID 分段計時，不記錄音訊或病歷文字；依 STT／LLM／TTS／DB／Redis 各自的 P50／P95 決定順序。
+
+建議的工程門檻如下，**是待驗收目標，不是目前成績**：
+
+| 指標 | 建議門檻／契約 |
+|---|---|
+| 點擊回饋／已載分頁切換 | P95 ≤100ms；非必要網路不能阻擋導頁；慢網路不隱藏導航、不得先清掉已載內容。 |
+| Web 真實互動 | p75 INP ≤200ms、LCP ≤2.5s；另量測「點擊到目標內容可用」，避免 INP 良好但仍等資料。門檻依 [INP 官方說明](https://web.dev/articles/inp)、[LCP 官方說明](https://web.dev/articles/lcp)。 |
+| iOS 捲動／鍵盤／轉場 | 最慢支援真機使用 profile build；60Hz 以每幀約16.7ms、120Hz 約8.3ms 為預算，記錄超時幀比例與 P95。模擬器與 debug build 不作達標依據，依 [Flutter 官方 profiling 指引](https://docs.flutter.dev/perf/ui-performance)。 |
+| 列表資料一致性 | 事件 burst 合併；舊成功／失敗不能覆蓋新結果；資料量超過上限必須明示或正確分頁。 |
+| 語音回應 | 先取得「最後語音→VAD 結束→上傳完→STT 完→首文字→首音訊」分段基線；區分靜音判定與服務延遲。自然停講的 2 秒不能被藏在 API 計時之外。 |
+| 恢復與回訪 | 暫時 503／timeout 保留登入；斷網重連、背景回前景、切頁回來不丟輸入／選取／位置，且不呈現舊帳號資料。 |
+
+必要矩陣：iPhone 60Hz／120Hz、iPad、桌面 Chrome／Safari；冷／暖啟動、正常／慢速／中斷網路、40／200 則逐字稿、100／1,000+ 筆列表。鍵盤打開、大字體、減少動態效果、VoiceOver，以及語音被電話／切背景打斷後的恢復都尚待裝置驗收。
+
+### 本機重現紀錄
+
+| 檢查 | 結果 |
+|---|---|
+| production React build | 成功；產物在 `/tmp/gu-voice-smoothness-dist`。 |
+| Playwright 正式流程診斷 | 5 個情境完成：報告請求、lazy 導航外殼、通知點擊、bootstrap 503、WS burst。腳本 `/tmp/gu-voice-smoothness-browser.mjs`；結果 `/tmp/gu-voice-smoothness-browser.json`。 |
+| React 麥克風對照 | 2 組各約3秒，40則逐字稿；1 vs 181 root commit，皆無 >50ms long task。腳本 `/tmp/gu-voice-smoothness-voice.mjs`；結果 `/tmp/gu-voice-smoothness-voice.json`。 |
+| Flutter 診斷 | 3 個情境：切分頁／搜尋／burst、回覆反序、月資料截斷；log `/tmp/gu-voice-smoothness-flutter.log`。這些斷言描述目前缺陷，並不表示修好了。 |
+
+`/tmp` 是本次診斷暫存，不是 CI 產物。後續修復時應將相同情境改成正向回歸測試，並把真機與網路測量納入發佈驗收。
+
+## 2026-08-22 歷史稽核紀錄
+
+以下保留當時調查、修正與取捨；「已部署」「尚未修」等敘述按原日期解讀。
 
 單一權威來源：**這一輪「app 不順」查了什麼、修了什麼、還剩什麼**。
 其他文件不重抄結論，連結過來即可。
@@ -27,7 +218,7 @@ iOS simulator（iPhone 17／iOS 26.5）實機開機驗過三次；Flutter Web re
 
 ---
 
-## 1. 已修：開機路徑
+### 1. 已修：開機路徑
 
 開機是這次最大的一塊。修之前的順序是：
 
@@ -64,7 +255,7 @@ main()
 ⚠️ **`bootOffline` 也算「還沒開完機」**。第一版只看 `booted`，結果重試畫面永遠到不了——
 是 `test/boot_gate_test.dart` 抓到的。那條測試現在守著這件事。
 
-## 2. 已修：醫師端（iOS 的主戰場）
+### 2. 已修：醫師端（iOS 的主戰場）
 
 | 改動 | 檔案 | 前 → 後 |
 |---|---|---|
@@ -77,7 +268,7 @@ main()
 | SOAP 報告頁 | `soap_report_page.dart` | 4 趟循序 → 併發，報告先畫。**順手補了一個安全漏洞**：`_session` 還沒回來時原本算成「無紅旗」，現在是獨立的 `unknown` 狀態（`SizedBox.shrink()` 看起來就是「這個場次沒有紅旗」） |
 | 研究分析頁 | `research_analytics_page.dart` | build 裡 `GlobalKey()` → 每次重建都把 9 張圖表拆掉重建、重播進場動畫。改成固定 id 的快取 key |
 
-## 3. 已修：語音管線與後端
+### 3. 已修：語音管線與後端
 
 | 改動 | 檔案 | 內容 |
 |---|---|---|
@@ -88,7 +279,7 @@ main()
 | bcrypt 移出 event loop | `backend/app/core/security.py`、`services/auth_service.py` | cost-12 是 200–400ms **不可中斷**的 CPU。跑在 event loop 上等於一個人登入、全院停擺：問診 WS 的音訊 chunk 送不出去、STT 上傳卡住 |
 | ThemeData 快取 | `flutter_app/lib/core/theme/app_theme.dart` | getter → `static final`。每次 `App.build` 都重跑兩次 `ColorScheme.fromSeed` ＋ `GoogleFonts.interTextTheme` |
 
-## 4. 沒修，以及為什麼
+### 4. 沒修，以及為什麼
 
 分三類。
 
@@ -106,7 +297,7 @@ main()
 > 剩下那 0.19 s 幾乎全是 **Redis 仍在加州**（volume 1077 MB，搬遷要排維護窗口，
 > 見 [`railway_region_move.md`](railway_region_move.md) §4）。
 
-### 4a. 需要你拍板（臨床或部署決策，不該由我單方面改）
+#### 4a. 需要你拍板（臨床或部署決策，不該由我單方面改）
 
 | 項目 | 檔案 | 為什麼要你決定 |
 |---|---|---|
@@ -115,7 +306,7 @@ main()
 | **LLM 回覆不是串流吐出** | `websocket/conversation_handler.py:1763` | 病患每答完一句，要等「LLM 全部生成完 ＋ 紅旗閘門過 ＋ 第一段 TTS 好」才看得到任何東西。改成邊生成邊送是這條線上最大的體感改善，但它動的是問診管線——照鐵律要先讀 `voice-pipeline-invariants`，改完要跑 `e2e-real-openai` |
 | **斷句只認 CJK 標點** | `websocket/conversation_handler.py:50` | en-US／ko-KR／vi-VN 完全吃不到逐句 TTS。修法本身很小（補拉丁標點），但同樣落在問診管線的守則裡 |
 
-### 4b. 明確判定「不要這樣做」
+#### 4b. 明確判定「不要這樣做」
 
 - **不要把 `_ws.connect` 挪到 `openMic` 前面**。`audio_stream_service.dart:212` 在 openMic 成功時把
   `_muteMode` 重設成 `none`；AI 回合若落在那個空窗，麥克風會被悄悄解除靜音並錄進 TTS 回音
@@ -128,7 +319,7 @@ main()
   `conversation_page.dart:52-59` 記著一個真實 bug：從不同 emission 讀這兩個欄位，
   會把紅旗中止的病患送到一般感謝頁。
 
-### 4c. 已查證、可以直接做，只是這輪沒排進去
+#### 4c. 已查證、可以直接做，只是這輪沒排進去
 
 | 嚴重度 | 位置 | 內容 |
 |---|---|---|
@@ -144,7 +335,7 @@ main()
 | low | `flutter_app/.../sessions_list_controller.dart:43` | 每個 dashboard WS 事件都重抓 50 筆場次，沒有 debounce；後端一次病患動作會發 2–3 個相符事件 |
 | low | `backend/app/services/session_service.py:1204` | `GET /sessions/{id}/conversations` 為了回一頁而把整份逐字稿載入兩次 |
 
-### 4d. 兩個稽核沒抓到、我自己看到的
+#### 4d. 兩個稽核沒抓到、我自己看到的
 
 - **`google_fonts` 在執行期從網路抓 Inter**（`core/theme/app_theme.dart:29`，pubspec 沒有 bundle 字型）。
   首次啟動會有字型切換的重排，而且在防火牆嚴格的院內網路會直接抓不到。
@@ -158,7 +349,7 @@ main()
 
 ---
 
-## 5. 被駁回的 9 條（不用再查一次）
+### 5. 被駁回的 9 條（不用再查一次）
 
 敵意查證推翻的，摘其要：
 
@@ -175,7 +366,7 @@ main()
 
 ---
 
-## 相關
+### 相關
 
 - 開機路徑的行為契約由 `flutter_app/test/boot_locale_load_test.dart`、`test/boot_gate_test.dart` 守著
 - 報告的場次上下文由 `backend/tests/unit/schemas/test_report_session_context.py`（含「絕不觸發 lazy load」那條）

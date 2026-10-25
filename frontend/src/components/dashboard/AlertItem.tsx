@@ -5,13 +5,14 @@
 import { useTranslation } from 'react-i18next';
 import SeverityBadge from '../medical/SeverityBadge';
 import { relativeTime } from '../../utils/date';
+import { formatDate } from '../../utils/format';
 import type { AlertSeverity } from '../../types/enums';
 
 interface AlertItemProps {
   id: string;
   title: string;
   description?: string;
-  severity: string;
+  severity: AlertSeverity;
   patientName?: string;
   chiefComplaint?: string;
   sessionStatus?: string;
@@ -24,7 +25,7 @@ interface AlertItemProps {
   onClick?: () => void;
 }
 
-const severityBorderClass: Record<string, string> = {
+const severityBorderClass: Record<AlertSeverity, string> = {
   critical: 'alert-card-critical',
   high: 'alert-card-high',
   medium: 'alert-card-medium',
@@ -81,7 +82,7 @@ export default function AlertItem({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-body font-semibold text-ink-heading dark:text-white">{title}</p>
-            <SeverityBadge severity={severity as AlertSeverity} size="sm" />
+            <SeverityBadge severity={severity} size="sm" />
             <span
               className={`rounded-pill px-2.5 py-0.5 text-tiny font-semibold ${
                 isAcknowledged
@@ -134,9 +135,11 @@ export default function AlertItem({
 
         <div className="flex shrink-0 flex-col items-end gap-2">
           <div className="text-right">
-            <p className="text-small font-medium text-ink-heading dark:text-white">{new Date(createdAt).toLocaleDateString('zh-TW')}</p>
+            <p className="text-small font-medium text-ink-heading dark:text-white">
+              {formatDate(createdAt, { year: 'numeric', month: 'numeric', day: 'numeric' })}
+            </p>
             <p className="mt-1 text-tiny text-ink-muted">
-              {new Date(createdAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
+              {formatDate(createdAt, { hour: '2-digit', minute: '2-digit' })}
             </p>
           </div>
 

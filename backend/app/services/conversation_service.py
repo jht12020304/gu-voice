@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
 from app.models.conversation import Conversation
-from app.models.session import Session
 from app.utils.datetime_utils import utc_now
 
 
@@ -81,34 +80,6 @@ class ConversationService:
         db.add(conversation)
         await db.flush()
         return conversation
-
-    @staticmethod
-    async def get_by_session(
-        db: AsyncSession,
-        session_id: UUID,
-        cursor: Optional[str] = None,
-        limit: int = 50,
-    ) -> dict[str, Any]:
-        """
-        取得場次的對話紀錄列表（Cursor-based 分頁）。
-
-        L-4：此方法原與 ``SessionService.get_conversations_static`` 完整重複，
-        為避免邏輯漂移，改為委派至該單一來源（cursor UUID 驗證、分頁、count
-        皆由其負責）。
-
-        Args:
-            session_id: 場次 ID
-            cursor: 分頁游標（上一頁最後一筆的 ID）
-            limit: 每頁筆數
-
-        Returns:
-            包含 data、pagination 的字典
-        """
-        from app.services.session_service import SessionService
-
-        return await SessionService.get_conversations_static(
-            db, session_id, cursor=cursor, limit=limit
-        )
 
     @staticmethod
     async def get_by_id(db: AsyncSession, conversation_id: UUID) -> Conversation:

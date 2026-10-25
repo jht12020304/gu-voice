@@ -90,17 +90,6 @@
       "conditionPlaceholder": "Bệnh (VD: tiểu đường)",
       "add": "Thêm tiền sử gia đình"
     },
-    "summary": {
-      "title": "Xác nhận thông tin gửi đi",
-      "complaint": "Lý do khám",
-      "allergy": "Dị ứng",
-      "medication": "Thuốc",
-      "history": "Tiền sử",
-      "noKnownAllergies": "Không có dị ứng đã biết",
-      "noCurrentMedications": "Hiện không dùng thuốc",
-      "noPastHistory": "Không có tiền sử bệnh đáng kể",
-      "filled": "Đã điền"
-    },
     "nav": {
       "back": "Quay lại",
       "prev": "Bước trước",

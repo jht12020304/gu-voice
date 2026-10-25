@@ -67,6 +67,8 @@ class _FakeDB:
 
     async def execute(self, stmt: Any):
         class _Result:
+            rowcount = 1  # compare-and-set UPDATE 命中
+
             def __init__(self, v):
                 self._v = v
             def scalar_one_or_none(self):

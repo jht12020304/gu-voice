@@ -11,7 +11,7 @@ import logging
 import re
 import time
 import uuid
-from typing import Any, Callable, Optional
+from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import text
@@ -19,7 +19,9 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.core.net import get_client_ip
 from app.models.enums import AuditAction
+from app.utils.pagination import coerce_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +180,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
 
         # 收集欄位
         user_id = _extract_user_id(request)
-        client_ip = _extract_client_ip(request)
+        client_ip = (get_client_ip(request) or None)
         user_agent = request.headers.get("user-agent", "")[:500]
         request_id = getattr(request.state, "request_id", None)
 
@@ -216,17 +218,6 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def _coerce_uuid(value: Any) -> Optional[UUID]:
-    if isinstance(value, UUID):
-        return value
-    if isinstance(value, str):
-        try:
-            return UUID(value)
-        except ValueError:
-            return None
-    return None
-
-
 def _extract_user_id(request: Request) -> Optional[UUID]:
     """
     從 request.state 取 user_id（get_current_user 會設）。
@@ -239,7 +230,7 @@ def _extract_user_id(request: Request) -> Optional[UUID]:
     ORM 分支保留當 fallback（相容尚未設 user_id 的路徑），但整段包 try/except：
     稽核欄位抽取失敗絕不該影響回應。
     """
-    uid = _coerce_uuid(getattr(request.state, "user_id", None))
+    uid = coerce_uuid(getattr(request.state, "user_id", None))
     if uid is not None:
         return uid
 
@@ -247,17 +238,10 @@ def _extract_user_id(request: Request) -> Optional[UUID]:
         user = getattr(request.state, "user", None)
         if user is None:
             return None
-        return _coerce_uuid(getattr(user, "id", None))
+        return coerce_uuid(getattr(user, "id", None))
     except Exception:  # noqa: BLE001 — 稽核抽取不可影響回應（如 DetachedInstanceError）
         logger.warning("稽核 user_id 抽取失敗，以 None 記錄", exc_info=True)
         return None
-
-
-def _extract_client_ip(request: Request) -> Optional[str]:
-    """解析 client IP（透過 net.get_client_ip 統一處理 proxy 信任策略）。"""
-    from app.core.net import get_client_ip
-
-    return get_client_ip(request) or None
 
 
 async def _persist_audit_entry(

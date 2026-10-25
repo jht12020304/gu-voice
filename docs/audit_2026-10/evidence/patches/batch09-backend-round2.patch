@@ -1,0 +1,3719 @@
+diff --git a/backend/.env.example b/backend/.env.example
+index 0b3325b..4ddf177 100644
+--- a/backend/.env.example
++++ b/backend/.env.example
+@@ -11,9 +11,7 @@
+ # -----------------------------------------------------------------------------
+ # development | staging | production（development 會開 /docs 與不設 token 的 /metrics）
+ APP_ENV=production
+-APP_HOST=0.0.0.0
+-APP_PORT=8000
+-APP_WORKERS=4
++# 綁定埠／worker 數是 scripts/start.sh 的 shell 變數（PORT、WORKERS），不是 Settings 欄位
+ # DEBUG / INFO / WARNING / ERROR / CRITICAL（大小寫皆可，啟動腳本會轉小寫）
+ # 同時被 Settings.LOG_LEVEL 與 scripts/start.sh 的 uvicorn 讀取
+ LOG_LEVEL=info
+@@ -136,7 +134,6 @@ MULTILANG_GLOBAL_ENABLED=true
+ MULTILANG_ROLLOUT_PERCENT=100
+ # 緊急 kill-switch，逗號分隔（例：ja-JP,ko-KR）
+ # MULTILANG_DISABLED_LANGUAGES=
+-RED_FLAG_SEMANTIC_ONLY_THRESHOLD=0.3
+ RED_FLAG_BUILTIN_RULES_FALLBACK=true
+ RED_FLAG_NEGATION_GUARD=true
+ 
+diff --git a/backend/Dockerfile b/backend/Dockerfile
+index e70b121..2954971 100644
+--- a/backend/Dockerfile
++++ b/backend/Dockerfile
+@@ -6,7 +6,7 @@
+ # ---------------------------------------------------------------------------
+ # 階段一：建置階段 — 安裝 Python 套件
+ # ---------------------------------------------------------------------------
+-FROM python:3.11-slim AS builder
++FROM python:3.12-slim AS builder
+ 
+ WORKDIR /build
+ 
+@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir --prefix=/build/deps -r requirements.txt
+ # ---------------------------------------------------------------------------
+ # 階段二：生產階段 — 精簡映像檔
+ # ---------------------------------------------------------------------------
+-FROM python:3.11-slim AS production
++FROM python:3.12-slim AS production
+ 
+ LABEL maintainer="GU Urology AI Team"
+ LABEL description="泌尿科 AI 語音問診助手 — FastAPI 後端服務"
+diff --git a/backend/alembic/env.py b/backend/alembic/env.py
+index 7887039..a482df8 100644
+--- a/backend/alembic/env.py
++++ b/backend/alembic/env.py
+@@ -9,6 +9,7 @@ Alembic 環境設定
+ import os
+ import sys
+ from logging.config import fileConfig
++from urllib.parse import urlparse
+ 
+ from sqlalchemy import create_engine, pool
+ from sqlalchemy.engine import Connection
+@@ -34,8 +35,16 @@ if config.config_file_name is not None:
+ target_metadata = Base.metadata
+ 
+ # ── 建立 sync engine（psycopg2 driver）──────────────────────────
+-_use_ssl = "supabase" in settings.DB_HOST or "pooler.supabase" in settings.DB_HOST
+ _sync_url = settings.DATABASE_URL  # postgresql:// (defaults to psycopg2)
++# SSL 判斷要看「實際連線用的 host」：以完整 DATABASE_URL 注入時（Railway／Supabase
++# 常態）settings.DB_HOST 仍是預設 localhost，只看它會漏掉 SSL。與 app/core/database.py
++# 的 runtime engine 同一套判斷（supabase 或 pooler 都算）。
++try:
++    _url_host = (urlparse(_sync_url).hostname or "").lower()
++except Exception:
++    _url_host = ""
++_db_host = _url_host or (settings.DB_HOST or "").lower()
++_use_ssl = ("supabase" in _db_host) or ("pooler" in _db_host)
+ _connect_args: dict = {}
+ if _use_ssl:
+     _connect_args["sslmode"] = "require"
+diff --git a/backend/alembic/versions/20261003_1600-notification_paging_indexes.py b/backend/alembic/versions/20261003_1600-notification_paging_indexes.py
+deleted file mode 100644
+index 8c30138..0000000
+--- a/backend/alembic/versions/20261003_1600-notification_paging_indexes.py
++++ /dev/null
+@@ -1,22 +0,0 @@
+-"""Index notification paging and unread counts without blocking table writes."""
+-from alembic import op
+-import sqlalchemy as sa
+-
+-revision = "smoothness_20261003"
+-down_revision = "a1b2c3d4e5f6"
+-branch_labels = None
+-depends_on = None
+-
+-
+-def upgrade():
+-    with op.get_context().autocommit_block():
+-        op.create_index("ix_notifications_user_created_id", "notifications",
+-                        ["user_id", "created_at", "id"], postgresql_concurrently=True)
+-        op.create_index("ix_notifications_user_unread", "notifications", ["user_id"],
+-                        postgresql_where=sa.text("is_read = false"), postgresql_concurrently=True)
+-
+-
+-def downgrade():
+-    with op.get_context().autocommit_block():
+-        op.drop_index("ix_notifications_user_unread", table_name="notifications", postgresql_concurrently=True)
+-        op.drop_index("ix_notifications_user_created_id", table_name="notifications", postgresql_concurrently=True)
+diff --git a/backend/app/cache/redis_client.py b/backend/app/cache/redis_client.py
+index a983081..b5c9558 100644
+--- a/backend/app/cache/redis_client.py
++++ b/backend/app/cache/redis_client.py
+@@ -3,6 +3,7 @@ Redis 非同步連線客戶端
+ - 使用 redis.asyncio 建立連線
+ """
+ 
++import asyncio
+ from typing import Optional
+ 
+ import redis.asyncio as aioredis
+@@ -11,26 +12,47 @@ from app.core.config import settings
+ 
+ # ── 全域連線池 ────────────────────────────────────────────
+ _redis_pool: Optional[aioredis.Redis] = None
++# 建池時的 event loop：連線一旦在某個 loop 上建立就只能在那個 loop 用。
++# Celery 的 run_async 每個 task 開新 loop，所以池只對建它的 loop 有效。
++_pool_loop: Optional[asyncio.AbstractEventLoop] = None
+ 
+ 
+ async def init_redis() -> aioredis.Redis:
+     """初始化 Redis 連線池（cache DB，P3 #29）"""
+-    global _redis_pool
++    global _redis_pool, _pool_loop
+     _redis_pool = aioredis.from_url(
+         settings.REDIS_URL_CACHE,
+         encoding="utf-8",
+         decode_responses=True,
+         max_connections=20,
+     )
++    _pool_loop = asyncio.get_running_loop()
+     return _redis_pool
+ 
+ 
+ async def close_redis() -> None:
+     """關閉 Redis 連線池（應用程式關閉時呼叫）"""
+-    global _redis_pool
++    global _redis_pool, _pool_loop
+     if _redis_pool:
+-        await _redis_pool.close()
++        await _redis_pool.aclose()
+         _redis_pool = None
++        _pool_loop = None
++
++
++def pool_for_current_loop() -> Optional[aioredis.Redis]:
++    """若目前 loop 就是建池的 loop，回傳共用池；否則 None（呼叫端自備短命連線）。
++
++    給 `publish_dashboard_event` 這類「API 行程每則事件都要 publish」的路徑用：
++    在 API 行程重用池（省掉每則事件 3–4 個 round trip 的 connect/AUTH/QUIT），
++    在 Celery（每個 task 新 loop）仍走原本的短命 client，避免跨 loop 共用連線。
++    """
++    if _redis_pool is None or _pool_loop is None:
++        return None
++    try:
++        loop = asyncio.get_running_loop()
++    except RuntimeError:
++        return None
++    return _redis_pool if loop is _pool_loop else None
+ 
+ 
+ async def get_redis() -> aioredis.Redis:
+diff --git a/backend/app/core/authz.py b/backend/app/core/authz.py
+index cf82a80..6dc3eea 100644
+--- a/backend/app/core/authz.py
++++ b/backend/app/core/authz.py
+@@ -56,3 +56,18 @@ def clinician_session_filter(clinician_id: Any):
+     from app.models.session import Session
+ 
+     return or_(Session.doctor_id == clinician_id, Session.doctor_id.is_(None))
++
++
++async def patient_owned_by(db: Any, patient_id: Any, user_id: Any) -> bool:
++    """病患帳號是否擁有此 patient（`patients.user_id == user_id`）。
++
++    session_service／report_service 的病患分支先前各自寫同一段 query；共用一份，
++    避免「病患只能看自己名下場次／報告」這條規則兩邊漂移。
++    """
++    from sqlalchemy import select
++
++    from app.models.patient import Patient
++
++    result = await db.execute(select(Patient.user_id).where(Patient.id == patient_id))
++    owner_user_id = result.scalar_one_or_none()
++    return owner_user_id is not None and owner_user_id == user_id
+diff --git a/backend/app/core/config.py b/backend/app/core/config.py
+index 98cdd2a..e817c83 100644
+--- a/backend/app/core/config.py
++++ b/backend/app/core/config.py
+@@ -50,9 +50,8 @@ class Settings(BaseSettings):
+ 
+     # ── APP ─────────────────────────────────────────────
+     APP_ENV: str = "development"
+-    APP_HOST: str = "0.0.0.0"
+-    APP_PORT: int = 8000
+-    APP_WORKERS: int = 4
++    # 綁定位址／埠／worker 數由 scripts/start.sh 的 shell 變數 PORT／WORKERS 決定，
++    # Settings 不讀它們（先前的 APP_HOST／APP_PORT／APP_WORKERS 欄位零讀取者，已移除）。
+     # 單一日誌等級欄位，對齊 start.sh / docker-compose / .env.example 的 LOG_LEVEL
+     LOG_LEVEL: str = "info"
+     APP_SECRET_KEY: str = "change-me-in-production"
+@@ -318,11 +317,6 @@ class Settings(BaseSettings):
+     # 改由下方 field_validator(mode="before") 接手解析逗號分隔字串。
+     MULTILANG_DISABLED_LANGUAGES: Annotated[list[str], NoDecode] = []  # 緊急 kill-switch（逗號分隔）
+ 
+-    # TODO-M8：紅旗 semantic-only 比率閾值。
+-    # 一個 session 的紅旗命中若 semantic_only / total > threshold → report 將
+-    # 被後端視為 draft（非 zh-TW fail-safe 機制）。預設 0.3。
+-    RED_FLAG_SEMANTIC_ONLY_THRESHOLD: float = 0.3
+-
+     # W1：紅旗規則層 kill-switch。
+     # red_flag_rules 表在生產環境從未被 seed，查詢「成功但 0 筆」在語意上
+     # 等同「規則層從未被配置過」，而非管理者刻意清空。預設 True 時，
+diff --git a/backend/app/core/email_client.py b/backend/app/core/email_client.py
+index 2401ae0..d0b5c66 100644
+--- a/backend/app/core/email_client.py
++++ b/backend/app/core/email_client.py
+@@ -12,7 +12,7 @@ DI 友善：`send_email` 可注入 `client` 替換 transport；單元測試直
+ from __future__ import annotations
+ 
+ import logging
+-from typing import Any, Optional, Protocol
++from typing import Optional, Protocol
+ 
+ from app.core.config import settings
+ 
+diff --git a/backend/app/core/exceptions.py b/backend/app/core/exceptions.py
+index 4b86be6..dca4dda 100644
+--- a/backend/app/core/exceptions.py
++++ b/backend/app/core/exceptions.py
+@@ -246,7 +246,7 @@ class AIServiceUnavailableException(AppException):
+ class ServiceUnavailableException(AppException):
+     """後端依賴（非 AI 服務）暫時不可用 → 503。
+ 
+-    與 `InternalErrorException`(500) 的分工：500 代表程式錯誤，503 代表外部依賴掛了、
++    與未捕捉例外（500，`unhandled_exception_handler`）的分工：500 代表程式錯誤，503 代表外部依賴掛了、
+     重試即可能成功（呼叫端可退避重試，維運上也不該被計入 bug）。
+     """
+ 
+@@ -269,16 +269,6 @@ class RateLimitExceededException(AppException):
+         super().__init__(ErrorCode.RATE_LIMIT_EXCEEDED, message, details, message_kwargs=message_kwargs)
+ 
+ 
+-class InternalErrorException(AppException):
+-    def __init__(
+-        self,
+-        message: str = "errors.internal_error",
+-        details: Optional[dict[str, Any]] = None,
+-        message_kwargs: Optional[dict[str, Any]] = None,
+-    ):
+-        super().__init__(ErrorCode.INTERNAL_ERROR, message, details, message_kwargs=message_kwargs)
+-
+-
+ # ── 例外處理器註冊 ──────────────────────────────────────
+ def _cors_headers(request: Request) -> dict[str, str]:
+     """從請求 Origin 產生 CORS headers，確保錯誤回應也帶有 CORS 資訊。"""
+@@ -295,7 +285,12 @@ def _cors_headers(request: Request) -> dict[str, str]:
+ 
+ 
+ def _resolve_request_language(request: Request) -> str:
+-    """從 request 推斷使用者語言：user.preferred_language → Accept-Language → 預設。"""
++    """錯誤回應語言：LanguageMiddleware 已解析（?lng / X-Language / Accept-Language）的
++    `request.state.language` 優先，否則退回 user.preferred_language → Accept-Language → 預設。
++    否則 4xx 的文案語言會和同一請求的 200 回應不一致。"""
++    resolved = getattr(request.state, "language", None)
++    if isinstance(resolved, str) and resolved:
++        return resolved
+     user = getattr(request.state, "current_user", None)
+     header = request.headers.get("accept-language")
+     return resolve_language(
+diff --git a/backend/app/core/middleware.py b/backend/app/core/middleware.py
+index fa0ff72..6de8a3b 100644
+--- a/backend/app/core/middleware.py
++++ b/backend/app/core/middleware.py
+@@ -11,7 +11,7 @@ import logging
+ import re
+ import time
+ import uuid
+-from typing import Any, Callable, Optional
++from typing import Optional
+ from uuid import UUID
+ 
+ from sqlalchemy import text
+@@ -19,7 +19,9 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
+ from starlette.requests import Request
+ from starlette.responses import Response
+ 
++from app.core.net import get_client_ip
+ from app.models.enums import AuditAction
++from app.utils.pagination import coerce_uuid
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -178,7 +180,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
+ 
+         # 收集欄位
+         user_id = _extract_user_id(request)
+-        client_ip = _extract_client_ip(request)
++        client_ip = (get_client_ip(request) or None)
+         user_agent = request.headers.get("user-agent", "")[:500]
+         request_id = getattr(request.state, "request_id", None)
+ 
+@@ -216,17 +218,6 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
+         return response
+ 
+ 
+-def _coerce_uuid(value: Any) -> Optional[UUID]:
+-    if isinstance(value, UUID):
+-        return value
+-    if isinstance(value, str):
+-        try:
+-            return UUID(value)
+-        except ValueError:
+-            return None
+-    return None
+-
+-
+ def _extract_user_id(request: Request) -> Optional[UUID]:
+     """
+     從 request.state 取 user_id（get_current_user 會設）。
+@@ -239,7 +230,7 @@ def _extract_user_id(request: Request) -> Optional[UUID]:
+     ORM 分支保留當 fallback（相容尚未設 user_id 的路徑），但整段包 try/except：
+     稽核欄位抽取失敗絕不該影響回應。
+     """
+-    uid = _coerce_uuid(getattr(request.state, "user_id", None))
++    uid = coerce_uuid(getattr(request.state, "user_id", None))
+     if uid is not None:
+         return uid
+ 
+@@ -247,19 +238,12 @@ def _extract_user_id(request: Request) -> Optional[UUID]:
+         user = getattr(request.state, "user", None)
+         if user is None:
+             return None
+-        return _coerce_uuid(getattr(user, "id", None))
++        return coerce_uuid(getattr(user, "id", None))
+     except Exception:  # noqa: BLE001 — 稽核抽取不可影響回應（如 DetachedInstanceError）
+         logger.warning("稽核 user_id 抽取失敗，以 None 記錄", exc_info=True)
+         return None
+ 
+ 
+-def _extract_client_ip(request: Request) -> Optional[str]:
+-    """解析 client IP（透過 net.get_client_ip 統一處理 proxy 信任策略）。"""
+-    from app.core.net import get_client_ip
+-
+-    return get_client_ip(request) or None
+-
+-
+ async def _persist_audit_entry(
+     *,
+     user_id: Optional[UUID],
+diff --git a/backend/app/core/openai_client.py b/backend/app/core/openai_client.py
+index f835696..7c0e0dc 100644
+--- a/backend/app/core/openai_client.py
++++ b/backend/app/core/openai_client.py
+@@ -56,17 +56,6 @@ def get_openai_client() -> AsyncOpenAI:
+     return _client
+ 
+ 
+-async def reset_openai_client() -> None:
+-    """關閉並清除 singleton。主要給測試、app shutdown 使用。"""
+-    global _client
+-    if _client is not None:
+-        try:
+-            await _client.close()
+-        except Exception:  # noqa: BLE001
+-            pass
+-        _client = None
+-
+-
+ def _retryable_errors() -> tuple[type[Exception], ...]:
+     return (APITimeoutError, RateLimitError, APIConnectionError)
+ 
+diff --git a/backend/app/core/security.py b/backend/app/core/security.py
+index 8ebf8a5..404c456 100644
+--- a/backend/app/core/security.py
++++ b/backend/app/core/security.py
+@@ -7,13 +7,14 @@ JWT 認證 + 密碼雜湊工具
+ import asyncio
+ import secrets
+ import uuid
+-from datetime import datetime, timedelta, timezone
++from datetime import timedelta
+ from typing import Any, Literal
+ 
+ import jwt
+ from passlib.context import CryptContext
+ 
+ from app.core.config import settings
++from app.utils.datetime_utils import utc_now
+ 
+ # ── 密碼雜湊 ───────────────────────────────────────────
+ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+@@ -63,7 +64,7 @@ def create_token(
+         token_type: "access" 或 "refresh"
+         extra_claims: 額外 claims
+     """
+-    now = datetime.now(timezone.utc)
++    now = utc_now()
+ 
+     if token_type == "access":
+         expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+diff --git a/backend/app/main.py b/backend/app/main.py
+index 15bc739..bc69665 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -7,8 +7,7 @@ import asyncio
+ import logging
+ import secrets
+ from contextlib import asynccontextmanager
+-from datetime import datetime, timezone
+-from typing import Any, AsyncGenerator
++from typing import AsyncGenerator
+ 
+ from fastapi import Depends, FastAPI, HTTPException, Request, Response
+ from fastapi.middleware.cors import CORSMiddleware
+@@ -16,9 +15,9 @@ from fastapi.middleware.gzip import GZipMiddleware
+ from fastapi.responses import JSONResponse
+ from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
+ from prometheus_fastapi_instrumentator import Instrumentator
+-from sqlalchemy import text
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
++from app.utils.datetime_utils import utc_now
+ from app.core.config import settings
+ from app.core.database import engine
+ from app.cache.redis_client import close_redis, init_redis
+@@ -322,36 +321,11 @@ async def health_check() -> HealthResponse:
+     return HealthResponse(
+         status="ok",
+         version="1.0.0",
+-        timestamp=datetime.now(timezone.utc),
++        timestamp=utc_now(),
+     )
+ 
+ 
+-# 深度健康檢查所用的單次檢查逾時；DB / Redis 任一超過 2 秒就判定 fail
+-_DEEP_HEALTH_TIMEOUT_SECONDS = 2.0
+-
+-
+-async def _deep_check_db(db: AsyncSession) -> str:
+-    """對 DB 跑 SELECT 1；成功回 "ok"，失敗回 "fail: <err>"。"""
+-    try:
+-        async def _probe() -> None:
+-            await db.execute(text("SELECT 1"))
+-        await asyncio.wait_for(_probe(), timeout=_DEEP_HEALTH_TIMEOUT_SECONDS)
+-        return "ok"
+-    except asyncio.TimeoutError:
+-        return f"fail: timeout >{_DEEP_HEALTH_TIMEOUT_SECONDS}s"
+-    except Exception as exc:  # noqa: BLE001 — 要回報給呼叫端
+-        return f"fail: {exc}"
+-
+-
+-async def _deep_check_redis(redis: Any) -> str:
+-    """對 Redis 跑 ping；成功回 "ok"，失敗回 "fail: <err>"。"""
+-    try:
+-        await asyncio.wait_for(redis.ping(), timeout=_DEEP_HEALTH_TIMEOUT_SECONDS)
+-        return "ok"
+-    except asyncio.TimeoutError:
+-        return f"fail: timeout >{_DEEP_HEALTH_TIMEOUT_SECONDS}s"
+-    except Exception as exc:  # noqa: BLE001
+-        return f"fail: {exc}"
++from app.core.health import probe_db as _deep_check_db, probe_redis as _deep_check_redis  # noqa: E402
+ 
+ 
+ @app.get("/api/v1/healthz/deep", tags=["系統"])
+diff --git a/backend/app/models/audit_log.py b/backend/app/models/audit_log.py
+index ce40390..90a3d30 100644
+--- a/backend/app/models/audit_log.py
++++ b/backend/app/models/audit_log.py
+@@ -9,7 +9,7 @@ import uuid
+ from datetime import datetime
+ from typing import TYPE_CHECKING, Any, Optional
+ 
+-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, text
++from sqlalchemy import BigInteger, DateTime, ForeignKey, String, text
+ from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+diff --git a/backend/app/models/notification_preference.py b/backend/app/models/notification_preference.py
+index 8f4ff4b..2c4b404 100644
+--- a/backend/app/models/notification_preference.py
++++ b/backend/app/models/notification_preference.py
+@@ -8,7 +8,7 @@
+ 
+ import uuid
+ from datetime import datetime
+-from typing import TYPE_CHECKING, Optional
++from typing import TYPE_CHECKING
+ 
+ from sqlalchemy import Boolean, DateTime, ForeignKey, text
+ from sqlalchemy.dialects.postgresql import UUID
+diff --git a/backend/app/pipelines/red_flag_detector.py b/backend/app/pipelines/red_flag_detector.py
+index 2b62182..f3b3e00 100644
+--- a/backend/app/pipelines/red_flag_detector.py
++++ b/backend/app/pipelines/red_flag_detector.py
+@@ -9,8 +9,7 @@ import asyncio
+ import json
+ import logging
+ import re
+-import uuid
+-from typing import Any, Optional
++from typing import Any
+ 
+ from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+diff --git a/backend/app/pipelines/supervisor.py b/backend/app/pipelines/supervisor.py
+index ef73533..2626e80 100644
+--- a/backend/app/pipelines/supervisor.py
++++ b/backend/app/pipelines/supervisor.py
+@@ -23,7 +23,6 @@ from typing import Any
+ from redis.asyncio import Redis
+ 
+ from app.core.config import Settings
+-from app.core.exceptions import AIServiceUnavailableException
+ from app.core.openai_client import (
+     cache_kwargs,
+     call_with_retry,
+@@ -42,7 +41,6 @@ from app.pipelines.prompts.shared import (
+     render_hpi_checklist,
+     sanitize_for_prompt,
+ )
+-from app.utils.i18n_messages import get_message as _i18n_get
+ 
+ 
+ # BCP-47 → 人類語言名稱，用在 Supervisor 的 next_focus 輸出語言規則。
+diff --git a/backend/app/pipelines/tts_pipeline.py b/backend/app/pipelines/tts_pipeline.py
+index 38e42c4..ba25fbb 100644
+--- a/backend/app/pipelines/tts_pipeline.py
++++ b/backend/app/pipelines/tts_pipeline.py
+@@ -1,14 +1,10 @@
+ """
+ 文字轉語音管線 — OpenAI TTS API
+ 
+-將 AI 回應文字合成為 MP3 語音，支援上傳至 Supabase Storage
+-並產生簽章 URL 供前端播放。
++將 AI 回應文字合成為 MP3 語音，直接以 bytes 回給 WS 串流播放（不落地）。
+ """
+ 
+ import logging
+-from typing import Any
+-
+-from supabase import create_client, Client as SupabaseClient
+ 
+ from app.core.config import Settings
+ from app.core.metrics import observe_tts_latency
+@@ -16,16 +12,11 @@ from app.core.openai_client import call_with_retry, get_openai_client
+ 
+ logger = logging.getLogger(__name__)
+ 
+-_STORAGE_BUCKET = "tts-audio"
+-_SIGNED_URL_EXPIRE_SECONDS = 3600  # 1 小時
+-
+-
+ class TTSPipeline:
+     """
+     OpenAI TTS 管線
+ 
+-    使用 tts-1 模型合成自然語音，輸出 MP3 格式，
+-    並可選擇性地上傳至 Supabase Storage 供前端串流播放。
++    使用 tts-1 模型合成自然語音，輸出 MP3 格式。
+     """
+ 
+     def __init__(self, settings: Settings) -> None:
+@@ -36,19 +27,11 @@ class TTSPipeline:
+         # LANGUAGE_MAP 規劃 ja/ko/vi 用 shimmer；這裡保留引用，synthesize 時依場次語言覆寫。
+         self._language_map = settings.LANGUAGE_MAP
+ 
+-        self._supabase: SupabaseClient | None = None
+-        if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
+-            self._supabase = create_client(
+-                settings.SUPABASE_URL,
+-                settings.SUPABASE_SERVICE_ROLE_KEY,
+-            )
+-
+         logger.info(
+-            "TTSPipeline 初始化 (OpenAI TTS) | model=%s, default_voice=%s, speed=%.1f, supabase=%s",
++            "TTSPipeline 初始化 (OpenAI TTS) | model=%s, default_voice=%s, speed=%.1f",
+             self._model,
+             self._voice,
+             self._speed,
+-            "connected" if self._supabase else "disabled",
+         )
+ 
+     def _voice_for_language(self, language: str | None) -> str:
+@@ -109,71 +92,6 @@ class TTSPipeline:
+             )
+             raise
+ 
+-    async def synthesize_to_url(
+-        self, text: str, session_id: str, message_id: str, language: str | None = None
+-    ) -> str:
+-        """
+-        合成語音後上傳至 Supabase Storage，回傳簽章 URL。
+-
+-        Args:
+-            text:       要合成語音的文字
+-            session_id: 問診場次 ID
+-            message_id: 訊息 ID（用於檔案命名）
+-
+-        Returns:
+-            可播放的簽章 URL，失敗時回傳空字串
+-        """
+-        if self._supabase is None:
+-            raise RuntimeError(
+-                "Supabase 客戶端未設定，無法上傳音訊。"
+-                "請確認 SUPABASE_URL 與 SUPABASE_SERVICE_ROLE_KEY 環境變數。"
+-            )
+-
+-        audio_bytes = await self.synthesize(text, language=language)
+-        if not audio_bytes:
+-            return ""
+-
+-        # 存為 mp3
+-        file_path = f"sessions/{session_id}/{message_id}.mp3"
+-
+-        try:
+-            self._supabase.storage.from_(_STORAGE_BUCKET).upload(
+-                path=file_path,
+-                file=audio_bytes,
+-                file_options={
+-                    "content-type": "audio/mpeg",
+-                    "upsert": "true",
+-                },
+-            )
+-
+-            signed_url_response = self._supabase.storage.from_(
+-                _STORAGE_BUCKET
+-            ).create_signed_url(
+-                path=file_path,
+-                expires_in=_SIGNED_URL_EXPIRE_SECONDS,
+-            )
+-
+-            signed_url = signed_url_response.get("signedURL", "")
+-
+-            logger.info(
+-                "TTS 音訊已上傳 | session=%s, message=%s, path=%s",
+-                session_id,
+-                message_id,
+-                file_path,
+-            )
+-
+-            return signed_url
+-
+-        except Exception as exc:
+-            logger.error(
+-                "TTS 音訊上傳失敗 | session=%s, message=%s, error=%s",
+-                session_id,
+-                message_id,
+-                str(exc),
+-                exc_info=True,
+-            )
+-            raise
+-
+     async def close(self) -> None:
+         """OpenAI AsyncClient 無需明確關閉，保留介面一致性。"""
+         logger.info("TTSPipeline 關閉")
+diff --git a/backend/app/routers/admin.py b/backend/app/routers/admin.py
+index e043110..5805ea3 100644
+--- a/backend/app/routers/admin.py
++++ b/backend/app/routers/admin.py
+@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, status
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.dependencies import get_current_user, get_db, require_role
+-from app.core.exceptions import AppException
+ from app.schemas.admin import (
+     CreateUserRequest,
+     SystemHealthResponse,
+diff --git a/backend/app/routers/alerts.py b/backend/app/routers/alerts.py
+index 73705e0..3e85dcb 100644
+--- a/backend/app/routers/alerts.py
++++ b/backend/app/routers/alerts.py
+@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, status
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.dependencies import get_current_user, get_db, require_role
+-from app.core.exceptions import AppException
+ from app.schemas.alert import (
+     AcknowledgeAlertRequest,
+     AcknowledgeAlertResponse,
+diff --git a/backend/app/routers/audit_logs.py b/backend/app/routers/audit_logs.py
+index 869bd35..8047fc1 100644
+--- a/backend/app/routers/audit_logs.py
++++ b/backend/app/routers/audit_logs.py
+@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, status
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.dependencies import get_current_user, get_db, require_role
+-from app.core.exceptions import AppException
+ from app.schemas.audit_log import (
+     AuditLogDetail,
+     AuditLogListResponse,
+diff --git a/backend/app/routers/auth.py b/backend/app/routers/auth.py
+index 3e7e3d8..4c4715d 100644
+--- a/backend/app/routers/auth.py
++++ b/backend/app/routers/auth.py
+@@ -4,7 +4,6 @@
+ 
+ from __future__ import annotations
+ 
+-from uuid import UUID
+ 
+ from fastapi import APIRouter, Depends, Header, Request, Response, status
+ from fastapi.responses import JSONResponse
+@@ -17,6 +16,7 @@ from app.core.csrf import (
+     set_csrf_cookie,
+     validate_csrf,
+ )
++from app.core.net import get_client_ip
+ from app.core.dependencies import get_current_user, get_db
+ from app.core.exceptions import AppException, UnauthorizedException
+ from app.schemas.auth import (
+@@ -31,7 +31,6 @@ from app.schemas.auth import (
+     RefreshResponse,
+     RegisterRequest,
+     ResetPasswordRequest,
+-    TokenResponse,
+     UpdateProfileRequest,
+     UserResponse,
+ )
+@@ -130,7 +129,7 @@ async def login(
+     - 每 IP 每分鐘 10 次
+     - 帳號連續失敗 5 次鎖 10 分鐘
+     """
+-    client_ip = _extract_client_ip(request)
++    client_ip = get_client_ip(request)
+     result = await auth_service.login(
+         db,
+         email=payload.email,
+@@ -140,17 +139,6 @@ async def login(
+     return _auth_json_response(result)
+ 
+ 
+-def _extract_client_ip(request: Request) -> str:
+-    """取出 client IP。
+-
+-    委派 `app.core.net.get_client_ip`（預設不信任 X-Forwarded-For），
+-    集中代理信任策略，避免無條件信任 XFF 首段被偽造（M-7）。
+-    """
+-    from app.core.net import get_client_ip
+-
+-    return get_client_ip(request)
+-
+-
+ @router.post(
+     "/register",
+     response_model=LoginResponse,
+@@ -365,7 +353,7 @@ async def forgot_password(
+     from app.core import rate_limit as rl
+ 
+     redis = await get_redis()
+-    await rl.enforce_password_reset_ip_rate_limit(redis, _extract_client_ip(request))
++    await rl.enforce_password_reset_ip_rate_limit(redis, get_client_ip(request))
+ 
+     result = await auth_service.forgot_password(db, email=payload.email)
+     lang = resolve_language(
+@@ -397,7 +385,7 @@ async def reset_password(
+     from app.core import rate_limit as rl
+ 
+     redis = await get_redis()
+-    await rl.enforce_password_reset_ip_rate_limit(redis, _extract_client_ip(request))
++    await rl.enforce_password_reset_ip_rate_limit(redis, get_client_ip(request))
+ 
+     await auth_service.reset_password(
+         db,
+diff --git a/backend/app/routers/patients.py b/backend/app/routers/patients.py
+index c1976a5..4166524 100644
+--- a/backend/app/routers/patients.py
++++ b/backend/app/routers/patients.py
+@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, status
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.dependencies import get_current_user, get_db, require_role
+-from app.core.exceptions import AppException
+ from app.schemas.patient import (
+     PatientCreate,
+     PatientDetail,
+diff --git a/backend/app/routers/sessions.py b/backend/app/routers/sessions.py
+index c600338..7b427be 100644
+--- a/backend/app/routers/sessions.py
++++ b/backend/app/routers/sessions.py
+@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.dependencies import get_current_user, get_db, get_redis, require_role
+-from app.core.exceptions import AppException
+ from app.core.metrics import record_session_created
+ from app.core.sentry import set_language_scope
+ from app.schemas.session import (
+diff --git a/backend/app/schemas/auth.py b/backend/app/schemas/auth.py
+index 713c3b4..cb3247a 100644
+--- a/backend/app/schemas/auth.py
++++ b/backend/app/schemas/auth.py
+@@ -165,7 +165,6 @@ class ForgotPasswordResponse(MessageResponse):
+ # ── 別名（供 router 匯入相容） ──────────────────────────
+ RefreshRequest = RefreshTokenRequest
+ RefreshResponse = RefreshTokenResponse
+-TokenResponse = LoginResponse
+ UserResponse = UserInfo
+ 
+ class UpdateProfileRequest(BaseModel):
+diff --git a/backend/app/schemas/session.py b/backend/app/schemas/session.py
+index 65277f4..a1707bf 100644
+--- a/backend/app/schemas/session.py
++++ b/backend/app/schemas/session.py
+@@ -16,6 +16,17 @@ from app.schemas.conversation import ConversationResponse
+ from app.utils.language import normalize_bcp47
+ 
+ 
++
++def _validated_supported_language(v: str, field_name: str) -> str:
++    """白名單驗證 + BCP-47 正規化；SessionCreate.language 與 to_language 共用。"""
++    normalized = normalize_bcp47(v)
++    if normalized is None or normalized not in settings.SUPPORTED_LANGUAGES:
++        raise ValueError(
++            f"{field_name} must be one of: {', '.join(settings.SUPPORTED_LANGUAGES)}"
++        )
++    return normalized
++
++
+ class PromptSafeFreeText(BaseModel):
+     """所有欄位皆為病患自由輸入、且會被插進 LLM system prompt 的 schema 基底。
+ 
+@@ -135,12 +146,7 @@ class SessionCreate(BaseModel):
+         """白名單驗證 + BCP-47 大小寫正規化（zh-tw → zh-TW）。"""
+         if v is None or v == "":
+             return None
+-        normalized = normalize_bcp47(v)
+-        if normalized is None or normalized not in settings.SUPPORTED_LANGUAGES:
+-            raise ValueError(
+-                f"language must be one of: {', '.join(settings.SUPPORTED_LANGUAGES)}"
+-            )
+-        return normalized
++        return _validated_supported_language(v, "language")
+ 
+ 
+ class SessionUpdateStatus(BaseModel):
+@@ -162,12 +168,7 @@ class SessionEndForLanguageSwitch(BaseModel):
+     @field_validator("to_language")
+     @classmethod
+     def _validate_to_language(cls, v: str) -> str:
+-        normalized = normalize_bcp47(v)
+-        if normalized is None or normalized not in settings.SUPPORTED_LANGUAGES:
+-            raise ValueError(
+-                f"to_language must be one of: {', '.join(settings.SUPPORTED_LANGUAGES)}"
+-            )
+-        return normalized
++        return _validated_supported_language(v, "to_language")
+ 
+ 
+ class SessionResponse(BaseModel):
+diff --git a/backend/app/services/admin_service.py b/backend/app/services/admin_service.py
+index 0658fa1..e006096 100644
+--- a/backend/app/services/admin_service.py
++++ b/backend/app/services/admin_service.py
+@@ -9,6 +9,7 @@ import os
+ from uuid import UUID
+ from sqlalchemy import func, or_, select
+ from sqlalchemy.ext.asyncio import AsyncSession
++from app.utils.pagination import keyset_after, page_slice, parse_cursor
+ from app.core.exceptions import (
+     EmailAlreadyExistsException,
+     ForbiddenException,
+@@ -64,22 +65,12 @@ class AdminService:
+             query = query.where(condition)
+             count_query = count_query.where(condition)
+ 
+-        if cursor:
+-            try:
+-                cursor_result = await db.execute(
+-                    select(User).where(User.id == UUID(cursor))
+-                )
+-                cursor_record = cursor_result.scalar_one_or_none()
+-                if cursor_record:
+-                    query = query.where(
+-                        (User.created_at < cursor_record.created_at)
+-                        | (
+-                            (User.created_at == cursor_record.created_at)
+-                            & (User.id < cursor_record.id)
+-                        )
+-                    )
+-            except ValueError:
+-                pass
++        _cursor = parse_cursor(cursor)
++        if _cursor is not None:
++            cursor_result = await db.execute(select(User).where(User.id == _cursor))
++            cursor_record = cursor_result.scalar_one_or_none()
++            if cursor_record:
++                query = keyset_after(query, cursor_record, User.created_at, User.id)
+ 
+         total_result = await db.execute(count_query)
+         total_count = total_result.scalar() or 0
+@@ -87,11 +78,7 @@ class AdminService:
+         result = await db.execute(query.limit(limit + 1))
+         users = list(result.scalars().all())
+ 
+-        has_more = len(users) > limit
+-        if has_more:
+-            users = users[:limit]
+-
+-        next_cursor = str(users[-1].id) if has_more and users else None
++        users, has_more, next_cursor = page_slice(users, limit)
+ 
+         return UserListResponse(
+             data=[UserDetail.model_validate(u) for u in users],
+@@ -125,7 +112,7 @@ class AdminService:
+         now = utc_now()
+         user = User(
+             email=data.email,
+-            password_hash=hash_password(data.password),
++            password_hash=await asyncio.to_thread(hash_password, data.password),
+             name=data.name,
+             role=data.role,
+             phone=data.phone,
+@@ -290,7 +277,7 @@ class AdminService:
+             raise NotFoundException("errors.user_not_found")
+ 
+         temp_password = generate_temp_password()
+-        user.password_hash = hash_password(temp_password)
++        user.password_hash = await asyncio.to_thread(hash_password, temp_password)
+         user.updated_at = utc_now()
+         await db.flush()
+ 
+@@ -353,38 +340,21 @@ class AdminService:
+ _APP_VERSION_FALLBACK = "1.0.0"
+ 
+ 
+-# ── 健康檢查探測（沿用 main.py deep health check 慣例）───────
+-_HEALTH_PROBE_TIMEOUT_SECONDS = 2.0
+-
+-
+-async def _probe_db(db: AsyncSession) -> str:
+-    """對 DB 跑 SELECT 1；成功回 "ok"，失敗回 "fail: <err>"。"""
+-    from sqlalchemy import text
+-
+-    try:
+-        async def _run() -> None:
+-            await db.execute(text("SELECT 1"))
+-
+-        await asyncio.wait_for(_run(), timeout=_HEALTH_PROBE_TIMEOUT_SECONDS)
+-        return "ok"
+-    except asyncio.TimeoutError:
+-        return f"fail: timeout >{_HEALTH_PROBE_TIMEOUT_SECONDS}s"
+-    except Exception as exc:  # noqa: BLE001 — 要回報給呼叫端
+-        return f"fail: {exc}"
++# ── 健康檢查探測（與 main.py /healthz/deep 共用 core/health）───────
++from app.core.health import PROBE_TIMEOUT_SECONDS as _HEALTH_PROBE_TIMEOUT_SECONDS  # noqa: E402
++from app.core.health import probe_db as _probe_db  # noqa: E402
++from app.core.health import probe_redis as _probe_redis_client  # noqa: E402
+ 
+ 
+ async def _probe_redis() -> str:
+-    """對 Redis 跑 PING；成功回 "ok"，失敗回 "fail: <err>"。"""
++    """取 app 連線池後交給共用探針。"""
+     try:
+         from app.cache.redis_client import get_redis
+ 
+         redis = await get_redis()
+-        await asyncio.wait_for(redis.ping(), timeout=_HEALTH_PROBE_TIMEOUT_SECONDS)
+-        return "ok"
+-    except asyncio.TimeoutError:
+-        return f"fail: timeout >{_HEALTH_PROBE_TIMEOUT_SECONDS}s"
+     except Exception as exc:  # noqa: BLE001
+         return f"fail: {exc}"
++    return await _probe_redis_client(redis)
+ 
+ 
+ async def _probe_openai() -> str:
+diff --git a/backend/app/services/alert_service.py b/backend/app/services/alert_service.py
+index 562a06b..89a00a9 100644
+--- a/backend/app/services/alert_service.py
++++ b/backend/app/services/alert_service.py
+@@ -12,10 +12,11 @@ from uuid import UUID
+ from sqlalchemy import func, select, update
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
++from app.utils.pagination import keyset_after, page_slice, parse_cursor
+ from app.core.authz import (
+     clinician_session_filter,
+     get_clinician_scope_id,
+-    get_user_role as _get_user_role,
++    get_user_role,
+ )
+ from app.core.exceptions import (
+     AlertAlreadyAcknowledgedException,
+@@ -31,9 +32,8 @@ from app.models.enums import (
+ from app.models.red_flag_alert import RedFlagAlert
+ from app.models.red_flag_rule import RedFlagRule
+ from app.models.session import Session
+-from app.services.session_visibility import visible_session_ids
++from app.services.session_visibility import session_not_deleted, visible_session_ids
+ from app.utils.datetime_utils import parse_iso, utc_now
+-from app.utils.pagination import parse_cursor
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -73,11 +73,6 @@ async def _broadcast_red_flag_acknowledged(
+         )
+ 
+ 
+-def _doctor_scope_id(current_user: Any) -> Optional[UUID]:
+-    """臨床帳號只看自己負責或尚未指派場次的紅旗；system admin 不限縮。"""
+-    return get_clinician_scope_id(current_user)
+-
+-
+ class AlertService:
+     """紅旗警示業務邏輯"""
+ 
+@@ -121,7 +116,7 @@ class AlertService:
+ 
+         # 醫師範圍限制：join Session 並以 session.doctor_id == self.id 過濾。
+         # 在 query 層過濾（非 post-hoc），確保分頁 / 計數一致。
+-        doctor_scope_id = _doctor_scope_id(current_user)
++        doctor_scope_id = get_clinician_scope_id(current_user)
+ 
+         # patient_id 需 join Session（patient_id 為 session 欄位）。doctor 範圍
+         # 限制同樣 join Session，避免重複 join；故只在任一條件需要時 join 一次。
+@@ -171,20 +166,12 @@ class AlertService:
+             )
+             cursor_record = result.scalar_one_or_none()
+             if cursor_record:
+-                query = query.where(
+-                    (RedFlagAlert.created_at < cursor_record.created_at)
+-                    | (
+-                        (RedFlagAlert.created_at == cursor_record.created_at)
+-                        & (RedFlagAlert.id < cursor_record.id)
+-                    )
+-                )
++                query = keyset_after(query, cursor_record, RedFlagAlert.created_at, RedFlagAlert.id)
+ 
+         result = await db.execute(query.limit(limit + 1))
+         alerts = result.scalars().all()
+ 
+-        has_more = len(alerts) > limit
+-        if has_more:
+-            alerts = alerts[:limit]
++        alerts, has_more, next_cursor = page_slice(alerts, limit)
+ 
+         count_query = select(func.count()).select_from(RedFlagAlert)
+         count_query = _apply_session_filters(count_query)
+@@ -204,7 +191,7 @@ class AlertService:
+         return {
+             "data": alerts,
+             "pagination": {
+-                "next_cursor": str(alerts[-1].id) if has_more and alerts else None,
++                "next_cursor": next_cursor,
+                 "has_more": has_more,
+                 "limit": limit,
+                 "total_count": total_count,
+@@ -234,7 +221,7 @@ class AlertService:
+             .where(RedFlagAlert.session_id.in_(visible_session_ids()))
+             .values(acknowledged_by=user_id, acknowledged_at=now, acknowledge_notes=notes)
+         )
+-        doctor_scope_id = _doctor_scope_id(current_user)
++        doctor_scope_id = get_clinician_scope_id(current_user)
+         if doctor_scope_id is not None:
+             stmt = stmt.where(
+                 RedFlagAlert.session_id.in_(
+@@ -258,7 +245,7 @@ class AlertService:
+         - ADMIN：看全部，不加範圍限制。
+         - patient / 未知角色：回傳 0（router 已以 require_role 擋下，這裡 fail-safe）。
+         """
+-        role = _get_user_role(current_user)
++        role = get_user_role(current_user)
+         if role not in (UserRole.DOCTOR, UserRole.ADMIN):
+             return 0
+ 
+@@ -269,7 +256,7 @@ class AlertService:
+             .where(RedFlagAlert.acknowledged_by.is_(None))
+         )
+ 
+-        doctor_scope_id = _doctor_scope_id(current_user)
++        doctor_scope_id = get_clinician_scope_id(current_user)
+         if doctor_scope_id is not None:
+             count_query = count_query.join(
+                 Session, RedFlagAlert.session_id == Session.id
+@@ -302,7 +289,7 @@ class AlertService:
+         )
+ 
+         # 醫師範圍限制：join Session 並以 session.doctor_id == self.id 過濾。
+-        doctor_scope_id = _doctor_scope_id(current_user)
++        doctor_scope_id = get_clinician_scope_id(current_user)
+         if doctor_scope_id is not None:
+             query = query.join(
+                 Session, RedFlagAlert.session_id == Session.id
+@@ -395,7 +382,7 @@ class AlertService:
+             from app.models.session import Session
+ 
+             session_result = await db.execute(
+-                select(Session).where(Session.id == data["session_id"])
++                select(Session).where(Session.id == data["session_id"]).where(session_not_deleted())
+             )
+             session = session_result.scalar_one_or_none()
+ 
+@@ -524,26 +511,19 @@ class AlertService:
+             )
+         )
+ 
+-        if cursor:
++        _cursor = parse_cursor(cursor)
++        if _cursor is not None:
+             result = await db.execute(
+-                select(RedFlagRule).where(RedFlagRule.id == cursor)
++                select(RedFlagRule).where(RedFlagRule.id == _cursor)
+             )
+             cursor_record = result.scalar_one_or_none()
+             if cursor_record:
+-                query = query.where(
+-                    (RedFlagRule.created_at < cursor_record.created_at)
+-                    | (
+-                        (RedFlagRule.created_at == cursor_record.created_at)
+-                        & (RedFlagRule.id < cursor_record.id)
+-                    )
+-                )
++                query = keyset_after(query, cursor_record, RedFlagRule.created_at, RedFlagRule.id)
+ 
+         result = await db.execute(query.limit(limit + 1))
+         rules = list(result.scalars().all())
+ 
+-        has_more = len(rules) > limit
+-        if has_more:
+-            rules = rules[:limit]
++        rules, has_more, next_cursor = page_slice(rules, limit)
+ 
+         count_query = _apply_filters(
+             select(func.count()).select_from(RedFlagRule)
+@@ -554,7 +534,7 @@ class AlertService:
+         return {
+             "data": rules,
+             "pagination": {
+-                "next_cursor": str(rules[-1].id) if has_more and rules else None,
++                "next_cursor": next_cursor,
+                 "has_more": has_more,
+                 "limit": limit,
+                 "total_count": total_count,
+@@ -687,5 +667,3 @@ class AlertService:
+     async def update_rule_entry(self, db, rule_id, data):
+         return await self.update_rule(db, rule_id=rule_id, data=data.model_dump(exclude_unset=True) if hasattr(data, 'model_dump') else data)
+ 
+-    async def delete_rule_entry(self, db, rule_id):
+-        return await self.delete_rule(db, rule_id=rule_id)
+diff --git a/backend/app/services/audit_log_service.py b/backend/app/services/audit_log_service.py
+index 484e95f..6ad2759 100644
+--- a/backend/app/services/audit_log_service.py
++++ b/backend/app/services/audit_log_service.py
+@@ -12,6 +12,7 @@ from uuid import UUID
+ from sqlalchemy import func, select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
++from app.utils.pagination import page_slice
+ from app.core.exceptions import NotFoundException
+ from app.models.audit_log import AuditLog
+ from app.models.enums import AuditAction
+@@ -123,9 +124,7 @@ class AuditLogService:
+         result = await db.execute(query.limit(limit + 1))
+         logs = result.scalars().all()
+ 
+-        has_more = len(logs) > limit
+-        if has_more:
+-            logs = logs[:limit]
++        logs, has_more, next_cursor = page_slice(logs, limit)
+ 
+         # 精確總筆數（套用與 list 相同的篩選條件，含日期範圍）
+         count_query = select(func.count()).select_from(AuditLog)
+@@ -149,7 +148,7 @@ class AuditLogService:
+         return {
+             "data": logs,
+             "pagination": {
+-                "next_cursor": str(logs[-1].id) if has_more and logs else None,
++                "next_cursor": next_cursor,
+                 "has_more": has_more,
+                 "limit": limit,
+                 "total_count": total_count,
+diff --git a/backend/app/services/auth_service.py b/backend/app/services/auth_service.py
+index 32010bb..64a9e98 100644
+--- a/backend/app/services/auth_service.py
++++ b/backend/app/services/auth_service.py
+@@ -26,7 +26,6 @@ from app.core.exceptions import (
+     NotFoundException,
+     ServiceUnavailableException,
+     UnauthorizedException,
+-    ValidationException,
+ )
+ from app.core.security import (
+     create_access_token,
+@@ -42,8 +41,9 @@ from app.utils.datetime_utils import utc_now
+ 
+ logger = logging.getLogger(__name__)
+ 
+-# JWT 黑名單 Redis key 前綴（與 dependencies.get_current_user 檢查端共用）
+-BLACKLIST_KEY_PREFIX = "gu:token_blacklist:"
++# JWT 黑名單 Redis key 前綴：單一定義在讀取端 core/dependencies，這裡只 import，
++# 避免寫入端／讀取端各自寫死後漂移（漂移＝登出的 token 靜默繼續有效）。
++from app.core.dependencies import BLACKLIST_KEY_PREFIX  # noqa: E402
+ 
+ # Refresh token rotation 登記表 key 前綴
+ # 每發一張 refresh token，就寫一筆 gu:refresh:{user_id}:{jti} = "1"，TTL = token exp
+@@ -59,15 +59,6 @@ RESET_TOKEN_TTL_SECONDS = 1800
+ FORGOT_PASSWORD_GENERIC_MESSAGE = "若此電子郵件已註冊，密碼重設連結已寄出"
+ 
+ 
+-def _is_admin(current_user: Any) -> bool:
+-    """current_user 是否為已認證的 ADMIN（role 容忍 string 或 enum）。
+-
+-    `core.authz.get_user_role` 的容錯解析：未登入 / 解不出角色一律視為非 admin，
+-    公開註冊因此一律降級為 PATIENT（AUTH-3）。
+-    """
+-    return get_user_role(current_user) == UserRole.ADMIN
+-
+-
+ def _refresh_key(user_id: Any, jti: str) -> str:
+     return f"{REFRESH_TOKEN_KEY_PREFIX}{user_id}:{jti}"
+ 
+@@ -114,6 +105,15 @@ async def _revoke_all_refresh_tokens(redis: Any, user_id: Any) -> int:
+     return count
+ 
+ 
++def _is_admin(current_user: Any) -> bool:
++    """current_user 是否為已認證的 ADMIN（role 容忍 string 或 enum）。
++
++    `core.authz.get_user_role` 的容錯解析：未登入 / 解不出角色一律視為非 admin，
++    公開註冊因此一律降級為 PATIENT（AUTH-3）。
++    """
++    return get_user_role(current_user) == UserRole.ADMIN
++
++
+ class AuthService:
+     """認證相關業務邏輯"""
+ 
+diff --git a/backend/app/services/complaint_service.py b/backend/app/services/complaint_service.py
+index aafbd78..6c4119d 100644
+--- a/backend/app/services/complaint_service.py
++++ b/backend/app/services/complaint_service.py
+@@ -12,6 +12,7 @@ from uuid import UUID
+ from sqlalchemy import Text, func, or_, select, update
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
++from app.utils.pagination import page_slice, parse_cursor
+ from app.core.authz import get_user_role
+ from app.core.config import settings
+ from app.core.exceptions import ForbiddenException, NotFoundException
+@@ -24,7 +25,6 @@ from app.utils.complaint_fallback_i18n import (
+ )
+ from app.utils.datetime_utils import utc_now
+ from app.utils.localized_field import pick
+-from app.utils.pagination import parse_cursor
+ 
+ 
+ def _seed_name_by_lang(name: str, name_en: Optional[str]) -> dict[str, str]:
+@@ -100,41 +100,6 @@ def _serialize_complaint(complaint: ChiefComplaint, language: Optional[str]) ->
+ class ComplaintService:
+     """主訴業務邏輯"""
+ 
+-    @staticmethod
+-    async def get_active_list(db: AsyncSession) -> list[dict[str, Any]]:
+-        """
+-        取得所有啟用中的主訴，依分類分組並依 display_order 排序
+-
+-        Returns:
+-            依分類分組的主訴列表
+-            [
+-                {
+-                    "category": "排尿症狀",
+-                    "complaints": [ChiefComplaint, ...]
+-                },
+-                ...
+-            ]
+-        """
+-        result = await db.execute(
+-            select(ChiefComplaint)
+-            .where(ChiefComplaint.is_active.is_(True))
+-            .order_by(ChiefComplaint.category, ChiefComplaint.display_order)
+-        )
+-        complaints = result.scalars().all()
+-
+-        # 依分類分組
+-        grouped: dict[str, list] = {}
+-        for complaint in complaints:
+-            category = complaint.category
+-            if category not in grouped:
+-                grouped[category] = []
+-            grouped[category].append(complaint)
+-
+-        return [
+-            {"category": category, "complaints": items}
+-            for category, items in grouped.items()
+-        ]
+-
+     @staticmethod
+     async def create(
+         db: AsyncSession,
+@@ -315,9 +280,7 @@ class ComplaintService:
+         result = await db.execute(query.limit(limit + 1))
+         items = result.scalars().all()
+ 
+-        has_more = len(items) > limit
+-        if has_more:
+-            items = items[:limit]
++        items, has_more, next_cursor = page_slice(items, limit)
+ 
+         # 符合篩選條件的總筆數（套用相同 where 條件，不含 cursor / limit）
+         total_result = await db.execute(
+@@ -328,7 +291,7 @@ class ComplaintService:
+         return {
+             "data": [_serialize_complaint(c, language) for c in items],
+             "pagination": {
+-                "next_cursor": str(items[-1].id) if has_more and items else None,
++                "next_cursor": next_cursor,
+                 "has_more": has_more,
+                 "limit": limit,
+                 "total_count": total_count,
+diff --git a/backend/app/services/conversation_service.py b/backend/app/services/conversation_service.py
+index 7798abc..b0da6f0 100644
+--- a/backend/app/services/conversation_service.py
++++ b/backend/app/services/conversation_service.py
+@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.core.exceptions import NotFoundException
+ from app.models.conversation import Conversation
+-from app.models.session import Session
+ from app.utils.datetime_utils import utc_now
+ 
+ 
+diff --git a/backend/app/services/dashboard_service.py b/backend/app/services/dashboard_service.py
+index f7bf204..d6797e1 100644
+--- a/backend/app/services/dashboard_service.py
++++ b/backend/app/services/dashboard_service.py
+@@ -395,6 +395,8 @@ class DashboardService:
+             .where(session_not_deleted())
+             .where(Session.status.in_(status_filters))
+             .order_by(Session.created_at.asc())
++            # 與 WS 版（dashboard_handler，上限 50）對齊：排隊清單不該隨歷史無上限成長。
++            .limit(50)
+         )
+         if scope_filter is not None:
+             query = query.where(scope_filter)
+diff --git a/backend/app/services/notification_service.py b/backend/app/services/notification_service.py
+index ea3da1d..56cb6f2 100644
+--- a/backend/app/services/notification_service.py
++++ b/backend/app/services/notification_service.py
+@@ -6,7 +6,6 @@
+ - 未讀計數（Redis 快取）
+ """
+ 
+-import json
+ import logging
+ from typing import Any, Optional
+ from uuid import UUID
+@@ -14,6 +13,7 @@ from uuid import UUID
+ from sqlalchemy import func, select, update
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
++from app.utils.pagination import keyset_after, page_slice, parse_cursor
+ from app.core.exceptions import NotFoundException
+ from app.models.enums import DevicePlatform, NotificationType
+ from app.models.fcm_device import FCMDevice
+@@ -36,6 +36,14 @@ _TYPE_FLAG_FIELD: dict[NotificationType, str] = {
+ }
+ 
+ 
++_UNREAD_CACHE_KEY = "gu:notifications:unread:{user_id}"
++
++
++def _unread_cache_key(user_id: Any) -> str:
++    """未讀數 Redis 快取 key（寫入與失效端共用，避免字面漂移）。"""
++    return _UNREAD_CACHE_KEY.format(user_id=user_id)
++
++
+ class NotificationService:
+     """通知業務邏輯"""
+ 
+@@ -179,7 +187,6 @@ class NotificationService:
+         回傳**實際建立**的通知清單（被偏好抑制的醫師不在內）。
+         呼叫端負責 commit；本函式僅 flush。
+         """
+-        from app.models.user import User
+         from app.utils.i18n_messages import get_message
+ 
+         doctor_id, patient_name = await NotificationService._resolve_session_targets(
+@@ -191,15 +198,10 @@ class NotificationService:
+ 
+         data = {"session_id": str(session_id), "report_id": str(report_id)}
+         created: list[Notification] = []
++        # 一次查全部目標的 preferred_language（先前逐位查＝N 個 round trip）。
++        lang_by_user = await NotificationService._preferred_languages(db, targets)
+         for target_id in targets:
+-            # 逐位查 preferred_language：fan-out 的規模是「在職醫師數」，
+-            # 通常是個位數到十幾位，N+1 在這裡不是問題，而每位醫師看到自己
+-            # 語言的通知比省幾個 query 重要（notify_session_complete 同樣作法）。
+-            doctor_lang = (
+-                await db.execute(
+-                    select(User.preferred_language).where(User.id == target_id)
+-                )
+-            ).scalar_one_or_none()
++            doctor_lang = lang_by_user.get(target_id)
+             title = get_message("notifications.report_ready.title", doctor_lang)
+             body = get_message(
+                 "notifications.report_ready.body",
+@@ -242,7 +244,6 @@ class NotificationService:
+ 
+         呼叫端負責 commit；本函式僅 flush。
+         """
+-        from app.models.user import User
+ 
+         doctor_id, patient_name = await NotificationService._resolve_session_targets(
+             db, session_id
+@@ -256,12 +257,9 @@ class NotificationService:
+             data["report_id"] = str(report_id)
+ 
+         created: list[Notification] = []
++        lang_by_user = await NotificationService._preferred_languages(db, targets)
+         for target_id in targets:
+-            doctor_lang = (
+-                await db.execute(
+-                    select(User.preferred_language).where(User.id == target_id)
+-                )
+-            ).scalar_one_or_none()
++            doctor_lang = lang_by_user.get(target_id)
+             title, body = _report_failed_copy(doctor_lang, patient_name or "")
+             notification = await NotificationService.create(
+                 db,
+@@ -306,6 +304,20 @@ class NotificationService:
+             return None, None
+         return row.doctor_id, row.name
+ 
++    @staticmethod
++    async def _preferred_languages(db: AsyncSession, user_ids: list[Any]) -> dict[Any, Optional[str]]:
++        """一個 query 取回多位使用者的 preferred_language（fan-out 通知共用）。"""
++        if not user_ids:
++            return {}
++        from app.models.user import User as _User
++
++        rows = (
++            await db.execute(
++                select(_User.id, _User.preferred_language).where(_User.id.in_(list(user_ids)))
++            )
++        ).all()
++        return {uid: lang for uid, lang in rows}
++
+     @staticmethod
+     async def _doctor_targets(
+         db: AsyncSession, doctor_id: Optional[UUID], session_id: Any
+@@ -376,33 +388,18 @@ class NotificationService:
+         if notification_type is not None:
+             query = query.where(Notification.type == notification_type)
+ 
+-        if cursor:
+-            # cursor 為 Notification.id（UUID）。先驗證格式，避免將非法字串
+-            # 直接餵給 asyncpg 觸發 DataError 裸 500；無效 cursor 視為無 cursor。
+-            try:
+-                cursor_uuid = UUID(cursor)
+-            except (ValueError, TypeError):
+-                cursor_uuid = None
+-            if cursor_uuid is not None:
+-                result = await db.execute(
+-                    select(Notification).where(Notification.id == cursor_uuid)
+-                )
+-                cursor_record = result.scalar_one_or_none()
+-                if cursor_record:
+-                    query = query.where(
+-                        (Notification.created_at < cursor_record.created_at)
+-                        | (
+-                            (Notification.created_at == cursor_record.created_at)
+-                            & (Notification.id < cursor_record.id)
+-                        )
+-                    )
++        # cursor 為 Notification.id（UUID）；非法字串視為無 cursor（parse_cursor）。
++        _cursor = parse_cursor(cursor)
++        if _cursor is not None:
++            result = await db.execute(select(Notification).where(Notification.id == _cursor))
++            cursor_record = result.scalar_one_or_none()
++            if cursor_record:
++                query = keyset_after(query, cursor_record, Notification.created_at, Notification.id)
+ 
+         result = await db.execute(query.limit(limit + 1))
+         notifications = result.scalars().all()
+ 
+-        has_more = len(notifications) > limit
+-        if has_more:
+-            notifications = notifications[:limit]
++        notifications, has_more, next_cursor = page_slice(notifications, limit)
+ 
+         filters = []
+         if is_read is not None:
+@@ -418,7 +415,7 @@ class NotificationService:
+         return {
+             "data": notifications,
+             "pagination": {
+-                "next_cursor": str(notifications[-1].id) if has_more and notifications else None,
++                "next_cursor": next_cursor,
+                 "has_more": has_more,
+                 "limit": limit,
+                 "total_count": total_count,
+@@ -493,7 +490,7 @@ class NotificationService:
+             redis: Redis 連線實例
+             user_id: 使用者 ID
+         """
+-        cache_key = f"gu:notifications:unread:{user_id}"
++        cache_key = _unread_cache_key(user_id)
+ 
+         # 嘗試讀取快取
+         try:
+@@ -796,7 +793,7 @@ async def _invalidate_unread_cache(user_id: UUID) -> None:
+         from app.cache.redis_client import get_redis
+ 
+         redis = await get_redis()
+-        cache_key = f"gu:notifications:unread:{user_id}"
++        cache_key = _unread_cache_key(user_id)
+         await redis.delete(cache_key)
+     except Exception:
+         pass
+diff --git a/backend/app/services/patient_service.py b/backend/app/services/patient_service.py
+index 2ea8f1c..11f2f64 100644
+--- a/backend/app/services/patient_service.py
++++ b/backend/app/services/patient_service.py
+@@ -13,10 +13,11 @@ from sqlalchemy import func, select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ from sqlalchemy.orm import selectinload
+ 
++from app.utils.pagination import keyset_after, page_slice, parse_cursor
+ from app.core.authz import (
+     clinician_session_filter,
+     get_clinician_scope_id,
+-    get_user_role as _get_user_role,
++    get_user_role,
+ )
+ from app.core.exceptions import ForbiddenException, NotFoundException
+ from app.models.enums import Gender, SessionStatus, UserRole
+@@ -24,7 +25,6 @@ from app.models.patient import Patient
+ from app.models.session import Session
+ from app.services.session_visibility import session_not_deleted
+ from app.utils.datetime_utils import parse_iso, utc_now
+-from app.utils.pagination import parse_cursor
+ 
+ # 「進行中」場次：尚未進入終態（completed / aborted / cancelled）的狀態。
+ _ACTIVE_SESSION_STATUSES = (SessionStatus.WAITING, SessionStatus.IN_PROGRESS)
+@@ -53,7 +53,7 @@ async def _authorize_patient_access(
+     if current_user is None:
+         raise ForbiddenException("errors.patient_access_no_principal")
+ 
+-    role = _get_user_role(current_user)
++    role = get_user_role(current_user)
+     clinician_id = get_clinician_scope_id(current_user)
+     if clinician_id is not None:
+         if patient.user_id == clinician_id:
+@@ -324,31 +324,13 @@ class PatientService:
+             )
+             cursor_record = result.scalar_one_or_none()
+             if cursor_record:
+-                cursor_value = getattr(cursor_record, sort_column.key)
+-                if descending:
+-                    query = query.where(
+-                        (sort_column < cursor_value)
+-                        | (
+-                            (sort_column == cursor_value)
+-                            & (Patient.id < cursor_record.id)
+-                        )
+-                    )
+-                else:
+-                    query = query.where(
+-                        (sort_column > cursor_value)
+-                        | (
+-                            (sort_column == cursor_value)
+-                            & (Patient.id > cursor_record.id)
+-                        )
+-                    )
++                query = keyset_after(query, cursor_record, sort_column, Patient.id, descending)
+ 
+         # 多取一筆用於判斷是否有下一頁
+         result = await db.execute(query.limit(limit + 1))
+         patients = result.scalars().all()
+ 
+-        has_more = len(patients) > limit
+-        if has_more:
+-            patients = patients[:limit]
++        patients, has_more, next_cursor = page_slice(patients, limit)
+ 
+         # 近似總筆數（套用相同篩選）
+         count_query = (
+@@ -363,7 +345,7 @@ class PatientService:
+         return {
+             "data": patients,
+             "pagination": {
+-                "next_cursor": str(patients[-1].id) if has_more and patients else None,
++                "next_cursor": next_cursor,
+                 "has_more": has_more,
+                 "limit": limit,
+                 "total_count": total_count,
+@@ -515,20 +497,12 @@ class PatientService:
+             )
+             cursor_record = result.scalar_one_or_none()
+             if cursor_record:
+-                query = query.where(
+-                    (Session.created_at < cursor_record.created_at)
+-                    | (
+-                        (Session.created_at == cursor_record.created_at)
+-                        & (Session.id < cursor_record.id)
+-                    )
+-                )
++                query = keyset_after(query, cursor_record, Session.created_at, Session.id)
+ 
+         result = await db.execute(query.limit(limit + 1))
+         sessions = result.scalars().all()
+ 
+-        has_more = len(sessions) > limit
+-        if has_more:
+-            sessions = sessions[:limit]
++        sessions, has_more, next_cursor = page_slice(sessions, limit)
+ 
+         # 總筆數（套用相同篩選）
+         count_query = (
+@@ -543,7 +517,7 @@ class PatientService:
+         return {
+             "data": sessions,
+             "pagination": {
+-                "next_cursor": str(sessions[-1].id) if has_more and sessions else None,
++                "next_cursor": next_cursor,
+                 "has_more": has_more,
+                 "limit": limit,
+                 "total_count": total_count,
+diff --git a/backend/app/services/report_service.py b/backend/app/services/report_service.py
+index 290fd92..99e61bb 100644
+--- a/backend/app/services/report_service.py
++++ b/backend/app/services/report_service.py
+@@ -6,8 +6,12 @@ SOAP 報告服務
+ - PDF 匯出
+ """
+ 
++import asyncio
++import concurrent.futures
+ import html as _html
+ import logging
++import multiprocessing
++import threading
+ from datetime import timedelta, timezone
+ from typing import Any, Optional
+ from uuid import UUID
+@@ -17,11 +21,13 @@ from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.ext.asyncio import AsyncSession
+ from sqlalchemy.orm import selectinload
+ 
++from app.utils.pagination import keyset_after, page_slice, parse_cursor
+ from app.core.authz import (
++    patient_owned_by,
+     clinician_can_access_session,
+     clinician_session_filter,
+     get_clinician_scope_id,
+-    get_user_role as _get_user_role,
++    get_user_role,
+ )
+ from app.core.exceptions import (
+     ConflictException,
+@@ -43,7 +49,6 @@ from app.services.session_visibility import session_not_deleted, visible_session
+ from app.models.soap_report import SOAPReport
+ from app.models.soap_report_revision import SOAPReportRevision
+ from app.utils.datetime_utils import parse_iso, utc_now
+-from app.utils.pagination import parse_cursor
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -132,7 +137,7 @@ async def _authorize_report_access(
+     與 session_service._authorize_session_access 同權限模型。為避免洩漏報告存在與否，
+     違規時 raise NotFoundException（與「報告不存在」回應一致），而非 403。
+     """
+-    role = _get_user_role(current_user)
++    role = get_user_role(current_user)
+     user_id = getattr(current_user, "id", None)
+ 
+     # 取出此報告對映 session 的 doctor_id / patient_id（明確 query 避免 lazy-load）。
+@@ -160,11 +165,7 @@ async def _authorize_report_access(
+         return
+ 
+     if role == UserRole.PATIENT:
+-        owner_result = await db.execute(
+-            select(Patient.user_id).where(Patient.id == patient_id)
+-        )
+-        owner_user_id = owner_result.scalar_one_or_none()
+-        if owner_user_id is not None and owner_user_id == user_id:
++        if await patient_owned_by(db, patient_id, user_id):
+             return
+         raise NotFoundException("errors.report_not_found")
+ 
+@@ -301,7 +302,7 @@ class ReportService:
+         # ── Row-level 範圍限縮（依角色，於 query 層過濾，非後處理）──────────
+         # report 不帶 patient/doctor，故以 session_id IN (符合角色的 session 子查詢) 限縮。
+         # 無 current_user 或未知角色 → 限縮為空集合（保守拒絕，回空清單）。
+-        role = _get_user_role(current_user)
++        role = get_user_role(current_user)
+         user_id = getattr(current_user, "id", None)
+ 
+         # 軟刪除場次的報告對**所有角色**都不可見，admin 也一樣——所以 admin 這格
+@@ -377,20 +378,12 @@ class ReportService:
+             )
+             cursor_record = result.scalar_one_or_none()
+             if cursor_record:
+-                query = query.where(
+-                    (SOAPReport.created_at < cursor_record.created_at)
+-                    | (
+-                        (SOAPReport.created_at == cursor_record.created_at)
+-                        & (SOAPReport.id < cursor_record.id)
+-                    )
+-                )
++                query = keyset_after(query, cursor_record, SOAPReport.created_at, SOAPReport.id)
+ 
+         result = await db.execute(query.limit(limit + 1))
+         reports = result.scalars().all()
+ 
+-        has_more = len(reports) > limit
+-        if has_more:
+-            reports = reports[:limit]
++        reports, has_more, next_cursor = page_slice(reports, limit)
+ 
+         count_query = select(SOAPReport.review_status, func.count()).group_by(SOAPReport.review_status)
+         if scope_subquery is not None:
+@@ -420,7 +413,7 @@ class ReportService:
+             "data": reports,
+             "review_counts": review_counts,
+             "pagination": {
+-                "next_cursor": str(reports[-1].id) if has_more and reports else None,
++                "next_cursor": next_cursor,
+                 "has_more": has_more,
+                 "limit": limit,
+                 "total_count": total_count,
+@@ -737,15 +730,56 @@ class ReportService:
+ 
+         # 使用 WeasyPrint 生成 PDF。url_fetcher 一律拒絕，
+         # 防止注入內容經 img src / CSS url() 觸發 SSRF／本地檔讀取。
+-        from weasyprint import HTML
+-
+-        pdf_bytes = HTML(
+-            string=html_content, url_fetcher=_forbid_url_fetch
+-        ).write_pdf()
++        # WeasyPrint 是 CPU-bound 同步 render（實測約 1.2 s）；直接在 async def 裡呼叫
++        # 會把共用的 API worker event loop 整個卡住（/health 由 1 ms 變 956 ms），
++        # 所有 kiosk WS 音訊跟著凍結。改丟到 **子行程**：thread 版雖不卡 loop，但
++        # 首次 render 會讓 API 行程常駐 +550 MB（字型解析快取）且 GIL 競爭留 100 ms 尾巴；
++        # 子行程做完 N 份就回收，記憶體跟著釋放，API 行程維持輕量。
++        # max_workers=1 維持原本「一次一份」的序列化語意。
++        loop = asyncio.get_running_loop()
++        pdf_bytes = await loop.run_in_executor(_pdf_executor(), _render_pdf_blocking, html_content)
+         filename = f"SOAP_Report_{report.id}.pdf"
+         return pdf_bytes, filename
+ 
+ 
++_PDF_EXECUTOR: Optional[concurrent.futures.Executor] = None
++_PDF_EXECUTOR_LOCK = threading.Lock()
++# 每個子行程 render 這麼多份後回收（釋放 WeasyPrint／字型快取佔用的記憶體）。
++_PDF_TASKS_PER_CHILD = 20
++
++
++def _pdf_executor() -> concurrent.futures.Executor:
++    """lazy 建立單 worker 的 process pool（spawn：不繼承 event loop／DB 連線）。
++
++    測試可用 `set_pdf_executor(ThreadPoolExecutor(1))` 換成 thread，讓 monkeypatch 生效。
++    """
++    global _PDF_EXECUTOR
++    with _PDF_EXECUTOR_LOCK:
++        if _PDF_EXECUTOR is None:
++            _PDF_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
++                max_workers=1,
++                mp_context=multiprocessing.get_context("spawn"),
++                max_tasks_per_child=_PDF_TASKS_PER_CHILD,
++            )
++        return _PDF_EXECUTOR
++
++
++def set_pdf_executor(executor: Optional[concurrent.futures.Executor]) -> None:
++    """替換（或以 None 重置）PDF render executor；測試與 shutdown 用。"""
++    global _PDF_EXECUTOR
++    with _PDF_EXECUTOR_LOCK:
++        old, _PDF_EXECUTOR = _PDF_EXECUTOR, executor
++    if old is not None and old is not executor:
++        old.shutdown(wait=False)
++
++
++def _render_pdf_blocking(html_content: str) -> bytes:
++    """在 executor（預設子行程）內同步 render；由 export_pdf 呼叫。"""
++    from weasyprint import HTML
++
++    return HTML(string=html_content, url_fetcher=_forbid_url_fetch).write_pdf()
++
++
+ # PDF 版面語系標籤。key 為 BCP-47 locale；未支援的 language 一律 fallback 至 zh-TW
+ # （與 i18n_messages 的 DEFAULT_LANGUAGE 一致），確保 language 參數真實影響輸出。
+ # 註：SOAP 內容本身的翻譯由生成階段決定（report.language），此處僅切換版面/欄位標籤。
+diff --git a/backend/app/services/research_service.py b/backend/app/services/research_service.py
+index ad7836f..0959f9b 100644
+--- a/backend/app/services/research_service.py
++++ b/backend/app/services/research_service.py
+@@ -244,6 +244,363 @@ def age_from_dob(dob: date, ref: date) -> int:
+ # ── 主服務 ──────────────────────────────────────────────
+ 
+ 
++def _status_of(row: Any) -> str:
++    s = row.status
++    return s.value if hasattr(s, "value") else str(s)
++
++
++def _enum_val(v: Any) -> str:
++    return v.value if hasattr(v, "value") else str(v)
++
++
++def _cohort_section(session_rows: Sequence[Any], sessions_with_alert: set) -> CohortSection:
++    # ── Cohort ─────────────────────────────────────
++    status_counts: dict[str, int] = {}
++    weekly: dict[str, dict[str, int]] = {}
++    for r in session_rows:
++        st = _status_of(r)
++        status_counts[st] = status_counts.get(st, 0) + 1
++        wk = week_start_of(r.created_at)
++        bucket = weekly.setdefault(
++            wk, {"sessions": 0, "completed": 0, "red_flag_sessions": 0}
++        )
++        bucket["sessions"] += 1
++        if st == "completed":
++            bucket["completed"] += 1
++        if r.id in sessions_with_alert:
++            bucket["red_flag_sessions"] += 1
++
++    completed = status_counts.get("completed", 0)
++    aborted = status_counts.get("aborted_red_flag", 0)
++    cancelled = status_counts.get("cancelled", 0)
++    total = len(session_rows)
++    cohort = CohortSection(
++        total_sessions=total,
++        completed=completed,
++        aborted_red_flag=aborted,
++        cancelled=cancelled,
++        in_progress_or_waiting=total - completed - aborted - cancelled,
++        completion_rate=rate(completed, total),
++        completion=wilson_proportion(completed, total),
++        weekly_trend=[
++            WeeklyTrendItem(week_start=wk, **counts)
++            for wk, counts in sorted(weekly.items())
++        ],
++    )
++    return cohort
++
++
++def _demographics_section(session_rows: Sequence[Any], demo_rows: Sequence[Any]) -> DemographicsSection:
++    # ── Demographics（Table 1）──────────────────────
++    # 病患層級去重（同病患多場次只計一次年齡/性別）；主訴以場次計 case mix。
++    ref_day = (
++        max((r.created_at.date() for r in session_rows), default=None)
++        or utc_now().date()
++    )
++    patient_age: dict[Any, int] = {}
++    patient_gender: dict[Any, str] = {}
++    complaint_counts: dict[str, int] = {}
++    for r in demo_rows:
++        comp = (r.complaint or "unknown").strip() or "unknown"
++        complaint_counts[comp] = complaint_counts.get(comp, 0) + 1
++        pid = getattr(r, "patient_id", None)
++        if pid is None:
++            continue
++        if r.date_of_birth is not None and pid not in patient_age:
++            patient_age[pid] = age_from_dob(r.date_of_birth, ref_day)
++        if pid not in patient_gender and r.gender is not None:
++            g = r.gender
++            patient_gender[pid] = g.value if hasattr(g, "value") else str(g)
++    ages = list(patient_age.values())
++    demographics = DemographicsSection(
++        total_patients=len({r.patient_id for r in demo_rows if r.patient_id}),
++        age_years=summarize([float(a) for a in ages]),
++        age_band_distribution=distribution(
++            ((age_band(a), 1) for a in ages),
++            order=["<40", "40-59", "60-74", "75+"],
++        ),
++        gender_distribution=distribution(
++            ((g, 1) for g in patient_gender.values()),
++            order=["male", "female", "other"],
++        ),
++        chief_complaint_distribution=distribution(complaint_counts.items()),
++    )
++    return demographics
++
++
++def _efficiency_section(session_rows: Sequence[Any], conv_rows: Sequence[Any]) -> tuple[EfficiencySection, dict[Any, int]]:
++    # ── Efficiency ─────────────────────────────────
++    durations: list[float] = []
++    for r in session_rows:
++        if _status_of(r) not in _TERMINAL_STATUSES:
++            continue
++        if r.completed_at and r.started_at:
++            durations.append((r.completed_at - r.started_at).total_seconds())
++        elif r.duration_seconds is not None:
++            durations.append(float(r.duration_seconds))
++
++    turns_by_session: dict[Any, int] = {}
++    turn_chars: list[float] = []
++    for c in conv_rows:
++        turns_by_session[c.session_id] = turns_by_session.get(c.session_id, 0) + 1
++        if c.chars is not None:
++            turn_chars.append(float(c.chars))
++    turns_values = [float(v) for v in turns_by_session.values()]
++
++    max_dur = max(durations) if durations else 0
++    dur_edge_max = max(600.0, (int(max_dur // 300) + 1) * 300.0)
++    efficiency = EfficiencySection(
++        duration_seconds=summarize(durations),
++        patient_turns=summarize(turns_values),
++        patient_turn_chars=summarize(turn_chars),
++        duration_histogram=histogram(
++            durations,
++            [i * 300.0 for i in range(int(dur_edge_max // 300) + 1)],
++        ),
++        turns_histogram=histogram(
++            turns_values, [0, 2, 4, 6, 8, 10, 12, 15, 20, 30]
++        ),
++    )
++    return efficiency, turns_by_session
++
++
++def _history_section(report_rows: Sequence[Any]) -> HistoryTakingSection:
++    # ── History taking（HPI 完整度） ─────────────────
++    completeness_vals: list[float] = []
++    field_filled: dict[str, int] = {f: 0 for f in HPI_FIELDS}
++    analyzed = 0
++    for rep in report_rows:
++        status_val = (
++            rep.status.value if hasattr(rep.status, "value") else str(rep.status)
++        )
++        if status_val != "generated":
++            continue
++        comp = hpi_completeness(rep.subjective)
++        if comp is None:
++            continue
++        analyzed += 1
++        completeness_vals.append(comp)
++        hpi = (rep.subjective or {}).get("hpi") or {}
++        for f in HPI_FIELDS:
++            v = hpi.get(f) if isinstance(hpi, dict) else None
++            if isinstance(v, str) and v.strip():
++                field_filled[f] += 1
++    history = HistoryTakingSection(
++        reports_analyzed=analyzed,
++        mean_hpi_completeness=(
++            round(sum(completeness_vals) / analyzed, 4) if analyzed else None
++        ),
++        hpi_completeness_summary=summarize(completeness_vals),
++        hpi_field_fill_rates=[
++            HpiFieldFillRate(
++                field=f,
++                filled=field_filled[f],
++                total=analyzed,
++                rate=rate(field_filled[f], analyzed),
++            )
++            for f in HPI_FIELDS
++        ],
++    )
++    return history
++
++
++def _safety_section(
++    alert_rows: Sequence[Any], report_rows: Sequence[Any], sess_by_id: dict[Any, Any],
++    sessions_with_alert: set, terminal_with_alert: set, terminal: int,
++) -> SafetySection:
++    # ── Safety ─────────────────────────────────────
++    first_alert_by_session: dict[Any, datetime] = {}
++    ack_latencies: list[float] = []
++    acked = 0
++    for a in alert_rows:
++        prev = first_alert_by_session.get(a.session_id)
++        if prev is None or a.created_at < prev:
++            first_alert_by_session[a.session_id] = a.created_at
++        if a.acknowledged_at is not None:
++            acked += 1
++            ack_latencies.append(
++                (a.acknowledged_at - a.created_at).total_seconds()
++            )
++    time_to_first: list[float] = []
++    for sid, first_at in first_alert_by_session.items():
++        sess = sess_by_id.get(sid)
++        if sess is not None and sess.started_at:
++            delta = (first_at - sess.started_at).total_seconds()
++            if delta >= 0:
++                time_to_first.append(delta)
++
++    safety = SafetySection(
++        sessions_with_alerts=len(sessions_with_alert),
++        alert_session_rate=rate(len(terminal_with_alert), terminal),
++        total_alerts=len(alert_rows),
++        severity_distribution=distribution(
++            ((_enum_val(a.severity), 1) for a in alert_rows),
++            order=["critical", "high", "medium"],
++        ),
++        layer_distribution=distribution(
++            ((_enum_val(a.confidence), 1) for a in alert_rows),
++            order=["rule_hit", "semantic_only", "uncovered_locale"],
++        ),
++        alert_type_distribution=distribution(
++            ((_enum_val(a.alert_type), 1) for a in alert_rows),
++            order=["rule_based", "semantic", "combined"],
++        ),
++        urgency_distribution=distribution(
++            (
++                (rep.urgency, 1)
++                for rep in report_rows
++                if rep.urgency
++            ),
++            order=["er_now", "24h", "this_week", "routine"],
++        ),
++        time_to_first_alert_seconds=summarize(time_to_first),
++        acknowledged_rate=rate(acked, len(alert_rows)),
++        acknowledged=wilson_proportion(acked, len(alert_rows)),
++        ack_latency_seconds=summarize(ack_latencies),
++    )
++    safety.alert_session = wilson_proportion(len(terminal_with_alert), terminal)
++    return safety
++
++
++def _stt_section(conv_rows: Sequence[Any], sess_by_id: dict[Any, Any]) -> tuple[SttQualitySection, dict[str, list[float]]]:
++    # ── STT quality ────────────────────────────────
++    confidences = [
++        float(c.stt_confidence)
++        for c in conv_rows
++        if c.stt_confidence is not None
++    ]
++    low_count = sum(1 for v in confidences if v < LOW_CONFIDENCE_THRESHOLD)
++    by_lang_conf: dict[str, list[float]] = {}
++    for c in conv_rows:
++        if c.stt_confidence is None:
++            continue
++        sess = sess_by_id.get(c.session_id)
++        lang = getattr(sess, "language", None) or "unknown"
++        by_lang_conf.setdefault(lang, []).append(float(c.stt_confidence))
++    voice_turns = sum(1 for c in conv_rows if c.input_source == "voice")
++    source_known = sum(1 for c in conv_rows if c.input_source)
++    stt = SttQualitySection(
++        turns_with_confidence=len(confidences),
++        confidence_summary=summarize(confidences),
++        low_confidence_rate=rate(low_count, len(confidences)),
++        low_confidence=wilson_proportion(low_count, len(confidences)),
++        histogram=histogram(confidences, [i / 10 for i in range(11)]),
++        by_language=[
++            SttLanguageQuality(
++                language=lang,
++                turns=len(vals),
++                mean_confidence=round(sum(vals) / len(vals), 4),
++                median_confidence=round(percentile(sorted(vals), 0.5), 4),
++                low_confidence_rate=rate(
++                    sum(1 for v in vals if v < LOW_CONFIDENCE_THRESHOLD),
++                    len(vals),
++                ),
++            )
++            for lang, vals in sorted(by_lang_conf.items())
++        ],
++        voice_turn_share=rate(voice_turns, source_known),
++    )
++    return stt, by_lang_conf
++
++
++def _documentation_section(report_rows: Sequence[Any], revision_pairs: list[tuple[str, int]]) -> DocumentationSection:
++    # ── Documentation ──────────────────────────────
++    generated_reports = [
++        rep
++        for rep in report_rows
++        if _enum_val(rep.status) == "generated"
++    ]
++    ai_conf = [
++        float(rep.ai_confidence_score)
++        for rep in generated_reports
++        if rep.ai_confidence_score is not None
++    ]
++    review_counts: dict[str, int] = {}
++    for rep in generated_reports:
++        rv = _enum_val(rep.review_status)
++        review_counts[rv] = review_counts.get(rv, 0) + 1
++    approved = review_counts.get("approved", 0)
++    revision_needed = review_counts.get("revision_needed", 0)
++    icd_verified = sum(1 for rep in generated_reports if rep.icd10_verified)
++    documentation = DocumentationSection(
++        reports_generated=len(generated_reports),
++        ai_confidence_summary=summarize(ai_conf),
++        icd10_verified_rate=rate(icd_verified, len(generated_reports)),
++        icd10_verified=wilson_proportion(icd_verified, len(generated_reports)),
++        review_outcomes=distribution(
++            review_counts.items(),
++            order=["approved", "revision_needed", "pending"],
++        ),
++        physician_agreement_rate=rate(approved, approved + revision_needed),
++        physician_agreement=wilson_proportion(approved, approved + revision_needed),
++        revision_reason_distribution=distribution(
++            revision_pairs,
++            order=["initial", "regenerate", "review_override"],
++        ),
++    )
++    return documentation
++
++
++def _by_language_section(
++    session_rows: Sequence[Any], sessions_with_alert: set,
++    turns_by_session: dict[Any, int], by_lang_conf: dict[str, list[float]],
++) -> list[LanguageBreakdownItem]:
++    # ── By language（table view） ───────────────────
++    by_language: list[LanguageBreakdownItem] = []
++    langs = sorted({(r.language or "unknown") for r in session_rows})
++    for lang in langs:
++        lang_sessions = [
++            r for r in session_rows if (r.language or "unknown") == lang
++        ]
++        lang_ids = {r.id for r in lang_sessions}
++        lang_durations = sorted(
++            (r.completed_at - r.started_at).total_seconds()
++            for r in lang_sessions
++            if _status_of(r) in _TERMINAL_STATUSES
++            and r.completed_at
++            and r.started_at
++        )
++        lang_turns = [
++            float(turns_by_session[sid])
++            for sid in lang_ids
++            if sid in turns_by_session
++        ]
++        lang_conf = by_lang_conf.get(lang, [])
++        lang_terminal_ids = {
++            r.id for r in lang_sessions if _status_of(r) in _TERMINAL_STATUSES
++        }
++        lang_terminal = len(lang_terminal_ids)
++        # 分子須是分母（終態場次）的子集 → 與 terminal_with_alert 一致
++        lang_alert_sessions = len(lang_terminal_ids & sessions_with_alert)
++        by_language.append(
++            LanguageBreakdownItem(
++                language=lang,
++                sessions=len(lang_sessions),
++                completed=sum(
++                    1 for r in lang_sessions if _status_of(r) == "completed"
++                ),
++                median_duration_seconds=(
++                    round(percentile(lang_durations, 0.5), 1)
++                    if lang_durations
++                    else None
++                ),
++                mean_patient_turns=(
++                    round(sum(lang_turns) / len(lang_turns), 2)
++                    if lang_turns
++                    else None
++                ),
++                mean_stt_confidence=(
++                    round(sum(lang_conf) / len(lang_conf), 4)
++                    if lang_conf
++                    else None
++                ),
++                red_flag_session_rate=rate(lang_alert_sessions, lang_terminal),
++                red_flag_rate=wilson_proportion(lang_alert_sessions, lang_terminal),
++            )
++        )
++    return by_language
++
++
+ class ResearchService:
+     """研究分析聚合。所有指標為去識別化 aggregate，不含任何病患個資。"""
+ 
+@@ -402,340 +759,25 @@ class ResearchService:
+         date_to: Optional[date],
+         demo_rows: Sequence[Any] = (),
+     ) -> ResearchAnalyticsResponse:
+-        def status_of(row: Any) -> str:
+-            s = row.status
+-            return s.value if hasattr(s, "value") else str(s)
+-
++        """把各 query 的列組成回應；每一節由模組層的 `_*_section` 負責（原本是一支 CC>100 的函式）。"""
+         sessions_with_alert = {a.session_id for a in alert_rows}
+         # 終態場次 id（completed / aborted_red_flag）。紅旗率的分母是終態場次，
+         # 故分子必須是「終態且有紅旗」——紅旗可能落在 in_progress/cancelled 場次，
+         # 若直接用 sessions_with_alert 當分子會 > 分母（見 wilson_proportion clamp）。
+-        terminal_ids = {
+-            r.id for r in session_rows if status_of(r) in _TERMINAL_STATUSES
+-        }
++        terminal_ids = {r.id for r in session_rows if _status_of(r) in _TERMINAL_STATUSES}
+         terminal_with_alert = sessions_with_alert & terminal_ids
+ 
+-        # ── Cohort ─────────────────────────────────────
+-        status_counts: dict[str, int] = {}
+-        weekly: dict[str, dict[str, int]] = {}
+-        for r in session_rows:
+-            st = status_of(r)
+-            status_counts[st] = status_counts.get(st, 0) + 1
+-            wk = week_start_of(r.created_at)
+-            bucket = weekly.setdefault(
+-                wk, {"sessions": 0, "completed": 0, "red_flag_sessions": 0}
+-            )
+-            bucket["sessions"] += 1
+-            if st == "completed":
+-                bucket["completed"] += 1
+-            if r.id in sessions_with_alert:
+-                bucket["red_flag_sessions"] += 1
+-
+-        completed = status_counts.get("completed", 0)
+-        aborted = status_counts.get("aborted_red_flag", 0)
+-        cancelled = status_counts.get("cancelled", 0)
+-        total = len(session_rows)
+-        terminal = completed + aborted
+-        cohort = CohortSection(
+-            total_sessions=total,
+-            completed=completed,
+-            aborted_red_flag=aborted,
+-            cancelled=cancelled,
+-            in_progress_or_waiting=total - completed - aborted - cancelled,
+-            completion_rate=rate(completed, total),
+-            completion=wilson_proportion(completed, total),
+-            weekly_trend=[
+-                WeeklyTrendItem(week_start=wk, **counts)
+-                for wk, counts in sorted(weekly.items())
+-            ],
+-        )
+-
+-        # ── Demographics（Table 1）──────────────────────
+-        # 病患層級去重（同病患多場次只計一次年齡/性別）；主訴以場次計 case mix。
+-        ref_day = (
+-            max((r.created_at.date() for r in session_rows), default=None)
+-            or utc_now().date()
+-        )
+-        patient_age: dict[Any, int] = {}
+-        patient_gender: dict[Any, str] = {}
+-        complaint_counts: dict[str, int] = {}
+-        for r in demo_rows:
+-            comp = (r.complaint or "unknown").strip() or "unknown"
+-            complaint_counts[comp] = complaint_counts.get(comp, 0) + 1
+-            pid = getattr(r, "patient_id", None)
+-            if pid is None:
+-                continue
+-            if r.date_of_birth is not None and pid not in patient_age:
+-                patient_age[pid] = age_from_dob(r.date_of_birth, ref_day)
+-            if pid not in patient_gender and r.gender is not None:
+-                g = r.gender
+-                patient_gender[pid] = g.value if hasattr(g, "value") else str(g)
+-        ages = list(patient_age.values())
+-        demographics = DemographicsSection(
+-            total_patients=len({r.patient_id for r in demo_rows if r.patient_id}),
+-            age_years=summarize([float(a) for a in ages]),
+-            age_band_distribution=distribution(
+-                ((age_band(a), 1) for a in ages),
+-                order=["<40", "40-59", "60-74", "75+"],
+-            ),
+-            gender_distribution=distribution(
+-                ((g, 1) for g in patient_gender.values()),
+-                order=["male", "female", "other"],
+-            ),
+-            chief_complaint_distribution=distribution(complaint_counts.items()),
+-        )
+-
+-        # ── Efficiency ─────────────────────────────────
+-        durations: list[float] = []
+-        for r in session_rows:
+-            if status_of(r) not in _TERMINAL_STATUSES:
+-                continue
+-            if r.completed_at and r.started_at:
+-                durations.append((r.completed_at - r.started_at).total_seconds())
+-            elif r.duration_seconds is not None:
+-                durations.append(float(r.duration_seconds))
+-
+-        turns_by_session: dict[Any, int] = {}
+-        turn_chars: list[float] = []
+-        for c in conv_rows:
+-            turns_by_session[c.session_id] = turns_by_session.get(c.session_id, 0) + 1
+-            if c.chars is not None:
+-                turn_chars.append(float(c.chars))
+-        turns_values = [float(v) for v in turns_by_session.values()]
+-
+-        max_dur = max(durations) if durations else 0
+-        dur_edge_max = max(600.0, (int(max_dur // 300) + 1) * 300.0)
+-        efficiency = EfficiencySection(
+-            duration_seconds=summarize(durations),
+-            patient_turns=summarize(turns_values),
+-            patient_turn_chars=summarize(turn_chars),
+-            duration_histogram=histogram(
+-                durations,
+-                [i * 300.0 for i in range(int(dur_edge_max // 300) + 1)],
+-            ),
+-            turns_histogram=histogram(
+-                turns_values, [0, 2, 4, 6, 8, 10, 12, 15, 20, 30]
+-            ),
+-        )
+-
+-        # ── History taking（HPI 完整度） ─────────────────
+-        completeness_vals: list[float] = []
+-        field_filled: dict[str, int] = {f: 0 for f in HPI_FIELDS}
+-        analyzed = 0
+-        for rep in report_rows:
+-            status_val = (
+-                rep.status.value if hasattr(rep.status, "value") else str(rep.status)
+-            )
+-            if status_val != "generated":
+-                continue
+-            comp = hpi_completeness(rep.subjective)
+-            if comp is None:
+-                continue
+-            analyzed += 1
+-            completeness_vals.append(comp)
+-            hpi = (rep.subjective or {}).get("hpi") or {}
+-            for f in HPI_FIELDS:
+-                v = hpi.get(f) if isinstance(hpi, dict) else None
+-                if isinstance(v, str) and v.strip():
+-                    field_filled[f] += 1
+-        history = HistoryTakingSection(
+-            reports_analyzed=analyzed,
+-            mean_hpi_completeness=(
+-                round(sum(completeness_vals) / analyzed, 4) if analyzed else None
+-            ),
+-            hpi_completeness_summary=summarize(completeness_vals),
+-            hpi_field_fill_rates=[
+-                HpiFieldFillRate(
+-                    field=f,
+-                    filled=field_filled[f],
+-                    total=analyzed,
+-                    rate=rate(field_filled[f], analyzed),
+-                )
+-                for f in HPI_FIELDS
+-            ],
+-        )
+-
+-        # ── Safety ─────────────────────────────────────
+-        first_alert_by_session: dict[Any, datetime] = {}
+-        ack_latencies: list[float] = []
+-        acked = 0
+-        for a in alert_rows:
+-            prev = first_alert_by_session.get(a.session_id)
+-            if prev is None or a.created_at < prev:
+-                first_alert_by_session[a.session_id] = a.created_at
+-            if a.acknowledged_at is not None:
+-                acked += 1
+-                ack_latencies.append(
+-                    (a.acknowledged_at - a.created_at).total_seconds()
+-                )
+-        time_to_first: list[float] = []
+-        for sid, first_at in first_alert_by_session.items():
+-            sess = sess_by_id.get(sid)
+-            if sess is not None and sess.started_at:
+-                delta = (first_at - sess.started_at).total_seconds()
+-                if delta >= 0:
+-                    time_to_first.append(delta)
+-
+-        def enum_val(v: Any) -> str:
+-            return v.value if hasattr(v, "value") else str(v)
+-
+-        safety = SafetySection(
+-            sessions_with_alerts=len(sessions_with_alert),
+-            alert_session_rate=rate(len(terminal_with_alert), terminal),
+-            total_alerts=len(alert_rows),
+-            severity_distribution=distribution(
+-                ((enum_val(a.severity), 1) for a in alert_rows),
+-                order=["critical", "high", "medium"],
+-            ),
+-            layer_distribution=distribution(
+-                ((enum_val(a.confidence), 1) for a in alert_rows),
+-                order=["rule_hit", "semantic_only", "uncovered_locale"],
+-            ),
+-            alert_type_distribution=distribution(
+-                ((enum_val(a.alert_type), 1) for a in alert_rows),
+-                order=["rule_based", "semantic", "combined"],
+-            ),
+-            urgency_distribution=distribution(
+-                (
+-                    (rep.urgency, 1)
+-                    for rep in report_rows
+-                    if rep.urgency
+-                ),
+-                order=["er_now", "24h", "this_week", "routine"],
+-            ),
+-            time_to_first_alert_seconds=summarize(time_to_first),
+-            acknowledged_rate=rate(acked, len(alert_rows)),
+-            acknowledged=wilson_proportion(acked, len(alert_rows)),
+-            ack_latency_seconds=summarize(ack_latencies),
+-        )
+-        safety.alert_session = wilson_proportion(len(terminal_with_alert), terminal)
+-
+-        # ── STT quality ────────────────────────────────
+-        confidences = [
+-            float(c.stt_confidence)
+-            for c in conv_rows
+-            if c.stt_confidence is not None
+-        ]
+-        low_count = sum(1 for v in confidences if v < LOW_CONFIDENCE_THRESHOLD)
+-        by_lang_conf: dict[str, list[float]] = {}
+-        for c in conv_rows:
+-            if c.stt_confidence is None:
+-                continue
+-            sess = sess_by_id.get(c.session_id)
+-            lang = getattr(sess, "language", None) or "unknown"
+-            by_lang_conf.setdefault(lang, []).append(float(c.stt_confidence))
+-        voice_turns = sum(1 for c in conv_rows if c.input_source == "voice")
+-        source_known = sum(1 for c in conv_rows if c.input_source)
+-        stt = SttQualitySection(
+-            turns_with_confidence=len(confidences),
+-            confidence_summary=summarize(confidences),
+-            low_confidence_rate=rate(low_count, len(confidences)),
+-            low_confidence=wilson_proportion(low_count, len(confidences)),
+-            histogram=histogram(confidences, [i / 10 for i in range(11)]),
+-            by_language=[
+-                SttLanguageQuality(
+-                    language=lang,
+-                    turns=len(vals),
+-                    mean_confidence=round(sum(vals) / len(vals), 4),
+-                    median_confidence=round(percentile(sorted(vals), 0.5), 4),
+-                    low_confidence_rate=rate(
+-                        sum(1 for v in vals if v < LOW_CONFIDENCE_THRESHOLD),
+-                        len(vals),
+-                    ),
+-                )
+-                for lang, vals in sorted(by_lang_conf.items())
+-            ],
+-            voice_turn_share=rate(voice_turns, source_known),
+-        )
+-
+-        # ── Documentation ──────────────────────────────
+-        generated_reports = [
+-            rep
+-            for rep in report_rows
+-            if enum_val(rep.status) == "generated"
+-        ]
+-        ai_conf = [
+-            float(rep.ai_confidence_score)
+-            for rep in generated_reports
+-            if rep.ai_confidence_score is not None
+-        ]
+-        review_counts: dict[str, int] = {}
+-        for rep in generated_reports:
+-            rv = enum_val(rep.review_status)
+-            review_counts[rv] = review_counts.get(rv, 0) + 1
+-        approved = review_counts.get("approved", 0)
+-        revision_needed = review_counts.get("revision_needed", 0)
+-        icd_verified = sum(1 for rep in generated_reports if rep.icd10_verified)
+-        documentation = DocumentationSection(
+-            reports_generated=len(generated_reports),
+-            ai_confidence_summary=summarize(ai_conf),
+-            icd10_verified_rate=rate(icd_verified, len(generated_reports)),
+-            icd10_verified=wilson_proportion(icd_verified, len(generated_reports)),
+-            review_outcomes=distribution(
+-                review_counts.items(),
+-                order=["approved", "revision_needed", "pending"],
+-            ),
+-            physician_agreement_rate=rate(approved, approved + revision_needed),
+-            physician_agreement=wilson_proportion(approved, approved + revision_needed),
+-            revision_reason_distribution=distribution(
+-                revision_pairs,
+-                order=["initial", "regenerate", "review_override"],
+-            ),
++        cohort = _cohort_section(session_rows, sessions_with_alert)
++        terminal = cohort.completed + cohort.aborted_red_flag
++        demographics = _demographics_section(session_rows, demo_rows)
++        efficiency, turns_by_session = _efficiency_section(session_rows, conv_rows)
++        history = _history_section(report_rows)
++        safety = _safety_section(
++            alert_rows, report_rows, sess_by_id, sessions_with_alert, terminal_with_alert, terminal
+         )
+-
+-        # ── By language（table view） ───────────────────
+-        by_language: list[LanguageBreakdownItem] = []
+-        langs = sorted({(r.language or "unknown") for r in session_rows})
+-        for lang in langs:
+-            lang_sessions = [
+-                r for r in session_rows if (r.language or "unknown") == lang
+-            ]
+-            lang_ids = {r.id for r in lang_sessions}
+-            lang_durations = sorted(
+-                (r.completed_at - r.started_at).total_seconds()
+-                for r in lang_sessions
+-                if status_of(r) in _TERMINAL_STATUSES
+-                and r.completed_at
+-                and r.started_at
+-            )
+-            lang_turns = [
+-                float(turns_by_session[sid])
+-                for sid in lang_ids
+-                if sid in turns_by_session
+-            ]
+-            lang_conf = by_lang_conf.get(lang, [])
+-            lang_terminal_ids = {
+-                r.id for r in lang_sessions if status_of(r) in _TERMINAL_STATUSES
+-            }
+-            lang_terminal = len(lang_terminal_ids)
+-            # 分子須是分母（終態場次）的子集 → 與 terminal_with_alert 一致
+-            lang_alert_sessions = len(lang_terminal_ids & sessions_with_alert)
+-            by_language.append(
+-                LanguageBreakdownItem(
+-                    language=lang,
+-                    sessions=len(lang_sessions),
+-                    completed=sum(
+-                        1 for r in lang_sessions if status_of(r) == "completed"
+-                    ),
+-                    median_duration_seconds=(
+-                        round(percentile(lang_durations, 0.5), 1)
+-                        if lang_durations
+-                        else None
+-                    ),
+-                    mean_patient_turns=(
+-                        round(sum(lang_turns) / len(lang_turns), 2)
+-                        if lang_turns
+-                        else None
+-                    ),
+-                    mean_stt_confidence=(
+-                        round(sum(lang_conf) / len(lang_conf), 4)
+-                        if lang_conf
+-                        else None
+-                    ),
+-                    red_flag_session_rate=rate(lang_alert_sessions, lang_terminal),
+-                    red_flag_rate=wilson_proportion(lang_alert_sessions, lang_terminal),
+-                )
+-            )
++        stt, by_lang_conf = _stt_section(conv_rows, sess_by_id)
++        documentation = _documentation_section(report_rows, revision_pairs)
++        by_language = _by_language_section(session_rows, sessions_with_alert, turns_by_session, by_lang_conf)
+ 
+         return ResearchAnalyticsResponse(
+             generated_at=utc_now(),
+diff --git a/backend/app/services/session_service.py b/backend/app/services/session_service.py
+index 41ce0bf..2d1709e 100644
+--- a/backend/app/services/session_service.py
++++ b/backend/app/services/session_service.py
+@@ -14,11 +14,13 @@ from sqlalchemy import ColumnElement, and_, func, or_, select, update
+ from sqlalchemy.ext.asyncio import AsyncSession
+ from sqlalchemy.orm import selectinload
+ 
++from app.utils.pagination import keyset_after, page_slice, parse_cursor
+ from app.core.authz import (
++    patient_owned_by,
+     clinician_can_access_session,
+     clinician_session_filter,
+     get_clinician_scope_id,
+-    get_user_role as _get_user_role,
++    get_user_role,
+ )
+ from app.core.exceptions import (
+     ForbiddenException,
+@@ -36,7 +38,6 @@ from app.services.audit_log_service import AuditLogService
+ from app.services.session_visibility import session_not_deleted
+ from app.utils.datetime_utils import parse_iso, utc_now
+ from app.utils.language import resolve_language
+-from app.utils.pagination import parse_cursor
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -303,7 +304,7 @@ async def _authorize_session_access(
+     if current_user is None:
+         raise ForbiddenException("errors.session_access_no_principal")
+ 
+-    role = _get_user_role(current_user)
++    role = get_user_role(current_user)
+     user_id = getattr(current_user, "id", None)
+ 
+     clinician_id = get_clinician_scope_id(current_user)
+@@ -319,12 +320,7 @@ async def _authorize_session_access(
+         return
+ 
+     if role == UserRole.PATIENT:
+-        # 取出 patient.user_id。避免 lazy-load 錯誤,用明確 query 核對。
+-        result = await db.execute(
+-            select(Patient.user_id).where(Patient.id == session.patient_id)
+-        )
+-        owner_user_id = result.scalar_one_or_none()
+-        if owner_user_id is not None and owner_user_id == user_id:
++        if await patient_owned_by(db, session.patient_id, user_id):
+             return
+         raise ForbiddenException(
+             "errors.session_forbidden_patient",
+@@ -374,23 +370,8 @@ def _apply_sort(query: Any, column: Any, descending: bool) -> Any:
+ def _apply_cursor_keyset(
+     query: Any, cursor_record: Any, column: Any, descending: bool
+ ) -> Any:
+-    """
+-    依排序方向套用 keyset 分頁條件，使 cursor 與 sort 一致。
+-
+-    descending → 取「排在 cursor 之後」= column < cursor_value，tie 時 id < cursor_id。
+-    ascending  → column > cursor_value，tie 時 id > cursor_id。
+-    """
+-    cursor_value = getattr(cursor_record, column.key)
+-    cursor_id = cursor_record.id
+-    if descending:
+-        return query.where(
+-            (column < cursor_value)
+-            | ((column == cursor_value) & (Session.id < cursor_id))
+-        )
+-    return query.where(
+-        (column > cursor_value)
+-        | ((column == cursor_value) & (Session.id > cursor_id))
+-    )
++    """keyset 分頁（見 utils.pagination.keyset_after）；保留此名給既有呼叫端與測試。"""
++    return keyset_after(query, cursor_record, column, Session.id, descending)
+ 
+ 
+ # 合法狀態轉移表已抽到 app/core/session_state.py 作為單一權威（REST + WS 共用）；
+@@ -533,9 +514,7 @@ class SessionService:
+         result = await db.execute(query.limit(limit + 1))
+         sessions = result.scalars().all()
+ 
+-        has_more = len(sessions) > limit
+-        if has_more:
+-            sessions = sessions[:limit]
++        sessions, has_more, next_cursor = page_slice(sessions, limit)
+ 
+         # 近似總筆數
+         count_query = select(func.count()).select_from(Session).where(session_not_deleted())
+@@ -553,7 +532,7 @@ class SessionService:
+         return {
+             "data": sessions,
+             "pagination": {
+-                "next_cursor": str(sessions[-1].id) if has_more and sessions else None,
++                "next_cursor": next_cursor,
+                 "has_more": has_more,
+                 "limit": limit,
+                 "total_count": total_count,
+@@ -878,9 +857,7 @@ class SessionService:
+         result = await db.execute(query.limit(limit + 1))
+         conversations = result.scalars().all()
+ 
+-        has_more = len(conversations) > limit
+-        if has_more:
+-            conversations = conversations[:limit]
++        conversations, has_more, next_cursor = page_slice(conversations, limit)
+ 
+         count_result = await db.execute(
+             select(func.count())
+@@ -892,7 +869,7 @@ class SessionService:
+         return {
+             "data": conversations,
+             "pagination": {
+-                "next_cursor": str(conversations[-1].id) if has_more and conversations else None,
++                "next_cursor": next_cursor,
+                 "has_more": has_more,
+                 "limit": limit,
+                 "total_count": total_count,
+@@ -976,7 +953,7 @@ class SessionService:
+         #     所以前端一律從病患清單帶真實 id）。存取控制與後續 WS 連線由
+         #     _validate_session_access 把關（doctor 可存取 doctor_id 為 NULL 的場次，
+         #     本場次建立時 doctor_id 即為 NULL，故建立者本人一定連得上）。
+-        creator_role = _get_user_role(current_user)
++        creator_role = get_user_role(current_user)
+         if requested_patient_id and creator_role in (UserRole.DOCTOR, UserRole.ADMIN):
+             result = await db.execute(
+                 select(Patient).where(Patient.id == requested_patient_id)
+@@ -1119,7 +1096,7 @@ class SessionService:
+         if current_user is None:
+             raise ForbiddenException("errors.session_list_no_principal")
+ 
+-        role = _get_user_role(current_user)
++        role = get_user_role(current_user)
+         user_id = getattr(current_user, "id", None)
+ 
+         _status: Optional[SessionStatus] = None
+@@ -1186,7 +1163,7 @@ class SessionService:
+         # 角色限制：紅旗 / 終止類狀態僅限 doctor / admin 變更，
+         # 病患不得自行把場次改成 aborted_red_flag 等紅旗狀態。
+         if new_status in self._PRIVILEGED_STATUSES:
+-            role = _get_user_role(current_user)
++            role = get_user_role(current_user)
+             if role not in (UserRole.DOCTOR, UserRole.ADMIN):
+                 raise ForbiddenException(
+                     "errors.session_forbidden_patient",
+@@ -1243,7 +1220,7 @@ class SessionService:
+         session = await SessionService.get_by_id(
+             db, session_id, with_conversations=True
+         )
+-        role = _get_user_role(current_user)
++        role = get_user_role(current_user)
+         if role == UserRole.ADMIN:
+             # admin 可任意指派
+             pass
+diff --git a/backend/app/tasks/report_queue.py b/backend/app/tasks/report_queue.py
+index 997c6b2..0b12224 100644
+--- a/backend/app/tasks/report_queue.py
++++ b/backend/app/tasks/report_queue.py
+@@ -199,6 +199,8 @@ async def _announce_report_failure(db, session_id: str) -> None:
+ 
+     report_id = ""
+     patient_name = ""
++    from app.services.session_visibility import session_not_deleted
++
+     doctor_id = None
+     try:
+         row = (
+@@ -206,6 +208,7 @@ async def _announce_report_failure(db, session_id: str) -> None:
+                 select(Session)
+                 .options(selectinload(Session.patient))
+                 .where(Session.id == session_id)
++                .where(session_not_deleted())
+             )
+         ).scalar_one_or_none()
+         if row is not None and row.patient is not None:
+diff --git a/backend/app/tasks/session_timeout.py b/backend/app/tasks/session_timeout.py
+index c65e0a5..92574c7 100644
+--- a/backend/app/tasks/session_timeout.py
++++ b/backend/app/tasks/session_timeout.py
+@@ -85,6 +85,7 @@ async def _async_check() -> dict:
+     from app.models.conversation import Conversation
+     from app.models.enums import SessionStatus
+     from app.models.session import Session
++    from app.services.session_visibility import session_not_deleted
+     from app.utils.datetime_utils import utc_now
+ 
+     # 單一權威狀態機把關：in_progress → cancelled 目前合法，但不硬編碼這個事實，
+@@ -104,6 +105,8 @@ async def _async_check() -> dict:
+         result = await db.execute(
+             select(Session.id, Session.updated_at)
+             .where(Session.status == SessionStatus.IN_PROGRESS)
++            # CLAUDE.md 軟刪除鐵律：已刪場次不得被逾時取消再廣播回儀表板。
++            .where(session_not_deleted())
+             .where(Session.updated_at < timeout_threshold)
+             .where(
+                 ~exists().where(
+diff --git a/backend/app/utils/pagination.py b/backend/app/utils/pagination.py
+deleted file mode 100644
+index 7022eeb..0000000
+--- a/backend/app/utils/pagination.py
++++ /dev/null
+@@ -1,23 +0,0 @@
+-"""Cursor 分頁共用小工具。"""
+-
+-from typing import Optional
+-from uuid import UUID
+-
+-
+-def parse_cursor(cursor: Optional[str]) -> Optional[UUID]:
+-    """
+-    將 cursor 解析為 UUID。
+-
+-    cursor 為「上一頁最後一筆的 id」（UUID 字串）。無法解析為合法 UUID 時
+-    保守視為「無 cursor」（回傳 None），避免把無效字串直接餵進 UUID 欄位比對
+-    （Postgres 會對垃圾字串回 500），同時維持既有「cursor 查不到對應 record
+-    即從頭分頁」的向後相容行為。
+-    """
+-    if not cursor:
+-        return None
+-    if isinstance(cursor, UUID):
+-        return cursor
+-    try:
+-        return UUID(str(cursor))
+-    except (ValueError, AttributeError, TypeError):
+-        return None
+diff --git a/backend/app/websocket/connection_manager.py b/backend/app/websocket/connection_manager.py
+index c600c6e..1968e0c 100644
+--- a/backend/app/websocket/connection_manager.py
++++ b/backend/app/websocket/connection_manager.py
+@@ -8,9 +8,10 @@ WebSocket 連線管理器 — 集中管理所有 WebSocket 連線
+ import json
+ import logging
+ import uuid
+-from datetime import datetime, timezone
+ from typing import Any
+ 
++from app.utils.datetime_utils import utc_now
++
+ from fastapi import WebSocket
+ 
+ logger = logging.getLogger(__name__)
+@@ -316,8 +317,9 @@ class ConnectionManager:
+         ``DASHBOARD_EVENTS_CHANNEL``，由 API 行程的 subscriber task 收到後再對
+         本行程的 dashboard WS 連線做本地 fan-out（見 ``local_broadcast_dashboard_event``）。
+ 
+-        韌性：Redis 不可用（測試環境 / 暫時性故障）時絕不可拋例外，僅記 log；
+-        每次建立短命 client 並於送出後關閉，避免在 worker 行程持有長連線。
++        韌性：Redis 不可用（測試環境 / 暫時性故障）時絕不可拋例外，僅記 log。
++        API 行程重用 lifespan 建立的連線池（同一 loop）；worker 行程（每個 task
++        新 loop）則每次建立短命 client 並於送出後關閉，避免跨 loop 共用連線。
+ 
+         Args:
+             event_type: 事件類型字串，需與前端 `DashboardEventType` 對齊。
+@@ -326,6 +328,13 @@ class ConnectionManager:
+         message = json.dumps({"type": event_type, "payload": payload or {}})
+         client = None
+         try:
++            from app.cache.redis_client import pool_for_current_loop
++
++            pooled = pool_for_current_loop()
++            if pooled is not None:
++                await pooled.publish(DASHBOARD_EVENTS_CHANNEL, message)
++                return
++
+             import redis.asyncio as aioredis
+ 
+             from app.core.config import settings
+@@ -439,24 +448,6 @@ class ConnectionManager:
+             },
+         )
+ 
+-    async def broadcast_report_generated(
+-        self,
+-        report_id: str,
+-        session_id: str,
+-        patient_name: str,
+-        status: str,
+-    ) -> None:
+-        """推播 ``report_generated`` 事件（對齊前端 ``ReportGeneratedPayload``）。"""
+-        await self.broadcast_dashboard_event(
+-            "report_generated",
+-            {
+-                "reportId": report_id,
+-                "sessionId": session_id,
+-                "patientName": patient_name or "",
+-                "status": status,
+-            },
+-        )
+-
+     async def broadcast_red_flag_acknowledged(
+         self,
+         alert_id: str,
+@@ -487,7 +478,7 @@ class ConnectionManager:
+         }
+ 
+         Args:
+-            msg_type: 訊息類型（如 "stt_partial", "ai_response_chunk" 等）
++            msg_type: 訊息類型（如 "stt_final", "ai_response_chunk" 等）
+             payload: 訊息內容
+ 
+         Returns:
+@@ -496,23 +487,10 @@ class ConnectionManager:
+         return {
+             "type": msg_type,
+             "id": str(uuid.uuid4()),
+-            "timestamp": datetime.now(timezone.utc).isoformat(),
++            "timestamp": utc_now().isoformat(),
+             "payload": payload,
+         }
+ 
+-    def get_session_connection(self, session_id: str) -> WebSocket | None:
+-        """取得指定場次的 WebSocket 連線"""
+-        return self.active_connections.get(session_id)
+-
+-    def is_session_connected(self, session_id: str) -> bool:
+-        """檢查指定場次是否有活躍的 WebSocket 連線"""
+-        return session_id in self.active_connections
+-
+-    @property
+-    def active_session_count(self) -> int:
+-        """目前活躍的問診場次數"""
+-        return len(self.active_connections)
+-
+     @property
+     def dashboard_connection_count(self) -> int:
+         """目前活躍的儀表板連線數"""
+diff --git a/backend/app/websocket/conversation_handler.py b/backend/app/websocket/conversation_handler.py
+index 0ff01d5..0a04eec 100644
+--- a/backend/app/websocket/conversation_handler.py
++++ b/backend/app/websocket/conversation_handler.py
+@@ -14,7 +14,6 @@ import logging
+ import re
+ import time
+ import uuid
+-from datetime import datetime, timezone
+ from types import SimpleNamespace
+ from typing import Any
+ 
+@@ -22,6 +21,7 @@ from fastapi import WebSocket, WebSocketDisconnect
+ from redis.asyncio import Redis
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
++from app.utils.datetime_utils import utc_now
+ from app.core.authz import clinician_can_access_session, get_clinician_scope_id
+ from app.core.config import Settings
+ from app.core.exceptions import RateLimitExceededException
+@@ -32,7 +32,6 @@ from app.pipelines.llm_conversation import (
+ )
+ from app.pipelines.patient_context import build_patient_info
+ from app.pipelines.prompts.shared import (
+-    count_critical_risk_factors_for_complaint,
+     sanitize_for_prompt,
+ )
+ from app.pipelines.red_flag_detector import RedFlagDetector
+@@ -263,7 +262,7 @@ async def _cap_conversation_history(
+             {
+                 "role": "system",
+                 "content": merged,
+-                "timestamp": datetime.now(timezone.utc).isoformat(),
++                "timestamp": utc_now().isoformat(),
+             }
+         )
+     elif existing_summary:
+@@ -272,7 +271,7 @@ async def _cap_conversation_history(
+             {
+                 "role": "system",
+                 "content": existing_summary,
+-                "timestamp": datetime.now(timezone.utc).isoformat(),
++                "timestamp": utc_now().isoformat(),
+             }
+         )
+     else:
+@@ -291,7 +290,7 @@ async def _cap_conversation_history(
+                     f"{_HISTORY_SUMMARY_PREFIX} 摘要暫時無法產生，"
+                     "以下保留原始較舊對話內容以維持臨床脈絡完整。"
+                 ),
+-                "timestamp": datetime.now(timezone.utc).isoformat(),
++                "timestamp": utc_now().isoformat(),
+             }
+         )
+         history.extend(old_segment)
+@@ -472,7 +471,7 @@ def _build_conversation_summary(
+ # ── 自動結束政策與紅旗去重已抽到 app/pipelines/{conclusion_policy,alert_dedup}.py ──
+ # 這裡以底線別名 re-import，保持既有呼叫端與測試（ch._should_auto_conclude 等）相容。
+ from app.pipelines.conclusion_policy import (  # noqa: E402
+-    coerce_hpi_pct as _coerce_hpi_pct,
++    coerce_hpi_pct as _coerce_hpi_pct,  # noqa: F401  (re-export used by tests)
+     effective_hard_cap as _effective_hard_cap,
+     hard_cap_reached as _hard_cap_reached,
+     session_risk_factor_count as _session_risk_factor_count,
+@@ -480,9 +479,7 @@ from app.pipelines.conclusion_policy import (  # noqa: E402
+     should_conclude_now as _should_conclude_now,
+ )
+ from app.pipelines.alert_dedup import (  # noqa: E402
+-    RED_FLAG_SEVERITY_RANK as _RED_FLAG_SEVERITY_RANK,
+-    SESSION_EMITTED_RED_FLAGS_KEY as _SESSION_EMITTED_RED_FLAGS_KEY,
+-    alert_dedup_identity as _alert_dedup_identity,
++    SESSION_EMITTED_RED_FLAGS_KEY as _SESSION_EMITTED_RED_FLAGS_KEY,  # noqa: F401  (re-export used by tests)
+     record_emitted_alert as _record_emitted_alert,
+     should_suppress_duplicate_alert as _should_suppress_duplicate_alert,
+ )
+@@ -767,7 +764,7 @@ async def conversation_websocket(
+                     {
+                         "type": "pong",
+                         "payload": {
+-                            "serverTime": datetime.now(timezone.utc).isoformat()
++                            "serverTime": utc_now().isoformat()
+                         },
+                     },
+                 )
+@@ -1082,7 +1079,7 @@ async def _send_initial_greeting(
+             {
+                 "role": "assistant",
+                 "content": full_greeting,
+-                "timestamp": datetime.now(timezone.utc).isoformat(),
++                "timestamp": utc_now().isoformat(),
+             }
+         )
+         # 儲存至 DB（metadata.message_id 對應開場的 ai_response_* WS 事件）
+@@ -1678,7 +1675,7 @@ async def _handle_text_message(
+         {
+             "role": "patient",
+             "content": text,
+-            "timestamp": datetime.now(timezone.utc).isoformat(),
++            "timestamp": utc_now().isoformat(),
+         }
+     )
+ 
+@@ -1786,7 +1783,7 @@ async def _handle_text_message(
+             {
+                 "role": "assistant",
+                 "content": full_response,
+-                "timestamp": datetime.now(timezone.utc).isoformat(),
++                "timestamp": utc_now().isoformat(),
+             }
+         )
+ 
+@@ -2948,7 +2945,6 @@ async def _validate_session(
+         場次資料字典，或 None（不存在時）
+     """
+     try:
+-        from app.models.patient import Patient
+         from app.models.session import Session
+         from app.services.session_visibility import session_not_deleted
+         from sqlalchemy import select
+@@ -3060,10 +3056,8 @@ async def _notify_doctors_red_flag(
+     """
+     from uuid import UUID as _UUID
+ 
+-    from sqlalchemy import select
+ 
+-    from app.models.enums import NotificationType, UserRole
+-    from app.models.user import User
++    from app.models.enums import NotificationType
+     from app.services.notification_service import NotificationService
+     from app.utils.i18n_messages import get_message as _i18n_get
+ 
+@@ -3083,25 +3077,10 @@ async def _notify_doctors_red_flag(
+                 return 0
+         targets = [doctor_id]
+     else:
+-        # 未指派醫師 → 發給所有在職臨床人員（doctor + admin）。查詢自帶 try/except：
+-        # 查不到不可讓已 commit 的狀態轉移連帶被外層 except 回滾稽核紀錄。
+-        # admin 納入的理由見 notification_service._doctor_targets 的註解：升成 admin
+-        # 的醫師否則會無聲地收不到紅旗推播。
+-        try:
+-            result = await db.execute(
+-                select(User.id).where(
+-                    User.role.in_((UserRole.DOCTOR, UserRole.ADMIN)),
+-                    User.is_active.is_(True),
+-                )
+-            )
+-            targets = list(result.scalars().all())
+-        except Exception:
+-            logger.warning(
+-                "查詢在職醫師失敗，紅旗通知略過 | session=%s",
+-                session_id,
+-                exc_info=True,
+-            )
+-            return 0
++        # 未指派醫師 → 發給所有在職臨床人員（doctor + admin）。與報告通知共用同一支
++        # `_doctor_targets`（含 try/except：查不到回空清單，不可讓已 commit 的狀態
++        # 轉移連帶被外層 except 回滾稽核紀錄）。收件角色的理由見該函式註解。
++        targets = await NotificationService._doctor_targets(db, None, session_id)
+ 
+     if not targets:
+         logger.error(
+diff --git a/backend/app/websocket/dashboard_handler.py b/backend/app/websocket/dashboard_handler.py
+index 4ed0da8..aaba62d 100644
+--- a/backend/app/websocket/dashboard_handler.py
++++ b/backend/app/websocket/dashboard_handler.py
+@@ -12,13 +12,13 @@
+ import asyncio
+ import json
+ import logging
+-from datetime import datetime, timezone
+ from typing import Any
+ 
+ from fastapi import WebSocket, WebSocketDisconnect
+ from redis.asyncio import Redis
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
++from app.utils.datetime_utils import utc_now
+ from app.core.config import Settings
+ from app.websocket.auth import authenticate_websocket
+ from app.websocket.connection_manager import (
+@@ -113,7 +113,7 @@ async def dashboard_websocket(
+                     manager._create_envelope(
+                         msg_type="pong",
+                         payload={
+-                            "server_time": datetime.now(timezone.utc).isoformat()
++                            "server_time": utc_now().isoformat()
+                         },
+                     )
+                 )
+@@ -317,7 +317,6 @@ async def _build_initial_state(
+     Returns:
+         初始狀態字典
+     """
+-    import json
+ 
+     # 嘗試從 Redis 快取載入
+     queue_data = await _get_queue_status(db, redis, doctor_id)
+@@ -328,7 +327,7 @@ async def _build_initial_state(
+         "queue": queue_data,
+         "active_alerts": active_alerts,
+         "stats": stats,
+-        "connected_at": datetime.now(timezone.utc).isoformat(),
++        "connected_at": utc_now().isoformat(),
+     }
+ 
+ 
+diff --git a/backend/requirements-dev.txt b/backend/requirements-dev.txt
+deleted file mode 100644
+index 6fa88ab..0000000
+--- a/backend/requirements-dev.txt
++++ /dev/null
+@@ -1,3 +0,0 @@
+--r requirements.txt
+-pytest==9.1.1
+-pytest-asyncio==1.4.0
+diff --git a/backend/tests/integration/test_smoothness_queries_pg.py b/backend/tests/integration/test_smoothness_queries_pg.py
+deleted file mode 100644
+index b82c5f7..0000000
+--- a/backend/tests/integration/test_smoothness_queries_pg.py
++++ /dev/null
+@@ -1,134 +0,0 @@
+-"""Real SQL acceptance: scoped counts, local midnight, pagination and bounded queries."""
+-from datetime import datetime, timedelta, timezone
+-from unittest.mock import AsyncMock
+-from uuid import uuid4
+-
+-import pytest
+-import json
+-from sqlalchemy import event, text
+-from app.models.session import Session
+-from app.models.soap_report import SOAPReport
+-from app.models.notification import Notification
+-from app.models.enums import SessionStatus, ReportStatus, ReviewStatus, NotificationType
+-from app.services.dashboard_service import DashboardService
+-from app.services.report_service import ReportService
+-from app.services.notification_service import NotificationService
+-from app.websocket.dashboard_handler import broadcast_queue_and_stats
+-from tests.integration.conftest import requires_db, run_with_session
+-from tests.integration.test_authz_scoping_pg import _seed_two_tenants, _cleanup, _doctor
+-
+-pytestmark = requires_db
+-
+-
+-@pytest.mark.parametrize("row_count", [1001, 10001])
+-def test_large_calendar_reports_notifications_and_broadcast(monkeypatch, tmp_path, row_count):
+-    async def body(db):
+-        a, b, cc = await _seed_two_tenants(db)
+-        start = datetime(2026, 10, 1, tzinfo=timezone(timedelta(hours=8)))
+-        statements = []
+-        def record(_conn, _cursor, statement, _params, _context, _many):
+-            statements.append(statement)
+-        event.listen(db.bind.sync_engine, 'before_cursor_execute', record)
+-        try:
+-            rows = [Session(id=uuid4(), patient_id=a.patient.id, doctor_id=a.user.id,
+-                            chief_complaint_id=cc.id, status=SessionStatus.COMPLETED,
+-                            created_at=start + timedelta(seconds=i), duration_seconds=60)
+-                    for i in range(row_count)]
+-            db.add_all(rows)
+-            await db.flush()
+-            db.add_all([SOAPReport(session_id=row.id, status=ReportStatus.GENERATED,
+-                                  review_status=ReviewStatus.PENDING if i < 120 else ReviewStatus.APPROVED,
+-                                  created_at=start)
+-                        for i, row in enumerate(rows[:150])])
+-            db.add_all([Notification(user_id=a.user.id, type=NotificationType.SYSTEM,
+-                                     title='synthetic', is_read=i % 2 == 0)
+-                        for i in range(row_count)])
+-            await db.flush()
+-            boundaries = [start + timedelta(days=i) for i in range(32)]
+-            statements.clear()
+-            calendar = await DashboardService.get_calendar_summary(db, _doctor(a.user.id), boundaries)
+-            assert len(statements) == 1
+-            assert dict(calendar[0])['total'] == row_count
+-            assert dict(calendar[0])['busy_seconds'] == row_count * 60
+-            assert dict(calendar[0])['day_index'] == 0  # UTC is still September 30.
+-            other = await DashboardService.get_calendar_summary(db, _doctor(b.user.id), boundaries)
+-            assert not any(row['total'] >= row_count for row in other)
+-            reports = await ReportService.list_reports(db, current_user=_doctor(a.user.id),
+-                date_from=start.isoformat(), date_to=start.isoformat(), review_status='pending', limit=20)
+-            assert len(reports['data']) == 20
+-            assert reports['pagination']['total_count'] == 120
+-            assert reports['review_counts'] == {'pending': 120, 'approved': 30}
+-            statements.clear()
+-            notifications = await NotificationService.list_notifications(db, a.user.id, limit=20, is_read=False)
+-            assert len(statements) == 2  # page + both counts, independent of row count
+-            assert notifications['pagination']['total_count'] == row_count // 2
+-            assert notifications['unread_count'] == row_count // 2
+-            assert len(notifications['data']) == 20
+-            await db.execute(text('ANALYZE notifications'))
+-            plan = (await db.execute(text('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT id FROM notifications WHERE user_id = :user ORDER BY created_at DESC, id DESC LIMIT 20'), {'user': a.user.id})).scalar()
+-            (tmp_path / f'notification-plan-{row_count}.json').write_text(json.dumps(plan, indent=2))
+-            assert 'ix_notifications_user_created_id' in json.dumps(plan)
+-            # Query count and no unused queue details in the broadcast path.
+-            from app.websocket import dashboard_handler as handler
+-            monkeypatch.setattr(handler.manager, 'broadcast_queue_updated', AsyncMock())
+-            monkeypatch.setattr(handler.manager, 'broadcast_stats_updated', AsyncMock())
+-            statements.clear()
+-            await broadcast_queue_and_stats(db, AsyncMock())
+-            assert len(statements) == 2
+-            handler.manager.broadcast_queue_updated.assert_awaited_once()
+-            assert handler.manager.broadcast_queue_updated.call_args.kwargs['queue'] == []
+-            summary = await DashboardService.get_monthly_summary(db, current_user=_doctor(a.user.id), month='2026-10')
+-            assert summary.total_sessions >= 1  # original tenant fixture in this month
+-            assert all('intake_data' not in sql for sql in statements)
+-        finally:
+-            db.expunge_all()  # Keep committed seed IDs available for cleanup after rollback.
+-            await db.rollback()  # synthetic bulk rows were deliberately never committed
+-            event.remove(db.bind.sync_engine, 'before_cursor_execute', record)
+-            await _cleanup(db, a, b, cc)
+-    run_with_session(body)
+-
+-
+-def test_calendar_http_contract_dst_duration_and_deleted_rows():
+-    """Exercise actual response validation and authorization, including a 23-hour day."""
+-    from zoneinfo import ZoneInfo
+-    from httpx import AsyncClient, ASGITransport
+-    from app.main import app
+-    from app.core.dependencies import get_db, get_current_user
+-    from app.models.enums import UserRole
+-    from types import SimpleNamespace
+-
+-    async def body(db):
+-        a, b, cc = await _seed_two_tenants(db)
+-        zone = ZoneInfo('America/New_York')
+-        start = datetime(2026, 3, 8, tzinfo=zone)
+-        boundaries = [start, datetime(2026, 3, 9, tzinfo=zone), datetime(2026, 3, 10, tzinfo=zone)]
+-        rows = [Session(patient_id=a.patient.id, doctor_id=a.user.id, chief_complaint_id=cc.id,
+-                        status=SessionStatus.COMPLETED, created_at=start,
+-                        started_at=start, completed_at=start + timedelta(seconds=10.9),
+-                        duration_seconds=-1, is_deleted=deleted) for deleted in (False, True)]
+-        db.add_all(rows)
+-        await db.flush()
+-        old = dict(app.dependency_overrides)
+-        async def database(): yield db
+-        app.dependency_overrides[get_db] = database
+-        app.dependency_overrides[get_current_user] = lambda: _doctor(a.user.id)
+-        try:
+-            async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
+-                params = [('day_starts', day.isoformat()) for day in boundaries]
+-                response = await client.get('/api/v1/dashboard/calendar', params=params)
+-                assert response.status_code == 200, response.text
+-                assert response.json()[0]['total'] == 1
+-                assert response.json()[0]['busy_seconds'] == 10  # floor fractional seconds, fall back from invalid duration
+-                app.dependency_overrides[get_current_user] = lambda: _doctor(b.user.id)
+-                assert (await client.get('/api/v1/dashboard/calendar', params=params)).json() == []
+-                app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=a.user.id, role=UserRole.PATIENT)
+-                assert (await client.get('/api/v1/dashboard/calendar', params=params)).status_code == 403
+-                app.dependency_overrides[get_current_user] = lambda: _doctor(a.user.id)
+-                assert (await client.get('/api/v1/dashboard/calendar', params={'day_starts': '2026-10-01'})).status_code == 422
+-        finally:
+-            app.dependency_overrides.clear()
+-            app.dependency_overrides.update(old)
+-            db.expunge_all()
+-            await db.rollback()
+-            await _cleanup(db, a, b, cc)
+-    run_with_session(body)
+diff --git a/backend/tests/unit/core/test_config_env_precedence.py b/backend/tests/unit/core/test_config_env_precedence.py
+index b3da264..b76dd4d 100644
+--- a/backend/tests/unit/core/test_config_env_precedence.py
++++ b/backend/tests/unit/core/test_config_env_precedence.py
+@@ -10,11 +10,7 @@
+ 
+ from __future__ import annotations
+ 
+-import os
+-import tempfile
+-from pathlib import Path
+ 
+-import pytest
+ 
+ from app.core.config import Settings
+ 
+diff --git a/backend/tests/unit/core/test_rate_limit.py b/backend/tests/unit/core/test_rate_limit.py
+index 24a12dd..7044701 100644
+--- a/backend/tests/unit/core/test_rate_limit.py
++++ b/backend/tests/unit/core/test_rate_limit.py
+@@ -16,7 +16,7 @@ from __future__ import annotations
+ 
+ import asyncio
+ import time
+-from typing import Any, Optional
++from typing import Any
+ 
+ import pytest
+ from redis.exceptions import ConnectionError as RedisConnectionError
+diff --git a/backend/tests/unit/middleware/test_i18n_error_handler.py b/backend/tests/unit/middleware/test_i18n_error_handler.py
+index 87ab9d6..f82dbf3 100644
+--- a/backend/tests/unit/middleware/test_i18n_error_handler.py
++++ b/backend/tests/unit/middleware/test_i18n_error_handler.py
+@@ -13,7 +13,6 @@ from __future__ import annotations
+ 
+ from typing import Any
+ 
+-import pytest
+ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ 
+diff --git a/backend/tests/unit/pipelines/test_red_flag_rule_layer_w1.py b/backend/tests/unit/pipelines/test_red_flag_rule_layer_w1.py
+index 4be050b..d68f80e 100644
+--- a/backend/tests/unit/pipelines/test_red_flag_rule_layer_w1.py
++++ b/backend/tests/unit/pipelines/test_red_flag_rule_layer_w1.py
+@@ -18,7 +18,7 @@ from __future__ import annotations
+ 
+ import asyncio
+ from typing import Any
+-from unittest.mock import AsyncMock, MagicMock
++from unittest.mock import MagicMock
+ 
+ import pytest
+ 
+diff --git a/backend/tests/unit/routers/test_session_reconnect.py b/backend/tests/unit/routers/test_session_reconnect.py
+deleted file mode 100644
+index 022fc25..0000000
+--- a/backend/tests/unit/routers/test_session_reconnect.py
++++ /dev/null
+@@ -1,45 +0,0 @@
+-"""`POST /sessions/{id}/reconnect` 與 WS handler 共用 history 載入與 checksum。
+-
+-兩邊各寫一份時任一邊漂移（key 格式、序列化欄位）都會讓 resumeFrom 永遠比對不上。
+-"""
+-
+-import asyncio
+-import json
+-import uuid
+-from types import SimpleNamespace
+-
+-from app.routers import sessions as sessions_router
+-from app.websocket.conversation_handler import _SESSION_CONTEXT_KEY, _history_checksum
+-from tests.unit.websocket.conftest import FakeRedis
+-
+-
+-def test_reconnect_uses_ws_handler_history_and_checksum(monkeypatch):
+-    session_id = uuid.uuid4()
+-    history = [
+-        {"role": "assistant", "content": "請問哪裡不舒服？", "timestamp": "t1"},
+-        {"role": "user", "content": "小便會痛", "timestamp": "t2"},
+-    ]
+-    redis = FakeRedis()
+-    asyncio.run(
+-        redis.hset(
+-            _SESSION_CONTEXT_KEY.format(session_id=session_id),
+-            "conversation_history",
+-            json.dumps(history, ensure_ascii=False),
+-        )
+-    )
+-
+-    async def _get_session(db, session_id, current_user):
+-        return SimpleNamespace(status="in_progress")
+-
+-    monkeypatch.setattr(sessions_router.session_service, "get_session", _get_session)
+-
+-    result = asyncio.run(
+-        sessions_router.reconnect_session(
+-            session_id, db=None, redis=redis, current_user=SimpleNamespace(id=uuid.uuid4())
+-        )
+-    )
+-
+-    assert result["conversationHistory"] == history
+-    assert result["lastMessageIndex"] == 1
+-    assert result["checksum"] == _history_checksum(history)
+-    assert result["resumeToken"] == result["checksum"]
+diff --git a/backend/tests/unit/services/test_alert_service_authz.py b/backend/tests/unit/services/test_alert_service_authz.py
+index ccc6906..c55c1c6 100644
+--- a/backend/tests/unit/services/test_alert_service_authz.py
++++ b/backend/tests/unit/services/test_alert_service_authz.py
+@@ -20,18 +20,15 @@ from __future__ import annotations
+ import asyncio
+ import inspect
+ import uuid
+-from dataclasses import dataclass, field
++from dataclasses import dataclass
+ from types import SimpleNamespace
+ from typing import Any, Optional
+ 
+ import pytest
+ 
+ from app.models.enums import UserRole
+-from app.services.alert_service import (
+-    AlertService,
+-    _doctor_scope_id,
+-    _get_user_role,
+-)
++from app.core.authz import get_clinician_scope_id as _doctor_scope_id, get_user_role as _get_user_role
++from app.services.alert_service import AlertService
+ 
+ 
+ def _run(coro):
+diff --git a/backend/tests/unit/services/test_get_current_user_blacklist.py b/backend/tests/unit/services/test_get_current_user_blacklist.py
+index b398d66..8523e4f 100644
+--- a/backend/tests/unit/services/test_get_current_user_blacklist.py
++++ b/backend/tests/unit/services/test_get_current_user_blacklist.py
+@@ -17,10 +17,9 @@ from __future__ import annotations
+ 
+ import asyncio
+ import logging
+-import time
+ import uuid
+ from dataclasses import dataclass
+-from typing import Any, Optional
++from typing import Any
+ from types import SimpleNamespace
+ 
+ import pytest
+diff --git a/backend/tests/unit/services/test_notification_push_dispatch.py b/backend/tests/unit/services/test_notification_push_dispatch.py
+index fed17cb..e04667d 100644
+--- a/backend/tests/unit/services/test_notification_push_dispatch.py
++++ b/backend/tests/unit/services/test_notification_push_dispatch.py
+@@ -47,6 +47,10 @@ class _FakeResult:
+     def first(self) -> Any:
+         return self._first
+ 
++    def all(self) -> Any:
++        """批次語言查詢 `select(User.id, User.preferred_language)` 走 `.all()`。"""
++        return self._rows
++
+     def scalars(self) -> Any:
+         """未指派場次的 fan-out 會走 `select(User.id)` → `.scalars().all()`。"""
+         rows = self._rows
+@@ -131,12 +135,12 @@ def _report_ready_db(
+     push_enabled: Any = True,
+ ) -> _FakeDB:
+     """notify_report_ready 的 execute 序列：
+-    session+patient 列 → doctor lang → 類型開關 → push 通道開關。
++    session+patient 列 → 全部目標的 lang（一次）→ 類型開關 → push 通道開關。
+     """
+     return _FakeDB(
+         results=[
+             _FakeResult(first=_FakeRow(doctor_id, "王小明")),
+-            _FakeResult(scalar="zh-TW"),
++            _FakeResult(rows=[(doctor_id, "zh-TW")]),
+             _FakeResult(scalar=type_enabled),
+             _FakeResult(scalar=push_enabled),
+         ]
+@@ -221,16 +225,17 @@ def _report_ready_fanout_db(
+ ) -> _FakeDB:
+     """未指派場次的 execute 序列：
+     session+patient 列（doctor_id=None）→ 在職醫師清單
+-    → 每位醫師各三次（lang → 類型開關 → push 開關）。
++    → 全部醫師的 lang（**一次**，B30 之前是每位各一次）→ 每位醫師各（類型開關 → push 開關）。
+     """
+     results = [
+         _FakeResult(first=_FakeRow(None, "王小明")),
+         _FakeResult(rows=list(doctors)),
++        _FakeResult(rows=[(d, "zh-TW") for d in doctors]),
+     ]
+     for _ in doctors:
+         # 類型被抑制時 create() 提早 return，**不會**再查 push 通道開關——
+         # 序列要跟著少一格，否則下一位醫師會吃到錯位的結果。
+-        results.extend([_FakeResult(scalar="zh-TW"), _FakeResult(scalar=type_enabled)])
++        results.append(_FakeResult(scalar=type_enabled))
+         if type_enabled:
+             results.append(_FakeResult(scalar=push_enabled))
+     return _FakeDB(results=results)
+diff --git a/backend/tests/unit/services/test_patient_authorization.py b/backend/tests/unit/services/test_patient_authorization.py
+index 0c0ce53..3c80b76 100644
+--- a/backend/tests/unit/services/test_patient_authorization.py
++++ b/backend/tests/unit/services/test_patient_authorization.py
+@@ -16,17 +16,17 @@ from __future__ import annotations
+ import inspect
+ import asyncio
+ import uuid
+-from typing import Any, Optional
++from typing import Optional
+ from types import SimpleNamespace
+ 
+ import pytest
+ 
+ from app.core.exceptions import ForbiddenException
+ from app.models.enums import UserRole
++from app.core.authz import get_user_role as _get_user_role
+ from app.services.patient_service import (
+     PatientService,
+     _authorize_patient_access,
+-    _get_user_role,
+ )
+ from app.core.authz import get_clinician_scope_id
+ 
+diff --git a/backend/tests/unit/services/test_red_flag_confidence.py b/backend/tests/unit/services/test_red_flag_confidence.py
+index 37c8c38..13f6517 100644
+--- a/backend/tests/unit/services/test_red_flag_confidence.py
++++ b/backend/tests/unit/services/test_red_flag_confidence.py
+@@ -15,7 +15,7 @@ from __future__ import annotations
+ import asyncio
+ import uuid
+ from typing import Any
+-from unittest.mock import AsyncMock, MagicMock
++from unittest.mock import MagicMock
+ 
+ from app.models.enums import AlertSeverity, AlertType, RedFlagConfidence
+ from app.pipelines import red_flag_detector as rfd_module
+@@ -255,7 +255,7 @@ def test_alert_service_create_persists_confidence_and_canonical_id(monkeypatch):
+         "confidence": "rule_hit",
+         "language": "zh-TW",
+     }
+-    alert = _run(AlertService.create(db, data))
++    _run(AlertService.create(db, data))
+     # find RedFlagAlert in db.added
+     from app.models.red_flag_alert import RedFlagAlert
+     added_alerts = [o for o in db.added if isinstance(o, RedFlagAlert)]
+diff --git a/backend/tests/unit/services/test_refresh_token_rotation.py b/backend/tests/unit/services/test_refresh_token_rotation.py
+index 94107e4..5086398 100644
+--- a/backend/tests/unit/services/test_refresh_token_rotation.py
++++ b/backend/tests/unit/services/test_refresh_token_rotation.py
+@@ -26,7 +26,6 @@ from redis.exceptions import ConnectionError as RedisConnectionError
+ 
+ from app.cache import redis_client
+ from app.core.exceptions import ServiceUnavailableException, UnauthorizedException
+-from app.models.enums import UserRole
+ from app.services import auth_service as auth_service_mod
+ from app.services.auth_service import (
+     AuthService,
+diff --git a/backend/tests/unit/services/test_report_authorization.py b/backend/tests/unit/services/test_report_authorization.py
+index dcf75c3..a30f2a9 100644
+--- a/backend/tests/unit/services/test_report_authorization.py
++++ b/backend/tests/unit/services/test_report_authorization.py
+@@ -25,10 +25,10 @@ import pytest
+ 
+ from app.core.exceptions import NotFoundException
+ from app.models.enums import UserRole
++from app.core.authz import get_user_role as _get_user_role
+ from app.services.report_service import (
+     ReportService,
+     _authorize_report_access,
+-    _get_user_role,
+ )
+ 
+ 
+diff --git a/backend/tests/unit/services/test_session_authorization.py b/backend/tests/unit/services/test_session_authorization.py
+index 8d50d76..2fec858 100644
+--- a/backend/tests/unit/services/test_session_authorization.py
++++ b/backend/tests/unit/services/test_session_authorization.py
+@@ -24,9 +24,9 @@ import pytest
+ 
+ from app.core.exceptions import ForbiddenException
+ from app.models.enums import UserRole
++from app.core.authz import get_user_role as _get_user_role
+ from app.services.session_service import (
+     _authorize_session_access,
+-    _get_user_role,
+ )
+ 
+ 
+diff --git a/backend/tests/unit/tasks/test_audio_lifecycle.py b/backend/tests/unit/tasks/test_audio_lifecycle.py
+index 311edb2..b023afb 100644
+--- a/backend/tests/unit/tasks/test_audio_lifecycle.py
++++ b/backend/tests/unit/tasks/test_audio_lifecycle.py
+@@ -11,7 +11,6 @@ from __future__ import annotations
+ 
+ import asyncio
+ from datetime import timedelta
+-from typing import Any
+ 
+ import pytest
+ 
+diff --git a/backend/tests/unit/tasks/test_audit_retention.py b/backend/tests/unit/tasks/test_audit_retention.py
+index af5a4de..7481551 100644
+--- a/backend/tests/unit/tasks/test_audit_retention.py
++++ b/backend/tests/unit/tasks/test_audit_retention.py
+@@ -11,7 +11,6 @@ from __future__ import annotations
+ 
+ import asyncio
+ from datetime import date
+-from typing import Any
+ 
+ import pytest
+ 
+@@ -176,7 +175,6 @@ def test_cleanup_detach_failure_does_not_block_others(patch_factory, monkeypatch
+ 
+     rows = [("audit_logs_2019_02",), ("audit_logs_2019_03",)]
+ 
+-    call_count = {"n": 0}
+ 
+     def _provide():
+         # 第一次 DETACH（2019_02）失敗；第二次 DROP 不會跑；
+@@ -188,7 +186,7 @@ def test_cleanup_detach_failure_does_not_block_others(patch_factory, monkeypatch
+ 
+         return _FakeSession(rows, execute_side_effect=_side)
+ 
+-    factory = patch_factory(_provide)
++    patch_factory(_provide)
+     result = _run(ar._async_cleanup())
+ 
+     assert "audit_logs_2019_03" in result["dropped"]
+diff --git a/backend/tests/unit/tasks/test_run_async.py b/backend/tests/unit/tasks/test_run_async.py
+deleted file mode 100644
+index df4fe8f..0000000
+--- a/backend/tests/unit/tasks/test_run_async.py
++++ /dev/null
+@@ -1,30 +0,0 @@
+-"""`app.tasks.run_async`：同步 Celery task body 跑 coroutine 的唯一入口。
+-
+-舊寫法 ``try: loop.run_until_complete(coro) except Exception: asyncio.run(coro)``
+-會把 business exception 當成「loop 壞了」而把整個 task body 重跑一次
+-（推播送兩遍、報告標兩次 FAILED）。這裡釘住：factory 只被呼叫一次。
+-"""
+-
+-import pytest
+-
+-from app.tasks import run_async
+-
+-
+-def test_factory_raising_business_exception_is_invoked_exactly_once():
+-    calls: list[int] = []
+-
+-    async def _boom() -> None:
+-        calls.append(1)
+-        raise ValueError("business error, not a loop problem")
+-
+-    with pytest.raises(ValueError):
+-        run_async(_boom)
+-
+-    assert calls == [1]
+-
+-
+-def test_returns_coroutine_result():
+-    async def _ok() -> int:
+-        return 42
+-
+-    assert run_async(_ok) == 42
+diff --git a/backend/tests/unit/utils/test_localized_field.py b/backend/tests/unit/utils/test_localized_field.py
+index f474d88..141b7a9 100644
+--- a/backend/tests/unit/utils/test_localized_field.py
++++ b/backend/tests/unit/utils/test_localized_field.py
+@@ -11,7 +11,6 @@
+ 
+ from __future__ import annotations
+ 
+-import pytest
+ 
+ from app.core.config import settings
+ from app.utils.localized_field import pick
+diff --git a/backend/tests/unit/utils/test_pagination.py b/backend/tests/unit/utils/test_pagination.py
+deleted file mode 100644
+index 609cb15..0000000
+--- a/backend/tests/unit/utils/test_pagination.py
++++ /dev/null
+@@ -1,17 +0,0 @@
+-"""`parse_cursor`：垃圾 cursor 不得進到 UUID 欄位比對（Postgres 會回 500）。"""
+-
+-import uuid
+-
+-from app.utils.pagination import parse_cursor
+-
+-
+-def test_valid_uuid_string_round_trips():
+-    value = uuid.uuid4()
+-    assert parse_cursor(str(value)) == value
+-    assert parse_cursor(value) == value
+-
+-
+-def test_garbage_and_empty_cursor_mean_no_cursor():
+-    assert parse_cursor("not-a-uuid") is None
+-    assert parse_cursor("") is None
+-    assert parse_cursor(None) is None
+diff --git a/backend/tests/unit/utils/test_resolve_language.py b/backend/tests/unit/utils/test_resolve_language.py
+index b788d87..672cca9 100644
+--- a/backend/tests/unit/utils/test_resolve_language.py
++++ b/backend/tests/unit/utils/test_resolve_language.py
+@@ -12,10 +12,9 @@ Feature flag gate：
+ 
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass, field
++from dataclasses import dataclass
+ from typing import Optional
+ 
+-import pytest
+ 
+ from app.core.config import settings
+ from app.utils.language import resolve_language
+diff --git a/backend/tests/unit/websocket/test_auth_handshake.py b/backend/tests/unit/websocket/test_auth_handshake.py
+index ae80894..5972846 100644
+--- a/backend/tests/unit/websocket/test_auth_handshake.py
++++ b/backend/tests/unit/websocket/test_auth_handshake.py
+@@ -18,7 +18,6 @@ import asyncio
+ import json
+ from contextlib import asynccontextmanager
+ from types import SimpleNamespace
+-from typing import Any
+ 
+ import pytest
+ 
+diff --git a/backend/tests/unit/websocket/test_early_sentence_stream.py b/backend/tests/unit/websocket/test_early_sentence_stream.py
+deleted file mode 100644
+index 8a9bb05..0000000
+--- a/backend/tests/unit/websocket/test_early_sentence_stream.py
++++ /dev/null
+@@ -1,98 +0,0 @@
+-"""The first safe sentence need not wait for the complete LLM response."""
+-import asyncio
+-import pytest
+-from .conftest import (run_text_turn, StubLLMEngine, StubDetector, _CaptureManager,
+-                      make_alert, make_settings)
+-from app.websocket.conversation_handler import _split_completed_sentences
+-
+-
+-@pytest.mark.parametrize('language,text', [
+-    ('zh-TW', '第一句。第二句。'), ('en-US', 'First sentence. Second sentence.'),
+-    ('ja-JP', '一文目です。二文目です。'), ('ko-KR', '첫 문장입니다. 두 번째 문장입니다.'),
+-    ('vi-VN', 'Câu đầu tiên. Câu thứ hai.'),
+-])
+-def test_safe_first_chunk_precedes_generation_end(monkeypatch, language, text):
+-    cap = _CaptureManager()
+-    sentences, tail = _split_completed_sentences(text)
+-    first = sentences[0]
+-    prefix = text[:len(first)] + (' ' if text[len(first):].startswith(' ') else '')
+-    async def generate(self, *_args):
+-        yield prefix
+-        for _ in range(100):
+-            if cap.chunk_texts():
+-                break
+-            await asyncio.sleep(.001)
+-        assert cap.chunk_texts(), 'Safe first sentence waited for LLM completion'
+-        yield text[len(prefix):]
+-    monkeypatch.setattr(StubLLMEngine, 'generate_response', generate)
+-    result = run_text_turn(monkeypatch, manager=cap, language=language)
+-    assert ''.join(cap.chunk_texts()) == text
+-    chunks = cap.messages_of_type('ai_response_chunk')
+-    assert [m['payload']['chunkIndex'] for m in chunks] == list(range(len(chunks)))
+-    assert result.conversation_history[-1]['content'] == text
+-    assert len(cap.messages_of_type('ai_response_end')) == 1
+-
+-
+-@pytest.mark.parametrize('gate', ['pending', 'high', 'critical', 'failed', 'wrap_up'])
+-def test_unsafe_or_rewritable_output_stays_buffered(monkeypatch, gate):
+-    cap = _CaptureManager()
+-    detector = StubDetector(delay=.05) if gate == 'pending' else (
+-        StubDetector(error=RuntimeError('detector down')) if gate == 'failed' else
+-        StubDetector(alerts=[make_alert(severity=gate)]) if gate in ('high', 'critical') else StubDetector())
+-    async def generate(self, *_args):
+-        yield 'First sentence. '
+-        await asyncio.sleep(.01)
+-        assert not cap.chunk_texts(), f'{gate} bypassed gate'
+-        yield 'May I ask another question?'
+-    monkeypatch.setattr(StubLLMEngine, 'generate_response', generate)
+-    settings = make_settings(MAX_PATIENT_TURNS_HARD_CAP=1) if gate == 'wrap_up' else None
+-    result = run_text_turn(monkeypatch, manager=cap, detector=detector, settings=settings,
+-                           red_flag_wait_timeout=.1)
+-    assert cap.messages_of_type('ai_response_end')
+-    if gate == 'wrap_up':
+-        assert 'May I ask' not in ''.join(cap.chunk_texts())
+-    if gate in ('high', 'critical'):
+-        types = [m['message']['type'] for m in cap.session_messages]
+-        assert types.index('red_flag_alert') < types.index('ai_response_chunk')
+-
+-
+-def test_partial_stream_failure_closes_and_persists_heard_text(monkeypatch):
+-    cap = _CaptureManager()
+-    async def generate(self, *_args):
+-        yield '已確認。'
+-        for _ in range(100):
+-            if cap.chunk_texts(): break
+-            await asyncio.sleep(.001)
+-        assert cap.chunk_texts()
+-        yield '尚未完成且未送出的內容'
+-        raise RuntimeError('connection interrupted')
+-    monkeypatch.setattr(StubLLMEngine, 'generate_response', generate)
+-    result = run_text_turn(monkeypatch, manager=cap)
+-    assert result.conversation_history[-1]['content'] == '已確認。'
+-    assert cap.messages_of_type('ai_response_end')[0]['payload']['fullText'] == '已確認。'
+-    assert any(m['msg_type'] == 'error' for m in cap.localized_calls)
+-    # Redis copy must match the DB copy, else the next turn reloads a history missing this reply.
+-    from app.websocket import conversation_handler as ch
+-    assert any('已確認。' in str(c.args[2]) for c in ch._save_conversation_history.await_args_list)
+-
+-
+-def test_gate_clearing_during_wait_window_does_not_double_emit(monkeypatch):
+-    """red_flag_task resolves [] after the LLM finished but inside the wait_for window:
+-    the done-callback starts early_sender, then the main path awaits it and drains again."""
+-    cap = _CaptureManager()
+-    text = '第一句。第二句。'
+-    async def generate(self, *_args):
+-        yield text
+-    monkeypatch.setattr(StubLLMEngine, 'generate_response', generate)
+-    run_text_turn(monkeypatch, manager=cap, detector=StubDetector(delay=.02),
+-                  red_flag_wait_timeout=.5)
+-    assert ''.join(cap.chunk_texts()) == text
+-    chunks = cap.messages_of_type('ai_response_chunk')
+-    assert [m['payload']['chunkIndex'] for m in chunks] == [0, 1]
+-    assert len(cap.messages_of_type('ai_response_end')) == 1
+-
+-
+-def test_sentence_periods_keep_decimals_and_abbreviations():
+-    assert _split_completed_sentences('Dr. Chen measured 3.5 mg. Next') == (['Dr. Chen measured 3.5 mg.'], ' Next')
+-    assert _split_completed_sentences('3.') == ([], '3.')
+-    assert _split_completed_sentences('Really? Yes!') == (['Really?', 'Yes!'], '')

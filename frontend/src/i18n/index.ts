@@ -23,9 +23,6 @@ export const defaultNS = 'common';
 export const SUPPORTED_LANGUAGES = ['zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'vi-VN'] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
-// 標示哪些 locale 是 beta（UI 用於加 "(beta)" 標籤）；上線 active 清單由後端 API 權威。
-export const BETA_LANGUAGES: readonly SupportedLanguage[] = ['ja-JP', 'ko-KR', 'vi-VN'];
-
 // 所有頁面 / 元件可能會 useTranslation 的 namespace。未列出的會在首次
 // 被引用時才以 loadNamespaces() 補抓；列在這裡會在 init 時預載。
 // NOTE: 新增 namespace 時務必：
@@ -44,11 +41,21 @@ export const ALL_NAMESPACES = [
   'research',
 ] as const;
 
+// URL 是語言的唯一權威（CLAUDE.md）。開機時直接從路徑取 lng，避免 LanguageDetector
+// 先依 localStorage / navigator 載一套 namespace、LanguageLayout 再切到 URL 語言又載一套
+// （實測冷啟動 10 → 20 個 locale JSON 請求）。路徑沒有語言前綴時才交給 detector。
+function lngFromLocation(): SupportedLanguage | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const first = window.location.pathname.split('/')[1];
+  return (SUPPORTED_LANGUAGES as readonly string[]).includes(first) ? (first as SupportedLanguage) : undefined;
+}
+
 void i18next
   .use(HttpBackend)
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
+    lng: lngFromLocation(),
     // 三層 fallback：選 locale 缺 key → en-US → zh-TW（active locale 是翻譯最完整的後盾）
     fallbackLng: {
       'ja-JP': ['en-US', 'zh-TW'],
@@ -59,6 +66,7 @@ void i18next
     // 注意：i18next v26 的 isSupportedCode 對 `zh-TW` 比對會返回 false，
     // 讓 toResolveHierarchy 回空陣列導致 t() 完全失靈。這裡沿用舊實作：
     // 不設 supportedLngs，改由 fallbackLng + LanguageDetector 控制。
+    load: 'currentOnly', // locale directories use full codes; skip nonexistent /zh/, /en/, etc.
     defaultNS,
     ns: ALL_NAMESPACES as unknown as string[],
     // 讓 react-i18next 透過 Suspense 等待 namespace 載入完成（main.tsx 有 <Suspense>）

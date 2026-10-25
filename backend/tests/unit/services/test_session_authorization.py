@@ -24,9 +24,9 @@ import pytest
 
 from app.core.exceptions import ForbiddenException
 from app.models.enums import UserRole
+from app.core.authz import get_user_role as _get_user_role
 from app.services.session_service import (
     _authorize_session_access,
-    _get_user_role,
 )
 
 
@@ -210,3 +210,64 @@ def test_unknown_role_is_rejected():
     db = _FakeDB()
     with pytest.raises(ForbiddenException):
         _run(_authorize_session_access(db, session, user))
+
+
+# ──────────────────────────────────────────────────────
+# list_sessions：角色限縮交給 get_list 的 scope_filter，資料與計數同一條件
+# ──────────────────────────────────────────────────────
+
+class _CapturingDB:
+    """記下每條 statement；資料查詢回空、計數回 0。"""
+
+    def __init__(self) -> None:
+        self.statements: list[Any] = []
+
+    async def execute(self, stmt: Any):
+        self.statements.append(stmt)
+        return SimpleNamespace(
+            scalars=lambda: SimpleNamespace(all=lambda: []),
+            scalar=lambda: 0,
+            scalar_one_or_none=lambda: None,
+        )
+
+
+def test_clinician_list_total_count_uses_same_scope_as_data():
+    """以前計數用 `doctor_id == self`、清單用「自己負責＋未指派」，total_count
+    永遠少算未指派場次。兩條 query 都要帶 `doctor_id IS NULL` 那一半。"""
+    from app.services.session_service import SessionService
+
+    db = _CapturingDB()
+    doctor = _make_user(UserRole.DOCTOR)
+
+    result = asyncio.run(SessionService().list_sessions(db, current_user=doctor))
+
+    assert result["pagination"]["total_count"] == 0
+    assert len(db.statements) == 2
+    data_sql, count_sql = (str(s).lower() for s in db.statements)
+    assert "count(" in count_sql
+    for sql in (data_sql, count_sql):
+        assert "sessions.doctor_id is null" in sql
+        assert "is_deleted" in sql
+
+
+def test_assign_doctor_rejects_non_selectable_doctor(monkeypatch):
+    """doctor_id 來自前端：不在 `_selectable_doctor_filter` 內（停用、非醫師、
+    不存在）一律 404，與 create_session 同一道閘門。"""
+    from app.core.exceptions import NotFoundException
+    from app.services.session_service import SessionService
+
+    session = _make_session()
+
+    async def _get_by_id(db, session_id, **kwargs):
+        return session
+
+    monkeypatch.setattr(SessionService, "get_by_id", staticmethod(_get_by_id))
+    db = _FakeDB()  # 醫師查詢 → None
+
+    with pytest.raises(NotFoundException):
+        asyncio.run(
+            SessionService().assign_doctor(
+                db, session.id, uuid.uuid4(), current_user=_make_user(UserRole.ADMIN)
+            )
+        )
+    assert session.doctor_id is None

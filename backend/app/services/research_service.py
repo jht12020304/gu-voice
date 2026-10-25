@@ -244,6 +244,363 @@ def age_from_dob(dob: date, ref: date) -> int:
 # ── 主服務 ──────────────────────────────────────────────
 
 
+def _status_of(row: Any) -> str:
+    s = row.status
+    return s.value if hasattr(s, "value") else str(s)
+
+
+def _enum_val(v: Any) -> str:
+    return v.value if hasattr(v, "value") else str(v)
+
+
+def _cohort_section(session_rows: Sequence[Any], sessions_with_alert: set) -> CohortSection:
+    # ── Cohort ─────────────────────────────────────
+    status_counts: dict[str, int] = {}
+    weekly: dict[str, dict[str, int]] = {}
+    for r in session_rows:
+        st = _status_of(r)
+        status_counts[st] = status_counts.get(st, 0) + 1
+        wk = week_start_of(r.created_at)
+        bucket = weekly.setdefault(
+            wk, {"sessions": 0, "completed": 0, "red_flag_sessions": 0}
+        )
+        bucket["sessions"] += 1
+        if st == "completed":
+            bucket["completed"] += 1
+        if r.id in sessions_with_alert:
+            bucket["red_flag_sessions"] += 1
+
+    completed = status_counts.get("completed", 0)
+    aborted = status_counts.get("aborted_red_flag", 0)
+    cancelled = status_counts.get("cancelled", 0)
+    total = len(session_rows)
+    cohort = CohortSection(
+        total_sessions=total,
+        completed=completed,
+        aborted_red_flag=aborted,
+        cancelled=cancelled,
+        in_progress_or_waiting=total - completed - aborted - cancelled,
+        completion_rate=rate(completed, total),
+        completion=wilson_proportion(completed, total),
+        weekly_trend=[
+            WeeklyTrendItem(week_start=wk, **counts)
+            for wk, counts in sorted(weekly.items())
+        ],
+    )
+    return cohort
+
+
+def _demographics_section(session_rows: Sequence[Any], demo_rows: Sequence[Any]) -> DemographicsSection:
+    # ── Demographics（Table 1）──────────────────────
+    # 病患層級去重（同病患多場次只計一次年齡/性別）；主訴以場次計 case mix。
+    ref_day = (
+        max((r.created_at.date() for r in session_rows), default=None)
+        or utc_now().date()
+    )
+    patient_age: dict[Any, int] = {}
+    patient_gender: dict[Any, str] = {}
+    complaint_counts: dict[str, int] = {}
+    for r in demo_rows:
+        comp = (r.complaint or "unknown").strip() or "unknown"
+        complaint_counts[comp] = complaint_counts.get(comp, 0) + 1
+        pid = getattr(r, "patient_id", None)
+        if pid is None:
+            continue
+        if r.date_of_birth is not None and pid not in patient_age:
+            patient_age[pid] = age_from_dob(r.date_of_birth, ref_day)
+        if pid not in patient_gender and r.gender is not None:
+            g = r.gender
+            patient_gender[pid] = g.value if hasattr(g, "value") else str(g)
+    ages = list(patient_age.values())
+    demographics = DemographicsSection(
+        total_patients=len({r.patient_id for r in demo_rows if r.patient_id}),
+        age_years=summarize([float(a) for a in ages]),
+        age_band_distribution=distribution(
+            ((age_band(a), 1) for a in ages),
+            order=["<40", "40-59", "60-74", "75+"],
+        ),
+        gender_distribution=distribution(
+            ((g, 1) for g in patient_gender.values()),
+            order=["male", "female", "other"],
+        ),
+        chief_complaint_distribution=distribution(complaint_counts.items()),
+    )
+    return demographics
+
+
+def _efficiency_section(session_rows: Sequence[Any], conv_rows: Sequence[Any]) -> tuple[EfficiencySection, dict[Any, int]]:
+    # ── Efficiency ─────────────────────────────────
+    durations: list[float] = []
+    for r in session_rows:
+        if _status_of(r) not in _TERMINAL_STATUSES:
+            continue
+        if r.completed_at and r.started_at:
+            durations.append((r.completed_at - r.started_at).total_seconds())
+        elif r.duration_seconds is not None:
+            durations.append(float(r.duration_seconds))
+
+    turns_by_session: dict[Any, int] = {}
+    turn_chars: list[float] = []
+    for c in conv_rows:
+        turns_by_session[c.session_id] = turns_by_session.get(c.session_id, 0) + 1
+        if c.chars is not None:
+            turn_chars.append(float(c.chars))
+    turns_values = [float(v) for v in turns_by_session.values()]
+
+    max_dur = max(durations) if durations else 0
+    dur_edge_max = max(600.0, (int(max_dur // 300) + 1) * 300.0)
+    efficiency = EfficiencySection(
+        duration_seconds=summarize(durations),
+        patient_turns=summarize(turns_values),
+        patient_turn_chars=summarize(turn_chars),
+        duration_histogram=histogram(
+            durations,
+            [i * 300.0 for i in range(int(dur_edge_max // 300) + 1)],
+        ),
+        turns_histogram=histogram(
+            turns_values, [0, 2, 4, 6, 8, 10, 12, 15, 20, 30]
+        ),
+    )
+    return efficiency, turns_by_session
+
+
+def _history_section(report_rows: Sequence[Any]) -> HistoryTakingSection:
+    # ── History taking（HPI 完整度） ─────────────────
+    completeness_vals: list[float] = []
+    field_filled: dict[str, int] = {f: 0 for f in HPI_FIELDS}
+    analyzed = 0
+    for rep in report_rows:
+        status_val = (
+            rep.status.value if hasattr(rep.status, "value") else str(rep.status)
+        )
+        if status_val != "generated":
+            continue
+        comp = hpi_completeness(rep.subjective)
+        if comp is None:
+            continue
+        analyzed += 1
+        completeness_vals.append(comp)
+        hpi = (rep.subjective or {}).get("hpi") or {}
+        for f in HPI_FIELDS:
+            v = hpi.get(f) if isinstance(hpi, dict) else None
+            if isinstance(v, str) and v.strip():
+                field_filled[f] += 1
+    history = HistoryTakingSection(
+        reports_analyzed=analyzed,
+        mean_hpi_completeness=(
+            round(sum(completeness_vals) / analyzed, 4) if analyzed else None
+        ),
+        hpi_completeness_summary=summarize(completeness_vals),
+        hpi_field_fill_rates=[
+            HpiFieldFillRate(
+                field=f,
+                filled=field_filled[f],
+                total=analyzed,
+                rate=rate(field_filled[f], analyzed),
+            )
+            for f in HPI_FIELDS
+        ],
+    )
+    return history
+
+
+def _safety_section(
+    alert_rows: Sequence[Any], report_rows: Sequence[Any], sess_by_id: dict[Any, Any],
+    sessions_with_alert: set, terminal_with_alert: set, terminal: int,
+) -> SafetySection:
+    # ── Safety ─────────────────────────────────────
+    first_alert_by_session: dict[Any, datetime] = {}
+    ack_latencies: list[float] = []
+    acked = 0
+    for a in alert_rows:
+        prev = first_alert_by_session.get(a.session_id)
+        if prev is None or a.created_at < prev:
+            first_alert_by_session[a.session_id] = a.created_at
+        if a.acknowledged_at is not None:
+            acked += 1
+            ack_latencies.append(
+                (a.acknowledged_at - a.created_at).total_seconds()
+            )
+    time_to_first: list[float] = []
+    for sid, first_at in first_alert_by_session.items():
+        sess = sess_by_id.get(sid)
+        if sess is not None and sess.started_at:
+            delta = (first_at - sess.started_at).total_seconds()
+            if delta >= 0:
+                time_to_first.append(delta)
+
+    safety = SafetySection(
+        sessions_with_alerts=len(sessions_with_alert),
+        alert_session_rate=rate(len(terminal_with_alert), terminal),
+        total_alerts=len(alert_rows),
+        severity_distribution=distribution(
+            ((_enum_val(a.severity), 1) for a in alert_rows),
+            order=["critical", "high", "medium"],
+        ),
+        layer_distribution=distribution(
+            ((_enum_val(a.confidence), 1) for a in alert_rows),
+            order=["rule_hit", "semantic_only", "uncovered_locale"],
+        ),
+        alert_type_distribution=distribution(
+            ((_enum_val(a.alert_type), 1) for a in alert_rows),
+            order=["rule_based", "semantic", "combined"],
+        ),
+        urgency_distribution=distribution(
+            (
+                (rep.urgency, 1)
+                for rep in report_rows
+                if rep.urgency
+            ),
+            order=["er_now", "24h", "this_week", "routine"],
+        ),
+        time_to_first_alert_seconds=summarize(time_to_first),
+        acknowledged_rate=rate(acked, len(alert_rows)),
+        acknowledged=wilson_proportion(acked, len(alert_rows)),
+        ack_latency_seconds=summarize(ack_latencies),
+    )
+    safety.alert_session = wilson_proportion(len(terminal_with_alert), terminal)
+    return safety
+
+
+def _stt_section(conv_rows: Sequence[Any], sess_by_id: dict[Any, Any]) -> tuple[SttQualitySection, dict[str, list[float]]]:
+    # ── STT quality ────────────────────────────────
+    confidences = [
+        float(c.stt_confidence)
+        for c in conv_rows
+        if c.stt_confidence is not None
+    ]
+    low_count = sum(1 for v in confidences if v < LOW_CONFIDENCE_THRESHOLD)
+    by_lang_conf: dict[str, list[float]] = {}
+    for c in conv_rows:
+        if c.stt_confidence is None:
+            continue
+        sess = sess_by_id.get(c.session_id)
+        lang = getattr(sess, "language", None) or "unknown"
+        by_lang_conf.setdefault(lang, []).append(float(c.stt_confidence))
+    voice_turns = sum(1 for c in conv_rows if c.input_source == "voice")
+    source_known = sum(1 for c in conv_rows if c.input_source)
+    stt = SttQualitySection(
+        turns_with_confidence=len(confidences),
+        confidence_summary=summarize(confidences),
+        low_confidence_rate=rate(low_count, len(confidences)),
+        low_confidence=wilson_proportion(low_count, len(confidences)),
+        histogram=histogram(confidences, [i / 10 for i in range(11)]),
+        by_language=[
+            SttLanguageQuality(
+                language=lang,
+                turns=len(vals),
+                mean_confidence=round(sum(vals) / len(vals), 4),
+                median_confidence=round(percentile(sorted(vals), 0.5), 4),
+                low_confidence_rate=rate(
+                    sum(1 for v in vals if v < LOW_CONFIDENCE_THRESHOLD),
+                    len(vals),
+                ),
+            )
+            for lang, vals in sorted(by_lang_conf.items())
+        ],
+        voice_turn_share=rate(voice_turns, source_known),
+    )
+    return stt, by_lang_conf
+
+
+def _documentation_section(report_rows: Sequence[Any], revision_pairs: list[tuple[str, int]]) -> DocumentationSection:
+    # ── Documentation ──────────────────────────────
+    generated_reports = [
+        rep
+        for rep in report_rows
+        if _enum_val(rep.status) == "generated"
+    ]
+    ai_conf = [
+        float(rep.ai_confidence_score)
+        for rep in generated_reports
+        if rep.ai_confidence_score is not None
+    ]
+    review_counts: dict[str, int] = {}
+    for rep in generated_reports:
+        rv = _enum_val(rep.review_status)
+        review_counts[rv] = review_counts.get(rv, 0) + 1
+    approved = review_counts.get("approved", 0)
+    revision_needed = review_counts.get("revision_needed", 0)
+    icd_verified = sum(1 for rep in generated_reports if rep.icd10_verified)
+    documentation = DocumentationSection(
+        reports_generated=len(generated_reports),
+        ai_confidence_summary=summarize(ai_conf),
+        icd10_verified_rate=rate(icd_verified, len(generated_reports)),
+        icd10_verified=wilson_proportion(icd_verified, len(generated_reports)),
+        review_outcomes=distribution(
+            review_counts.items(),
+            order=["approved", "revision_needed", "pending"],
+        ),
+        physician_agreement_rate=rate(approved, approved + revision_needed),
+        physician_agreement=wilson_proportion(approved, approved + revision_needed),
+        revision_reason_distribution=distribution(
+            revision_pairs,
+            order=["initial", "regenerate", "review_override"],
+        ),
+    )
+    return documentation
+
+
+def _by_language_section(
+    session_rows: Sequence[Any], sessions_with_alert: set,
+    turns_by_session: dict[Any, int], by_lang_conf: dict[str, list[float]],
+) -> list[LanguageBreakdownItem]:
+    # ── By language（table view） ───────────────────
+    by_language: list[LanguageBreakdownItem] = []
+    langs = sorted({(r.language or "unknown") for r in session_rows})
+    for lang in langs:
+        lang_sessions = [
+            r for r in session_rows if (r.language or "unknown") == lang
+        ]
+        lang_ids = {r.id for r in lang_sessions}
+        lang_durations = sorted(
+            (r.completed_at - r.started_at).total_seconds()
+            for r in lang_sessions
+            if _status_of(r) in _TERMINAL_STATUSES
+            and r.completed_at
+            and r.started_at
+        )
+        lang_turns = [
+            float(turns_by_session[sid])
+            for sid in lang_ids
+            if sid in turns_by_session
+        ]
+        lang_conf = by_lang_conf.get(lang, [])
+        lang_terminal_ids = {
+            r.id for r in lang_sessions if _status_of(r) in _TERMINAL_STATUSES
+        }
+        lang_terminal = len(lang_terminal_ids)
+        # 分子須是分母（終態場次）的子集 → 與 terminal_with_alert 一致
+        lang_alert_sessions = len(lang_terminal_ids & sessions_with_alert)
+        by_language.append(
+            LanguageBreakdownItem(
+                language=lang,
+                sessions=len(lang_sessions),
+                completed=sum(
+                    1 for r in lang_sessions if _status_of(r) == "completed"
+                ),
+                median_duration_seconds=(
+                    round(percentile(lang_durations, 0.5), 1)
+                    if lang_durations
+                    else None
+                ),
+                mean_patient_turns=(
+                    round(sum(lang_turns) / len(lang_turns), 2)
+                    if lang_turns
+                    else None
+                ),
+                mean_stt_confidence=(
+                    round(sum(lang_conf) / len(lang_conf), 4)
+                    if lang_conf
+                    else None
+                ),
+                red_flag_session_rate=rate(lang_alert_sessions, lang_terminal),
+                red_flag_rate=wilson_proportion(lang_alert_sessions, lang_terminal),
+            )
+        )
+    return by_language
+
+
 class ResearchService:
     """研究分析聚合。所有指標為去識別化 aggregate，不含任何病患個資。"""
 
@@ -402,340 +759,25 @@ class ResearchService:
         date_to: Optional[date],
         demo_rows: Sequence[Any] = (),
     ) -> ResearchAnalyticsResponse:
-        def status_of(row: Any) -> str:
-            s = row.status
-            return s.value if hasattr(s, "value") else str(s)
-
+        """把各 query 的列組成回應；每一節由模組層的 `_*_section` 負責（原本是一支 CC>100 的函式）。"""
         sessions_with_alert = {a.session_id for a in alert_rows}
         # 終態場次 id（completed / aborted_red_flag）。紅旗率的分母是終態場次，
         # 故分子必須是「終態且有紅旗」——紅旗可能落在 in_progress/cancelled 場次，
         # 若直接用 sessions_with_alert 當分子會 > 分母（見 wilson_proportion clamp）。
-        terminal_ids = {
-            r.id for r in session_rows if status_of(r) in _TERMINAL_STATUSES
-        }
+        terminal_ids = {r.id for r in session_rows if _status_of(r) in _TERMINAL_STATUSES}
         terminal_with_alert = sessions_with_alert & terminal_ids
 
-        # ── Cohort ─────────────────────────────────────
-        status_counts: dict[str, int] = {}
-        weekly: dict[str, dict[str, int]] = {}
-        for r in session_rows:
-            st = status_of(r)
-            status_counts[st] = status_counts.get(st, 0) + 1
-            wk = week_start_of(r.created_at)
-            bucket = weekly.setdefault(
-                wk, {"sessions": 0, "completed": 0, "red_flag_sessions": 0}
-            )
-            bucket["sessions"] += 1
-            if st == "completed":
-                bucket["completed"] += 1
-            if r.id in sessions_with_alert:
-                bucket["red_flag_sessions"] += 1
-
-        completed = status_counts.get("completed", 0)
-        aborted = status_counts.get("aborted_red_flag", 0)
-        cancelled = status_counts.get("cancelled", 0)
-        total = len(session_rows)
-        terminal = completed + aborted
-        cohort = CohortSection(
-            total_sessions=total,
-            completed=completed,
-            aborted_red_flag=aborted,
-            cancelled=cancelled,
-            in_progress_or_waiting=total - completed - aborted - cancelled,
-            completion_rate=rate(completed, total),
-            completion=wilson_proportion(completed, total),
-            weekly_trend=[
-                WeeklyTrendItem(week_start=wk, **counts)
-                for wk, counts in sorted(weekly.items())
-            ],
+        cohort = _cohort_section(session_rows, sessions_with_alert)
+        terminal = cohort.completed + cohort.aborted_red_flag
+        demographics = _demographics_section(session_rows, demo_rows)
+        efficiency, turns_by_session = _efficiency_section(session_rows, conv_rows)
+        history = _history_section(report_rows)
+        safety = _safety_section(
+            alert_rows, report_rows, sess_by_id, sessions_with_alert, terminal_with_alert, terminal
         )
-
-        # ── Demographics（Table 1）──────────────────────
-        # 病患層級去重（同病患多場次只計一次年齡/性別）；主訴以場次計 case mix。
-        ref_day = (
-            max((r.created_at.date() for r in session_rows), default=None)
-            or utc_now().date()
-        )
-        patient_age: dict[Any, int] = {}
-        patient_gender: dict[Any, str] = {}
-        complaint_counts: dict[str, int] = {}
-        for r in demo_rows:
-            comp = (r.complaint or "unknown").strip() or "unknown"
-            complaint_counts[comp] = complaint_counts.get(comp, 0) + 1
-            pid = getattr(r, "patient_id", None)
-            if pid is None:
-                continue
-            if r.date_of_birth is not None and pid not in patient_age:
-                patient_age[pid] = age_from_dob(r.date_of_birth, ref_day)
-            if pid not in patient_gender and r.gender is not None:
-                g = r.gender
-                patient_gender[pid] = g.value if hasattr(g, "value") else str(g)
-        ages = list(patient_age.values())
-        demographics = DemographicsSection(
-            total_patients=len({r.patient_id for r in demo_rows if r.patient_id}),
-            age_years=summarize([float(a) for a in ages]),
-            age_band_distribution=distribution(
-                ((age_band(a), 1) for a in ages),
-                order=["<40", "40-59", "60-74", "75+"],
-            ),
-            gender_distribution=distribution(
-                ((g, 1) for g in patient_gender.values()),
-                order=["male", "female", "other"],
-            ),
-            chief_complaint_distribution=distribution(complaint_counts.items()),
-        )
-
-        # ── Efficiency ─────────────────────────────────
-        durations: list[float] = []
-        for r in session_rows:
-            if status_of(r) not in _TERMINAL_STATUSES:
-                continue
-            if r.completed_at and r.started_at:
-                durations.append((r.completed_at - r.started_at).total_seconds())
-            elif r.duration_seconds is not None:
-                durations.append(float(r.duration_seconds))
-
-        turns_by_session: dict[Any, int] = {}
-        turn_chars: list[float] = []
-        for c in conv_rows:
-            turns_by_session[c.session_id] = turns_by_session.get(c.session_id, 0) + 1
-            if c.chars is not None:
-                turn_chars.append(float(c.chars))
-        turns_values = [float(v) for v in turns_by_session.values()]
-
-        max_dur = max(durations) if durations else 0
-        dur_edge_max = max(600.0, (int(max_dur // 300) + 1) * 300.0)
-        efficiency = EfficiencySection(
-            duration_seconds=summarize(durations),
-            patient_turns=summarize(turns_values),
-            patient_turn_chars=summarize(turn_chars),
-            duration_histogram=histogram(
-                durations,
-                [i * 300.0 for i in range(int(dur_edge_max // 300) + 1)],
-            ),
-            turns_histogram=histogram(
-                turns_values, [0, 2, 4, 6, 8, 10, 12, 15, 20, 30]
-            ),
-        )
-
-        # ── History taking（HPI 完整度） ─────────────────
-        completeness_vals: list[float] = []
-        field_filled: dict[str, int] = {f: 0 for f in HPI_FIELDS}
-        analyzed = 0
-        for rep in report_rows:
-            status_val = (
-                rep.status.value if hasattr(rep.status, "value") else str(rep.status)
-            )
-            if status_val != "generated":
-                continue
-            comp = hpi_completeness(rep.subjective)
-            if comp is None:
-                continue
-            analyzed += 1
-            completeness_vals.append(comp)
-            hpi = (rep.subjective or {}).get("hpi") or {}
-            for f in HPI_FIELDS:
-                v = hpi.get(f) if isinstance(hpi, dict) else None
-                if isinstance(v, str) and v.strip():
-                    field_filled[f] += 1
-        history = HistoryTakingSection(
-            reports_analyzed=analyzed,
-            mean_hpi_completeness=(
-                round(sum(completeness_vals) / analyzed, 4) if analyzed else None
-            ),
-            hpi_completeness_summary=summarize(completeness_vals),
-            hpi_field_fill_rates=[
-                HpiFieldFillRate(
-                    field=f,
-                    filled=field_filled[f],
-                    total=analyzed,
-                    rate=rate(field_filled[f], analyzed),
-                )
-                for f in HPI_FIELDS
-            ],
-        )
-
-        # ── Safety ─────────────────────────────────────
-        first_alert_by_session: dict[Any, datetime] = {}
-        ack_latencies: list[float] = []
-        acked = 0
-        for a in alert_rows:
-            prev = first_alert_by_session.get(a.session_id)
-            if prev is None or a.created_at < prev:
-                first_alert_by_session[a.session_id] = a.created_at
-            if a.acknowledged_at is not None:
-                acked += 1
-                ack_latencies.append(
-                    (a.acknowledged_at - a.created_at).total_seconds()
-                )
-        time_to_first: list[float] = []
-        for sid, first_at in first_alert_by_session.items():
-            sess = sess_by_id.get(sid)
-            if sess is not None and sess.started_at:
-                delta = (first_at - sess.started_at).total_seconds()
-                if delta >= 0:
-                    time_to_first.append(delta)
-
-        def enum_val(v: Any) -> str:
-            return v.value if hasattr(v, "value") else str(v)
-
-        safety = SafetySection(
-            sessions_with_alerts=len(sessions_with_alert),
-            alert_session_rate=rate(len(terminal_with_alert), terminal),
-            total_alerts=len(alert_rows),
-            severity_distribution=distribution(
-                ((enum_val(a.severity), 1) for a in alert_rows),
-                order=["critical", "high", "medium"],
-            ),
-            layer_distribution=distribution(
-                ((enum_val(a.confidence), 1) for a in alert_rows),
-                order=["rule_hit", "semantic_only", "uncovered_locale"],
-            ),
-            alert_type_distribution=distribution(
-                ((enum_val(a.alert_type), 1) for a in alert_rows),
-                order=["rule_based", "semantic", "combined"],
-            ),
-            urgency_distribution=distribution(
-                (
-                    (rep.urgency, 1)
-                    for rep in report_rows
-                    if rep.urgency
-                ),
-                order=["er_now", "24h", "this_week", "routine"],
-            ),
-            time_to_first_alert_seconds=summarize(time_to_first),
-            acknowledged_rate=rate(acked, len(alert_rows)),
-            acknowledged=wilson_proportion(acked, len(alert_rows)),
-            ack_latency_seconds=summarize(ack_latencies),
-        )
-        safety.alert_session = wilson_proportion(len(terminal_with_alert), terminal)
-
-        # ── STT quality ────────────────────────────────
-        confidences = [
-            float(c.stt_confidence)
-            for c in conv_rows
-            if c.stt_confidence is not None
-        ]
-        low_count = sum(1 for v in confidences if v < LOW_CONFIDENCE_THRESHOLD)
-        by_lang_conf: dict[str, list[float]] = {}
-        for c in conv_rows:
-            if c.stt_confidence is None:
-                continue
-            sess = sess_by_id.get(c.session_id)
-            lang = getattr(sess, "language", None) or "unknown"
-            by_lang_conf.setdefault(lang, []).append(float(c.stt_confidence))
-        voice_turns = sum(1 for c in conv_rows if c.input_source == "voice")
-        source_known = sum(1 for c in conv_rows if c.input_source)
-        stt = SttQualitySection(
-            turns_with_confidence=len(confidences),
-            confidence_summary=summarize(confidences),
-            low_confidence_rate=rate(low_count, len(confidences)),
-            low_confidence=wilson_proportion(low_count, len(confidences)),
-            histogram=histogram(confidences, [i / 10 for i in range(11)]),
-            by_language=[
-                SttLanguageQuality(
-                    language=lang,
-                    turns=len(vals),
-                    mean_confidence=round(sum(vals) / len(vals), 4),
-                    median_confidence=round(percentile(sorted(vals), 0.5), 4),
-                    low_confidence_rate=rate(
-                        sum(1 for v in vals if v < LOW_CONFIDENCE_THRESHOLD),
-                        len(vals),
-                    ),
-                )
-                for lang, vals in sorted(by_lang_conf.items())
-            ],
-            voice_turn_share=rate(voice_turns, source_known),
-        )
-
-        # ── Documentation ──────────────────────────────
-        generated_reports = [
-            rep
-            for rep in report_rows
-            if enum_val(rep.status) == "generated"
-        ]
-        ai_conf = [
-            float(rep.ai_confidence_score)
-            for rep in generated_reports
-            if rep.ai_confidence_score is not None
-        ]
-        review_counts: dict[str, int] = {}
-        for rep in generated_reports:
-            rv = enum_val(rep.review_status)
-            review_counts[rv] = review_counts.get(rv, 0) + 1
-        approved = review_counts.get("approved", 0)
-        revision_needed = review_counts.get("revision_needed", 0)
-        icd_verified = sum(1 for rep in generated_reports if rep.icd10_verified)
-        documentation = DocumentationSection(
-            reports_generated=len(generated_reports),
-            ai_confidence_summary=summarize(ai_conf),
-            icd10_verified_rate=rate(icd_verified, len(generated_reports)),
-            icd10_verified=wilson_proportion(icd_verified, len(generated_reports)),
-            review_outcomes=distribution(
-                review_counts.items(),
-                order=["approved", "revision_needed", "pending"],
-            ),
-            physician_agreement_rate=rate(approved, approved + revision_needed),
-            physician_agreement=wilson_proportion(approved, approved + revision_needed),
-            revision_reason_distribution=distribution(
-                revision_pairs,
-                order=["initial", "regenerate", "review_override"],
-            ),
-        )
-
-        # ── By language（table view） ───────────────────
-        by_language: list[LanguageBreakdownItem] = []
-        langs = sorted({(r.language or "unknown") for r in session_rows})
-        for lang in langs:
-            lang_sessions = [
-                r for r in session_rows if (r.language or "unknown") == lang
-            ]
-            lang_ids = {r.id for r in lang_sessions}
-            lang_durations = sorted(
-                (r.completed_at - r.started_at).total_seconds()
-                for r in lang_sessions
-                if status_of(r) in _TERMINAL_STATUSES
-                and r.completed_at
-                and r.started_at
-            )
-            lang_turns = [
-                float(turns_by_session[sid])
-                for sid in lang_ids
-                if sid in turns_by_session
-            ]
-            lang_conf = by_lang_conf.get(lang, [])
-            lang_terminal_ids = {
-                r.id for r in lang_sessions if status_of(r) in _TERMINAL_STATUSES
-            }
-            lang_terminal = len(lang_terminal_ids)
-            # 分子須是分母（終態場次）的子集 → 與 terminal_with_alert 一致
-            lang_alert_sessions = len(lang_terminal_ids & sessions_with_alert)
-            by_language.append(
-                LanguageBreakdownItem(
-                    language=lang,
-                    sessions=len(lang_sessions),
-                    completed=sum(
-                        1 for r in lang_sessions if status_of(r) == "completed"
-                    ),
-                    median_duration_seconds=(
-                        round(percentile(lang_durations, 0.5), 1)
-                        if lang_durations
-                        else None
-                    ),
-                    mean_patient_turns=(
-                        round(sum(lang_turns) / len(lang_turns), 2)
-                        if lang_turns
-                        else None
-                    ),
-                    mean_stt_confidence=(
-                        round(sum(lang_conf) / len(lang_conf), 4)
-                        if lang_conf
-                        else None
-                    ),
-                    red_flag_session_rate=rate(lang_alert_sessions, lang_terminal),
-                    red_flag_rate=wilson_proportion(lang_alert_sessions, lang_terminal),
-                )
-            )
+        stt, by_lang_conf = _stt_section(conv_rows, sess_by_id)
+        documentation = _documentation_section(report_rows, revision_pairs)
+        by_language = _by_language_section(session_rows, sessions_with_alert, turns_by_session, by_lang_conf)
 
         return ResearchAnalyticsResponse(
             generated_at=utc_now(),

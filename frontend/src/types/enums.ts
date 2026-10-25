@@ -74,6 +74,7 @@ export const AuditAction = {
   ACKNOWLEDGE: 'acknowledge',
   SESSION_START: 'session_start',
   SESSION_END: 'session_end',
+  LANGUAGE_SWITCH_END_SESSION: 'language_switch_end_session',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 
@@ -90,21 +91,3 @@ export const Gender = {
   OTHER: 'other',
 } as const;
 export type Gender = (typeof Gender)[keyof typeof Gender];
-
-// =============================================================================
-// UI 狀態映射（衍生自後端 Enum）
-// =============================================================================
-
-export const sessionStatusDisplay: Record<SessionStatus, { label: string; color: string }> = {
-  waiting: { label: '等待中', color: 'gray' },
-  in_progress: { label: '對話中', color: 'blue' },
-  completed: { label: '已完成', color: 'green' },
-  aborted_red_flag: { label: '紅旗中止', color: 'red' },
-  cancelled: { label: '已取消', color: 'gray' },
-};
-
-export const alertSeverityDisplay: Record<AlertSeverity, { label: string; color: string }> = {
-  critical: { label: '危急', color: 'red-600' },
-  high: { label: '高', color: 'orange-500' },
-  medium: { label: '中', color: 'yellow-500' },
-};

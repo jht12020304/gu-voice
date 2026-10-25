@@ -1,29 +1,29 @@
-// =============================================================================
-// 醫師端紅旗輪詢器（§1c 部分修，低風險版）
-// 問題：紅旗 WebSocket 只綁在 AlertList/SessionList，醫師在其他頁（審 SOAP、看病患、
-// 設定…）對新 critical 紅旗零信號。完整解是把 WS 提升到 app-shell 常駐，但那涉及
-// 共用 singleton WS 的多消費者生命週期（off-by-name 會移除該事件所有 handler），無法
-// runtime 測試、風險高。此處採低風險替代：MainLayout 常駐輪詢未處理紅旗數——
-// Sidebar 徽章即時更新、數字增加即全域 toast（+ 選配音效）。近即時（≤ 輪詢間隔）、
-// app-wide、零 WS 重構風險。完整 WS 常駐留作後續（需 runtime QA）。
-// =============================================================================
-
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { useAlertStore } from '../stores/alertStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useNotificationStore } from '../stores/notificationStore';
+import { useAuthStore } from '../stores/authStore';
+import { useDashboardWebSocket } from '../hooks/useWebSocket';
+import { coalesceRefresh } from '../utils/coalesceRefresh';
+import { dashboardWS } from '../services/websocket';
 
 const POLL_MS = 20000;
 
-/** 簡易提示音（Web Audio，無需音檔）。失敗不影響視覺 toast。 */
+const SEEN_MAX = 500;
+
+/** 簡易提示音（Web Audio，無需音檔）。失敗不影響視覺 toast。整個 shell 共用一顆 AudioContext。 */
+let beepCtx: AudioContext | null = null;
 function playBeep() {
   try {
     const Ctx =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctx) return;
-    const ctx = new Ctx();
+    if (!beepCtx || beepCtx.state === 'closed') beepCtx = new Ctx();
+    const ctx = beepCtx;
+    if (ctx.state === 'suspended') void ctx.resume();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.frequency.value = 880;
@@ -31,49 +31,60 @@ function playBeep() {
     osc.connect(gain).connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + 0.18);
-    setTimeout(() => void ctx.close(), 400);
+    osc.onended = () => { osc.disconnect(); gain.disconnect(); };
   } catch {
     /* 音效失敗忽略 */
   }
 }
 
+// Shell-scoped realtime updates; polling is only a disconnected-socket fallback.
 export default function DoctorAlertPoller() {
   const { t } = useTranslation('dashboard');
-  const fetchUnacknowledgedCount = useAlertStore((s) => s.fetchUnacknowledgedCount);
-  const prevRef = useRef<number>(0);
-  const initializedRef = useRef<boolean>(false);
-
+  const { on, off } = useDashboardWebSocket();
+  const accountId = useAuthStore((s) => s.user?.id);
   useEffect(() => {
-    let cancelled = false;
-
-    const tick = async () => {
-      await fetchUnacknowledgedCount();
-      if (cancelled) return;
-      const current = useAlertStore.getState().unacknowledgedCount;
-      if (!initializedRef.current) {
-        // 首次只記基準，不對「頁面載入時既有的未處理數」誤報。
-        initializedRef.current = true;
-        prevRef.current = current;
-        return;
-      }
-      if (current > prevRef.current) {
-        const delta = current - prevRef.current;
-        if (useSettingsStore.getState().soundEnabled) playBeep();
-        toast.error(t('alert.newAlertToast', { count: delta }), { duration: 8000 });
-      }
-      prevRef.current = current;
+    let active = true;
+    let lastCount: number | null = null;
+    const notify = (count: number) => {
+      if (useSettingsStore.getState().soundEnabled) playBeep();
+      toast.error(t('alert.newAlertToast', { count }), { duration: 8000 });
     };
-
-    void tick();
+    const refresh = coalesceRefresh(async () => {
+      await Promise.all([
+        useAlertStore.getState().fetchUnacknowledgedCount(),
+        useNotificationStore.getState().loaded
+          ? useNotificationStore.getState().fetchNotifications(false)
+          : useNotificationStore.getState().fetchUnreadCount(),
+      ]);
+      if (!active) return;
+      const count = useAlertStore.getState().unacknowledgedCount;
+      if (!dashboardWS.isConnected && lastCount !== null && count > lastCount) notify(count - lastCount);
+      lastCount = count;
+    });
+    const events = ['initial_state', 'stats_updated', 'session_status_changed',
+      'report_generated', 'red_flag_acknowledged'];
+    for (const event of events) on(event, refresh.schedule);
+    const seen = new Set<string>();
+    on('new_red_flag', (payload) => {
+      const id = (payload as { alertId?: string }).alertId;
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        // 只留最近 SEEN_MAX 筆（Set 保插入順序），避免長開的醫師端無上限成長
+        if (seen.size > SEEN_MAX) seen.delete(seen.values().next().value as string);
+        notify(1);
+      }
+      refresh.schedule();
+    });
+    refresh.schedule();
     const id = setInterval(() => {
-      if (!cancelled) void tick();
+      if (!dashboardWS.isConnected) refresh.schedule();
     }, POLL_MS);
-
     return () => {
-      cancelled = true;
+      active = false;
+      refresh.dispose();
       clearInterval(id);
+      for (const event of [...events, 'new_red_flag']) off(event);
     };
-  }, [fetchUnacknowledgedCount, t]);
-
+  }, [accountId, on, off, t]);
   return null;
 }

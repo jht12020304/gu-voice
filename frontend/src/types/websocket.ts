@@ -161,6 +161,8 @@ export type ServerMessageType =
   | 'red_flag_alert'
   | 'session_status'
   | 'resume_failed'
+  | 'supervisor_guidance'
+  | 'supervisor_degraded'
   | 'error'
   | 'pong';
 

@@ -37,7 +37,7 @@
 
 import logging
 
-from app.tasks import celery_app
+from app.tasks import celery_app, run_async
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +64,7 @@ def check_session_timeouts(self) -> dict:
     Returns:
         處理結果統計
     """
-    import asyncio
-
-    try:
-        result = asyncio.get_event_loop().run_until_complete(_async_check())
-        return result
-    except Exception:
-        result = asyncio.run(_async_check())
-        return result
+    return run_async(_async_check)
 
 
 async def _async_check() -> dict:
@@ -85,12 +78,14 @@ async def _async_check() -> dict:
     """
     from datetime import timedelta
 
-    from sqlalchemy import Integer, func, select, update
+    from sqlalchemy import Integer, exists, func, select, update
 
     from app.core.database import async_session_factory
     from app.core.session_state import is_valid_transition
+    from app.models.conversation import Conversation
     from app.models.enums import SessionStatus
     from app.models.session import Session
+    from app.services.session_visibility import session_not_deleted
     from app.utils.datetime_utils import utc_now
 
     # 單一權威狀態機把關：in_progress → cancelled 目前合法，但不硬編碼這個事實，
@@ -104,11 +99,21 @@ async def _async_check() -> dict:
     timeout_threshold = utc_now() - timedelta(minutes=SESSION_TIMEOUT_MINUTES)
 
     async with async_session_factory() as db:
-        # 查詢超時的 in_progress 場次（只取 id：真正的狀態判定交給下面的 CAS）
+        # 查詢超時的 in_progress 場次（只取 id：真正的狀態判定交給下面的 CAS）。
+        # `sessions.updated_at` 只在 waiting→in_progress 時動，對話每一輪都不碰它，
+        # 所以「閒置」要看 conversations：threshold 之後還有新對話就是活的，不收。
         result = await db.execute(
             select(Session.id, Session.updated_at)
             .where(Session.status == SessionStatus.IN_PROGRESS)
+            # CLAUDE.md 軟刪除鐵律：已刪場次不得被逾時取消再廣播回儀表板。
+            .where(session_not_deleted())
             .where(Session.updated_at < timeout_threshold)
+            .where(
+                ~exists().where(
+                    Conversation.session_id == Session.id,
+                    Conversation.created_at >= timeout_threshold,
+                )
+            )
         )
         stale_rows = result.all()
 

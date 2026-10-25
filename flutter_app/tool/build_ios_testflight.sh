@@ -39,10 +39,11 @@ dump_dir="${ipa_dir}/verify-dump"
 required_flutter="3.41.3"
 team_id="K593X99M7G"
 
-# 生產後端。變數名是 API_BASE / WS_BASE（不是 *_BASE_URL），值含 path 後綴。
-# 注意：`api-` 開頭的域名是死的，不要用。
-readonly PROD_API_BASE="https://gu-voice-app-production.up.railway.app/api/v1"
-readonly PROD_WS_BASE="wss://gu-voice-app-production.up.railway.app/api/v1/ws"
+# 生產後端位址（PROD_API_BASE / PROD_WS_BASE）集中在 tool/env.production.sh，
+# 與 build_vercel_output.sh 共用；明確給的 API_BASE / WS_BASE 仍優先。
+# shellcheck source=env.production.sh
+source "${app_dir}/tool/env.production.sh"
+readonly PROD_API_BASE PROD_WS_BASE
 
 die() {
   printf '\n[錯誤] %s\n' "$1" >&2
@@ -64,10 +65,17 @@ step() { printf '\n==> %s\n' "$1"; }
 # 選醫師，臨床帳號與即時事件也改成精確指派；唯一權威仍是 docs/TODO.md §V8。
 
 print_data_risk_banner() {
+  if [[ "${API_BASE:-${PROD_API_BASE}}" != "${PROD_API_BASE}" ||
+        "${WS_BASE:-${PROD_WS_BASE}}" != "${PROD_WS_BASE}" ]]; then
+    printf '\n自訂後端建置：請確認下列目標與本次驗收環境一致。\n'
+    printf '  API_BASE=%s\n  WS_BASE=%s\n' \
+      "${API_BASE:-${PROD_API_BASE}}" "${WS_BASE:-${PROD_WS_BASE}}"
+    return
+  fi
   cat <<'BANNER'
 
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  ⚠  這顆包連的是「生產後端」，沒有 staging 環境。送測前務必知道：        │
+│  ⚠  這顆包連的是「生產後端」。送測前務必知道：                          │
 │                                                                          │
 │  1. 推播與報告含被指派病患的 PHI；現行問診會先選醫師，通知只送該醫師。  │
 │                                                                          │

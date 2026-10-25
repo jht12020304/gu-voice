@@ -85,6 +85,23 @@ async def get_report(
     )
 
 
+@router.get(
+    "/api/v1/sessions/{session_id}/report",
+    response_model=ReportDetail,
+    status_code=status.HTTP_200_OK,
+    summary="取得場次的 SOAP 報告",
+)
+async def get_session_report(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> ReportDetail:
+    """以場次 ID 取得其（最新）SOAP 報告詳情；尚未生成或無權限回 404。取代客戶端兩趟查詢。"""
+    return await report_service.get_report_by_session(
+        db, session_id=session_id, current_user=current_user
+    )
+
+
 # ── 報告生成 ────────────────────────────────────────────
 
 @router.post(
@@ -125,6 +142,7 @@ async def generate_report(
         regenerate=regenerate,
         additional_notes=additional_notes,
         requested_by=current_user.id,
+        current_user=current_user,
     )
 
 

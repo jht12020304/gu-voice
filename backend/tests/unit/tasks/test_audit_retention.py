@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date
-from typing import Any
 
 import pytest
 
@@ -176,7 +175,6 @@ def test_cleanup_detach_failure_does_not_block_others(patch_factory, monkeypatch
 
     rows = [("audit_logs_2019_02",), ("audit_logs_2019_03",)]
 
-    call_count = {"n": 0}
 
     def _provide():
         # 第一次 DETACH（2019_02）失敗；第二次 DROP 不會跑；
@@ -188,7 +186,7 @@ def test_cleanup_detach_failure_does_not_block_others(patch_factory, monkeypatch
 
         return _FakeSession(rows, execute_side_effect=_side)
 
-    factory = patch_factory(_provide)
+    patch_factory(_provide)
     result = _run(ar._async_cleanup())
 
     assert "audit_logs_2019_03" in result["dropped"]

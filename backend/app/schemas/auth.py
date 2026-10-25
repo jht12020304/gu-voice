@@ -165,7 +165,6 @@ class ForgotPasswordResponse(MessageResponse):
 # ── 別名（供 router 匯入相容） ──────────────────────────
 RefreshRequest = RefreshTokenRequest
 RefreshResponse = RefreshTokenResponse
-TokenResponse = LoginResponse
 UserResponse = UserInfo
 
 class UpdateProfileRequest(BaseModel):

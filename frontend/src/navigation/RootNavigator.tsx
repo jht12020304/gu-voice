@@ -5,6 +5,8 @@
 // =============================================================================
 
 import React, { type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import ErrorState from '../components/common/ErrorState';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
@@ -51,6 +53,8 @@ const PatientLayout = lazyWithRetry(() => import('../components/layout/PatientLa
 
 // ---- 受保護路由 ----
 function ProtectedRoute({ children }: { children?: ReactNode }) {
+  const { t } = useTranslation('common');
+  const recoveryRequired = useAuthStore((s) => s.recoveryRequired);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isLoading = useAuthStore((s) => s.isLoading);
   const lng = useCurrentLng();
@@ -63,6 +67,9 @@ function ProtectedRoute({ children }: { children?: ReactNode }) {
     );
   }
 
+  if (recoveryRequired) {
+    return <ErrorState message={t('common.errorTitle')} onRetry={() => void useAuthStore.getState().hydrateFromStorage()} />;
+  }
   if (!isAuthenticated) {
     return <Navigate to={`/${lng}/login`} replace />;
   }

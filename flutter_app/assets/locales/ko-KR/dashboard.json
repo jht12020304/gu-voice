@@ -87,39 +87,8 @@
     "emptyMessage": "조건에 맞는 레드플래그 경고가 없습니다",
     "groupCount": "경고 {{count}}건",
     "unknownComplaintFetchFailed": "주호소를 가져올 수 없습니다",
-    "sessionStatus": {
-      "waiting": "대기 중",
-      "inProgress": "문진 중",
-      "completed": "완료",
-      "abortedRedFlag": "레드플래그로 중단",
-      "cancelled": "취소됨"
-    },
     "acknowledgeAll": "모두 확인 처리",
     "acknowledgeAllConfirm": "미확인 레드플래그 경보를 모두 확인 처리하시겠습니까? 이 작업은 되돌릴 수 없습니다."
-  },
-  "transcript": {
-    "title": "문진 대화 전사본",
-    "emptyTitle": "표시할 대화 내용이 없습니다",
-    "loading": "대화 기록을 불러오는 중...",
-    "messageCount": "대화 {{count}}건",
-    "summary": "환자 {{patientCount}}건 / AI {{assistantCount}}건",
-    "viewFull": "전체 대화 보기 ({{count}}건 더 보기)...",
-    "searchPlaceholder": "전사본 내용 검색",
-    "filter": {
-      "all": "전체",
-      "patient": "환자",
-      "assistant": "AI"
-    },
-    "visibleCount": "대화 {{visible}} / {{total}}건 표시",
-    "noMatches": "조건에 맞는 전사본 내용이 없습니다",
-    "redFlag": "레드플래그",
-    "lowConfidence": "낮은 인식 신뢰도",
-    "sttConfidence": "STT 신뢰도: {{value}}%",
-    "roles": {
-      "patient": "환자",
-      "assistant": "AI 도우미",
-      "system": "시스템"
-    }
   },
   "reportList": {
     "eyebrow": "검토 워크스페이스",

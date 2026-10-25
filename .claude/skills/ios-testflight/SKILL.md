@@ -11,7 +11,7 @@ description: GU Voice iOS 單一 App 上 TestFlight 內部測試的完整管道�
 
 打包本身**不要手打指令**，一律走 [`flutter_app/tool/build_ios_testflight.sh`](../../../flutter_app/tool/build_ios_testflight.sh)（六道關卡，含產物驗證）。
 
-> ⚠️ 這是醫療系統，內測包連的是**生產後端**（沒有 staging）。production 內測只給
+> ⚠️ 這是醫療系統，打包腳本**預設連 production**；staging 必須明確指定 API／WS，環境值見設定總表 §0。production 內測只給
 > 獲授權院內人員；未授權工程／PM 使用 staging。送測前先讀〈資料風險〉。
 
 ## When to Use
@@ -35,7 +35,7 @@ description: GU Voice iOS 單一 App 上 TestFlight 內部測試的完整管道�
 
 ## ⚠️ 資料風險（送測前必讀，這不是待辦，是已拍板的限制）
 
-內測包打的是**生產資料庫**。逐行核實過的現況（**file:line 逐條佐證只放在 `docs/TODO.md` §V8**，這裡不重抄，避免兩邊漂移）：
+連 production 的內測包會存取**生產資料庫**；staging 使用獨立合成資料。逐行核實過的 production 現況（**file:line 逐條佐證只放在 `docs/TODO.md` §V8**，這裡不重抄，避免兩邊漂移）：
 
 1. **已指派場次的推播仍可能在鎖定畫面顯示 PHI。** `session_complete`、報告成功／失敗
    會帶病患姓名，紅旗會帶 LLM 生成的醫師向臨床描述；現行通知只送 `session.doctor_id`。
@@ -169,7 +169,7 @@ codesign -d --entitlements :- <Payload/Runner.app>   # 期望 aps-environment = 
 - [ ] `CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName` = `AppIcon`（巢狀路徑，頂層沒有）
 - [ ] `ITSAppUsesNonExemptEncryption` = `false` 已進 bundle
 - [ ] `CFBundleIdentifier` = 總表 §3 的 bundle id；`CFBundleVersion` = 這次指定的值，且**大於**上一次上傳過的（上一顆的號碼見總表 §7）
-- [ ] `API_BASE` / `WS_BASE` 是生產位址（`https://` + `wss://`，含 `/api/v1` 路徑後綴，非 localhost、非 `api-` 死域名）
+- [ ] `API_BASE` / `WS_BASE` 是本次選定的 staging 或 production 位址（`https://` + `wss://`，含 `/api/v1` 路徑後綴，非 localhost、非 `api-` 死域名）
 - [ ] App Store Connect 上已有這個 bundle id 的 App 記錄
 - [ ] Firebase Console → Cloud Messaging 已有那把 APNs key，且 team 與簽 App 的 team 相同（Key ID 見總表 §5）
 - [ ] `git status --short` 沒有多出 `.p8` / `.p12` / `.mobileprovision` / `.cer`
@@ -185,7 +185,7 @@ codesign -d --entitlements :- <Payload/Runner.app>   # 期望 aps-environment = 
       `runZonedGuarded`，pubspec 也沒有 Sentry/Crashlytics——任何 Dart 例外的表現就是一片空白，
       而且**哪裡都查不到**（`uploadSymbols=true` 只救得了原生 crash，救不了 Dart 例外）
 - [ ] FCM token 有註冊成功：`push_service.dart` 的失敗路徑全是 `debugPrint`，TestFlight build 上
-      看不到，**唯一驗法是查生產 DB 的 `fcm_devices` 表**有沒有這台裝置
+      看不到，**唯一驗法是查本次 build 對應 DB 的 `fcm_devices` 表**有沒有這台裝置
 - [ ] 測試裝置是 **iOS 16+**（deployment target 15.0，但 TestFlight App 要 16+）
 - [ ] 換裝置後實際驗一次：病患問診前指定該醫師 → App 未開啟時收到推播 → 點入可查看 →
       讀取／處理後紅色徽章清除。2026-09-02 原測試裝置已通過；換裝置仍要重驗。

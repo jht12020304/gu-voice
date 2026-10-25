@@ -1,5 +1,6 @@
 import '../models/notification.dart';
 import 'dio_client.dart';
+import 'parse_page.dart';
 
 typedef NotifPage = ({
   List<AppNotification> data,
@@ -29,16 +30,8 @@ class NotificationsApi {
         'isRead': ?isRead,
       },
     );
-    final data = res.data as Map;
-    final list = (data['data'] as List? ?? const [])
-        .map((e) => AppNotification.fromJson(e as Map))
-        .toList();
-    final p = (data['pagination'] as Map?) ?? const {};
-    return (
-      data: list,
-      nextCursor: p['nextCursor'] as String?,
-      hasMore: (p['hasMore'] ?? false) as bool,
-    );
+    final page = parsePage(res.data, AppNotification.fromJson);
+    return (data: page.data, nextCursor: page.nextCursor, hasMore: page.hasMore);
   }
 
   Future<void> markRead(String id) => _dio.put('/notifications/$id/read');

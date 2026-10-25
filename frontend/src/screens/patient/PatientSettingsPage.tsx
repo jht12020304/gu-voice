@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../stores/authStore';
@@ -6,20 +8,34 @@ import { User, Bell, Shield, KeyRound, Globe, ChevronRight } from 'lucide-react'
 import { useSettingsStore } from '../../stores/settingsStore';
 import Modal from '../../components/common/Modal';
 import * as authApi from '../../services/api/auth';
+import { apiErrorMessage } from '../../services/api/client';
+import type { SupportedLanguage } from '../../i18n';
+import { buildSwitchedPath, useCurrentLng } from '../../i18n/paths';
 
 export default function PatientSettingsPage() {
   const { t } = useTranslation('common');
   const user = useAuthStore((s) => s.user);
   const updateProfile = useAuthStore((s) => s.updateProfile);
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security'>('profile');
+  const language = useCurrentLng();
   const {
-    language,
-    setLanguage,
     notificationsEnabled,
     setNotificationsEnabled,
     soundEnabled,
     setSoundEnabled,
-  } = useSettingsStore();
+  } = useSettingsStore(
+    useShallow((s) => ({
+      notificationsEnabled: s.notificationsEnabled,
+      setNotificationsEnabled: s.setNotificationsEnabled,
+      soundEnabled: s.soundEnabled,
+      setSoundEnabled: s.setSoundEnabled,
+    })),
+  );
+  const navigate = useNavigate();
+  const location = useLocation();
+  // URL 是語言唯一權威：只改 `/:lng` 前綴，i18n / settingsStore 由 LanguageLayout 同步。
+  const switchLanguage = (lng: SupportedLanguage) =>
+    navigate(buildSwitchedPath(location.pathname, location.search, location.hash, lng), { replace: true });
 
   const [profile, setProfile] = useState({
     email: user?.email || '',
@@ -67,8 +83,8 @@ export default function PatientSettingsPage() {
       await authApi.changePassword(currentPassword, newPassword);
       setShowPasswordModal(false);
       toast.success(t('patient.settings.passwordChanged', '密碼已更新'));
-    } catch {
-      setPasswordError(t('patient.settings.passwordChangeFailed', '密碼更新失敗，請確認目前密碼是否正確'));
+    } catch (err) {
+      setPasswordError(apiErrorMessage(err, t, t('patient.settings.passwordChangeFailed', '密碼更新失敗，請確認目前密碼是否正確')));
     } finally {
       setIsChangingPassword(false);
     }
@@ -92,11 +108,11 @@ export default function PatientSettingsPage() {
       }
       setIsError(false);
       setMessage(t('patient.settings.savedMessage'));
-    } catch {
+    } catch (err) {
       setIsError(true);
       // saveFailedMessage 尚未在 locale 檔；給 defaultValue 避免顯示原始 key，
       // 翻譯補上後會自動採用 locale 字串。
-      setMessage(t('patient.settings.saveFailedMessage', '更新失敗，請稍後再試'));
+      setMessage(apiErrorMessage(err, t, t('patient.settings.saveFailedMessage', '更新失敗，請稍後再試')));
     } finally {
       setIsSaving(false);
     }
@@ -188,7 +204,7 @@ export default function PatientSettingsPage() {
                       <select
                         className="w-full px-4 py-2 border border-surface-200 rounded-xl appearance-none bg-white focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
                         value={language}
-                        onChange={(e) => setLanguage(e.target.value as 'zh-TW' | 'en-US')}
+                        onChange={(e) => switchLanguage(e.target.value as SupportedLanguage)}
                       >
                         <option value="zh-TW">{t('language.names.zh-TW')}</option>
                         <option value="en-US">{t('language.names.en-US')}</option>

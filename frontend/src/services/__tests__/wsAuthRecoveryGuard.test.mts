@@ -178,3 +178,29 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 }
 
 console.log('wsAuthRecoveryGuard.test.mts — all assertions passed');
+
+// A failed network refresh is recoverable and an old account's callback cannot
+// exhaust the new account's connection.
+{
+  FakeWebSocket.instances.length = 0;
+  let exhausted = 0;
+  const mgr = new WebSocketManager({initialRetryDelay: 5, maxRetryDelay: 5});
+  mgr.on('_auth_exhausted', () => exhausted++);
+  mgr.setAuthFailureHandler(async () => { throw new Error('503'); });
+  mgr.connect('ws://test/transient', 'old');
+  FakeWebSocket.instances[0].open();
+  FakeWebSocket.instances[0].remoteClose(4001);
+  await new Promise(r => setTimeout(r, 30));
+  assert.equal(exhausted, 0);
+  assert.equal(FakeWebSocket.instances.length, 2);
+  let finish!: (ok: boolean) => void;
+  mgr.setAuthFailureHandler(() => new Promise(resolve => { finish = resolve; }));
+  FakeWebSocket.instances[1].open();
+  FakeWebSocket.instances[1].remoteClose(4001);
+  mgr.disconnect();
+  mgr.connect('ws://test/new-account', 'new');
+  finish(false);
+  await tick();
+  assert.equal(exhausted, 0);
+  mgr.disconnect();
+}

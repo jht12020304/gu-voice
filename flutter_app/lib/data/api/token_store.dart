@@ -21,22 +21,52 @@ class TokenStore {
 
   // In-memory cache so the Dio interceptor stays synchronous-friendly.
   String? accessToken;
+  int _sessionEpoch = 0;
+  int get sessionEpoch => _sessionEpoch;
+  Future<void> _pendingStorage = Future.value();
+
+  // Serialize writes so an old refresh cannot overwrite a newer login/logout.
+  Future<void> _persist(Future<void> Function() write) {
+    final operation = _pendingStorage.then((_) => write());
+    _pendingStorage = operation.then((_) {}, onError: (Object _) {});
+    return operation;
+  }
 
   Future<void> load() async {
-    accessToken = await _storage.read(key: _access);
+    final epoch = _sessionEpoch;
+    final cached = accessToken;
+    await _pendingStorage;
+    final stored = await _storage.read(key: _access);
+    if (epoch != _sessionEpoch || accessToken != cached) return;
+    // Retrying bootstrap for the same session must join an in-flight refresh.
+    if (stored != cached) _sessionEpoch++;
+    accessToken = stored;
   }
 
-  Future<void> save({required String access, String? refresh}) async {
+  Future<void> save({required String access, String? refresh, bool newSession = true}) {
+    if (newSession) _sessionEpoch++;
     accessToken = access;
-    await _storage.write(key: _access, value: access);
-    if (refresh != null) await _storage.write(key: _refresh, value: refresh);
+    return _persist(() async {
+      await _storage.write(key: _access, value: access);
+      if (refresh != null) {
+        await _storage.write(key: _refresh, value: refresh);
+      } else if (newSession) {
+        await _storage.delete(key: _refresh);
+      }
+    });
   }
 
-  Future<String?> readRefresh() => _storage.read(key: _refresh);
+  Future<String?> readRefresh() async {
+    await _pendingStorage;
+    return _storage.read(key: _refresh);
+  }
 
-  Future<void> clear() async {
+  Future<void> clear() {
+    _sessionEpoch++;
     accessToken = null;
-    await _storage.delete(key: _access);
-    await _storage.delete(key: _refresh);
+    return _persist(() async {
+      await _storage.delete(key: _access);
+      await _storage.delete(key: _refresh);
+    });
   }
 }

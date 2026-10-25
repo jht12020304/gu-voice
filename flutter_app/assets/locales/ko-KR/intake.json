@@ -90,17 +90,6 @@
       "conditionPlaceholder": "질환명 (예: 당뇨병)",
       "add": "가족력 추가"
     },
-    "summary": {
-      "title": "제출할 정보 확인",
-      "complaint": "주호소",
-      "allergy": "알레르기",
-      "medication": "복용 약물",
-      "history": "병력",
-      "noKnownAllergies": "알려진 알레르기 없음",
-      "noCurrentMedications": "현재 복용 중인 약물 없음",
-      "noPastHistory": "중대한 병력 없음",
-      "filled": "입력 완료"
-    },
     "nav": {
       "back": "뒤로",
       "prev": "이전",

@@ -1,0 +1,2161 @@
+{
+ "routes": {
+  "DELETE /api/v1/alerts/rules/{rule_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:rule_id*"
+   ],
+   "request": null,
+   "response": "{\"title\": \"Response Delete Rule Api V1 Alerts Rules  Rule Id  Delete\", \"type\": \"null\"}"
+  },
+  "DELETE /api/v1/complaints/{complaint_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:complaint_id*"
+   ],
+   "request": null,
+   "response": "{\"title\": \"Response Delete Complaint Api V1 Complaints  Complaint Id  Delete\", \"type\": \"null\"}"
+  },
+  "DELETE /api/v1/notifications/fcm-token/{token}": {
+   "params": [
+    "header:Authorization*",
+    "path:token*"
+   ],
+   "request": null,
+   "response": "{\"title\": \"Response Remove Fcm Token Api V1 Notifications Fcm Token  Token  Delete\", \"type\": \"null\"}"
+  },
+  "DELETE /api/v1/patients/{patient_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:patient_id*"
+   ],
+   "request": null,
+   "response": "{\"title\": \"Response Delete Patient Api V1 Patients  Patient Id  Delete\", \"type\": \"null\"}"
+  },
+  "DELETE /api/v1/sessions/{session_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*"
+   ],
+   "request": null,
+   "response": null
+  },
+  "GET /api/v1/admin/system/health": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/SystemHealthResponse\"}"
+  },
+  "GET /api/v1/admin/users": {
+   "params": [
+    "header:Authorization*",
+    "query:cursor",
+    "query:is_active",
+    "query:limit",
+    "query:role",
+    "query:search"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/AdminUserListResponse\"}"
+  },
+  "GET /api/v1/alerts": {
+   "params": [
+    "header:Authorization*",
+    "query:alert_type",
+    "query:cursor",
+    "query:date_from",
+    "query:date_to",
+    "query:is_acknowledged",
+    "query:limit",
+    "query:patient_id",
+    "query:session_id",
+    "query:severity"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/AlertListResponse\"}"
+  },
+  "GET /api/v1/alerts/rules": {
+   "params": [
+    "header:Authorization*",
+    "query:category",
+    "query:cursor",
+    "query:is_active",
+    "query:limit",
+    "query:severity"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/RedFlagRuleListResponse\"}"
+  },
+  "GET /api/v1/alerts/unacknowledged/count": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": null,
+   "response": "{\"title\": \"Response Get Unacknowledged Count Api V1 Alerts Unacknowledged Count Get\", \"type\": \"object\"}"
+  },
+  "GET /api/v1/alerts/{alert_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:alert_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/RedFlagAlertResponse\"}"
+  },
+  "GET /api/v1/audit-logs": {
+   "params": [
+    "header:Authorization*",
+    "query:action",
+    "query:cursor",
+    "query:date_from",
+    "query:date_to",
+    "query:end_date",
+    "query:ip_address",
+    "query:limit",
+    "query:resource_id",
+    "query:resource_type",
+    "query:start_date",
+    "query:user_id"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/AuditLogListResponse\"}"
+  },
+  "GET /api/v1/audit-logs/{log_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:log_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/AuditLogDetail\"}"
+  },
+  "GET /api/v1/auth/me": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/UserInfo\"}"
+  },
+  "GET /api/v1/complaints": {
+   "params": [
+    "header:Authorization*",
+    "query:category",
+    "query:cursor",
+    "query:is_active",
+    "query:is_default",
+    "query:limit",
+    "query:search"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/ComplaintListResponse\"}"
+  },
+  "GET /api/v1/complaints/{complaint_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:complaint_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/ComplaintResponse\"}"
+  },
+  "GET /api/v1/dashboard/calendar": {
+   "params": [
+    "header:Authorization*",
+    "query:day_starts*"
+   ],
+   "request": null,
+   "response": "{\"items\": {\"$ref\": \"#/components/schemas/CalendarDaySummary\"}, \"title\": \"Response Calendar Summary Api V1 Dashboard Calendar Get\", \"type\": \"array\"}"
+  },
+  "GET /api/v1/dashboard/monthly-summary": {
+   "params": [
+    "header:Authorization*",
+    "query:doctor_id",
+    "query:month"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/MonthlySummaryResponse\"}"
+  },
+  "GET /api/v1/dashboard/queue": {
+   "params": [
+    "header:Authorization*",
+    "query:doctor_id",
+    "query:status"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/QueueResponse\"}"
+  },
+  "GET /api/v1/dashboard/recent-alerts": {
+   "params": [
+    "header:Authorization*",
+    "query:limit",
+    "query:severity"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/RecentAlertsResponse\"}"
+  },
+  "GET /api/v1/dashboard/recent-sessions": {
+   "params": [
+    "header:Authorization*",
+    "query:doctor_id",
+    "query:limit"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/RecentSessionsResponse\"}"
+  },
+  "GET /api/v1/dashboard/stats": {
+   "params": [
+    "header:Authorization*",
+    "query:date",
+    "query:doctor_id"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/DashboardStatsResponse\"}"
+  },
+  "GET /api/v1/health": {
+   "params": [],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/HealthResponse\"}"
+  },
+  "GET /api/v1/healthz/deep": {
+   "params": [],
+   "request": null,
+   "response": "{}"
+  },
+  "GET /api/v1/notifications": {
+   "params": [
+    "header:Authorization*",
+    "query:cursor",
+    "query:is_read",
+    "query:limit",
+    "query:type"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/NotificationListResponse\"}"
+  },
+  "GET /api/v1/notifications/preferences": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/NotificationPreferenceResponse\"}"
+  },
+  "GET /api/v1/notifications/unread-count": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/UnreadCountResponse\"}"
+  },
+  "GET /api/v1/patients": {
+   "params": [
+    "header:Authorization*",
+    "query:age_from",
+    "query:age_to",
+    "query:created_from",
+    "query:created_to",
+    "query:cursor",
+    "query:gender",
+    "query:has_active_session",
+    "query:limit",
+    "query:search",
+    "query:sort_by",
+    "query:sort_order"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/PatientListResponse\"}"
+  },
+  "GET /api/v1/patients/{patient_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:patient_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/PatientResponse\"}"
+  },
+  "GET /api/v1/patients/{patient_id}/sessions": {
+   "params": [
+    "header:Authorization*",
+    "path:patient_id*",
+    "query:cursor",
+    "query:date_from",
+    "query:date_to",
+    "query:limit",
+    "query:status"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/SessionListResponse\"}"
+  },
+  "GET /api/v1/reports": {
+   "params": [
+    "header:Authorization*",
+    "query:cursor",
+    "query:date_from",
+    "query:date_to",
+    "query:doctor_id",
+    "query:limit",
+    "query:patient_id",
+    "query:review_status",
+    "query:session_id",
+    "query:status"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/ReportListResponse\"}"
+  },
+  "GET /api/v1/reports/{report_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:report_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/SOAPReportDetailResponse\"}"
+  },
+  "GET /api/v1/reports/{report_id}/pdf": {
+   "params": [
+    "header:Authorization*",
+    "path:report_id*",
+    "query:include_transcript",
+    "query:language"
+   ],
+   "request": null,
+   "response": "{}"
+  },
+  "GET /api/v1/reports/{report_id}/revisions": {
+   "params": [
+    "header:Authorization*",
+    "path:report_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/SOAPReportRevisionListResponse\"}"
+  },
+  "GET /api/v1/research/analytics": {
+   "params": [
+    "header:Authorization*",
+    "query:date_from",
+    "query:date_to"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/ResearchAnalyticsResponse\"}"
+  },
+  "GET /api/v1/sessions": {
+   "params": [
+    "header:Authorization*",
+    "query:cursor",
+    "query:date_from",
+    "query:date_to",
+    "query:doctor_id",
+    "query:limit",
+    "query:patient_id",
+    "query:sort_by",
+    "query:sort_order",
+    "query:status"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/SessionListResponse\"}"
+  },
+  "GET /api/v1/sessions/doctors": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": null,
+   "response": "{\"items\": {\"$ref\": \"#/components/schemas/DoctorOptionResponse\"}, \"title\": \"Response List Doctors Api V1 Sessions Doctors Get\", \"type\": \"array\"}"
+  },
+  "GET /api/v1/sessions/{session_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/SessionDetailResponse\"}"
+  },
+  "GET /api/v1/sessions/{session_id}/conversations": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*",
+    "query:cursor",
+    "query:limit"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/ConversationListResponse\"}"
+  },
+  "GET /api/v1/sessions/{session_id}/exam-orders/latest": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*"
+   ],
+   "request": null,
+   "response": "{\"anyOf\": [{\"$ref\": \"#/components/schemas/ExamOrderResponse\"}, {\"type\": \"null\"}], \"title\": \"Response Get Latest Exam Order Api V1 Sessions  Session Id  Exam Orders Latest Get\"}"
+  },
+  "GET /api/v1/sessions/{session_id}/report": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/SOAPReportDetailResponse\"}"
+  },
+  "POST /api/v1/admin/users": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/AdminUserCreate",
+   "response": "{\"$ref\": \"#/components/schemas/AdminUserResponse\"}"
+  },
+  "POST /api/v1/admin/users/{user_id}/reset-password": {
+   "params": [
+    "header:Authorization*",
+    "path:user_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/ResetPasswordResponse\"}"
+  },
+  "POST /api/v1/alerts/acknowledge-all": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": null,
+   "response": "{\"title\": \"Response Acknowledge All Alerts Api V1 Alerts Acknowledge All Post\", \"type\": \"object\"}"
+  },
+  "POST /api/v1/alerts/rules": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/RedFlagRuleCreate",
+   "response": "{\"$ref\": \"#/components/schemas/RedFlagRuleResponse\"}"
+  },
+  "POST /api/v1/alerts/{alert_id}/acknowledge": {
+   "params": [
+    "header:Authorization*",
+    "path:alert_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/AcknowledgeAlertResponse\"}"
+  },
+  "POST /api/v1/auth/change-password": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/ChangePasswordRequest",
+   "response": "{\"$ref\": \"#/components/schemas/MessageResponse\"}"
+  },
+  "POST /api/v1/auth/forgot-password": {
+   "params": [],
+   "request": "#/components/schemas/ForgotPasswordRequest",
+   "response": "{\"$ref\": \"#/components/schemas/ForgotPasswordResponse\"}"
+  },
+  "POST /api/v1/auth/login": {
+   "params": [],
+   "request": "#/components/schemas/LoginRequest",
+   "response": "{\"$ref\": \"#/components/schemas/LoginResponse\"}"
+  },
+  "POST /api/v1/auth/logout": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/LogoutRequest",
+   "response": "{\"$ref\": \"#/components/schemas/MessageResponse\"}"
+  },
+  "POST /api/v1/auth/refresh": {
+   "params": [],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/RefreshTokenResponse\"}"
+  },
+  "POST /api/v1/auth/register": {
+   "params": [
+    "header:Authorization"
+   ],
+   "request": "#/components/schemas/RegisterRequest",
+   "response": "{\"$ref\": \"#/components/schemas/LoginResponse\"}"
+  },
+  "POST /api/v1/auth/reset-password": {
+   "params": [],
+   "request": "#/components/schemas/ResetPasswordRequest",
+   "response": "{\"$ref\": \"#/components/schemas/MessageResponse\"}"
+  },
+  "POST /api/v1/complaints": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/ComplaintCreate",
+   "response": "{\"$ref\": \"#/components/schemas/ComplaintResponse\"}"
+  },
+  "POST /api/v1/notifications/fcm-token": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/FCMTokenCreate",
+   "response": "{\"$ref\": \"#/components/schemas/FCMTokenResponse\"}"
+  },
+  "POST /api/v1/patients": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/PatientCreate",
+   "response": "{\"$ref\": \"#/components/schemas/PatientResponse\"}"
+  },
+  "POST /api/v1/sessions": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/SessionCreate",
+   "response": "{\"$ref\": \"#/components/schemas/SessionDetailResponse\"}"
+  },
+  "POST /api/v1/sessions/{session_id}/assign": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*"
+   ],
+   "request": "#/components/schemas/SessionAssignRequest",
+   "response": "{\"$ref\": \"#/components/schemas/SessionDetailResponse\"}"
+  },
+  "POST /api/v1/sessions/{session_id}/end-for-language-switch": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*"
+   ],
+   "request": "#/components/schemas/SessionEndForLanguageSwitch",
+   "response": "{\"$ref\": \"#/components/schemas/SessionStatusResponse\"}"
+  },
+  "POST /api/v1/sessions/{session_id}/exam-orders": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*"
+   ],
+   "request": "#/components/schemas/ExamOrderCreate",
+   "response": "{\"$ref\": \"#/components/schemas/ExamOrderResponse\"}"
+  },
+  "POST /api/v1/sessions/{session_id}/reconnect": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*"
+   ],
+   "request": null,
+   "response": "{\"title\": \"Response Reconnect Session Api V1 Sessions  Session Id  Reconnect Post\", \"type\": \"object\"}"
+  },
+  "POST /api/v1/sessions/{session_id}/reports/generate": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*"
+   ],
+   "request": null,
+   "response": null
+  },
+  "PUT /api/v1/admin/users/{user_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:user_id*"
+   ],
+   "request": "#/components/schemas/AdminUserUpdate",
+   "response": "{\"$ref\": \"#/components/schemas/AdminUserResponse\"}"
+  },
+  "PUT /api/v1/admin/users/{user_id}/toggle-active": {
+   "params": [
+    "header:Authorization*",
+    "path:user_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/ToggleActiveResponse\"}"
+  },
+  "PUT /api/v1/alerts/rules/{rule_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:rule_id*"
+   ],
+   "request": "#/components/schemas/RedFlagRuleUpdate",
+   "response": "{\"$ref\": \"#/components/schemas/RedFlagRuleResponse\"}"
+  },
+  "PUT /api/v1/auth/me": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/UpdateProfileRequest",
+   "response": "{\"$ref\": \"#/components/schemas/UserInfo\"}"
+  },
+  "PUT /api/v1/complaints/reorder": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/ComplaintReorderRequest",
+   "response": "{\"$ref\": \"#/components/schemas/ReorderResponse\"}"
+  },
+  "PUT /api/v1/complaints/{complaint_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:complaint_id*"
+   ],
+   "request": "#/components/schemas/ComplaintUpdate",
+   "response": "{\"$ref\": \"#/components/schemas/ComplaintResponse\"}"
+  },
+  "PUT /api/v1/notifications/preferences": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/NotificationPreferenceUpdate",
+   "response": "{\"$ref\": \"#/components/schemas/NotificationPreferenceResponse\"}"
+  },
+  "PUT /api/v1/notifications/read-all": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/MarkAllReadResponse\"}"
+  },
+  "PUT /api/v1/notifications/{notification_id}/read": {
+   "params": [
+    "header:Authorization*",
+    "path:notification_id*"
+   ],
+   "request": null,
+   "response": "{\"$ref\": \"#/components/schemas/MarkReadResponse\"}"
+  },
+  "PUT /api/v1/patients/{patient_id}": {
+   "params": [
+    "header:Authorization*",
+    "path:patient_id*"
+   ],
+   "request": "#/components/schemas/PatientUpdate",
+   "response": "{\"$ref\": \"#/components/schemas/PatientResponse\"}"
+  },
+  "PUT /api/v1/reports/{report_id}/review": {
+   "params": [
+    "header:Authorization*",
+    "path:report_id*"
+   ],
+   "request": "#/components/schemas/ReviewReportRequest",
+   "response": "{\"$ref\": \"#/components/schemas/SOAPReportDetailResponse\"}"
+  },
+  "PUT /api/v1/sessions/{session_id}/status": {
+   "params": [
+    "header:Authorization*",
+    "path:session_id*"
+   ],
+   "request": "#/components/schemas/SessionUpdateStatus",
+   "response": "{\"$ref\": \"#/components/schemas/SessionStatusResponse\"}"
+  }
+ },
+ "schemas": {
+  "AcknowledgeAlertResponse": {
+   "properties": [
+    "acknowledge_notes",
+    "acknowledged_at",
+    "acknowledged_by",
+    "id"
+   ],
+   "required": [
+    "acknowledged_at",
+    "acknowledged_by",
+    "id"
+   ]
+  },
+  "AdminUserCreate": {
+   "properties": [
+    "department",
+    "email",
+    "is_active",
+    "license_number",
+    "name",
+    "password",
+    "phone",
+    "role"
+   ],
+   "required": [
+    "email",
+    "name",
+    "password",
+    "role"
+   ]
+  },
+  "AdminUserListResponse": {
+   "properties": [
+    "data",
+    "pagination"
+   ],
+   "required": [
+    "data",
+    "pagination"
+   ]
+  },
+  "AdminUserResponse": {
+   "properties": [
+    "created_at",
+    "department",
+    "email",
+    "id",
+    "is_active",
+    "last_login_at",
+    "license_number",
+    "name",
+    "phone",
+    "role",
+    "updated_at"
+   ],
+   "required": [
+    "created_at",
+    "email",
+    "id",
+    "is_active",
+    "name",
+    "role",
+    "updated_at"
+   ]
+  },
+  "AdminUserUpdate": {
+   "properties": [
+    "department",
+    "email",
+    "is_active",
+    "license_number",
+    "name",
+    "phone",
+    "role"
+   ],
+   "required": []
+  },
+  "AlertAcknowledgeRequest": {
+   "properties": [
+    "acknowledge_notes",
+    "action_taken"
+   ],
+   "required": []
+  },
+  "AlertListResponse": {
+   "properties": [
+    "data",
+    "pagination"
+   ],
+   "required": [
+    "data",
+    "pagination"
+   ]
+  },
+  "AlertSeverity": {
+   "properties": [],
+   "required": []
+  },
+  "AlertType": {
+   "properties": [],
+   "required": []
+  },
+  "AuditAction": {
+   "properties": [],
+   "required": []
+  },
+  "AuditLogDetail": {
+   "properties": [
+    "action",
+    "created_at",
+    "details",
+    "id",
+    "ip_address",
+    "resource_id",
+    "resource_type",
+    "user_agent",
+    "user_id"
+   ],
+   "required": [
+    "action",
+    "created_at",
+    "id",
+    "resource_type"
+   ]
+  },
+  "AuditLogListResponse": {
+   "properties": [
+    "data",
+    "pagination"
+   ],
+   "required": [
+    "data",
+    "pagination"
+   ]
+  },
+  "CalendarDaySummary": {
+   "properties": [
+    "busy_seconds",
+    "completed",
+    "day_index",
+    "duration_count",
+    "first_start",
+    "last_end",
+    "red_flags",
+    "total"
+   ],
+   "required": [
+    "busy_seconds",
+    "completed",
+    "day_index",
+    "duration_count",
+    "red_flags",
+    "total"
+   ]
+  },
+  "ChangePasswordRequest": {
+   "properties": [
+    "current_password",
+    "new_password"
+   ],
+   "required": [
+    "current_password",
+    "new_password"
+   ]
+  },
+  "CohortSection": {
+   "properties": [
+    "aborted_red_flag",
+    "cancelled",
+    "completed",
+    "completion",
+    "completion_rate",
+    "in_progress_or_waiting",
+    "total_sessions",
+    "weekly_trend"
+   ],
+   "required": []
+  },
+  "ComplaintCreate": {
+   "properties": [
+    "category",
+    "category_by_lang",
+    "description",
+    "description_by_lang",
+    "display_order",
+    "is_active",
+    "is_default",
+    "name",
+    "name_by_lang",
+    "name_en"
+   ],
+   "required": [
+    "category",
+    "name"
+   ]
+  },
+  "ComplaintListResponse": {
+   "properties": [
+    "data",
+    "pagination"
+   ],
+   "required": [
+    "data",
+    "pagination"
+   ]
+  },
+  "ComplaintReorderRequest": {
+   "properties": [
+    "items"
+   ],
+   "required": [
+    "items"
+   ]
+  },
+  "ComplaintResponse": {
+   "properties": [
+    "category",
+    "category_by_lang",
+    "created_at",
+    "created_by",
+    "description",
+    "description_by_lang",
+    "display_order",
+    "id",
+    "is_active",
+    "is_default",
+    "name",
+    "name_by_lang",
+    "name_en",
+    "updated_at"
+   ],
+   "required": [
+    "category",
+    "created_at",
+    "display_order",
+    "id",
+    "is_active",
+    "is_default",
+    "name",
+    "updated_at"
+   ]
+  },
+  "ComplaintUpdate": {
+   "properties": [
+    "category",
+    "category_by_lang",
+    "description",
+    "description_by_lang",
+    "display_order",
+    "is_active",
+    "is_default",
+    "name",
+    "name_by_lang",
+    "name_en"
+   ],
+   "required": []
+  },
+  "ConversationListResponse": {
+   "properties": [
+    "data",
+    "pagination"
+   ],
+   "required": [
+    "data",
+    "pagination"
+   ]
+  },
+  "ConversationResponse": {
+   "properties": [
+    "audio_duration_seconds",
+    "audio_url",
+    "content_text",
+    "created_at",
+    "id",
+    "metadata_",
+    "red_flag_detected",
+    "role",
+    "sequence_number",
+    "session_id",
+    "stt_confidence"
+   ],
+   "required": [
+    "content_text",
+    "created_at",
+    "id",
+    "red_flag_detected",
+    "role",
+    "sequence_number",
+    "session_id"
+   ]
+  },
+  "ConversationRole": {
+   "properties": [],
+   "required": []
+  },
+  "CursorPagination": {
+   "properties": [
+    "has_more",
+    "limit",
+    "next_cursor",
+    "total_count"
+   ],
+   "required": []
+  },
+  "DailyTrendItem": {
+   "properties": [
+    "completed",
+    "date",
+    "label",
+    "red_flags",
+    "sessions"
+   ],
+   "required": [
+    "date",
+    "label"
+   ]
+  },
+  "DashboardStatsResponse": {
+   "properties": [
+    "average_duration_seconds",
+    "completed",
+    "in_progress",
+    "pending_reviews",
+    "red_flags",
+    "sessions_today",
+    "timestamp",
+    "waiting"
+   ],
+   "required": [
+    "timestamp"
+   ]
+  },
+  "DemographicsSection": {
+   "properties": [
+    "age_band_distribution",
+    "age_years",
+    "chief_complaint_distribution",
+    "gender_distribution",
+    "total_patients"
+   ],
+   "required": []
+  },
+  "DevicePlatform": {
+   "properties": [],
+   "required": []
+  },
+  "DistributionBucket": {
+   "properties": [
+    "count",
+    "key"
+   ],
+   "required": [
+    "key"
+   ]
+  },
+  "DoctorOptionResponse": {
+   "properties": [
+    "department",
+    "id",
+    "name"
+   ],
+   "required": [
+    "id",
+    "name"
+   ]
+  },
+  "DocumentationSection": {
+   "properties": [
+    "ai_confidence_summary",
+    "icd10_verified",
+    "icd10_verified_rate",
+    "physician_agreement",
+    "physician_agreement_rate",
+    "reports_generated",
+    "review_outcomes",
+    "revision_reason_distribution"
+   ],
+   "required": []
+  },
+  "EfficiencySection": {
+   "properties": [
+    "duration_histogram",
+    "duration_seconds",
+    "patient_turn_chars",
+    "patient_turns",
+    "turns_histogram"
+   ],
+   "required": []
+  },
+  "ExamOrderCreate": {
+   "properties": [
+    "items",
+    "note",
+    "reportId"
+   ],
+   "required": []
+  },
+  "ExamOrderItem": {
+   "properties": [
+    "rationale",
+    "testName",
+    "urgency"
+   ],
+   "required": [
+    "testName"
+   ]
+  },
+  "ExamOrderResponse": {
+   "properties": [
+    "created_at",
+    "id",
+    "items",
+    "note",
+    "ordered_by",
+    "report_id",
+    "session_id"
+   ],
+   "required": [
+    "created_at",
+    "id",
+    "ordered_by",
+    "session_id"
+   ]
+  },
+  "FCMTokenCreate": {
+   "properties": [
+    "apns_token",
+    "device_name",
+    "device_token",
+    "platform"
+   ],
+   "required": [
+    "device_token",
+    "platform"
+   ]
+  },
+  "FCMTokenResponse": {
+   "properties": [
+    "created_at",
+    "device_name",
+    "device_token",
+    "id",
+    "is_active",
+    "platform"
+   ],
+   "required": [
+    "created_at",
+    "device_token",
+    "id",
+    "is_active",
+    "platform"
+   ]
+  },
+  "ForgotPasswordRequest": {
+   "properties": [
+    "email"
+   ],
+   "required": [
+    "email"
+   ]
+  },
+  "ForgotPasswordResponse": {
+   "properties": [
+    "delivery",
+    "message"
+   ],
+   "required": [
+    "delivery",
+    "message"
+   ]
+  },
+  "Gender": {
+   "properties": [],
+   "required": []
+  },
+  "GenerateReportRequest": {
+   "properties": [
+    "additional_notes",
+    "regenerate",
+    "session_id"
+   ],
+   "required": []
+  },
+  "HTTPValidationError": {
+   "properties": [
+    "detail"
+   ],
+   "required": []
+  },
+  "HealthResponse": {
+   "properties": [
+    "status",
+    "timestamp",
+    "version"
+   ],
+   "required": [
+    "timestamp"
+   ]
+  },
+  "HistogramBucket": {
+   "properties": [
+    "count",
+    "end",
+    "start"
+   ],
+   "required": [
+    "end",
+    "start"
+   ]
+  },
+  "HistoryTakingSection": {
+   "properties": [
+    "hpi_completeness_summary",
+    "hpi_field_fill_rates",
+    "mean_hpi_completeness",
+    "reports_analyzed"
+   ],
+   "required": []
+  },
+  "HpiFieldFillRate": {
+   "properties": [
+    "field",
+    "filled",
+    "rate",
+    "total"
+   ],
+   "required": [
+    "field"
+   ]
+  },
+  "LanguageBreakdownItem": {
+   "properties": [
+    "completed",
+    "language",
+    "mean_patient_turns",
+    "mean_stt_confidence",
+    "median_duration_seconds",
+    "red_flag_rate",
+    "red_flag_session_rate",
+    "sessions"
+   ],
+   "required": [
+    "language"
+   ]
+  },
+  "LoginRequest": {
+   "properties": [
+    "email",
+    "password"
+   ],
+   "required": [
+    "email",
+    "password"
+   ]
+  },
+  "LoginResponse": {
+   "properties": [
+    "access_token",
+    "expires_in",
+    "refresh_token",
+    "token_type",
+    "user"
+   ],
+   "required": [
+    "access_token",
+    "expires_in",
+    "refresh_token",
+    "user"
+   ]
+  },
+  "LogoutRequest": {
+   "properties": [
+    "refresh_token"
+   ],
+   "required": []
+  },
+  "MarkAllReadResponse": {
+   "properties": [
+    "message",
+    "updated_count"
+   ],
+   "required": []
+  },
+  "MarkReadResponse": {
+   "properties": [
+    "id",
+    "is_read",
+    "read_at"
+   ],
+   "required": [
+    "id",
+    "read_at"
+   ]
+  },
+  "MessageResponse": {
+   "properties": [
+    "message"
+   ],
+   "required": [
+    "message"
+   ]
+  },
+  "MonthlySummaryResponse": {
+   "properties": [
+    "aborted_red_flag_sessions",
+    "alert_severity_distribution",
+    "chief_complaint_distribution",
+    "completed_sessions",
+    "completion_rate",
+    "daily_trend",
+    "generated_at",
+    "month",
+    "month_label",
+    "pending_reviews",
+    "status_distribution",
+    "total_red_flag_alerts",
+    "total_sessions"
+   ],
+   "required": [
+    "generated_at",
+    "month",
+    "month_label"
+   ]
+  },
+  "NotificationListResponse": {
+   "properties": [
+    "data",
+    "pagination",
+    "unread_count"
+   ],
+   "required": [
+    "data",
+    "pagination"
+   ]
+  },
+  "NotificationPreferenceResponse": {
+   "properties": [
+    "email_enabled",
+    "push_enabled",
+    "red_flag_enabled",
+    "report_ready_enabled",
+    "session_complete_enabled",
+    "system_enabled",
+    "user_id"
+   ],
+   "required": [
+    "email_enabled",
+    "push_enabled",
+    "red_flag_enabled",
+    "report_ready_enabled",
+    "session_complete_enabled",
+    "system_enabled",
+    "user_id"
+   ]
+  },
+  "NotificationPreferenceUpdate": {
+   "properties": [
+    "email_enabled",
+    "push_enabled",
+    "red_flag_enabled",
+    "report_ready_enabled",
+    "session_complete_enabled",
+    "system_enabled"
+   ],
+   "required": []
+  },
+  "NotificationResponse": {
+   "properties": [
+    "body",
+    "created_at",
+    "data",
+    "id",
+    "is_read",
+    "read_at",
+    "title",
+    "type",
+    "user_id"
+   ],
+   "required": [
+    "created_at",
+    "id",
+    "is_read",
+    "title",
+    "type",
+    "user_id"
+   ]
+  },
+  "NotificationType": {
+   "properties": [],
+   "required": []
+  },
+  "NumericSummary": {
+   "properties": [
+    "max",
+    "mean",
+    "median",
+    "min",
+    "n",
+    "outliers",
+    "p25",
+    "p75",
+    "sd",
+    "whisker_high",
+    "whisker_low"
+   ],
+   "required": []
+  },
+  "PatientCreate": {
+   "properties": [
+    "allergies",
+    "current_medications",
+    "date_of_birth",
+    "emergency_contact",
+    "gender",
+    "medical_history",
+    "medical_record_number",
+    "name",
+    "phone",
+    "user_id"
+   ],
+   "required": [
+    "date_of_birth",
+    "gender",
+    "medical_record_number",
+    "name"
+   ]
+  },
+  "PatientInfoPayload": {
+   "properties": [
+    "dateOfBirth",
+    "gender",
+    "name",
+    "phone"
+   ],
+   "required": [
+    "dateOfBirth",
+    "gender",
+    "name"
+   ]
+  },
+  "PatientListResponse": {
+   "properties": [
+    "data",
+    "pagination"
+   ],
+   "required": [
+    "data",
+    "pagination"
+   ]
+  },
+  "PatientResponse": {
+   "properties": [
+    "allergies",
+    "created_at",
+    "current_medications",
+    "date_of_birth",
+    "emergency_contact",
+    "gender",
+    "id",
+    "medical_history",
+    "medical_record_number",
+    "name",
+    "phone",
+    "updated_at",
+    "user_id"
+   ],
+   "required": [
+    "created_at",
+    "date_of_birth",
+    "gender",
+    "id",
+    "medical_record_number",
+    "name",
+    "updated_at",
+    "user_id"
+   ]
+  },
+  "PatientUpdate": {
+   "properties": [
+    "allergies",
+    "current_medications",
+    "date_of_birth",
+    "emergency_contact",
+    "gender",
+    "medical_history",
+    "name",
+    "phone"
+   ],
+   "required": []
+  },
+  "Proportion": {
+   "properties": [
+    "ci_high",
+    "ci_low",
+    "denominator",
+    "numerator",
+    "value"
+   ],
+   "required": []
+  },
+  "QueueItemResponse": {
+   "properties": [
+    "chief_complaint",
+    "created_at",
+    "has_red_flag",
+    "patient_id",
+    "patient_name",
+    "session_id",
+    "started_at",
+    "status",
+    "waiting_seconds"
+   ],
+   "required": [
+    "chief_complaint",
+    "created_at",
+    "has_red_flag",
+    "patient_id",
+    "patient_name",
+    "session_id",
+    "status"
+   ]
+  },
+  "QueueResponse": {
+   "properties": [
+    "queue",
+    "total_in_progress",
+    "total_waiting"
+   ],
+   "required": []
+  },
+  "RecentAlertItem": {
+   "properties": [
+    "acknowledged",
+    "alert_id",
+    "created_at",
+    "patient_name",
+    "session_id",
+    "severity",
+    "title"
+   ],
+   "required": [
+    "alert_id",
+    "created_at",
+    "patient_name",
+    "session_id",
+    "severity",
+    "title"
+   ]
+  },
+  "RecentAlertsResponse": {
+   "properties": [
+    "data"
+   ],
+   "required": []
+  },
+  "RecentSessionItem": {
+   "properties": [
+    "chief_complaint",
+    "completed_at",
+    "created_at",
+    "patient_name",
+    "red_flag",
+    "session_id",
+    "status"
+   ],
+   "required": [
+    "chief_complaint",
+    "created_at",
+    "patient_name",
+    "red_flag",
+    "session_id",
+    "status"
+   ]
+  },
+  "RecentSessionsResponse": {
+   "properties": [
+    "data"
+   ],
+   "required": []
+  },
+  "RedFlagAlertResponse": {
+   "properties": [
+    "acknowledge_notes",
+    "acknowledged_at",
+    "acknowledged_by",
+    "action_taken",
+    "alert_type",
+    "canonical_id",
+    "confidence",
+    "conversation_id",
+    "created_at",
+    "description",
+    "id",
+    "language",
+    "llm_analysis",
+    "matched_rule_id",
+    "session_id",
+    "severity",
+    "suggested_actions",
+    "title",
+    "trigger_keywords",
+    "trigger_reason"
+   ],
+   "required": [
+    "alert_type",
+    "conversation_id",
+    "created_at",
+    "id",
+    "session_id",
+    "severity",
+    "title",
+    "trigger_reason"
+   ]
+  },
+  "RedFlagConfidence": {
+   "properties": [],
+   "required": []
+  },
+  "RedFlagRuleCreate": {
+   "properties": [
+    "category",
+    "description",
+    "is_active",
+    "keywords",
+    "name",
+    "regex_pattern",
+    "severity",
+    "suggested_action",
+    "suspected_diagnosis"
+   ],
+   "required": [
+    "category",
+    "keywords",
+    "name",
+    "severity"
+   ]
+  },
+  "RedFlagRuleListResponse": {
+   "properties": [
+    "data",
+    "pagination"
+   ],
+   "required": [
+    "data",
+    "pagination"
+   ]
+  },
+  "RedFlagRuleResponse": {
+   "properties": [
+    "category",
+    "created_at",
+    "created_by",
+    "description",
+    "id",
+    "is_active",
+    "keywords",
+    "name",
+    "regex_pattern",
+    "severity",
+    "suggested_action",
+    "suspected_diagnosis",
+    "updated_at"
+   ],
+   "required": [
+    "category",
+    "created_at",
+    "id",
+    "is_active",
+    "keywords",
+    "name",
+    "severity",
+    "updated_at"
+   ]
+  },
+  "RedFlagRuleUpdate": {
+   "properties": [
+    "category",
+    "description",
+    "is_active",
+    "keywords",
+    "name",
+    "regex_pattern",
+    "severity",
+    "suggested_action",
+    "suspected_diagnosis"
+   ],
+   "required": []
+  },
+  "RefreshTokenResponse": {
+   "properties": [
+    "access_token",
+    "expires_in",
+    "refresh_token",
+    "token_type"
+   ],
+   "required": [
+    "access_token",
+    "expires_in",
+    "refresh_token"
+   ]
+  },
+  "RegisterRequest": {
+   "properties": [
+    "department",
+    "email",
+    "license_number",
+    "name",
+    "password",
+    "phone",
+    "role"
+   ],
+   "required": [
+    "email",
+    "name",
+    "password"
+   ]
+  },
+  "ReorderResponse": {
+   "properties": [
+    "message",
+    "reordered_count",
+    "success"
+   ],
+   "required": []
+  },
+  "ReportListResponse": {
+   "properties": [
+    "data",
+    "pagination",
+    "review_counts"
+   ],
+   "required": [
+    "data",
+    "pagination"
+   ]
+  },
+  "ReportRevisionReason": {
+   "properties": [],
+   "required": []
+  },
+  "ReportStatus": {
+   "properties": [],
+   "required": []
+  },
+  "ResearchAnalyticsResponse": {
+   "properties": [
+    "by_language",
+    "cohort",
+    "date_from",
+    "date_to",
+    "demographics",
+    "documentation",
+    "efficiency",
+    "generated_at",
+    "history_taking",
+    "safety",
+    "stt_quality"
+   ],
+   "required": [
+    "generated_at"
+   ]
+  },
+  "ResetPasswordRequest": {
+   "properties": [
+    "new_password",
+    "token"
+   ],
+   "required": [
+    "new_password",
+    "token"
+   ]
+  },
+  "ResetPasswordResponse": {
+   "properties": [
+    "email",
+    "id",
+    "temp_password"
+   ],
+   "required": [
+    "email",
+    "id",
+    "temp_password"
+   ]
+  },
+  "ReviewReportRequest": {
+   "properties": [
+    "review_notes",
+    "review_status",
+    "soap_overrides"
+   ],
+   "required": [
+    "review_status"
+   ]
+  },
+  "ReviewStatus": {
+   "properties": [],
+   "required": []
+  },
+  "SOAPReportDetailResponse": {
+   "properties": [
+    "ai_confidence_score",
+    "assessment",
+    "chief_complaint_text",
+    "created_at",
+    "doctor_name",
+    "generated_at",
+    "icd10_codes",
+    "icd10_verified",
+    "id",
+    "objective",
+    "patient_facing_localized",
+    "patient_name",
+    "plan",
+    "raw_transcript",
+    "review_notes",
+    "review_status",
+    "reviewed_at",
+    "reviewed_by",
+    "session_id",
+    "session_red_flag",
+    "session_status",
+    "status",
+    "subjective",
+    "summary",
+    "updated_at"
+   ],
+   "required": [
+    "created_at",
+    "id",
+    "review_status",
+    "session_id",
+    "status",
+    "updated_at"
+   ]
+  },
+  "SOAPReportResponse": {
+   "properties": [
+    "ai_confidence_score",
+    "chief_complaint_text",
+    "created_at",
+    "doctor_name",
+    "generated_at",
+    "icd10_codes",
+    "id",
+    "patient_facing_localized",
+    "patient_name",
+    "review_notes",
+    "review_status",
+    "reviewed_at",
+    "reviewed_by",
+    "session_id",
+    "session_red_flag",
+    "session_status",
+    "status",
+    "summary",
+    "updated_at"
+   ],
+   "required": [
+    "created_at",
+    "id",
+    "review_status",
+    "session_id",
+    "status",
+    "updated_at"
+   ]
+  },
+  "SOAPReportRevisionListResponse": {
+   "properties": [
+    "data"
+   ],
+   "required": [
+    "data"
+   ]
+  },
+  "SOAPReportRevisionResponse": {
+   "properties": [
+    "ai_confidence_score",
+    "assessment",
+    "created_at",
+    "created_by",
+    "icd10_codes",
+    "id",
+    "language",
+    "objective",
+    "plan",
+    "raw_transcript",
+    "reason",
+    "report_id",
+    "revision_no",
+    "subjective",
+    "summary"
+   ],
+   "required": [
+    "created_at",
+    "id",
+    "language",
+    "reason",
+    "report_id",
+    "revision_no"
+   ]
+  },
+  "SafetySection": {
+   "properties": [
+    "ack_latency_seconds",
+    "acknowledged",
+    "acknowledged_rate",
+    "alert_session",
+    "alert_session_rate",
+    "alert_type_distribution",
+    "layer_distribution",
+    "sessions_with_alerts",
+    "severity_distribution",
+    "time_to_first_alert_seconds",
+    "total_alerts",
+    "urgency_distribution"
+   ],
+   "required": []
+  },
+  "SessionAssignRequest": {
+   "properties": [
+    "doctor_id"
+   ],
+   "required": [
+    "doctor_id"
+   ]
+  },
+  "SessionCreate": {
+   "properties": [
+    "chiefComplaintId",
+    "chiefComplaintText",
+    "doctorId",
+    "intake",
+    "language",
+    "patientId",
+    "patientInfo"
+   ],
+   "required": [
+    "chiefComplaintId"
+   ]
+  },
+  "SessionDetailResponse": {
+   "properties": [
+    "chief_complaint_id",
+    "chief_complaint_text",
+    "completed_at",
+    "conversations",
+    "created_at",
+    "doctor_id",
+    "doctor_name",
+    "duration_seconds",
+    "id",
+    "intake",
+    "intake_completed_at",
+    "language",
+    "patient_id",
+    "patient_name",
+    "red_flag",
+    "red_flag_reason",
+    "started_at",
+    "status",
+    "updated_at"
+   ],
+   "required": [
+    "chief_complaint_id",
+    "created_at",
+    "id",
+    "language",
+    "patient_id",
+    "red_flag",
+    "status",
+    "updated_at"
+   ]
+  },
+  "SessionEndForLanguageSwitch": {
+   "properties": [
+    "toLanguage"
+   ],
+   "required": [
+    "toLanguage"
+   ]
+  },
+  "SessionIntake": {
+   "properties": [
+    "allergies",
+    "current_medications",
+    "family_history",
+    "medical_history",
+    "no_current_medications",
+    "no_family_history",
+    "no_known_allergies",
+    "no_past_medical_history"
+   ],
+   "required": []
+  },
+  "SessionIntakeAllergyItem": {
+   "properties": [
+    "allergen",
+    "had_hospitalization",
+    "reaction",
+    "severity"
+   ],
+   "required": [
+    "allergen"
+   ]
+  },
+  "SessionIntakeFamilyHistoryItem": {
+   "properties": [
+    "condition",
+    "relation"
+   ],
+   "required": [
+    "condition",
+    "relation"
+   ]
+  },
+  "SessionIntakeMedicalHistoryItem": {
+   "properties": [
+    "condition",
+    "still_has",
+    "years_ago"
+   ],
+   "required": [
+    "condition"
+   ]
+  },
+  "SessionIntakeMedicationItem": {
+   "properties": [
+    "frequency",
+    "name"
+   ],
+   "required": [
+    "name"
+   ]
+  },
+  "SessionListResponse": {
+   "properties": [
+    "data",
+    "pagination"
+   ],
+   "required": [
+    "data",
+    "pagination"
+   ]
+  },
+  "SessionResponse": {
+   "properties": [
+    "chief_complaint_id",
+    "chief_complaint_text",
+    "completed_at",
+    "created_at",
+    "doctor_id",
+    "doctor_name",
+    "duration_seconds",
+    "id",
+    "intake",
+    "intake_completed_at",
+    "language",
+    "patient_id",
+    "patient_name",
+    "red_flag",
+    "red_flag_reason",
+    "started_at",
+    "status",
+    "updated_at"
+   ],
+   "required": [
+    "chief_complaint_id",
+    "created_at",
+    "id",
+    "language",
+    "patient_id",
+    "red_flag",
+    "status",
+    "updated_at"
+   ]
+  },
+  "SessionStatus": {
+   "properties": [],
+   "required": []
+  },
+  "SessionStatusResponse": {
+   "properties": [
+    "id",
+    "previous_status",
+    "status",
+    "updated_at"
+   ],
+   "required": [
+    "id",
+    "status",
+    "updated_at"
+   ]
+  },
+  "SessionUpdateStatus": {
+   "properties": [
+    "reason",
+    "status"
+   ],
+   "required": [
+    "status"
+   ]
+  },
+  "SttLanguageQuality": {
+   "properties": [
+    "language",
+    "low_confidence_rate",
+    "mean_confidence",
+    "median_confidence",
+    "turns"
+   ],
+   "required": [
+    "language"
+   ]
+  },
+  "SttQualitySection": {
+   "properties": [
+    "by_language",
+    "confidence_summary",
+    "histogram",
+    "low_confidence",
+    "low_confidence_rate",
+    "turns_with_confidence",
+    "voice_turn_share"
+   ],
+   "required": []
+  },
+  "SummaryBucketItem": {
+   "properties": [
+    "count",
+    "key",
+    "label"
+   ],
+   "required": [
+    "key",
+    "label"
+   ]
+  },
+  "SystemHealthResponse": {
+   "properties": [
+    "database",
+    "openai",
+    "redis",
+    "status",
+    "timestamp",
+    "version"
+   ],
+   "required": [
+    "timestamp",
+    "version"
+   ]
+  },
+  "ToggleActiveResponse": {
+   "properties": [
+    "id",
+    "is_active",
+    "message"
+   ],
+   "required": [
+    "id",
+    "is_active",
+    "message"
+   ]
+  },
+  "UnreadCountResponse": {
+   "properties": [
+    "count"
+   ],
+   "required": []
+  },
+  "UpdateProfileRequest": {
+   "properties": [
+    "department",
+    "name",
+    "phone",
+    "preferred_language"
+   ],
+   "required": []
+  },
+  "UserInfo": {
+   "properties": [
+    "created_at",
+    "department",
+    "email",
+    "id",
+    "is_active",
+    "last_login_at",
+    "license_number",
+    "name",
+    "phone",
+    "preferred_language",
+    "role"
+   ],
+   "required": [
+    "email",
+    "id",
+    "name",
+    "role"
+   ]
+  },
+  "UserRole": {
+   "properties": [],
+   "required": []
+  },
+  "ValidationError": {
+   "properties": [
+    "loc",
+    "msg",
+    "type"
+   ],
+   "required": [
+    "loc",
+    "msg",
+    "type"
+   ]
+  },
+  "WeeklyTrendItem": {
+   "properties": [
+    "completed",
+    "red_flag_sessions",
+    "sessions",
+    "week_start"
+   ],
+   "required": [
+    "week_start"
+   ]
+  }
+ }
+}

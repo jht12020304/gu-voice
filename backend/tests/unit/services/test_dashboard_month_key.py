@@ -100,3 +100,52 @@ def test_month_is_required_on_response() -> None:
             month_label="2026 年 7 月",
             generated_at=utc_now(),
         )
+
+
+# ── invalidate_stats_cache：/dashboard/stats 快取整個前綴一起清 ──────────
+
+def test_invalidate_stats_cache_deletes_every_stats_key(monkeypatch):
+    """軟刪除與狀態轉移共用這一支；key 帶日期與 doctor scope，所以是 pattern 刪。"""
+    import asyncio
+
+    import app.cache.redis_client as redis_client
+    from app.services.dashboard_service import invalidate_stats_cache
+
+    class _Redis:
+        def __init__(self) -> None:
+            self.patterns: list[str] = []
+            self.deleted: tuple = ()
+
+        async def scan_iter(self, pattern):
+            self.patterns.append(pattern)
+            for key in ("gu:dashboard:stats:all:2026-10-10", "gu:dashboard:stats:d1:own:2026-10-10"):
+                yield key
+
+        async def delete(self, *keys):
+            self.deleted = keys
+            return len(keys)
+
+    fake = _Redis()
+
+    async def _get_redis():
+        return fake
+
+    monkeypatch.setattr(redis_client, "get_redis", _get_redis)
+
+    asyncio.run(invalidate_stats_cache())
+
+    assert fake.patterns == ["gu:dashboard:stats:*"]
+    assert len(fake.deleted) == 2
+
+
+def test_invalidate_stats_cache_swallows_redis_failure(monkeypatch):
+    import asyncio
+
+    import app.cache.redis_client as redis_client
+    from app.services.dashboard_service import invalidate_stats_cache
+
+    async def _boom():
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(redis_client, "get_redis", _boom)
+    asyncio.run(invalidate_stats_cache())  # 非致命：不拋

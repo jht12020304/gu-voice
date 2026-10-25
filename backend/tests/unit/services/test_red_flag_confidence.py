@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from app.models.enums import AlertSeverity, AlertType, RedFlagConfidence
 from app.pipelines import red_flag_detector as rfd_module
@@ -255,7 +255,7 @@ def test_alert_service_create_persists_confidence_and_canonical_id(monkeypatch):
         "confidence": "rule_hit",
         "language": "zh-TW",
     }
-    alert = _run(AlertService.create(db, data))
+    _run(AlertService.create(db, data))
     # find RedFlagAlert in db.added
     from app.models.red_flag_alert import RedFlagAlert
     added_alerts = [o for o in db.added if isinstance(o, RedFlagAlert)]

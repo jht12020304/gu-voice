@@ -10,6 +10,7 @@ import '../../../data/models/session.dart';
 import '../../../shared/format.dart';
 import '../../../shared/widgets/status_badge.dart';
 import '../../../shared/widgets/ui_kit.dart';
+import '../../../shared/toast.dart';
 
 // Port of PatientDetailPage.tsx — parallel load of patient + sessions, history chips,
 // delete-confirm modal. Visual pass (2026-08-22, design-taste-frontend): section
@@ -66,18 +67,17 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
         ],
       ),
     );
-    if (ok != true) return;
+    if (ok != true || !mounted) return;
     setState(() => _deleting = true);
     try {
       await _api.delete(p.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t('common.doctor.patient.deleteSuccess'))));
+      showToast(context, t('common.doctor.patient.deleteSuccess'));
       context.go(prefixLngToPath('/patients', currentLng));
     } catch (_) {
-      if (mounted) {
-        setState(() => _deleting = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t('common.doctor.patient.deleteError'))));
-      }
+      if (!mounted) return;
+      setState(() => _deleting = false);
+      showToast(context, t('common.doctor.patient.deleteError'));
     }
   }
 

@@ -56,3 +56,18 @@ def clinician_session_filter(clinician_id: Any):
     from app.models.session import Session
 
     return or_(Session.doctor_id == clinician_id, Session.doctor_id.is_(None))
+
+
+async def patient_owned_by(db: Any, patient_id: Any, user_id: Any) -> bool:
+    """病患帳號是否擁有此 patient（`patients.user_id == user_id`）。
+
+    session_service／report_service 的病患分支先前各自寫同一段 query；共用一份，
+    避免「病患只能看自己名下場次／報告」這條規則兩邊漂移。
+    """
+    from sqlalchemy import select
+
+    from app.models.patient import Patient
+
+    result = await db.execute(select(Patient.user_id).where(Patient.id == patient_id))
+    owner_user_id = result.scalar_one_or_none()
+    return owner_user_id is not None and owner_user_id == user_id

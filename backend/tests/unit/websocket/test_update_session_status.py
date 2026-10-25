@@ -285,3 +285,20 @@ def test_waiting_self_transition_is_rejected():
     db = StubDB(rowcount=1)
     assert _run(db, FakeRedis(), "waiting", "waiting") is False
     assert db.executed == []
+
+
+def test_terminal_transition_invalidates_dashboard_stats_cache(monkeypatch):
+    """終態轉移後要清 `/dashboard/stats` 快取；waiting→in_progress 不清。"""
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service
+
+    spy = AsyncMock(return_value=None)
+    monkeypatch.setattr(dashboard_service, "invalidate_stats_cache", spy)
+    assert _run(StubDB(rowcount=1), FakeRedis(), "in_progress", "waiting") is True
+    assert spy.await_count == 0
+    assert _run(StubDB(rowcount=1), FakeRedis(), "completed", "in_progress") is True
+    assert spy.await_count == 1
+    # CAS 未命中 → 沒轉移 → 不清
+    assert _run(StubDB(rowcount=0), FakeRedis(), "completed", "in_progress") is False
+    assert spy.await_count == 1

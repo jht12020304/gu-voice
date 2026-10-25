@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' show max;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,8 +7,7 @@ import '../../../core/i18n/loc.dart';
 import '../../../data/api/notifications_api.dart';
 import '../../../data/models/notification.dart';
 import '../services/dashboard_ws.dart';
-
-int _clampNonNeg(int v) => v < 0 ? 0 : v;
+import 'request_seq.dart';
 
 class NotifState {
   final List<AppNotification> notifications;
@@ -64,12 +64,7 @@ const _wsEvents = ['session_status_changed', 'report_generated', 'new_red_flag',
 // creates no notification. Only terminal transitions do. Payload key is camelCase.
 const _terminalStatuses = {'completed', 'aborted_red_flag', 'cancelled'};
 
-// Trailing debounce, for two reasons:
-//  1. one terminal transition emits several of these events back-to-back
-//     (session_status_changed + report_generated + new_red_flag) — one refetch is enough;
-//  2. the backend publishes `report_generated` BEFORE the REPORT_READY row is committed
-//     (report_queue.py: publish, then a second transaction for the notification), so an
-//     instant refetch can legitimately race ahead of the row it came to collect.
+// Collapse related events from the same committed transition into one refresh.
 const _defaultRefreshDebounce = Duration(milliseconds: 400);
 
 class NotificationsController extends Notifier<NotifState> {
@@ -82,40 +77,45 @@ class NotificationsController extends Notifier<NotifState> {
   final NotificationsApi _api;
   final Duration _refreshDebounce;
   Timer? _refreshTimer;
-  // Riverpod throws if `state` is written after dispose, and a refetch in flight when the
-  // doctor logs out lands exactly there.
-  bool _disposed = false;
+  final _list = RequestSeq();
+  final _count = RequestSeq();
   // build() already fetches, so the first initial_state (WS just connected) is redundant.
   bool _skipNextInitialState = true;
 
   @override
   NotifState build() {
-    final ws = ref.read(dashboardWsProvider)..ensureConnected();
-    for (final e in _wsEvents) {
-      ws.on(e, _onEvent);
-    }
+    final lifecycle = ref;
+    final ws = ref.watch(dashboardWsProvider);
+    _skipNextInitialState = true;
+    if (ws == null) return const NotifState(hasMore: false);
+    ws.ensureConnected();
     ref.onDispose(() {
-      _disposed = true;
       _refreshTimer?.cancel();
       _refreshTimer = null;
-      for (final e in _wsEvents) {
-        ws.off(e, _onEvent);
-      }
     });
+    bindWsEvents(ref, ws, _wsEvents, _onEvent);
     // Concurrent, not sequential. These are two independent endpoints writing disjoint
     // fields of the same state, and on iOS this is the landing screen — chaining them
     // put a second full round trip to Railway between the doctor and their inbox for
     // no reason. Neither throws (both swallow their own errors), so `Future.wait` here
     // cannot leave one half unapplied because the other failed.
-    Future.microtask(() => Future.wait([fetch(), fetchUnreadCount()]));
+    Future.microtask(() async {
+      if (lifecycle.mounted && !ws.isDisposed) {
+        await Future.wait([fetch(), fetchUnreadCount()]);
+      }
+    });
     return const NotifState(isLoading: true);
   }
 
   Future<void> fetch() async {
+    final lifecycle = ref;
+    final ws = ref.read(dashboardWsProvider);
+    if (ws == null || ws.isDisposed) return;
+    final request = _list.next();
     state = state.copyWith(isLoading: true, clearError: true, clearCursor: true);
     try {
       final page = await _api.list();
-      if (_disposed) return;
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(
         notifications: page.data,
         cursor: page.nextCursor,
@@ -123,16 +123,21 @@ class NotificationsController extends Notifier<NotifState> {
         isLoading: false,
       );
     } catch (_) {
-      if (_disposed) return;
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
     }
   }
 
   Future<void> fetchMore() async {
+    final lifecycle = ref;
+    final ws = ref.read(dashboardWsProvider);
+    if (ws == null || ws.isDisposed) return;
     if (!state.hasMore || state.isLoading || state.cursor == null) return;
+    final request = _list.current;
     state = state.copyWith(isLoading: true);
     try {
       final page = await _api.list(cursor: state.cursor);
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(
         notifications: [...state.notifications, ...page.data],
         cursor: page.nextCursor,
@@ -140,11 +145,14 @@ class NotificationsController extends Notifier<NotifState> {
         isLoading: false,
       );
     } catch (_) {
+      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
     }
   }
 
   Future<void> markRead(String id) async {
+    final ws = ref.read(dashboardWsProvider);
+    if (ws == null || ws.isDisposed) return;
     // optimistic
     final now = DateTime.now().toUtc().toIso8601String();
     state = state.copyWith(
@@ -152,7 +160,7 @@ class NotificationsController extends Notifier<NotifState> {
         for (final n in state.notifications)
           if (n.id == id && !n.isRead) n.copyWith(isRead: true, readAt: now) else n
       ],
-      unreadCount: _clampNonNeg(state.unreadCount - 1),
+      unreadCount: max(0, state.unreadCount - 1),
     );
     try {
       await _api.markRead(id);
@@ -160,22 +168,31 @@ class NotificationsController extends Notifier<NotifState> {
   }
 
   Future<void> markAllRead() async {
+    final lifecycle = ref;
+    final ws = ref.read(dashboardWsProvider);
+    if (ws == null || ws.isDisposed) return;
     try {
       await _api.markAllRead();
+      if (!lifecycle.mounted || ws.isDisposed) return;
       final now = DateTime.now().toUtc().toIso8601String();
       state = state.copyWith(
         notifications: [for (final n in state.notifications) n.copyWith(isRead: true, readAt: n.readAt ?? now)],
         unreadCount: 0,
       );
     } catch (_) {
+      if (!lifecycle.mounted || ws.isDisposed) return;
       state = state.copyWith(error: t('common.unknownError'));
     }
   }
 
   Future<void> fetchUnreadCount() async {
+    final lifecycle = ref;
+    final ws = ref.read(dashboardWsProvider);
+    if (ws == null || ws.isDisposed) return;
+    final request = _count.next();
     try {
       final count = await _api.unreadCount();
-      if (_disposed) return;
+      if (!lifecycle.mounted || ws.isDisposed || _count.isStale(request)) return;
       state = state.copyWith(unreadCount: count);
     } catch (_) {/* silent */}
   }
@@ -200,9 +217,12 @@ class NotificationsController extends Notifier<NotifState> {
 
   /// Collapses an event burst into a single list + unread-count refetch.
   void _scheduleRefresh() {
+    final lifecycle = ref;
+    final ws = ref.read(dashboardWsProvider);
     _refreshTimer?.cancel();
     _refreshTimer = Timer(_refreshDebounce, () {
       _refreshTimer = null;
+      if (!lifecycle.mounted || ws == null || ws.isDisposed) return;
       unawaited(_refresh());
     });
   }

@@ -1,6 +1,6 @@
 // =============================================================================
 // LanguageLayout — URL 語言前綴守衛
-// 讀 `/:lng/*` 的 lng，驗證 → 同步 i18next / <html lang> / hreflang links。
+// 讀 `/:lng/*` 的 lng，驗證 → 同步 i18next / <html lang> / hreflang links / CJK webfont。
 // 未支援的 lng 會導去偵測到的預設語系。
 // =============================================================================
 
@@ -16,6 +16,13 @@ import {
   stripLngFromPath,
 } from '../../i18n/paths';
 import { useAuthStore } from '../../stores/authStore';
+
+// 依 URL 語言只載該語系的 CJK family（拉丁／越南文的 Inter + Noto Sans 固定在 index.html）。
+const CJK_FONT_FAMILY: Partial<Record<SupportedLanguage, string>> = {
+  'zh-TW': 'Noto+Sans+TC',
+  'ja-JP': 'Noto+Sans+JP',
+  'ko-KR': 'Noto+Sans+KR',
+};
 
 export default function LanguageLayout() {
   const { lng } = useParams<{ lng?: string }>();
@@ -79,6 +86,20 @@ export default function LanguageLayout() {
     if (activeLng && typeof document !== 'undefined') {
       document.documentElement.lang = activeLng;
     }
+  }, [activeLng]);
+
+  // 動態插入該語系的 CJK Google Font <link>，切語言時移除舊的（瀏覽器會快取已載過的）
+  useEffect(() => {
+    const family = activeLng ? CJK_FONT_FAMILY[activeLng] : undefined;
+    if (!family || typeof document === 'undefined') return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = `https://fonts.googleapis.com/css2?family=${family}:wght@300..700&display=swap`;
+    link.setAttribute('data-i18n-font', activeLng as string);
+    document.head.appendChild(link);
+    return () => {
+      link.remove();
+    };
   }, [activeLng]);
 
   // 動態插入 hreflang <link>，離開或路徑變動時 cleanup

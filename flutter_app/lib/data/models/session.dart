@@ -89,7 +89,7 @@ class Complaint {
     nameEn: json['nameEn'] as String?,
     description: json['description'] as String?,
     category: (json['category'] ?? '') as String,
-    displayOrder: (json['displayOrder'] ?? 0) as int,
+    displayOrder: (json['displayOrder'] as num?)?.toInt() ?? 0,
   );
 }
 

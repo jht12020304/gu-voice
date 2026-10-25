@@ -424,3 +424,10 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
+
+/* Keep native focus, screen-reader and browser-find order while skipping offscreen paint.
+   ponytail: DOM still grows with loaded rows; virtualize if >1k rows exceed the measured interaction budget. */
+.list-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
+}

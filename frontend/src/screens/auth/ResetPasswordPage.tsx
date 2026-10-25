@@ -9,6 +9,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useCurrentLng } from '../../i18n/paths';
 import * as authApi from '../../services/api/auth';
+import { apiErrorMessage } from '../../services/api/client';
+import { passwordStrengthError } from '../../utils/validation';
 
 export default function ResetPasswordPage() {
   const { t } = useTranslation('common');
@@ -22,17 +24,6 @@ export default function ResetPasswordPage() {
   const [isDone, setIsDone] = useState(false);
   const [error, setError] = useState('');
 
-  // 與 utils/validation.validatePassword 一致的密碼強度規則：
-  // 至少 8 字元，且包含大寫、小寫與數字。回傳已 i18n 的訊息或 null。
-  const validatePasswordStrength = (value: string): string | null => {
-    if (!value) return t('auth:password.required', '請輸入密碼');
-    if (value.length < 8) return t('auth:password.minLength', '密碼至少需要 8 個字元');
-    if (!/[A-Z]/.test(value)) return t('auth:password.needUppercase', '密碼需包含大寫字母');
-    if (!/[a-z]/.test(value)) return t('auth:password.needLowercase', '密碼需包含小寫字母');
-    if (!/[0-9]/.test(value)) return t('auth:password.needDigit', '密碼需包含數字');
-    return null;
-  };
-
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
@@ -42,7 +33,7 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    const passwordError = validatePasswordStrength(password);
+    const passwordError = passwordStrengthError(password, t);
     if (passwordError) {
       setError(passwordError);
       return;
@@ -61,8 +52,8 @@ export default function ResetPasswordPage() {
     try {
       await authApi.resetPassword(token, password);
       setIsDone(true);
-    } catch {
-      setError(t('auth:reset.failed', '重設密碼失敗，請確認連結是否有效或稍後再試'));
+    } catch (err) {
+      setError(apiErrorMessage(err, t, t('auth:reset.failed', '重設密碼失敗，請確認連結是否有效或稍後再試')));
     } finally {
       setIsLoading(false);
     }

@@ -17,10 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 from types import SimpleNamespace
 
 import pytest

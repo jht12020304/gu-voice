@@ -14,6 +14,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -105,7 +106,7 @@ void _installStub({required String language, Map<String, Object?>? patientFacing
         'pagination': {'hasMore': false, 'totalCount': 1},
       };
     }
-    if (path == '/reports/$_reportId') return _reportJson(patientFacing: patientFacing);
+    if (path == '/reports/$_reportId' || path == '/sessions/$_sessionId/report') return _reportJson(patientFacing: patientFacing);
     return null;
   });
 }
@@ -414,6 +415,43 @@ void main() {
 
       expect(find.text('Tiểu buốt ba ngày, không sốt.'), findsOneWidget);
       expect(find.text(_notice('vi-VN')!), findsNothing);
+    });
+  });
+
+  group('SessionCompletePage 報告輪詢', () {
+    testWidgets('第一次撈報告網路失敗要照節奏重試，不能停在「產生中」', (tester) async {
+      var reportCalls = 0;
+      installApiStub((options) {
+        final path = options.path;
+        if (path == '/sessions/$_sessionId') return _sessionJson('zh-TW');
+        if (path == '/reports' || path == '/sessions/$_sessionId/report') {
+          reportCalls++;
+          if (reportCalls == 1) {
+            return ResponseBody.fromString('{"detail":"boom"}', 500,
+                headers: {Headers.contentTypeHeader: ['application/json']});
+          }
+          // 一趟式端點：尚無報告 = 404（客戶端轉成 null）
+          return ResponseBody.fromString('{"detail":"not found"}', 404,
+              headers: {Headers.contentTypeHeader: ['application/json']});
+        }
+        return null;
+      });
+
+      await tester.pumpWidget(ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const SessionCompletePage(sessionId: _sessionId),
+        ),
+      ));
+      // 不用 pumpAndSettle：它會把 fake clock 一路推到 12 次輪詢用完。
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(reportCalls, 1);
+
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(reportCalls, 2, reason: 'catch 裡沒排重試 → 病患永遠看著 spinner');
+
+      await tester.pumpWidget(const SizedBox()); // dispose 掉頁面，收掉下一輪輪詢 timer
     });
   });
 }

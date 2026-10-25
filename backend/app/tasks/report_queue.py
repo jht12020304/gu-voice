@@ -9,26 +9,9 @@ import logging
 
 from celery import Task
 
-from app.tasks import celery_app
+from app.tasks import celery_app, run_async
 
 logger = logging.getLogger(__name__)
-
-
-def _run_async(coro):
-    """在同步 Celery worker context 內安全執行 async coroutine。
-
-    與 generate_soap_report 的執行策略一致：優先沿用既有 event loop，
-    若已在運行則改用 asyncio.run 新建一個 loop。
-    """
-    import asyncio
-
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            raise RuntimeError("event loop already running")
-        return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
 
 
 class _SOAPReportTask(Task):
@@ -53,7 +36,7 @@ class _SOAPReportTask(Task):
             )
             return
         try:
-            _run_async(_mark_report_failed(str(session_id)))
+            run_async(lambda: _mark_report_failed(str(session_id)))
             logger.error(
                 "SOAP 報告任務最終失敗，已將場次 %s 報告標記為 FAILED: %s",
                 session_id,
@@ -105,7 +88,7 @@ def _run_task(task, session_id: str) -> dict:
     只有重試次數用盡（或例外不值得重試）才標 FAILED。
     """
     try:
-        return _run_async(_async_generate(session_id))
+        return run_async(lambda: _async_generate(session_id))
     except Exception as exc:
         retries = task.request.retries or 0
         max_retries = task.max_retries or 0
@@ -128,7 +111,7 @@ def _run_task(task, session_id: str) -> dict:
             exc,
         )
         try:
-            _run_async(_mark_report_failed(str(session_id)))
+            run_async(lambda: _mark_report_failed(str(session_id)))
         except Exception:  # noqa: BLE001 — 標記失敗不可蓋掉原始錯誤
             logger.exception(
                 "場次 %s 標記 FAILED 失敗（on_failure 會再兜底一次）", session_id
@@ -178,9 +161,13 @@ async def _mark_report_failed(session_id: str) -> None:
     from app.models.enums import ReportStatus
 
     async with async_session_factory() as db:
-        await _update_report_status(db, session_id, ReportStatus.FAILED)
+        # `_run_task` 與 `on_failure` 都會走到這裡（前者標完、Celery 仍會呼叫
+        # 後者兜底）：只有「這次真的把狀態改掉」的那一方才廣播，否則醫師端
+        # 會收到兩則失敗通知。
+        changed = await _update_report_status(db, session_id, ReportStatus.FAILED)
         await db.commit()
-        await _announce_report_failure(db, session_id)
+        if changed:
+            await _announce_report_failure(db, session_id)
 
 
 async def _announce_report_failure(db, session_id: str) -> None:
@@ -212,6 +199,8 @@ async def _announce_report_failure(db, session_id: str) -> None:
 
     report_id = ""
     patient_name = ""
+    from app.services.session_visibility import session_not_deleted
+
     doctor_id = None
     try:
         row = (
@@ -219,6 +208,7 @@ async def _announce_report_failure(db, session_id: str) -> None:
                 select(Session)
                 .options(selectinload(Session.patient))
                 .where(Session.id == session_id)
+                .where(session_not_deleted())
             )
         ).scalar_one_or_none()
         if row is not None and row.patient is not None:
@@ -238,21 +228,6 @@ async def _announce_report_failure(db, session_id: str) -> None:
         )
 
     try:
-        await _publish_report_generated(
-            report_id=report_id,
-            session_id=session_id,
-            patient_name=patient_name,
-            status="failed",
-            doctor_id=doctor_id,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "場次 %s report_generated(failed) 推播失敗（非致命）| error=%s",
-            session_id,
-            exc,
-        )
-
-    try:
         from app.services.notification_service import NotificationService
 
         await NotificationService.notify_report_failed(
@@ -267,6 +242,22 @@ async def _announce_report_failure(db, session_id: str) -> None:
             await db.rollback()
         except Exception:  # noqa: BLE001
             pass
+
+    try:
+        await _publish_report_generated(
+            report_id=report_id,
+            session_id=session_id,
+            patient_name=patient_name,
+            status="failed",
+            doctor_id=doctor_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "場次 %s report_generated(failed) 推播失敗（非致命）| error=%s",
+            session_id,
+            exc,
+        )
+
 
 
 async def _async_generate(session_id: str) -> dict:
@@ -287,10 +278,12 @@ async def _async_generate(session_id: str) -> dict:
     from app.pipelines.icd10_symptom_map import resolve_symptom_id
     from app.pipelines.patient_context import build_patient_info
     from app.pipelines.soap_generator import SOAPGenerator
+    from app.services.session_visibility import session_not_deleted
     from app.utils.datetime_utils import utc_now
 
     async with async_session_factory() as db:
         try:
+            # 已軟刪除的場次等同不存在：不為它燒 OpenAI、報告列標 FAILED。
             stmt = (
                 select(Session)
                 .options(
@@ -298,7 +291,7 @@ async def _async_generate(session_id: str) -> dict:
                     selectinload(Session.conversations),
                     selectinload(Session.chief_complaint),
                 )
-                .where(Session.id == session_id)
+                .where(Session.id == session_id, session_not_deleted())
             )
             session_obj = (await db.execute(stmt)).scalar_one_or_none()
 
@@ -447,6 +440,27 @@ async def _async_generate(session_id: str) -> dict:
                 language,
             )
 
+            # REPORT_READY 站內通知（負責醫師，未指派時 fan-out 給全體在職醫師）。
+            # 獨立第二段交易，失敗不可影響已 commit 的報告與任務結果。
+            try:
+                from app.services.notification_service import NotificationService
+
+                await NotificationService.notify_report_ready(
+                    db, session_id=session_id, report_id=report.id
+                )
+                await db.commit()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "場次 %s REPORT_READY 通知建立失敗（非致命） | error=%s",
+                    session_id,
+                    exc,
+                )
+                try:
+                    await db.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+
+            # 通知也已 commit（或明確失敗），事件接收端可立即重新查詢。
             # H-8：報告真正完成（已 commit）才是 report_generated 的正確語意完成點。
             # 本任務在 Celery worker 行程，與持有 dashboard WS 連線的 API 行程不同，
             # 故走 Redis publish（由 API 行程的 subscriber 收到後本地 fan-out）。
@@ -480,26 +494,6 @@ async def _async_generate(session_id: str) -> dict:
                 soap_data=soap_data,
                 settings=settings,
             )
-
-            # REPORT_READY 站內通知（負責醫師，未指派時 fan-out 給全體在職醫師）。
-            # 獨立第二段交易，失敗不可影響已 commit 的報告與任務結果。
-            try:
-                from app.services.notification_service import NotificationService
-
-                await NotificationService.notify_report_ready(
-                    db, session_id=session_id, report_id=report.id
-                )
-                await db.commit()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "場次 %s REPORT_READY 通知建立失敗（非致命） | error=%s",
-                    session_id,
-                    exc,
-                )
-                try:
-                    await db.rollback()
-                except Exception:  # noqa: BLE001
-                    pass
 
             return {
                 "session_id": session_id,
@@ -616,8 +610,8 @@ async def _publish_report_generated(
     )
 
 
-async def _update_report_status(db, session_id: str, status) -> None:
-    """更新報告狀態"""
+async def _update_report_status(db, session_id: str, status) -> bool:
+    """更新報告狀態；回傳 True 表示這次真的改了（列存在且原本不是該狀態）。"""
     from sqlalchemy import select
 
     from app.models.soap_report import SOAPReport
@@ -627,5 +621,7 @@ async def _update_report_status(db, session_id: str, status) -> None:
             select(SOAPReport).where(SOAPReport.session_id == session_id)
         )
     ).scalar_one_or_none()
-    if report is not None:
-        report.status = status
+    if report is None or report.status == status:
+        return False
+    report.status = status
+    return True

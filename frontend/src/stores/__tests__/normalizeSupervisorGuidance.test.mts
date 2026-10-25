@@ -61,4 +61,17 @@ assert.equal(normalizeSupervisorGuidance(undefined), null, 'undefined payload �
   assert.equal(g!.hpiCompletionPercentage, 0);
 }
 
-console.log('PASS normalizeSupervisorGuidance.test.mts (5 cases)');
+// 6) 後端 WS 實際送的是 camelCase（conversation_handler._emit_supervisor_guidance）
+{
+  const g = normalizeSupervisorGuidance({
+    nextFocus: '請問有沒有發燒？',
+    missingHpi: ['onset'],
+    hpiCompletionPercentage: 25,
+  });
+  assert.ok(g);
+  assert.equal(g!.nextFocus, '請問有沒有發燒？');
+  assert.deepEqual(g!.missingHpi, ['onset']);
+  assert.equal(g!.hpiCompletionPercentage, 25);
+}
+
+console.log('PASS normalizeSupervisorGuidance.test.mts (6 cases)');

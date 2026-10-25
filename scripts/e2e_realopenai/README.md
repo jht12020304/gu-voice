@@ -4,7 +4,7 @@
 WebSocket 全程用 `text_message` 與 backend 對話，逐輪撈 Redis supervisor_guidance、
 結束後撈 DB 斷言。不修改 repo（含 worktree）任何檔案。
 
-受測 backend 可切換：預設原 repo `/Users/chun/Desktop/GU_0410/backend`
+受測 backend 可切換：預設本 repo 的 `backend/`（由 driver.py 相對推導）
 （分支 fix/api-audit-remediation @ aa72d38）；§E 驗收時用
 `E2E_BACKEND_DIR=<worktree>/backend`（分支 fix/e2e-audit-egroup）。
 
@@ -23,18 +23,18 @@ WebSocket 全程用 `text_message` 與 backend 對話，逐輪撈 Redis supervis
 ## 啟動基礎設施
 
 ```bash
-E2E=/private/tmp/claude-501/-Users-chun-Desktop-GU-0410/1337bb7a-da86-4a4c-b956-6e2350c1f83f/scratchpad/e2e
+E2E=scripts/e2e_realopenai   # 本目錄（相對 repo 根）
 
 # 1. docker postgres + redis（project 名 gu_0410，沿用既有 volume）
 docker compose -p gu_0410 \
-  -f /Users/chun/Desktop/GU_0410/docker-compose.yml \
+  -f <repo>/docker-compose.yml \
   -f $E2E/compose.override.yml up -d postgres redis
 
 # 2. migrate（local.env 讓 alembic env.py 不啟用 Supabase SSL）
 #    §E 驗收時 cd 到 worktree 的 backend（新 migration 才會套上），venv 共用主 repo：
-cd /Users/chun/Desktop/GU_0410/backend        # 或 <worktree>/backend
+cd <repo>/backend        # 或 <worktree>/backend
 set -a; source $E2E/local.env; set +a
-/Users/chun/Desktop/GU_0410/backend/venv/bin/alembic upgrade head
+venv/bin/alembic upgrade head
 
 # 3. 起受測 backend（背景跑）
 nohup $E2E/start_backend.sh > $E2E/uvicorn.log 2>&1 &                     # 原 repo
@@ -43,7 +43,7 @@ curl -s http://127.0.0.1:8000/api/v1/healthz/deep   # 應回 {"status":"ok",...}
 
 # 4. 起 celery worker（2026-07-19 起必要：SOAP 生成走 Celery 單一路徑，
 #    沒起 worker 的話報告會停在 GENERATING、SOAP 斷言必失敗）
-cd /Users/chun/Desktop/GU_0410/backend   # 或 <worktree>/backend
+cd <repo>/backend   # 或 <worktree>/backend
 nohup venv/bin/celery -A app.tasks worker --loglevel=info --concurrency=1 \
   > $E2E/celery_worker.log 2>&1 &
 ```
@@ -68,7 +68,7 @@ $E2E/run_scenario.sh torsion_critical_en    # 第一個非 zh-TW 的紅旗 gatin
 離線、不花額度的檢查（改完 triggers／守衛先跑這個）：
 
 ```bash
-cd /Users/chun/Desktop/GU_0410/backend
+cd <repo>/backend
 venv/bin/python ../scripts/e2e_realopenai/driver.py preflight <scenario>  # 燒額度前的體檢
 venv/bin/python ../scripts/e2e_realopenai/driver.py ruleprobe
 venv/bin/python ../scripts/e2e_realopenai/driver.py reanalyze <scenario>
@@ -207,7 +207,7 @@ AI 全程沒問過去病史 → 前提沒觸發 → 整場永遠 INCOMPLETE。�
 ## 規則層離線重跑與措辭變體語料（`driver.py ruleprobe`）
 
 ```bash
-cd /Users/chun/Desktop/GU_0410/backend
+cd <repo>/backend
 venv/bin/python ../scripts/e2e_realopenai/driver.py ruleprobe   # exit 1 ＝有 under/over trigger
 ```
 

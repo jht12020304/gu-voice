@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { apiErrorMessage } from '../../services/api/client';
 import { Activity, Server, Database, Globe, Clock, RefreshCw, Sparkles } from 'lucide-react';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorState from '../../components/common/ErrorState';
@@ -17,8 +18,8 @@ export default function SystemHealthPage() {
     try {
       const response = await adminApi.getSystemHealth();
       setHealth(response);
-    } catch {
-      setError(t('systemHealth.loadError', '無法載入系統狀態'));
+    } catch (err) {
+      setError(apiErrorMessage(err, t, t('systemHealth.loadError', '無法載入系統狀態')));
     } finally {
       setIsLoading(false);
     }

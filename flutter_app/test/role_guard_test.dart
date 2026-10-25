@@ -30,7 +30,6 @@ void main() {
         rest: stripLngFromPath(path),
         isAuthenticated: authed,
         isPatient: role == 'patient',
-        isAdmin: role == 'admin',
         nativeMobile: native,
       );
 

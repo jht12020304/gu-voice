@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
+import { apiErrorMessage } from '../../services/api/client';
 import { useSearchParams } from 'react-router-dom';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../../i18n';
@@ -300,8 +301,8 @@ export default function MedicalInfoPage() {
         },
       });
       navigate(`/conversation/${session.id}`);
-    } catch {
-      setError(t('medicalInfo.errors.createSession'));
+    } catch (err) {
+      setError(apiErrorMessage(err, t, t('medicalInfo.errors.createSession')));
       setIsCreating(false);
     }
   };

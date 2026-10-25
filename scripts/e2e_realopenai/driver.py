@@ -7,7 +7,7 @@
   2. POST /api/v1/sessions 建場次（chiefComplaintId + language + patientInfo）
   3. 連 WS ws://127.0.0.1:8000/api/v1/ws/sessions/{sid}/stream?token=...
      （legacy query-param 認證；全程 text_message，不用音訊）
-  4. 病患模擬器（openai gpt-4o-mini）依 persona 生成每輪回答
+  4. 病患模擬器（openai，模型見下方 SIM_MODEL）依 persona 生成每輪回答
   5. 每輪 AI 回應結束後輪詢 Redis gu:session:{id}:supervisor_guidance（附時間戳）
   6. 收 session_status completed / 病患回合達上限（18）即停，撈 DB 斷言
   7. 全部寫入 results/{scenario}.json
@@ -37,9 +37,10 @@ from openai import AsyncOpenAI
 E2E_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = E2E_DIR / "results"
 # §E 驗收：E2E_BACKEND_DIR 可指向修復 worktree 的 backend（其 .env 已複製好，
-# OPENAI_API_KEY 從該處讀）；預設原 repo。venv 一律共用主 repo 的 backend/venv。
+# OPENAI_API_KEY 從該處讀）；預設本 repo 的 backend/（相對本檔推導）。
 BACKEND_DIR = Path(
-    os.environ.get("E2E_BACKEND_DIR", "/Users/chun/Desktop/GU_0410/backend")
+    os.environ.get("E2E_BACKEND_DIR")
+    or Path(__file__).resolve().parents[2] / "backend"
 )
 
 API_BASE = os.environ.get("E2E_API_BASE", "http://127.0.0.1:8000/api/v1")
@@ -53,7 +54,7 @@ SIM_MODEL = "gpt-4o-mini"
 MAX_PATIENT_TURNS = 18
 AI_RESPONSE_TIMEOUT = 240  # 單一 WS 訊息等待上限（LLM+逐句TTS 串起來可能很久）
 GUIDANCE_POLL_TIMEOUT = 45  # supervisor timeout 30s + 緩衝
-SOAP_POLL_TIMEOUT = 150  # SOAP 為結束後非同步生成（gpt-4o），多等一點
+SOAP_POLL_TIMEOUT = 150  # SOAP 為結束後非同步生成（模型＝settings.OPENAI_MODEL_SOAP），多等一點
 
 # §E 驗收參數（對齊 backend settings；worktree 若調整可用環境變數覆寫）
 HARD_CAP = int(os.environ.get("E2E_HARD_CAP", "10"))  # MAX_PATIENT_TURNS_HARD_CAP
@@ -349,6 +350,7 @@ DONTKNOW_ZH_PERSONA = """你是一位68歲男性病患，在泌尿科門診用�
 
 硬性規則（最重要，違反就是失敗）：
 1. 只要 AI 問到「症狀什麼時候開始 / 開始多久了 / 何時出現 / 持續多久 / 多長時間」這類發生時間或持續時間的問題，你一律回答：「我真的不知道，不記得了。」絕對不要給出任何時間資訊（不要說幾天、幾週、幾個月、最近、以前）。
+   「一直持續還是間歇／有時候才出現」也是持續時間問題，必須同樣回答不知道，不可改答加重或緩解因素。
 2. 只要 AI 問到「過去病史 / 以前生過什麼病 / 有沒有慢性病 / 開過刀 / 動過手術」，你一律回答：「不記得了，我真的不知道。」
 3. 其他問題依照上面的病情事實正常、配合地回答。
 4. 用口語繁體中文回答，每次 1 到 2 句話，不要反問問題，不要主動提供時間相關資訊。
@@ -846,6 +848,11 @@ class PatientSimulator:
 
     async def reply(self, transcript: list[dict], next_turn_no: int) -> str:
         """依逐字稿產生病患下一句回答。transcript: [{role, content}]"""
+        if self._persona == DONTKNOW_ZH_PERSONA:
+            question = next((e["content"] for e in reversed(transcript) if e["role"] == "assistant"), "")
+            # The refusal is the test input, not a behavior to delegate to another LLM.
+            if any(_field_asked(question, field) for field in ("onset", "duration")):
+                return "我真的不知道，不記得了。"
         messages = [{"role": "system", "content": self._persona}]
         # 把問診對話映射成模擬器視角：AI 醫助的話 → user；病患自己說過的話 → assistant
         for entry in transcript:
@@ -1824,6 +1831,17 @@ def _matches(text: str, patterns: list[str]) -> list[str]:
     return [p for p in patterns if p in text]
 
 
+def _field_asked(text: str, field: str) -> bool:
+    """Use the same literal / two-sided paraphrase rule for first asks and re-asks."""
+    if _matches(text, FIELD_ASK_PATTERNS[field]):
+        return True
+    pair = FIELD_PARAPHRASE_PAIRS.get(field)
+    return bool(pair) and any(
+        _matches(sentence, pair["a"]) and _matches(sentence, pair["b"])
+        for sentence in _split_sentences(text)
+    )
+
+
 def analyze_dontknow(result: dict, db_state: dict) -> dict:
     transcript = result["transcript"]
 
@@ -1837,8 +1855,8 @@ def analyze_dontknow(result: dict, db_state: dict) -> dict:
         )
         if prev_ai is None:
             continue
-        for field, patterns in FIELD_ASK_PATTERNS.items():
-            if dontknow_turn[field] is None and _matches(prev_ai["content"], patterns):
+        for field in FIELD_ASK_PATTERNS:
+            if dontknow_turn[field] is None and _field_asked(prev_ai["content"], field):
                 dontknow_turn[field] = e.get("patient_turn")
 
     # (a) 各欄位說不知道之後，AI 是否又問同一欄（含換句話，以關鍵字掃描 + 人工判讀）
@@ -1967,7 +1985,7 @@ def analyze_dontknow(result: dict, db_state: dict) -> dict:
                 missing_violations[field].append(
                     {"after_patient_turn": turn, "missing_hpi": missing}
                 )
-            if _matches(nf, FIELD_ASK_PATTERNS[field]):
+            if _field_asked(nf, field):
                 next_focus_violations[field].append(
                     {"after_patient_turn": turn, "next_focus": nf}
                 )
@@ -2010,8 +2028,8 @@ def analyze_dontknow(result: dict, db_state: dict) -> dict:
             continue
         if e["role"] != "assistant":
             continue
-        for f, pats in FIELD_ASK_PATTERNS.items():
-            if _matches(e["content"], pats):
+        for f in FIELD_ASK_PATTERNS:
+            if _field_asked(e["content"], f):
                 # 記「這句提問落在第幾個病患回合之後」（assistant 條目本身沒有
                 # patient_turn，直接讀會全是 None，訊息就沒有可讀性）
                 ai_asked_field[f].append(_seen_turn)

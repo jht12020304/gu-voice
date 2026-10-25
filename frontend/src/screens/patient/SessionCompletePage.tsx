@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useReportStore } from '../../stores/reportStore';
@@ -46,12 +47,19 @@ export default function SessionCompletePage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useLocalizedNavigate();
   const { t, i18n } = useTranslation('session');
-  const { selectedReport, isLoading: reportLoading, fetchReportBySession } = useReportStore();
+  const { selectedReport, isLoading: reportLoading, fetchReportBySession } = useReportStore(
+    useShallow((s) => ({
+      selectedReport: s.selectedReport,
+      isLoading: s.isLoading,
+      fetchReportBySession: s.fetchReportBySession,
+    })),
+  );
   const [session, setSession] = useState<Session | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
 
   useEffect(() => {
     if (!sessionId) return;
+    const id = sessionId;
 
     async function load() {
       if (IS_MOCK) {
@@ -60,7 +68,7 @@ export default function SessionCompletePage() {
         setIsLoadingSession(false);
       } else {
         try {
-          const s = await sessionsApi.getSession(sessionId!);
+          const s = await sessionsApi.getSession(id);
           setSession(s);
         } catch {
           // 靜默
@@ -68,7 +76,7 @@ export default function SessionCompletePage() {
           setIsLoadingSession(false);
         }
       }
-      fetchReportBySession(sessionId!);
+      fetchReportBySession(id);
     }
     load();
     // 不把 i18n.resolvedLanguage 放進 deps：session 內容是病患自述 / SOAP 報告

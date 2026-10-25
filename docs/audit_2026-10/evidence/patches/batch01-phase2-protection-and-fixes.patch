@@ -1,0 +1,85 @@
+diff --git a/backend/app/services/auth_service.py b/backend/app/services/auth_service.py
+index 32010bb..4d6e0bd 100644
+--- a/backend/app/services/auth_service.py
++++ b/backend/app/services/auth_service.py
+@@ -42,8 +42,9 @@ from app.utils.datetime_utils import utc_now
+ 
+ logger = logging.getLogger(__name__)
+ 
+-# JWT 黑名單 Redis key 前綴（與 dependencies.get_current_user 檢查端共用）
+-BLACKLIST_KEY_PREFIX = "gu:token_blacklist:"
++# JWT 黑名單 Redis key 前綴：單一定義在讀取端 core/dependencies，這裡只 import，
++# 避免寫入端／讀取端各自寫死後漂移（漂移＝登出的 token 靜默繼續有效）。
++from app.core.dependencies import BLACKLIST_KEY_PREFIX  # noqa: E402
+ 
+ # Refresh token rotation 登記表 key 前綴
+ # 每發一張 refresh token，就寫一筆 gu:refresh:{user_id}:{jti} = "1"，TTL = token exp
+diff --git a/backend/app/services/report_service.py b/backend/app/services/report_service.py
+index 290fd92..92d63df 100644
+--- a/backend/app/services/report_service.py
++++ b/backend/app/services/report_service.py
+@@ -6,8 +6,10 @@ SOAP 報告服務
+ - PDF 匯出
+ """
+ 
++import asyncio
+ import html as _html
+ import logging
++import threading
+ from datetime import timedelta, timezone
+ from typing import Any, Optional
+ from uuid import UUID
+@@ -737,15 +739,27 @@ class ReportService:
+ 
+         # 使用 WeasyPrint 生成 PDF。url_fetcher 一律拒絕，
+         # 防止注入內容經 img src / CSS url() 觸發 SSRF／本地檔讀取。
+-        from weasyprint import HTML
+-
+-        pdf_bytes = HTML(
+-            string=html_content, url_fetcher=_forbid_url_fetch
+-        ).write_pdf()
++        # WeasyPrint 是 CPU-bound 同步 render（實測約 1.2 s）；直接在 async def 裡呼叫
++        # 會把共用的 API worker event loop 整個卡住（/health 由 1 ms 變 956 ms），
++        # 所有 kiosk WS 音訊跟著凍結。改丟到 thread；用鎖維持原本「一次一份」的
++        # 序列化語意（WeasyPrint 未保證 thread-safe）。
++        # ponytail: single render lock; move to a process pool if PDF throughput matters.
++        pdf_bytes = await asyncio.to_thread(_render_pdf_blocking, html_content)
+         filename = f"SOAP_Report_{report.id}.pdf"
+         return pdf_bytes, filename
+ 
+ 
++_PDF_RENDER_LOCK = threading.Lock()
++
++
++def _render_pdf_blocking(html_content: str) -> bytes:
++    """在 worker thread 內同步 render（由 export_pdf 以 asyncio.to_thread 呼叫）。"""
++    from weasyprint import HTML
++
++    with _PDF_RENDER_LOCK:
++        return HTML(string=html_content, url_fetcher=_forbid_url_fetch).write_pdf()
++
++
+ # PDF 版面語系標籤。key 為 BCP-47 locale；未支援的 language 一律 fallback 至 zh-TW
+ # （與 i18n_messages 的 DEFAULT_LANGUAGE 一致），確保 language 參數真實影響輸出。
+ # 註：SOAP 內容本身的翻譯由生成階段決定（report.language），此處僅切換版面/欄位標籤。
+diff --git a/backend/app/tasks/session_timeout.py b/backend/app/tasks/session_timeout.py
+index c65e0a5..92574c7 100644
+--- a/backend/app/tasks/session_timeout.py
++++ b/backend/app/tasks/session_timeout.py
+@@ -85,6 +85,7 @@ async def _async_check() -> dict:
+     from app.models.conversation import Conversation
+     from app.models.enums import SessionStatus
+     from app.models.session import Session
++    from app.services.session_visibility import session_not_deleted
+     from app.utils.datetime_utils import utc_now
+ 
+     # 單一權威狀態機把關：in_progress → cancelled 目前合法，但不硬編碼這個事實，
+@@ -104,6 +105,8 @@ async def _async_check() -> dict:
+         result = await db.execute(
+             select(Session.id, Session.updated_at)
+             .where(Session.status == SessionStatus.IN_PROGRESS)
++            # CLAUDE.md 軟刪除鐵律：已刪場次不得被逾時取消再廣播回儀表板。
++            .where(session_not_deleted())
+             .where(Session.updated_at < timeout_threshold)
+             .where(
+                 ~exists().where(

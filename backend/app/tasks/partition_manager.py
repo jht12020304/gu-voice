@@ -13,7 +13,7 @@ PostgreSQL 在 DEFAULT 分區已累積某月資料後，再 CREATE 該月分區�
 import logging
 from datetime import date
 
-from app.tasks import celery_app
+from app.tasks import celery_app, run_async
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +51,7 @@ def ensure_monthly_partitions(self) -> dict:
     Returns:
         建立結果統計
     """
-    import asyncio
-
-    try:
-        result = asyncio.get_event_loop().run_until_complete(_async_ensure())
-        return result
-    except Exception:
-        result = asyncio.run(_async_ensure())
-        return result
+    return run_async(_async_ensure)
 
 
 async def _async_ensure() -> dict:

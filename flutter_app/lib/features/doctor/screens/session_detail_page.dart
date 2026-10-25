@@ -13,6 +13,7 @@ import '../../../shared/format.dart';
 import '../../../shared/widgets/status_badge.dart';
 import '../../../shared/widgets/ui_kit.dart';
 import '../../auth/auth_notifier.dart';
+import '../../../shared/toast.dart';
 
 // Port of SessionDetailPage.tsx — status-gated actions (assign / complete / cancel /
 // generate report) + read-only transcript ordered by sequenceNumber.
@@ -94,8 +95,6 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
     }
   }
 
-  void _toast(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-
   Future<void> _assignToMe() async {
     final user = ref.read(authProvider).user;
     if (_session == null || user == null) return;
@@ -104,10 +103,11 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
       final updated = await _api.assignDoctor(_session!.id, user.id);
       if (!mounted) return;
       setState(() { _session = updated; _assigning = false; });
-      _toast(t('session.doctor.detail.assignSuccess'));
+      showToast(context, t('session.doctor.detail.assignSuccess'));
     } catch (_) {
-      if (mounted) setState(() => _assigning = false);
-      _toast(t('session.doctor.detail.assignError'));
+      if (!mounted) return;
+      setState(() => _assigning = false);
+      showToast(context, t('session.doctor.detail.assignError'));
     }
   }
 
@@ -122,11 +122,12 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
       if (!mounted) return;
       await _load();
       if (!mounted) return;
-      _toast(t(status == 'completed'
+      showToast(context, t(status == 'completed'
           ? 'session.doctor.detail.statusCompletedSuccess'
           : 'session.doctor.detail.statusCancelledSuccess'));
     } catch (_) {
-      _toast(t('session.doctor.detail.statusUpdateError'));
+      if (!mounted) return;
+      showToast(context, t('session.doctor.detail.statusUpdateError'));
     }
   }
 
@@ -137,11 +138,12 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
       await ReportsApi().generateReport(_session!.id);
       if (!mounted) return;
       setState(() { _generating = false; _reportStatus = 'generating'; });
-      _toast(t('session.doctor.detail.generateReportSuccess'));
+      showToast(context, t('session.doctor.detail.generateReportSuccess'));
       // ponytail: doctor SOAP report page is Phase 5 — no /reports/:id route yet to open.
     } catch (_) {
-      if (mounted) setState(() => _generating = false);
-      _toast(t('session.doctor.detail.generateReportError'));
+      if (!mounted) return;
+      setState(() => _generating = false);
+      showToast(context, t('session.doctor.detail.generateReportError'));
     }
   }
 
@@ -157,11 +159,12 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
       await _api.deleteSession(_session!.id);
       if (!mounted) return;
       setState(() => _deleting = false);
-      _toast(t('session.doctor.detail.deleteSuccess'));
+      showToast(context, t('session.doctor.detail.deleteSuccess'));
       context.go(prefixLngToPath('/sessions', currentLng));
     } catch (_) {
-      if (mounted) setState(() => _deleting = false);
-      _toast(t('session.doctor.detail.deleteError'));
+      if (!mounted) return;
+      setState(() => _deleting = false);
+      showToast(context, t('session.doctor.detail.deleteError'));
     }
   }
 

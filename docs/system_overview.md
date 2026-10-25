@@ -112,12 +112,13 @@ GU-Voice 是一套**以語音對話為核心**的醫療遠端問診系統，協�
 
 | 層級 | 服務 |
 |------|------|
-| 前端 | **Vercel**（手動 `vercel --prod`；專案 `gu-voice`）。⚠️ `flutter_app/` 是要取代它的單一碼庫前端，已入 main 但未上生產 |
+| 網頁版 | React `frontend/`，**Vercel** 手動部署；與 iOS 並行維護，分工見 [README.md](README.md) |
+| iOS App | Flutter `flutter_app/`，TestFlight 內部測試；設定見 [ios_release_settings.md](ios_release_settings.md) |
 | 後端 | **Railway**（Docker 多階段建置，`backend/scripts/start.sh` 啟動） |
 | 資料庫 | **Supabase**（PostgreSQL + RLS + Storage） |
 | 快取 / 佇列 | Redis（Railway 或 Upstash），同時做 Celery broker / result backend |
 | 監控 | Sentry（10% 取樣率） |
-| CI/CD | GitHub Actions 4 個 job（`backend-tests`／`frontend-checks`／`flutter-checks`／`e2e-playwright` 佔位）；**部署是手動的**（`railway up` / `vercel --prod`，見 [deployment_guide.md](deployment_guide.md)） |
+| CI/CD | GitHub Actions 4 個 job（`backend-tests`／`frontend-checks`／`flutter-checks`／`e2e-playwright`）；**部署是手動的**（`railway up` / `vercel --prod`，見 [deployment_guide.md](deployment_guide.md)） |
 
 ---
 
@@ -291,7 +292,7 @@ PostgreSQL (soap_reports) + Dashboard 推播
 > 完整清單請看 `backend/.env.example` 與 [`deployment_guide.md`](./deployment_guide.md)。
 
 **後端必備**
-- 應用：`APP_ENV`、`APP_SECRET_KEY`、`APP_LOG_LEVEL`、`LOG_LEVEL`（uvicorn）、`CORS_ORIGINS`
+- 應用：`APP_ENV`、`APP_SECRET_KEY`、`LOG_LEVEL`（uvicorn）、`CORS_ORIGINS`
 - 資料庫：`DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USER`、`DB_PASSWORD`（由 config 組成 asyncpg URL）、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`
 - 認證：`JWT_ALGORITHM`、`JWT_SECRET_KEY`（HS256）、`JWT_PRIVATE_KEY_PATH`/`JWT_PUBLIC_KEY_PATH`（RS256）、`ACCESS_TOKEN_EXPIRE_MINUTES`、`REFRESH_TOKEN_EXPIRE_DAYS`
 - 外部 API：`OPENAI_API_KEY`、`OPENAI_MODEL_*`、`OPENAI_TEMPERATURE_*`、`OPENAI_MAX_TOKENS_*`、`OPENAI_REASONING_EFFORT_*`、`OPENAI_STT_MODEL`、`OPENAI_TTS_MODEL`、`GOOGLE_APPLICATION_CREDENTIALS_JSON`、`SENTRY_DSN`
@@ -381,5 +382,5 @@ npm run dev -- --host 127.0.0.1 --port 3000
 ## 十五、GitHub 與部署
 
 - Repo：`https://github.com/jht12020304/gu-voice`
-- `main` branch 直接部署到正式環境（Vercel + Railway 自動觸發）
+- **部署是手動的**：merge 到 `main` 不會上線，要自己跑 `railway up`／`vercel --prod`（見 [deployment_guide.md](deployment_guide.md)）
 - 重大修改建議先開 feature branch，確認後再 merge 到 main

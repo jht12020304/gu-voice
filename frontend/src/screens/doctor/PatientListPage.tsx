@@ -2,8 +2,8 @@
 // 病患列表頁（月整理 + 日期分組）
 // =============================================================================
 
-import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
-import { useEffect, useCallback, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
@@ -11,21 +11,11 @@ import SearchBar from '../../components/form/SearchBar';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
 import ErrorState from '../../components/common/ErrorState';
+import { useInfiniteScroll } from '../../hooks/useInfiniteScroll';
 import { usePatientListStore } from '../../stores/patientListStore';
 import type { Patient } from '../../types';
-import { formatDate, formatMRN } from '../../utils/format';
-
-function formatMonthRange(monthDate: Date): string {
-  return `${format(startOfMonth(monthDate), 'yyyy/MM/dd')} - ${format(endOfMonth(monthDate), 'yyyy/MM/dd')}`;
-}
-
-function formatGroupHeading(dateKey: string, locale: string): string {
-  return new Intl.DateTimeFormat(locale, {
-    month: 'long',
-    day: 'numeric',
-    weekday: 'long',
-  }).format(new Date(`${dateKey}T00:00:00`));
-}
+import { formatDate, formatMRN, formatNumber } from '../../utils/format';
+import { addMonths, dayLabel, localDayKey, localMonthRange, monthKey, monthRangeLabel } from '../../utils/date';
 
 function getGenderLabel(gender: Patient['gender'], t: TFunction): string {
   if (gender === 'male') return t('gender.male');
@@ -35,7 +25,7 @@ function getGenderLabel(gender: Patient['gender'], t: TFunction): string {
 
 function groupPatientsByCreatedDate(patients: Patient[], locale: string) {
   const groups = patients.reduce<Record<string, Patient[]>>((acc, patient) => {
-    const dateKey = format(new Date(patient.createdAt), 'yyyy-MM-dd');
+    const dateKey = localDayKey(patient.createdAt);
     if (!acc[dateKey]) {
       acc[dateKey] = [];
     }
@@ -47,7 +37,7 @@ function groupPatientsByCreatedDate(patients: Patient[], locale: string) {
     .sort(([left], [right]) => right.localeCompare(left))
     .map(([dateKey, items]) => ({
       dateKey,
-      label: formatGroupHeading(dateKey, locale),
+      label: dayLabel(`${dateKey}T00:00:00`, locale),
       items,
     }));
 }
@@ -67,7 +57,7 @@ function PatientMetricCard({
     <div className={`rounded-panel border border-edge bg-white p-5 shadow-card dark:border-dark-border dark:bg-dark-card ${accentClass}`}>
       <p className="text-small font-semibold text-ink-secondary">{title}</p>
       <p className="mt-4 text-display font-bold text-ink-heading dark:text-white font-tnum">
-        {value.toLocaleString('zh-TW')}
+        {formatNumber(value)}
       </p>
       <p className="mt-2 text-caption text-ink-muted">{helper}</p>
     </div>
@@ -89,9 +79,22 @@ export default function PatientListPage() {
     fetchMore,
     setSearch,
     setSelectedMonth,
-  } = usePatientListStore();
+  } = usePatientListStore(
+    useShallow((s) => ({
+      patients: s.patients,
+      isLoading: s.isLoading,
+      hasMore: s.hasMore,
+      totalCount: s.totalCount,
+      selectedMonth: s.selectedMonth,
+      searchQuery: s.searchQuery,
+      error: s.error,
+      fetchPatients: s.fetchPatients,
+      fetchMore: s.fetchMore,
+      setSearch: s.setSearch,
+      setSelectedMonth: s.setSelectedMonth,
+    })),
+  );
 
-  const observerRef = useRef<IntersectionObserver>();
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -106,30 +109,14 @@ export default function PatientListPage() {
     [setSearch, fetchPatients],
   );
 
-  useEffect(() => {
-    if (observerRef.current) observerRef.current.disconnect();
+  useInfiniteScroll(sentinelRef, { hasMore, isLoading, onMore: fetchMore });
 
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
-          fetchMore();
-        }
-      },
-      { threshold: 0.1 },
-    );
-
-    if (sentinelRef.current) {
-      observerRef.current.observe(sentinelRef.current);
-    }
-
-    return () => observerRef.current?.disconnect();
-  }, [hasMore, isLoading, fetchMore]);
-
-  const selectedMonthDate = new Date(`${selectedMonth}-01T00:00:00`);
-  const selectedMonthLabel = format(selectedMonthDate, 'yyyy 年 M 月');
-  const monthRangeLabel = formatMonthRange(selectedMonthDate);
   const currentLocale = i18n.resolvedLanguage || i18n.language || 'en-US';
-  const groupedPatients = groupPatientsByCreatedDate(patients, currentLocale);
+  // 月份標題走 i18n（同 DashboardPage 的 doctor.dashboard.monthFormat），不硬寫中文。
+  const [selectedYear, selectedMonthNo] = selectedMonth.split('-').map(Number);
+  const selectedMonthLabel = t('doctor.dashboard.monthFormat', { year: selectedYear, month: selectedMonthNo });
+  const monthRange = useMemo(() => monthRangeLabel(selectedMonth), [selectedMonth]);
+  const groupedPatients = useMemo(() => groupPatientsByCreatedDate(patients, currentLocale), [patients, currentLocale]);
 
   const loadedCountHelper = hasMore
     ? t('patientList.loadedCount', '已載入 {{loaded}} / {{total}} 位病患', { loaded: patients.length, total: totalCount })
@@ -147,7 +134,7 @@ export default function PatientListPage() {
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="rounded-pill bg-surface-tertiary px-3 py-1.5 text-tiny font-semibold text-ink-secondary dark:bg-dark-surface dark:text-dark-text-muted">
-                {t('patientList.dateRange', '資料區間 {{range}}', { range: monthRangeLabel })}
+                {t('patientList.dateRange', '資料區間 {{range}}', { range: monthRange })}
               </span>
               {searchQuery ? (
                 <span className="rounded-pill bg-primary-50 px-3 py-1.5 text-tiny font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
@@ -161,7 +148,7 @@ export default function PatientListPage() {
             <button
               type="button"
               className="rounded-card p-2 text-ink-secondary transition-colors hover:bg-surface-tertiary hover:text-ink-heading disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-dark-surface dark:hover:text-white"
-              onClick={() => setSelectedMonth(format(addMonths(selectedMonthDate, -1), 'yyyy-MM'))}
+              onClick={() => setSelectedMonth(monthKey(addMonths(localMonthRange(selectedMonth).start, -1)))}
               disabled={isLoading}
               aria-label={t('patientList.previousMonth', '上一個月')}
             >
@@ -175,7 +162,7 @@ export default function PatientListPage() {
             <button
               type="button"
               className="rounded-card p-2 text-ink-secondary transition-colors hover:bg-surface-tertiary hover:text-ink-heading disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-dark-surface dark:hover:text-white"
-              onClick={() => setSelectedMonth(format(addMonths(selectedMonthDate, 1), 'yyyy-MM'))}
+              onClick={() => setSelectedMonth(monthKey(addMonths(localMonthRange(selectedMonth).start, 1)))}
               disabled={isLoading}
               aria-label={t('patientList.nextMonth', '下一個月')}
             >

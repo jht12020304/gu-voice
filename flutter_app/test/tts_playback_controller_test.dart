@@ -98,6 +98,20 @@ void main() {
     expect(freshReleased, isTrue);
   });
 
+  test('dispose 先 stopActive：進行中的 step 要被釋放，不能卡在已 dispose 的 player 上', () async {
+    final player = _FakePlayer();
+    final tts = controllerWith(player);
+
+    tts.enqueue(b64);
+    await _pump();
+    expect(player.playCount, 1);
+
+    await tts.dispose();
+    await _pump();
+
+    expect(player.stopCount, 1, reason: 'dispose 沒走 stopActive → _playStep 永遠 await 一個不會完成的 completer');
+  });
+
   test('G4：stopActive 完成的是它中斷的那個 step，不是中途接手的新 step', () async {
     final player = _FakePlayer();
     final tts = controllerWith(player);

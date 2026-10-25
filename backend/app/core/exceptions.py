@@ -246,7 +246,7 @@ class AIServiceUnavailableException(AppException):
 class ServiceUnavailableException(AppException):
     """後端依賴（非 AI 服務）暫時不可用 → 503。
 
-    與 `InternalErrorException`(500) 的分工：500 代表程式錯誤，503 代表外部依賴掛了、
+    與未捕捉例外（500，`unhandled_exception_handler`）的分工：500 代表程式錯誤，503 代表外部依賴掛了、
     重試即可能成功（呼叫端可退避重試，維運上也不該被計入 bug）。
     """
 
@@ -269,16 +269,6 @@ class RateLimitExceededException(AppException):
         super().__init__(ErrorCode.RATE_LIMIT_EXCEEDED, message, details, message_kwargs=message_kwargs)
 
 
-class InternalErrorException(AppException):
-    def __init__(
-        self,
-        message: str = "errors.internal_error",
-        details: Optional[dict[str, Any]] = None,
-        message_kwargs: Optional[dict[str, Any]] = None,
-    ):
-        super().__init__(ErrorCode.INTERNAL_ERROR, message, details, message_kwargs=message_kwargs)
-
-
 # ── 例外處理器註冊 ──────────────────────────────────────
 def _cors_headers(request: Request) -> dict[str, str]:
     """從請求 Origin 產生 CORS headers，確保錯誤回應也帶有 CORS 資訊。"""
@@ -295,7 +285,12 @@ def _cors_headers(request: Request) -> dict[str, str]:
 
 
 def _resolve_request_language(request: Request) -> str:
-    """從 request 推斷使用者語言：user.preferred_language → Accept-Language → 預設。"""
+    """錯誤回應語言：LanguageMiddleware 已解析（?lng / X-Language / Accept-Language）的
+    `request.state.language` 優先，否則退回 user.preferred_language → Accept-Language → 預設。
+    否則 4xx 的文案語言會和同一請求的 200 回應不一致。"""
+    resolved = getattr(request.state, "language", None)
+    if isinstance(resolved, str) and resolved:
+        return resolved
     user = getattr(request.state, "current_user", None)
     header = request.headers.get("accept-language")
     return resolve_language(

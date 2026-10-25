@@ -19,6 +19,68 @@ import '../../core/theme/app_tokens.dart';
 //
 // 頁面只從這裡拿元件，不要各自複製樣式——樣式分叉就是這次重排要解掉的病。
 
+/// 標題卡：Card + 16 padding + titleSmall/w700 標題 + 間距 + 內容。
+/// SOAP 報告頁、快速開單頁、研究頁的段落卡同一顆；[subtitle] 與 [gap] 只有研究頁用。
+class TitledCard extends StatelessWidget {
+  const TitledCard({
+    super.key,
+    required this.title,
+    required this.child,
+    this.subtitle,
+    this.gap = 8,
+    this.margin,
+  });
+
+  final String title;
+  final Widget child;
+  final String? subtitle;
+  final double gap;
+  final EdgeInsetsGeometry? margin;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: margin,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          if (subtitle != null) Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
+          SizedBox(height: gap),
+          child,
+        ]),
+      ),
+    );
+  }
+}
+
+/// 行內警示卡：語意色 12% 底、圓角 8、icon + 文字。只在真錯誤時出現（不當裝飾）。
+/// [color] 預設 alertCritical；底色一律 `color.withValues(alpha: 0.12)`。
+class InlineAlert extends StatelessWidget {
+  const InlineAlert(this.message, {super.key, this.color});
+
+  final String message;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final tk = Theme.of(context).extension<AppTokens>()!;
+    final c = color ?? tk.alertCritical;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: c == tk.alertCritical ? tk.alertCriticalBg : c.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(children: [
+        Icon(Icons.error_outline, size: 20, color: c),
+        const SizedBox(width: 8),
+        Expanded(child: Text(message, style: TextStyle(color: c))),
+      ]),
+    );
+  }
+}
+
 /// 36×36 圓角 8 的染色 icon 方塊（列表列 leading／區塊圖示）。
 /// [color] 不給時用 theme primary；語意場景（警示列）才傳 alert 色。
 class IconTile extends StatelessWidget {
@@ -223,15 +285,15 @@ class SkeletonList extends StatelessWidget {
       shrinkWrap: true,
       children: [
         for (var i = 0; i < rows; i++)
-          Card(
-            margin: const EdgeInsets.symmetric(vertical: 4),
+          const Card(
+            margin: EdgeInsets.symmetric(vertical: 4),
             child: Padding(
-              padding: const EdgeInsets.all(14),
+              padding: EdgeInsets.all(14),
               child: Row(children: [
-                const SkeletonBox(width: 36, height: 36, radius: 18),
-                const SizedBox(width: 12),
+                SkeletonBox(width: 36, height: 36, radius: 18),
+                SizedBox(width: 12),
                 Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: const [
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     SkeletonBox(width: 140, height: 14),
                     SizedBox(height: 8),
                     SkeletonBox(width: 220, height: 12),
@@ -363,6 +425,92 @@ class MonthStatsCard extends StatelessWidget {
           ]),
         ),
       ]),
+    );
+  }
+}
+
+/// 無限捲動：捲到距底 [threshold] px 內就呼叫 [onNearEnd]（六個分頁清單同一條件）。
+extension ScrollNearEnd on ScrollController {
+  void onNearEnd(VoidCallback onNearEnd, {double threshold = 300}) {
+    addListener(() {
+      if (position.pixels >= position.maxScrollExtent - threshold) onNearEnd();
+    });
+  }
+}
+
+/// 橫向 ChoiceChip 篩選列：[options] 是 值 → 已翻譯標籤（kit 不碰 i18n，由頁面先 t()）。
+/// [trailing] 接在 chip 後、同一條橫向捲動列內（使用者管理頁的啟用/停用兩顆）。
+class FilterChipBar<K> extends StatelessWidget {
+  const FilterChipBar({
+    super.key,
+    required this.options,
+    required this.selected,
+    required this.onSelected,
+    this.padding = const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    this.trailing = const [],
+  });
+
+  final Map<K, String> options;
+  final K selected;
+  final ValueChanged<K> onSelected;
+  final EdgeInsetsGeometry padding;
+  final List<Widget> trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: padding,
+      child: Row(children: [
+        for (final e in options.entries)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              selected: selected == e.key,
+              label: Text(e.value),
+              onSelected: (_) => onSelected(e.key),
+            ),
+          ),
+        ...trailing,
+      ]),
+    );
+  }
+}
+
+/// 分組扁平清單：每組一個 [GroupHeader] + 該組的列，尾端接 [trailing]
+/// （分頁 spinner／「已全部載入」）。走 `ListView.builder`，列只在進入視窗時建。
+class GroupedListView<T extends Object> extends StatelessWidget {
+  const GroupedListView({
+    super.key,
+    required this.groups,
+    required this.headerText,
+    required this.itemBuilder,
+    this.controller,
+    this.trailing = const [],
+    this.padding = const EdgeInsets.all(16),
+  });
+
+  final List<MapEntry<String, List<T>>> groups;
+  final String Function(String key, int count) headerText;
+  final Widget Function(BuildContext context, T item) itemBuilder;
+  final ScrollController? controller;
+  final List<Widget> trailing;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = <Object>[
+      for (final g in groups) ...[GroupHeader(headerText(g.key, g.value.length)), ...g.value],
+      ...trailing,
+    ];
+    return ListView.builder(
+      controller: controller,
+      padding: padding,
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return item is Widget ? item : itemBuilder(context, item as T);
+      },
     );
   }
 }

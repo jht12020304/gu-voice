@@ -27,24 +27,23 @@ description: GU Voice 前端語言一致性不變式（URL 為唯一語言權威
 
 1. 改 `frontend/src/i18n/locales/<locale>/*.json`（5 個 locale 都要補，別只補 zh-TW）
 2. `npm run i18n:extract:check` — 確認沒有漏抽的 key
-3. `python scripts/check_translations.py` — 確認各 locale key 完整
-4. `npm run build` — 重生 `public/locales/`
+3. `npm run build` — 重生 `public/locales/`
+4. 在 repo 根目錄跑 `python scripts/check_translations.py` — 確認各 locale key 與鏡像完整
 5. src + public 一起 commit
 
-## Flutter 端（**現行產品**，2026-08-23 補）
+## Flutter iOS 與 React 網頁並行維護（2026-10-03）
 
-上面那套是 React 的流程。iOS 單一 App 拍板之後，新功能幾乎都只落在 Flutter：
+上面是 React 的流程。兩端都持續維護，分工以 `docs/README.md` 為準：
 
 1. 五份翻譯在 `flutter_app/assets/locales/<locale>/*.json`（zh-TW / en-US / ja-JP /
    ko-KR / vi-VN），**五個一起補**，別只補 zh-TW。
-2. `scripts/check_translations.py` **不涵蓋這一份**——它只檢查 React 那兩份。
-   Flutter 這邊靠 `flutter test` 裡的文案守衛（例：
-   `test/session_calendar_test.dart` 與 `test/session_delete_admin_only_test.dart`
-   逐 key 斷言五語系齊備、佔位符沒掉）。**新增一組面向使用者的字串就順手補一支
-   同型測試**，成本很低，缺字是直接面向病患/醫師的。
-3. **Flutter-only 的功能不必回頭補 React 的 locales**（React 走除役）。
-   反向仍成立：改 `frontend/src/i18n/locales/` 的 key 時要同步 flutter 那份
-   （CLAUDE.md 鐵律），因為切換期兩邊還並存。
+2. 在 repo 根目錄執行 `python scripts/check_translations.py --locales-dir flutter_app/assets/locales`，
+   以 App 自己的 zh-TW 為基準檢查。CI 對 React 與 Flutter 分開執行同一個檢查器；
+   beta 語系目前只阻擋 `common` 的缺漏，新增其他 namespace 字串仍需補齊五語。
+   既有 `fvm flutter test` 文案守衛繼續保留，特殊顯示行為用對應測試驗證。
+3. 共用功能需檢查兩端的行為與文案；平台專用功能只維護該端使用的 key。
+   不把 React 的完整翻譯樹複製到 Flutter，或反向複製。React 的 `public/locales/`
+   仍必須與自己的 `src/i18n/locales/` 同步。
 4. ⚠️ `t()` 查不到 key 時**原樣回傳 key**（`core/i18n/loc.dart` 的刻意設計，
    讓缺字看得見）。所以「畫面上出現一串英文駝峰」就是缺 key 的徵兆——
    而且 **`t()` 的第一個 dot 段是 namespace**（＝檔名），裸字串（沒有 dot）
@@ -57,10 +56,10 @@ description: GU Voice 前端語言一致性不變式（URL 為唯一語言權威
 | 「public/locales 是 build 產物，不用 commit」 | 它是 tracked 鏡像，生產直接吃它；只 commit src 等於生產缺字 |
 | 「client.ts 這段 Accept-Language 邏輯很怪，順手重構」 | URL-first 是刻意設計（語言一致性事故的修復），重構前先讀本 skill 與 memory |
 | 「先補 zh-TW，其他語言之後再說」 | check_translations 會抓，且 kiosk 有真實外語病患，缺字直接面向病患 |
-| 「Flutter 的字串加了就好，測試不用寫」 | `check_translations.py` 看不到 `flutter_app/assets/locales/`——沒有那支測試，缺一個語系不會有任何東西變紅 |
+| 「檢查 React 就等於檢查 App」 | 兩端各有自己的翻譯來源，Flutter 也要指定 `--locales-dir` 執行檢查 |
 
 ## Verification
 
-- [ ] `check_translations.py` 與 `i18n:extract:check` 皆通過
+- [ ] 兩端的 `check_translations.py` 皆通過；React 另跑 `i18n:extract:check`
 - [ ] `public/locales/` 已重生且與 src 改動同一 commit
 - [ ] 切語言後在地化資料頁面即時 refetch（手動驗證或 Playwright）

@@ -15,6 +15,7 @@ import type { Session } from '../../types';
 import type { SessionStatus } from '../../types/enums';
 import { formatDate, formatDuration } from '../../utils/format';
 import * as sessionsApi from '../../services/api/sessions';
+import { coalesceRefresh } from '../../utils/coalesceRefresh';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 
@@ -37,6 +38,7 @@ export default function SessionListPage() {
   const [hasError, setHasError] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const requestId = useRef(0);
 
   const statusTabs = useMemo(
     () => [
@@ -51,6 +53,7 @@ export default function SessionListPage() {
   // 重新載入問診場次列表（供初次載入與儀表板 WS 事件即時刷新共用）。
   // 篩選 / 搜尋為前端過濾，這裡固定抓取最新 50 筆即可。
   const reloadSessions = useCallback(async () => {
+    const request = ++requestId.current;
     if (IS_MOCK) {
       setSessions(mockSessions);
       setIsLoading(false);
@@ -58,14 +61,15 @@ export default function SessionListPage() {
     }
     try {
       const response = await sessionsApi.getSessions({ limit: 50 });
+      if (request !== requestId.current) return;
       setSessions(response.data);
       setHasError(false);
     } catch {
       // 三態化：不再靜默吞成「無場次」空狀態，改記錄錯誤以顯示錯誤態 + 重試。
       // 僅在完全沒有既有資料時才會覆蓋畫面（見下方 render），背景 WS 重載失敗不會抹掉已載入列表。
-      setHasError(true);
+      if (request === requestId.current) setHasError(true);
     } finally {
-      setIsLoading(false);
+      if (request === requestId.current) setIsLoading(false);
     }
   }, []);
 
@@ -76,6 +80,8 @@ export default function SessionListPage() {
 
   useEffect(() => {
     reloadSessions();
+    const pending = requestId;
+    return () => { ++pending.current; };
   }, [reloadSessions]);
 
   // H-8 / M-17：訂閱儀表板即時事件，影響佇列的事件（新場次 / 場次狀態變更 /
@@ -86,9 +92,8 @@ export default function SessionListPage() {
 
   useEffect(() => {
     if (IS_MOCK) return;
-    const handleRefresh = () => {
-      void reloadRef.current();
-    };
+    const refresh = coalesceRefresh(() => reloadRef.current());
+    const handleRefresh = refresh.schedule;
     on('initial_state', handleRefresh);
     on('queue_updated', handleRefresh);
     on('session_created', handleRefresh);
@@ -96,6 +101,7 @@ export default function SessionListPage() {
     on('report_generated', handleRefresh);
 
     return () => {
+      refresh.dispose();
       off('initial_state');
       off('queue_updated');
       off('session_created');

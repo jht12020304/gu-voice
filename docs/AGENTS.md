@@ -1,5 +1,11 @@
 # GU_0410 Repository Guide
 
+## Maintained clients
+
+iOS (`flutter_app/`) and React web (`frontend/`) both remain maintained and share
+`backend/`. Use [README.md](README.md) for the current scope and verification commands.
+Flutter Web is a preview; passing its checks does not authorize replacing React.
+
 ## Deployment
 
 **Deployment is manual. Merging to `main` does not ship anything.**
@@ -60,9 +66,9 @@ cd frontend && npm run build && vercel --prod
 vercel alias set <new-deployment-url> gu-voice-chuns-projects-068de742.vercel.app
 ```
 
-Flutter Web uses the same Vercel project but stays on the fixed staged alias
-`https://gu-voice-flutter-preview.vercel.app` until real microphone/STT/TTS/VAD
-validation passes. Build and promotion details are in `docs/flutter_web_cutover.md`.
+Flutter Web uses the same Vercel project with the preview alias
+`https://gu-voice-flutter-preview.vercel.app`. Historical promotion details are in
+`docs/flutter_web_cutover.md`; the current plan keeps React as the web client.
 
 Non-interactive Railway link: `railway link -p gu-voice-api -s gu-voice-app -e production` — run it inside the exported deploy dir as shown above. (Older guidance about running it from the repo root or from `backend/` predates CLI 5.41.2 and no longer changes what gets uploaded.)
 
@@ -74,13 +80,13 @@ the health check pass. GitHub Actions being green means the tests passed, not th
 
 ## Deployment Config Files
 
-- Frontend Vercel config: [frontend/vercel.json](/Users/chun/Desktop/GU_0410/frontend/vercel.json)
-- Frontend container build: [frontend/Dockerfile](/Users/chun/Desktop/GU_0410/frontend/Dockerfile)
-- Frontend reverse proxy config: [frontend/nginx.conf](/Users/chun/Desktop/GU_0410/frontend/nginx.conf)
-- Backend Railway config: [backend/railway.toml](/Users/chun/Desktop/GU_0410/backend/railway.toml)
-- Backend container build: [backend/Dockerfile](/Users/chun/Desktop/GU_0410/backend/Dockerfile)
-- Backend startup entrypoint: [backend/scripts/start.sh](/Users/chun/Desktop/GU_0410/backend/scripts/start.sh)
-- Local full-stack orchestration: [docker-compose.yml](/Users/chun/Desktop/GU_0410/docker-compose.yml)
+- Frontend Vercel config: [frontend/vercel.json](../frontend/vercel.json)
+- Frontend container build: [frontend/Dockerfile](../frontend/Dockerfile)
+- Frontend reverse proxy config: [frontend/nginx.conf](../frontend/nginx.conf)
+- Backend Railway config: [backend/railway.toml](../backend/railway.toml)
+- Backend container build: [backend/Dockerfile](../backend/Dockerfile)
+- Backend startup entrypoint: [backend/scripts/start.sh](../backend/scripts/start.sh)
+- Local full-stack orchestration: [docker-compose.yml](../docker-compose.yml)
 
 ## Local Run
 
@@ -120,7 +126,7 @@ The following must be true for a deploy to succeed (note: none of this makes dep
 
 ## Important Caution
 
-If [backend/scripts/start.sh](/Users/chun/Desktop/GU_0410/backend/scripts/start.sh) is edited, preserve its executable bit before pushing, or Railway deployment may fail.
+If [backend/scripts/start.sh](../backend/scripts/start.sh) is edited, preserve its executable bit before pushing, or Railway deployment may fail.
 
 ```bash
 git update-index --chmod=+x backend/scripts/start.sh
@@ -133,5 +139,5 @@ git push origin main
 
 Use these docs when more detail is needed:
 
-- [docs/deployment_guide.md](/Users/chun/Desktop/GU_0410/docs/deployment_guide.md) — env 變數 / Railway・Vercel dashboard 操作
-- [docs/supabase_connection_guide.md](/Users/chun/Desktop/GU_0410/docs/supabase_connection_guide.md) — DB 連線與事故 runbook
+- [docs/deployment_guide.md](deployment_guide.md) — env 變數 / Railway・Vercel dashboard 操作
+- [docs/supabase_connection_guide.md](supabase_connection_guide.md) — DB 連線與事故 runbook

@@ -402,3 +402,24 @@ def test_semantic_detect_new_flag_without_canonical_match_keeps_raw_title(monkey
     # 無對應 canonical_id → 不覆寫,沿用 LLM 原文 title
     assert alerts[0]["title"] == "急性副睪炎可能"
     assert alerts[0]["canonical_id"] == "急性副睪炎可能"
+
+
+def test_semantic_failure_logs_warning_with_session_and_error_type(monkeypatch, caplog):
+    """語意層任何例外都退成 []：至少要留一行 WARNING 帶 session id 與例外型別。"""
+    import logging
+
+    detector = _make_detector_with_rules([], monkeypatch=monkeypatch)
+
+    async def _boom(fn):
+        raise TimeoutError("upstream slow")
+
+    monkeypatch.setattr(rfd_module, "call_with_retry", _boom)
+    with caplog.at_level(logging.WARNING, logger=rfd_module.logger.name):
+        out = _run(
+            detector._semantic_detect(
+                text="x", session_context={"session_id": "s-obs"}, language="zh-TW"
+            )
+        )
+    assert out == []
+    rec = [r for r in caplog.records if "語意紅旗偵測失敗" in r.getMessage()]
+    assert rec and "s-obs" in rec[0].getMessage() and "TimeoutError" in rec[0].getMessage()

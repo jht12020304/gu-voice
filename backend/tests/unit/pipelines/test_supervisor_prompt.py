@@ -9,6 +9,7 @@ Unit tests for backend/app/pipelines/supervisor.py SUPERVISOR_SYSTEM_PROMPT
 
 from app.pipelines.supervisor import SUPERVISOR_SYSTEM_PROMPT
 from app.pipelines.prompts.shared import HPI_FIELD_IDS, HPI_STEPS, SINGLE_QUESTION_RULE
+from app.pipelines.prompts.shared import CORE_HPI_PRIORITY_RULE
 
 
 def test_supervisor_prompt_renders_all_hpi_steps():
@@ -58,3 +59,55 @@ def test_supervisor_prompt_forbids_rephrase_reask():
 def test_supervisor_prompt_dont_know_does_not_lower_completion():
     """don't-know 不可壓低 hpi_completion_percentage,否則軟收尾門檻(>=80)永不觸發。"""
     assert "不因此壓低" in SUPERVISOR_SYSTEM_PROMPT
+
+
+def test_missing_core_hpi_precedes_optional_history_without_skipping_risk():
+    from app.core.config import Settings
+    from app.pipelines.llm_conversation import LLMConversationEngine
+    prompt = LLMConversationEngine(Settings()).build_system_prompt("頻尿", {}, "zh-TW")
+    assert CORE_HPI_PRIORITY_RULE in prompt
+    assert CORE_HPI_PRIORITY_RULE in SUPERVISOR_SYSTEM_PROMPT
+    assert "依上方 HPI 框架順序優先補齊 missing_hpi" in SUPERVISOR_SYSTEM_PROMPT
+    assert "除急症線索及本主訴必問風險因子外" in SUPERVISOR_SYSTEM_PROMPT
+    assert "Onset 與 Duration 分開判定" in SUPERVISOR_SYSTEM_PROMPT
+
+
+def test_literal_placeholder_in_patient_value_is_not_resubstituted():
+    """逐次 .replace() 會把病患值裡的字面 "{chief_complaint}" 在第二趟再代換成主訴。"""
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.core.config import Settings
+    from app.pipelines.supervisor import SupervisorEngine
+
+    class _Client:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+            self.chat = SimpleNamespace(completions=self)
+
+        async def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))])
+
+    class _Redis:
+        async def setex(self, *a):  # noqa: ANN001
+            return None
+
+    settings = Settings()
+    engine = SupervisorEngine(settings)
+    assert engine._temperature == settings.OPENAI_TEMPERATURE_SUPERVISOR  # noqa: SLF001
+    client = _Client()
+    engine._client = client  # noqa: SLF001
+    asyncio.run(
+        engine.analyze_next_step(
+            session_id="sub",
+            conversation_history=[{"role": "patient", "content": "會痛"}],
+            chief_complaint="血尿",
+            patient_info={"age": 60, "gender": "male", "medications": "{chief_complaint}"},
+            redis=_Redis(),
+            language="zh-TW",
+        )
+    )
+    system_prompt = client.calls[0]["messages"][0]["content"]
+    assert "目前用藥（病歷記載，過往）：{chief_complaint}" in system_prompt
+    assert "- 主訴:血尿" in system_prompt

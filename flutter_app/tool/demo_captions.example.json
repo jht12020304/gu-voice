@@ -10,38 +10,33 @@
       "style": "title"
     },
     {
-      "start": 4.0,
-      "end": 9.0,
+      "stage": "select-doctor",
       "title": "問診前選擇主治醫師",
       "subtitle": "病人到院後先指定看診醫師，問診紀錄自動歸戶",
       "style": "normal"
     },
     {
-      "start": 12.0,
-      "end": 17.0,
+      "stage": "conversation",
       "title": "AI 引導式語音問診",
       "subtitle": "系統以自然語音一步步詢問症狀，取代冗長紙本問卷",
       "style": "normal"
     },
     {
-      "start": 20.0,
-      "end": 25.0,
-      "title": "即時紅旗警示",
-      "subtitle": "偵測到危險徵兆立即標記，提醒醫護優先處理",
+      "stage": "notifications",
+      "title": "問診完成即時通知醫師",
+      "subtitle": "場次一結束系統立即推播，醫師手機馬上看到待處理病患",
       "style": "normal"
     },
     {
-      "start": 28.0,
-      "end": 33.0,
-      "title": "SOAP 報告自動生成",
-      "subtitle": "問診結束即產出結構化病歷，免去手動謄寫",
-      "style": "normal"
-    },
-    {
-      "start": 36.0,
-      "end": 42.0,
+      "stage": "quick-orders",
       "title": "醫師快速開單：勾選 AI 建議檢查",
       "subtitle": "AI 依問診內容建議檢查項目，醫師一鍵確認即可送出",
+      "style": "normal"
+    },
+    {
+      "stage": "soap-report",
+      "title": "SOAP 報告自動生成",
+      "subtitle": "問診結束即產出結構化病歷，免去手動謄寫",
       "style": "normal"
     },
     {

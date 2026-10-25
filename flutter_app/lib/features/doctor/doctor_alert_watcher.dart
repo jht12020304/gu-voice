@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../core/i18n/loc.dart';
+import '../../core/router/app_router.dart';
 import '../../core/router/lng.dart';
 import '../auth/auth_notifier.dart';
 import 'state/alerts_controller.dart';
@@ -64,7 +64,9 @@ class DoctorAlertWatcher extends ConsumerWidget {
           action: SnackBarAction(
             label: t('dashboard.alerts.newAlertToastAction'),
             textColor: Theme.of(context).colorScheme.onError,
-            onPressed: () => context.go(prefixLngToPath('/alerts', currentLng)),
+            // 這個 widget 坐在 MaterialApp.router 的 builder 裡（Router 之上），
+            // `context.go` 會拋 No GoRouter found；與 doctor_push_watcher 同樣走 provider。
+            onPressed: () => ref.read(routerProvider).go(prefixLngToPath('/alerts', currentLng)),
           ),
         ),
       );

@@ -4,15 +4,14 @@
 - get_redis: Redis 客戶端
 - get_current_user: JWT 認證
 - require_role: 角色權限控制
-- PaginationParams: 游標分頁參數
 """
 
 from collections.abc import AsyncGenerator, Callable
 import logging
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
-from fastapi import Depends, Header, Query, Request
+from fastapi import Depends, Header, Request
 import jwt
 from redis.exceptions import RedisError
 from sqlalchemy import select
@@ -135,16 +134,3 @@ def require_role(*roles: str) -> Callable[..., Any]:
         return current_user
 
     return _role_checker
-
-
-# ── 分頁參數 ───────────────────────────────────────────
-class PaginationParams:
-    """游標分頁查詢參數"""
-
-    def __init__(
-        self,
-        cursor: Optional[str] = Query(None, description="上一頁最後一筆的 cursor"),
-        limit: int = Query(20, ge=1, le=100, description="每頁筆數，預設 20，最大 100"),
-    ) -> None:
-        self.cursor = cursor
-        self.limit = limit

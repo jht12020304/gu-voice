@@ -34,6 +34,9 @@ class _FakeResult:
         self._scalar = scalar
         self.rowcount = rowcount
 
+    def one(self) -> Any:
+        return self._scalar
+
     def scalar(self) -> Any:
         return self._scalar
 
@@ -92,8 +95,7 @@ def test_list_notifications_returns_unread_count_and_filters_applied():
     db = _RecordingDB(
         results=[
             _FakeResult(scalar=[]),   # list query → 空
-            _FakeResult(scalar=3),    # total_count
-            _FakeResult(scalar=2),    # unread_count
+            _FakeResult(scalar=(3, 2)),  # filtered total + global unread in one query
         ]
     )
     out = _run(
@@ -104,6 +106,7 @@ def test_list_notifications_returns_unread_count_and_filters_applied():
             notification_type="system",
         )
     )
+    assert len(db.statements) == 2
     assert out["unread_count"] == 2
     assert out["pagination"]["total_count"] == 3
     # list query 應帶 is_read 與 type 篩選

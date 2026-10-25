@@ -36,7 +36,7 @@ void _installStub(String reportStatus) {
         'pagination': {'hasMore': false, 'totalCount': 1},
       };
     }
-    if (path == '/reports/$_reportId') {
+    if (path == '/reports/$_reportId' || path == '/sessions/$_sessionId/report') {
       return {
         'id': _reportId,
         'session_id': _sessionId,

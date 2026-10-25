@@ -2,17 +2,21 @@
 // SOAP 報告列表頁 — 審閱入口
 // =============================================================================
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import type { TFunction } from 'i18next';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
 import type { SOAPReport, Session } from '../../types';
 import { formatDate } from '../../utils/format';
+import { dayLabel, localDayKey } from '../../utils/date';
+import { sessionStatusLabel } from '../../utils/sessionStatus';
+import { useDashboardWebSocket } from '../../hooks/useWebSocket';
+import { useInfiniteScroll } from '../../hooks/useInfiniteScroll';
+import { coalesceRefresh } from '../../utils/coalesceRefresh';
 import { useReportStore } from '../../stores/reportStore';
-import * as reportsApi from '../../services/api/reports';
-import * as sessionsApi from '../../services/api/sessions';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 
@@ -115,24 +119,6 @@ function getReportTimestamp(report: SOAPReport): string {
   return report.generatedAt || report.updatedAt || report.createdAt;
 }
 
-function getDateKey(report: SOAPReport): string {
-  const date = new Date(getReportTimestamp(report));
-  if (Number.isNaN(date.getTime())) return 'unknown';
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function getDayLabel(report: SOAPReport): string {
-  return formatDate(getReportTimestamp(report), {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'long',
-  });
-}
-
 function reviewStatusLabel(status: SOAPReport['reviewStatus'], t: TFunction): string {
   switch (status) {
     case 'approved':
@@ -155,23 +141,6 @@ function reviewStatusClass(status: SOAPReport['reviewStatus']): string {
   }
 }
 
-function sessionStatusLabel(status: Session['status'] | undefined, t: TFunction): string {
-  switch (status) {
-    case 'waiting':
-      return t('alertList.sessionStatus.waiting', '等待中');
-    case 'in_progress':
-      return t('alertList.sessionStatus.inProgress', '問診中');
-    case 'completed':
-      return t('alertList.sessionStatus.completed', '已完成');
-    case 'aborted_red_flag':
-      return t('alertList.sessionStatus.abortedRedFlag', '紅旗中止');
-    case 'cancelled':
-      return t('alertList.sessionStatus.cancelled', '已取消');
-    default:
-      return t('common:status.unknown', '未取得場次狀態');
-  }
-}
-
 function countByStatus(reports: SOAPReport[], status: SOAPReport['reviewStatus']): number {
   return reports.filter((report) => report.reviewStatus === status).length;
 }
@@ -179,13 +148,20 @@ function countByStatus(reports: SOAPReport[], status: SOAPReport['reviewStatus']
 export default function ReportListPage() {
   const { t } = useTranslation('dashboard');
   const navigate = useLocalizedNavigate();
-  const { reports, isLoading: storeLoading, hasMore, fetchReports, fetchMore } = useReportStore();
+  const { reports, reviewCounts, isLoading: storeLoading, hasMore, fetchReports, fetchMore } = useReportStore(
+    useShallow((s) => ({
+      reports: s.reports,
+      reviewCounts: s.reviewCounts,
+      isLoading: s.isLoading,
+      hasMore: s.hasMore,
+      fetchReports: s.fetchReports,
+      fetchMore: s.fetchMore,
+    })),
+  );
+  const { on, off } = useDashboardWebSocket();
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [summaryReports, setSummaryReports] = useState<SOAPReport[]>(IS_MOCK ? mockReports : []);
-  const [sessionMeta, setSessionMeta] = useState<Record<string, ReportMeta>>({});
   const isLoading = IS_MOCK ? false : storeLoading;
-  const observerRef = useRef<IntersectionObserver>();
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -193,50 +169,21 @@ export default function ReportListPage() {
     fetchReports({ reviewStatus: reviewFilter || undefined });
   }, [reviewFilter, fetchReports]);
 
+  useEffect(() => {
+    if (IS_MOCK) return;
+    const refresh = coalesceRefresh(() => fetchReports({ reviewStatus: reviewFilter || undefined }, false));
+    const events = ['report_generated', 'initial_state'];
+    for (const event of events) on(event, refresh.schedule);
+    return () => { refresh.dispose(); for (const event of events) off(event); };
+  }, [on, off, fetchReports, reviewFilter]);
+
   // §5a：接上 store 的 fetchMore/hasMore 無限捲動，讓 >20 筆的報告可達（過去只抓首 20 筆）。
   // 搜尋為前端過濾，仍持續載入更多至 store。
-  useEffect(() => {
-    if (IS_MOCK) return;
-    if (observerRef.current) observerRef.current.disconnect();
-
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !storeLoading) {
-          fetchMore({ reviewStatus: reviewFilter || undefined });
-        }
-      },
-      { threshold: 0.1 },
-    );
-
-    if (sentinelRef.current) observerRef.current.observe(sentinelRef.current);
-
-    return () => observerRef.current?.disconnect();
-  }, [hasMore, storeLoading, fetchMore, reviewFilter]);
-
-  useEffect(() => {
-    if (IS_MOCK) return;
-
-    let cancelled = false;
-
-    async function loadSummaryReports() {
-      try {
-        const response = await reportsApi.getReports({ limit: 100 });
-        if (!cancelled) {
-          setSummaryReports(response.data);
-        }
-      } catch {
-        if (!cancelled) {
-          setSummaryReports([]);
-        }
-      }
-    }
-
-    loadSummaryReports();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const fetchMoreFiltered = useCallback(
+    () => fetchMore({ reviewStatus: reviewFilter || undefined }),
+    [fetchMore, reviewFilter],
+  );
+  useInfiniteScroll(sentinelRef, { hasMore: !IS_MOCK && hasMore, isLoading: storeLoading, onMore: fetchMoreFiltered });
 
   const displayReports = useMemo(() => {
     if (IS_MOCK) {
@@ -245,62 +192,15 @@ export default function ReportListPage() {
     return reports;
   }, [reports, reviewFilter]);
 
-  useEffect(() => {
-    if (IS_MOCK || displayReports.length === 0) return;
-
-    let cancelled = false;
-
-    async function loadSessionMeta() {
-      const missingSessionIds = displayReports
-        .map((report) => report.sessionId)
-        .filter((sessionId, index, list) => list.indexOf(sessionId) === index)
-        .filter((sessionId) => !sessionMeta[sessionId]);
-
-      if (missingSessionIds.length === 0) return;
-
-      const entries = await Promise.all(
-        missingSessionIds.map(async (sessionId) => {
-          try {
-            const session = await sessionsApi.getSession(sessionId);
-            return [
-              sessionId,
-              {
-                patientName: session.patient?.name ?? session.patientName ?? session.patientId,
-                complaint:
-                  session.chiefComplaintText ??
-                  session.chiefComplaint?.name ??
-                  t('reportList.complaintEmpty', '未填寫主訴'),
-                redFlag: session.redFlag,
-                sessionStatus: session.status,
-              },
-            ] as const;
-          } catch {
-            return [
-              sessionId,
-              {
-                patientName: sessionId,
-                complaint: t('reportList.complaintFetchFailed', '未取得主訴'),
-                redFlag: false,
-              },
-            ] as const;
-          }
-        }),
-      );
-
-      if (!cancelled) {
-        setSessionMeta((prev) => ({
-          ...prev,
-          ...Object.fromEntries(entries),
-        }));
-      }
-    }
-
-    loadSessionMeta();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [displayReports, sessionMeta, t]);
+  const sessionMeta = useMemo(() => Object.fromEntries(displayReports.map((report) => [
+    report.sessionId,
+    {
+      patientName: report.patientName ?? report.sessionId,
+      complaint: report.chiefComplaintText ?? t('reportList.complaintEmpty'),
+      redFlag: report.sessionRedFlag ?? false,
+      sessionStatus: report.sessionStatus ?? undefined,
+    } satisfies ReportMeta,
+  ])), [displayReports, t]);
 
   // 病患姓名 / 病歷號 / 主訴 前端搜尋（比照 AlertListPage：姓名不在 report 本體，故對已載入清單過濾）。
   const filteredReports = useMemo(() => {
@@ -318,14 +218,19 @@ export default function ReportListPage() {
     });
   }, [displayReports, searchQuery, sessionMeta]);
 
-  const overviewReports = summaryReports.length > 0 ? summaryReports : displayReports;
+  const counts = IS_MOCK ? {
+    pending: countByStatus(mockReports, 'pending'),
+    approved: countByStatus(mockReports, 'approved'),
+    revisionNeeded: countByStatus(mockReports, 'revision_needed'),
+  } : reviewCounts;
+  const total = counts ? Object.values(counts).reduce((sum, n) => sum + n, 0) : '—';
   const groupedReports = useMemo(() => {
     const sorted = [...filteredReports].sort(
       (a, b) => new Date(getReportTimestamp(b)).getTime() - new Date(getReportTimestamp(a)).getTime(),
     );
 
     return sorted.reduce<Array<{ key: string; label: string; reports: SOAPReport[] }>>((groups, report) => {
-      const key = getDateKey(report);
+      const key = localDayKey(getReportTimestamp(report));
       const existing = groups.find((group) => group.key === key);
       if (existing) {
         existing.reports.push(report);
@@ -333,7 +238,7 @@ export default function ReportListPage() {
       }
       groups.push({
         key,
-        label: getDayLabel(report),
+        label: dayLabel(getReportTimestamp(report)),
         reports: [report],
       });
       return groups;
@@ -359,19 +264,19 @@ export default function ReportListPage() {
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-card border border-edge bg-white px-4 py-4 shadow-card dark:border-dark-border dark:bg-dark-card">
             <p className="text-small font-semibold uppercase tracking-[0.16em] text-ink-muted">{t('reportList.summaryTotal', '全部報告')}</p>
-            <p className="mt-3 text-display text-ink-heading dark:text-white">{overviewReports.length}</p>
+            <p className="mt-3 text-display text-ink-heading dark:text-white">{total}</p>
           </div>
           <div className="rounded-card border border-amber-200 bg-amber-50/70 px-4 py-4 shadow-card dark:border-amber-900/50 dark:bg-amber-950/20">
             <p className="text-small font-semibold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">{t('reportList.tabs.pending', '待審閱')}</p>
-            <p className="mt-3 text-display text-amber-700 dark:text-amber-300">{countByStatus(overviewReports, 'pending')}</p>
+            <p className="mt-3 text-display text-amber-700 dark:text-amber-300">{counts?.pending ?? '—'}</p>
           </div>
           <div className="rounded-card border border-green-200 bg-green-50/70 px-4 py-4 shadow-card dark:border-green-900/50 dark:bg-green-950/20">
             <p className="text-small font-semibold uppercase tracking-[0.16em] text-green-700 dark:text-green-300">{t('reportList.tabs.approved', '已核准')}</p>
-            <p className="mt-3 text-display text-green-700 dark:text-green-300">{countByStatus(overviewReports, 'approved')}</p>
+            <p className="mt-3 text-display text-green-700 dark:text-green-300">{counts?.approved ?? '—'}</p>
           </div>
           <div className="rounded-card border border-red-200 bg-red-50/70 px-4 py-4 shadow-card dark:border-red-900/50 dark:bg-red-950/20">
             <p className="text-small font-semibold uppercase tracking-[0.16em] text-red-700 dark:text-red-300">{t('reportList.tabs.revisionNeeded', '需修改')}</p>
-            <p className="mt-3 text-display text-red-700 dark:text-red-300">{countByStatus(overviewReports, 'revision_needed')}</p>
+            <p className="mt-3 text-display text-red-700 dark:text-red-300">{counts?.revisionNeeded ?? '—'}</p>
           </div>
         </div>
       </section>
@@ -437,7 +342,7 @@ export default function ReportListPage() {
                     <button
                       key={report.id}
                       type="button"
-                      className="card w-full text-left transition-all hover:-translate-y-0.5 hover:shadow-lg"
+                      className="list-card card w-full text-left transition-all hover:-translate-y-0.5 hover:shadow-lg"
                       onClick={() => navigate(`/reports/${report.sessionId}`)}
                     >
                       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">

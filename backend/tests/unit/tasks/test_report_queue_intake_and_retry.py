@@ -478,3 +478,24 @@ def test_session_not_found_does_not_retry(monkeypatch):
     assert result["reason"] == "session_not_found"
     assert task.retry_calls == []
     assert report_obj.status == ReportStatus.FAILED
+
+
+def test_async_generate_ignores_soft_deleted_sessions(monkeypatch):
+    """已軟刪除的場次等同不存在：查詢要套 `session_not_deleted()`，
+    查無就走 session_not_found（標 FAILED），不為它燒 OpenAI。"""
+    report_obj = _fake_report()
+    db = _FakeDB(None, report_obj)
+    captured: list[str] = []
+    original_execute = db.execute
+
+    async def _spy(stmt):
+        captured.append(str(stmt).lower())
+        return await original_execute(stmt)
+
+    db.execute = _spy
+    _install(monkeypatch, db, generate=_capturing_generator({}))
+
+    result = asyncio.run(report_queue._async_generate(str(uuid.uuid4())))
+
+    assert result["reason"] == "session_not_found"
+    assert "is_deleted" in captured[0]

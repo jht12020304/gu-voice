@@ -19,12 +19,6 @@ export async function getComplaints(params?: {
   return data;
 }
 
-/** 取得單一主訴 */
-export async function getComplaint(id: string): Promise<ChiefComplaint> {
-  const { data } = await apiClient.get<ChiefComplaint>(`${BASE}/${id}`);
-  return data;
-}
-
 /** 新增主訴 */
 export async function createComplaint(payload: ComplaintCreateRequest): Promise<ChiefComplaint> {
   const { data } = await apiClient.post<ChiefComplaint>(BASE, payload);

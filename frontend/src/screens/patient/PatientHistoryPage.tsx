@@ -4,12 +4,12 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 import { useAuthStore } from '../../stores/authStore';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import * as sessionsApi from '../../services/api/sessions';
 import { formatDate } from '../../utils/format';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import StatusBadge from '../../components/medical/StatusBadge';
 import type { Session } from '../../types';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
@@ -75,30 +75,6 @@ const mockSessions: Session[] = [
 ];
 
 type FilterStatus = 'all' | 'completed' | 'in_progress' | 'cancelled';
-
-const statusClass: Record<string, string> = {
-  completed: 'badge-completed',
-  in_progress: 'badge-in-progress',
-  waiting: 'badge-waiting',
-  aborted_red_flag: 'badge-red-flag',
-  cancelled: 'badge-red-flag',
-};
-
-function statusLabel(status: string, t: TFunction): string {
-  switch (status) {
-    case 'in_progress':
-      return t('patientHistory.status.inProgress', '進行中');
-    case 'waiting':
-      return t('patientHistory.status.waiting', '等待中');
-    case 'aborted_red_flag':
-      return t('patientHistory.status.abortedRedFlag', '紅旗中止');
-    case 'cancelled':
-      return t('patientHistory.status.cancelled', '已取消');
-    case 'completed':
-    default:
-      return t('patientHistory.status.completed', '已完成');
-  }
-}
 
 export default function PatientHistoryPage() {
   const { t } = useTranslation('session');
@@ -193,7 +169,6 @@ export default function PatientHistoryPage() {
       ) : (
         <div className="overflow-hidden rounded-panel border border-edge bg-white dark:border-dark-border dark:bg-dark-card">
           {filtered.map((session, i) => {
-            const badgeClass = statusClass[session.status] || statusClass.completed;
             return (
               <button
                 key={session.id}
@@ -222,7 +197,7 @@ export default function PatientHistoryPage() {
                       : ''}
                   </p>
                 </div>
-                <span className={`badge shrink-0 ${badgeClass}`}>{statusLabel(session.status, t)}</span>
+                <StatusBadge status={session.status} size="sm" />
                 <svg className="h-4 w-4 shrink-0 text-ink-placeholder dark:text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                 </svg>

@@ -26,7 +26,8 @@
  *   - 越南文 (vi-VN):      Noto Sans (vietnamese + latin-ext 含 đ/ă/â/ê/ô/ơ/ư 及組合聲調)
  *   - 等寬 (病歷號 / 診斷碼 / JSON): Source Code Pro
  *
- * 要增減 family 或字重,改 index.html 的那條 <link>,再把名稱同步到下面的 stack。
+ * 要增減 family 或字重,改 index.html 的那條 <link>（拉丁／越南文）或
+ * LanguageLayout.tsx 的 CJK_FONT_FAMILY（依 URL 語言動態插入的 TC / JP / KR）,再把名稱同步到下面的 stack。
  * ============================================================================= */
 
 /* =============================================================================

@@ -9,8 +9,7 @@ import asyncio
 import json
 import logging
 import re
-import uuid
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +33,7 @@ from app.pipelines.prompts.shared import (
     normalize_canonical_id,
     render_red_flag_titles_for_prompt,
     render_red_flags_by_severity,
+    sanitize_for_prompt,
 )
 from app.utils.i18n_messages import get_message
 
@@ -2063,7 +2063,7 @@ class RedFlagDetector:
         # 組合上下文資訊
         context_parts: list[str] = []
         if session_context.get("chief_complaint"):
-            context_parts.append(f"主訴：{session_context['chief_complaint']}")
+            context_parts.append(f"主訴：{sanitize_for_prompt(session_context['chief_complaint'])}")
         # 跨輪累積型 critical（前輪發燒 ＋ 本輪腰痛＝urosepsis）只有這條路看得到歷史；
         # 正規化 / 截斷邏輯見 `_format_conversation_summary`。
         conversation_summary = _format_conversation_summary(
@@ -2078,7 +2078,7 @@ class RedFlagDetector:
 {context_text}
 
 ## 病患最新描述
-{text}
+{sanitize_for_prompt(text)}
 
 請分析以上內容是否包含紅旗症狀，並以指定 JSON 格式回覆。
 注意：紅旗可能要把先前對話與最新描述**合併**才成立（跨輪累積的症狀組合），
@@ -2208,9 +2208,11 @@ class RedFlagDetector:
             return []
 
         except Exception as exc:
-            logger.error(
-                "語意紅旗偵測失敗 | session=%s, error=%s",
+            # 語意層靜默退成 []：規則層仍在，但這條路壞掉只剩這一行 log 看得到
+            logger.warning(
+                "語意紅旗偵測失敗，本輪僅剩規則層 | session=%s, error_type=%s, error=%s",
                 session_id,
+                type(exc).__name__,
                 str(exc),
                 exc_info=True,
             )

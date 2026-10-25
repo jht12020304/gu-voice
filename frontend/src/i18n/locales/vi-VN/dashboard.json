@@ -86,14 +86,7 @@
     "emptyTitle": "Không có cảnh báo",
     "emptyMessage": "Không có cảnh báo cờ đỏ nào khớp với điều kiện",
     "groupCount": "{{count}} cảnh báo",
-    "unknownComplaintFetchFailed": "Không lấy được lý do khám",
-    "sessionStatus": {
-      "waiting": "Đang chờ",
-      "inProgress": "Đang khám",
-      "completed": "Đã hoàn tất",
-      "abortedRedFlag": "Dừng do cờ đỏ",
-      "cancelled": "Đã hủy"
-    }
+    "unknownComplaintFetchFailed": "Không lấy được lý do khám"
   },
   "transcript": {
     "title": "Biên bản hội thoại khám",

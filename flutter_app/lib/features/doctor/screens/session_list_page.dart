@@ -86,20 +86,10 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
       'waiting': 'session.doctor.list.tabWaiting',
       'completed': 'session.doctor.list.tabCompleted',
     };
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(children: [
-        for (final e in filters.entries)
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ChoiceChip(
-              selected: _statusFilter == e.key,
-              label: Text(t(e.value)),
-              onSelected: (_) => setState(() => _statusFilter = e.key),
-            ),
-          ),
-      ]),
+    return FilterChipBar<String>(
+      options: {for (final e in filters.entries) e.key: t(e.value)},
+      selected: _statusFilter,
+      onSelected: (key) => setState(() => _statusFilter = key),
     );
   }
 
@@ -121,9 +111,10 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
         message: t('session.doctor.list.emptyMessage'),
       );
     }
-    return ListView(
+    return ListView.builder(
       padding: const EdgeInsets.all(16),
-      children: [for (final s in visible) _card(context, s)],
+      itemCount: visible.length,
+      itemBuilder: (context, i) => _card(context, visible[i]),
     );
   }
 

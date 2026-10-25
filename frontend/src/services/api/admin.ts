@@ -3,7 +3,7 @@
 // =============================================================================
 
 import apiClient from './client';
-import type { User, PaginatedResponse, AuditLog, RedFlagRule } from '../../types';
+import type { User, PaginatedResponse, AuditLog } from '../../types';
 import type {
   UserCreateRequest,
   UserUpdateRequest,
@@ -12,7 +12,6 @@ import type {
 } from '../../types/api';
 
 const USERS_BASE = '/admin/users';
-const RULES_BASE = '/alerts/rules';
 const AUDIT_BASE = '/audit-logs';
 
 // ---- 使用者管理 ----
@@ -67,35 +66,6 @@ export async function resetUserPassword(id: string): Promise<ResetPasswordRespon
     `${USERS_BASE}/${id}/reset-password`,
   );
   return data;
-}
-
-// ---- 紅旗規則管理 ----
-
-export async function getRedFlagRules(params?: {
-  cursor?: string;
-  limit?: number;
-  category?: string;
-  isActive?: boolean;
-}): Promise<PaginatedResponse<RedFlagRule>> {
-  const { data } = await apiClient.get<PaginatedResponse<RedFlagRule>>(RULES_BASE, { params });
-  return data;
-}
-
-export async function createRedFlagRule(payload: Partial<RedFlagRule>): Promise<RedFlagRule> {
-  const { data } = await apiClient.post<RedFlagRule>(RULES_BASE, payload);
-  return data;
-}
-
-export async function updateRedFlagRule(
-  id: string,
-  payload: Partial<RedFlagRule>,
-): Promise<RedFlagRule> {
-  const { data } = await apiClient.put<RedFlagRule>(`${RULES_BASE}/${id}`, payload);
-  return data;
-}
-
-export async function deleteRedFlagRule(id: string): Promise<void> {
-  await apiClient.delete(`${RULES_BASE}/${id}`);
 }
 
 // ---- 稽核日誌 ----

@@ -38,8 +38,12 @@ def _ws_for(token: str) -> _FakeWebSocket:
     return _FakeWebSocket(incoming=[json.dumps({"type": "auth", "token": token})])
 
 
-def _make_user(role: str = "patient", is_active: bool = True) -> SimpleNamespace:
-    return SimpleNamespace(is_active=is_active, role=SimpleNamespace(value=role))
+def _make_user(
+    role: str = "patient", is_active: bool = True, license_number: str | None = None
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        is_active=is_active, role=SimpleNamespace(value=role), license_number=license_number
+    )
 
 
 class FakeBlacklistRedis:
@@ -209,6 +213,13 @@ def test_role_overridden_by_db_truth(monkeypatch):
     assert payload is not None
     assert payload.get("role") == "patient"  # DB 為準
     assert ws.closed_with is None
+
+
+def test_payload_carries_license_number_for_clinician_scope(monkeypatch):
+    """conversation_handler 的 row-level 授權要分辨臨床 admin：payload 必須帶執照號。"""
+    _patch_backend(monkeypatch, user=_make_user(role="admin", license_number="UR-001"))
+    payload = _run(ws_auth.authenticate_websocket(_ws_for(_token(role="admin")), context="t"))
+    assert payload is not None and payload.get("license_number") == "UR-001"
 
 
 def test_legacy_query_param_also_gets_identity_checks(monkeypatch):

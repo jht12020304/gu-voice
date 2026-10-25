@@ -90,17 +90,6 @@
       "conditionPlaceholder": "疾患（例：糖尿病）",
       "add": "家族歴を追加"
     },
-    "summary": {
-      "title": "送信内容の確認",
-      "complaint": "主訴",
-      "allergy": "アレルギー",
-      "medication": "服用中の薬",
-      "history": "既往歴",
-      "noKnownAllergies": "既知のアレルギーなし",
-      "noCurrentMedications": "現在服用中の薬なし",
-      "noPastHistory": "特記すべき既往歴なし",
-      "filled": "入力済み"
-    },
     "nav": {
       "back": "戻る",
       "prev": "前へ",

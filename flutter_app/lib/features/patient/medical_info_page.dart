@@ -5,8 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../core/i18n/loc.dart';
 import '../../core/router/lng.dart';
 import '../../data/api/sessions_api.dart';
-import '../../core/theme/app_tokens.dart';
+import '../../shared/format.dart';
 import '../../shared/widgets/language_action.dart';
+import '../../shared/widgets/ui_kit.dart';
 import '../auth/auth_notifier.dart';
 import 'intake_payload.dart';
 
@@ -14,32 +15,40 @@ import 'intake_payload.dart';
 // then createSession, into the conversation. ponytail: the 2-step wizard chrome (progress
 // bar / next-prev / summary card) and family history are folded to a single scroll page,
 // but the clinical intake DATA is collected and sent (no more all-negative hardcode).
-class _Allergy {
+abstract class _Row {
+  final ctrl = TextEditingController();
+}
+
+/// 整段清空：removeAt/clear 丟掉的列不會再經過 State.dispose()，controller 要在這裡收。
+void _clearRows(List<_Row> rows) {
+  for (final r in rows) {
+    r.ctrl.dispose();
+  }
+  rows.clear();
+}
+
+class _Allergy extends _Row {
   _Allergy([String initialValue = '']) {
     ctrl.text = initialValue;
   }
 
-  final ctrl = TextEditingController();
   bool hospitalized = false;
 }
 
-class _Medication {
-  final ctrl = TextEditingController();
+class _Medication extends _Row {
   String frequency = 'onceDaily';
 }
 
-class _History {
+class _History extends _Row {
   _History([String initialValue = '']) {
     ctrl.text = initialValue;
   }
 
-  final ctrl = TextEditingController();
   String yearsAgo = 'unsure';
   bool stillHas = true;
 }
 
-class _Family {
-  final ctrl = TextEditingController();
+class _Family extends _Row {
   String relation = 'father';
 }
 
@@ -201,7 +210,6 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
       _error = null;
     });
     final dob = _dob!;
-    two(int n) => n.toString().padLeft(2, '0');
 
     final payload = {
       'chiefComplaintId': _arg('complaintId'),
@@ -217,8 +225,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
       'patientInfo': {
         'name': _nameCtrl.text.trim(),
         'gender': _gender,
-        'dateOfBirth':
-            '${dob.year.toString().padLeft(4, '0')}-${two(dob.month)}-${two(dob.day)}',
+        'dateOfBirth': isoDate(dob),
         'phone': _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
       },
       // Pure projection (intake_payload.dart) so the exact JSON is unit-testable.
@@ -268,7 +275,6 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
 
   @override
   Widget build(BuildContext context) {
-    final err = Theme.of(context).colorScheme.error;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -288,137 +294,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _card(
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    t('intake.medicalInfo.patient.title'),
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    key: ValueKey('${_doctors.length}:$_doctorId'),
-                    initialValue: _doctorId,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      labelText: t('intake.medicalInfo.patient.doctorLabel'),
-                      helperText: t(
-                        _doctorLoadFailed
-                            ? 'intake.medicalInfo.patient.doctorLoadFailed'
-                            : 'intake.medicalInfo.patient.doctorHint',
-                      ),
-                      errorText:
-                          _showErrors && !_doctorLoadFailed && _doctorId == null
-                          ? t('intake.medicalInfo.patient.doctorError')
-                          : null,
-                      suffixIcon: _loadingDoctors
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : null,
-                    ),
-                    hint: Text(
-                      t('intake.medicalInfo.patient.doctorPlaceholder'),
-                    ),
-                    items: [
-                      for (final doctor in _doctors)
-                        DropdownMenuItem(
-                          value: doctor.id,
-                          child: Text(
-                            [
-                              doctor.name,
-                              if (doctor.department?.isNotEmpty == true)
-                                doctor.department!,
-                            ].join(' · '),
-                          ),
-                        ),
-                    ],
-                    onChanged: _loadingDoctors
-                        ? null
-                        : (value) => setState(() => _doctorId = value),
-                  ),
-                  if (_doctorLoadFailed)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        onPressed: _loadDoctors,
-                        icon: const Icon(Icons.refresh),
-                        label: Text(t('common.retry')),
-                      ),
-                    ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _nameCtrl,
-                    maxLength: 100,
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      labelText: t('intake.medicalInfo.patient.nameLabel'),
-                      errorText: _showErrors && _nameCtrl.text.trim().isEmpty
-                          ? t('intake.medicalInfo.patient.nameError')
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(t('intake.medicalInfo.patient.genderLabel')),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final g in const ['male', 'female', 'other'])
-                        ChoiceChip(
-                          selected: _gender == g,
-                          label: Text(
-                            t(
-                              'intake.medicalInfo.patient.gender${g[0].toUpperCase()}${g.substring(1)}',
-                            ),
-                          ),
-                          onSelected: (_) => setState(() => _gender = g),
-                        ),
-                    ],
-                  ),
-                  if (_showErrors && _gender == null)
-                    Text(
-                      t('intake.medicalInfo.patient.genderError'),
-                      style: TextStyle(color: err),
-                    ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.calendar_today),
-                    label: Text(
-                      _dob == null
-                          ? t('intake.medicalInfo.patient.dobLabel')
-                          : '${_dob!.year}-${_dob!.month}-${_dob!.day}',
-                    ),
-                    onPressed: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        firstDate: DateTime(1900),
-                        lastDate: DateTime.now(),
-                        initialDate: DateTime(1980),
-                      );
-                      if (picked != null) setState(() => _dob = picked);
-                    },
-                  ),
-                  if (_showErrors && _dob == null)
-                    Text(
-                      t('intake.medicalInfo.patient.dobError'),
-                      style: TextStyle(color: err),
-                    ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _phoneCtrl,
-                    maxLength: 20,
-                    keyboardType: TextInputType.phone,
-                    decoration: InputDecoration(
-                      labelText: t('intake.medicalInfo.patient.phoneLabel'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _card(_patientSection(context)),
             _card(_allergySection(context)),
             _card(_medicationSection(context)),
             _card(_historySection(context)),
@@ -426,24 +302,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
             if (_error != null) ...[
               const SizedBox(height: 4),
               // login 頁同款 inline 錯誤卡：比裸紅字醒目（kiosk 年長使用者），語意色只在真錯誤時出現
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Theme.of(
-                    context,
-                  ).extension<AppTokens>()!.alertCriticalBg,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.error_outline, size: 20, color: err),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(_error!, style: TextStyle(color: err)),
-                    ),
-                  ],
-                ),
-              ),
+              InlineAlert(_error!),
             ],
             const SizedBox(height: 24),
             FilledButton(
@@ -459,6 +318,139 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
           ],
         ),
       ),
+    );
+  }
+
+  /// 病患基本資料 + 看診醫師（與下面四段 intake 同一個 _card 包法）。
+  Widget _patientSection(BuildContext context) {
+    final err = Theme.of(context).colorScheme.error;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          t('intake.medicalInfo.patient.title'),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          key: ValueKey('${_doctors.length}:$_doctorId'),
+          initialValue: _doctorId,
+          isExpanded: true,
+          decoration: InputDecoration(
+            labelText: t('intake.medicalInfo.patient.doctorLabel'),
+            helperText: t(
+              _doctorLoadFailed
+                  ? 'intake.medicalInfo.patient.doctorLoadFailed'
+                  : 'intake.medicalInfo.patient.doctorHint',
+            ),
+            errorText: _showErrors && !_doctorLoadFailed && _doctorId == null
+                ? t('intake.medicalInfo.patient.doctorError')
+                : null,
+            suffixIcon: _loadingDoctors
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : null,
+          ),
+          hint: Text(t('intake.medicalInfo.patient.doctorPlaceholder')),
+          items: [
+            for (final doctor in _doctors)
+              DropdownMenuItem(
+                value: doctor.id,
+                child: Text(
+                  [
+                    doctor.name,
+                    if (doctor.department?.isNotEmpty == true)
+                      doctor.department!,
+                  ].join(' · '),
+                ),
+              ),
+          ],
+          onChanged: _loadingDoctors
+              ? null
+              : (value) => setState(() => _doctorId = value),
+        ),
+        if (_doctorLoadFailed)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _loadDoctors,
+              icon: const Icon(Icons.refresh),
+              label: Text(t('common.retry')),
+            ),
+          ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _nameCtrl,
+          maxLength: 100,
+          onChanged: (_) {
+            if (_showErrors) setState(() {});
+          },
+          decoration: InputDecoration(
+            labelText: t('intake.medicalInfo.patient.nameLabel'),
+            errorText: _showErrors && _nameCtrl.text.trim().isEmpty
+                ? t('intake.medicalInfo.patient.nameError')
+                : null,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(t('intake.medicalInfo.patient.genderLabel')),
+        Wrap(
+          spacing: 8,
+          children: [
+            for (final g in const ['male', 'female', 'other'])
+              ChoiceChip(
+                selected: _gender == g,
+                label: Text(
+                  t(
+                    'intake.medicalInfo.patient.gender${g[0].toUpperCase()}${g.substring(1)}',
+                  ),
+                ),
+                onSelected: (_) => setState(() => _gender = g),
+              ),
+          ],
+        ),
+        if (_showErrors && _gender == null)
+          Text(
+            t('intake.medicalInfo.patient.genderError'),
+            style: TextStyle(color: err),
+          ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.calendar_today),
+          label: Text(
+            _dob == null
+                ? t('intake.medicalInfo.patient.dobLabel')
+                : isoDate(_dob!),
+          ),
+          onPressed: () async {
+            final picked = await showDatePicker(
+              context: context,
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+              initialDate: DateTime(1980),
+            );
+            if (picked != null) setState(() => _dob = picked);
+          },
+        ),
+        if (_showErrors && _dob == null)
+          Text(
+            t('intake.medicalInfo.patient.dobError'),
+            style: TextStyle(color: err),
+          ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _phoneCtrl,
+          maxLength: 20,
+          keyboardType: TextInputType.phone,
+          decoration: InputDecoration(
+            labelText: t('intake.medicalInfo.patient.phoneLabel'),
+          ),
+        ),
+      ],
     );
   }
 
@@ -501,7 +493,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
           // Clear, don't just hide (React does the same). Rows kept alive behind
           // a ticked box are invisible data that submit() silently drops, and the
           // payload would then claim the patient denied what they had typed.
-          if (v) _allergies.clear();
+          if (v) _clearRows(_allergies);
         }),
       ),
       if (!_noAllergies) ...[
@@ -525,7 +517,9 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                   child: TextField(
                     controller: _allergies[i].ctrl,
                     maxLength: 100,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) {
+                      if (_showErrors) setState(() {});
+                    },
                     decoration: InputDecoration(
                       labelText: t('intake.medicalInfo.allergy.placeholder'),
                       counterText: '',
@@ -549,7 +543,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: () => setState(() => _allergies.removeAt(i)),
+                  onPressed: () =>
+                      setState(() => _allergies.removeAt(i).ctrl.dispose()),
                 ),
               ],
             ),
@@ -573,7 +568,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
         _noMedications,
         (v) => setState(() {
           _noMedications = v;
-          if (v) _medications.clear();
+          if (v) _clearRows(_medications);
         }),
       ),
       if (!_noMedications) ...[
@@ -608,7 +603,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: () => setState(() => _medications.removeAt(i)),
+                  onPressed: () =>
+                      setState(() => _medications.removeAt(i).ctrl.dispose()),
                 ),
               ],
             ),
@@ -657,7 +653,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                   value: _noFamilyHistory,
                   onChanged: (v) => setState(() {
                     _noFamilyHistory = v ?? false;
-                    if (_noFamilyHistory) _families.clear();
+                    if (_noFamilyHistory) _clearRows(_families);
                   }),
                 ),
                 Text(t('intake.medicalInfo.family.noneLabel')),
@@ -703,7 +699,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: () => setState(() => _families.removeAt(i)),
+                  onPressed: () =>
+                      setState(() => _families.removeAt(i).ctrl.dispose()),
                 ),
               ],
             ),
@@ -727,7 +724,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
         _noHistory,
         (v) => setState(() {
           _noHistory = v;
-          if (v) _histories.clear();
+          if (v) _clearRows(_histories);
         }),
       ),
       if (!_noHistory) ...[
@@ -751,7 +748,9 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                   child: TextField(
                     controller: _histories[i].ctrl,
                     maxLength: 100,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) {
+                      if (_showErrors) setState(() {});
+                    },
                     decoration: InputDecoration(
                       labelText: t('intake.medicalInfo.history.placeholder'),
                       counterText: '',
@@ -785,7 +784,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: () => setState(() => _histories.removeAt(i)),
+                  onPressed: () =>
+                      setState(() => _histories.removeAt(i).ctrl.dispose()),
                 ),
               ],
             ),

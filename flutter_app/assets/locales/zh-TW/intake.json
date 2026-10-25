@@ -90,17 +90,6 @@
       "conditionPlaceholder": "疾病（例：糖尿病）",
       "add": "新增家族病史"
     },
-    "summary": {
-      "title": "確認送出的資料",
-      "complaint": "主訴",
-      "allergy": "過敏",
-      "medication": "用藥",
-      "history": "病史",
-      "noKnownAllergies": "無已知過敏",
-      "noCurrentMedications": "目前未服藥",
-      "noPastHistory": "無重大病史",
-      "filled": "已填寫"
-    },
     "nav": {
       "back": "返回",
       "prev": "上一步",

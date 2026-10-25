@@ -1,6 +1,7 @@
 import '../models/patient.dart';
 import '../models/session.dart';
 import 'dio_client.dart';
+import 'parse_page.dart';
 
 typedef PatientPage = ({List<Patient> data, String? nextCursor, bool hasMore, int totalCount});
 
@@ -16,15 +17,7 @@ class PatientsApi {
       'createdFrom': ?createdFrom,
       'createdTo': ?createdTo,
     });
-    final data = res.data as Map;
-    final list = (data['data'] as List? ?? const []).map((e) => Patient.fromJson(e as Map)).toList();
-    final p = (data['pagination'] as Map?) ?? const {};
-    return (
-      data: list,
-      nextCursor: p['nextCursor'] as String?,
-      hasMore: (p['hasMore'] ?? false) as bool,
-      totalCount: (p['totalCount'] as num?)?.toInt() ?? list.length,
-    );
+    return parsePage(res.data, Patient.fromJson);
   }
 
   Future<Patient> get(String id) async {

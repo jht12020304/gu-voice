@@ -18,7 +18,6 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
@@ -41,7 +40,9 @@ def _identity_backend(monkeypatch):
     預設快樂路徑：黑名單皆未命中、使用者存在且啟用、role=token claim 同值
     （"patient"），讓既有 handshake 測試的斷言不受 role 覆蓋影響。
     """
-    user = SimpleNamespace(is_active=True, role=SimpleNamespace(value="patient"))
+    user = SimpleNamespace(
+        is_active=True, role=SimpleNamespace(value="patient"), license_number=None
+    )
 
     class _FakeRedis:
         async def exists(self, key: str) -> int:

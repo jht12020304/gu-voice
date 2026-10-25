@@ -87,39 +87,8 @@
     "emptyMessage": "目前沒有符合條件的紅旗警示",
     "groupCount": "{{count}} 筆警示",
     "unknownComplaintFetchFailed": "未取得主訴",
-    "sessionStatus": {
-      "waiting": "等待中",
-      "inProgress": "問診中",
-      "completed": "已完成",
-      "abortedRedFlag": "紅旗中止",
-      "cancelled": "已取消"
-    },
     "acknowledgeAll": "全部標示已處理",
     "acknowledgeAllConfirm": "確認要將所有未處理的紅旗警示標記為已處理嗎？此動作無法復原。"
-  },
-  "transcript": {
-    "title": "問診對話逐字稿",
-    "emptyTitle": "目前沒有可檢視的對話內容",
-    "loading": "載入對話記錄...",
-    "messageCount": "{{count}} 則對話",
-    "summary": "{{patientCount}} 則病患 / {{assistantCount}} 則 AI",
-    "viewFull": "查看完整對話（{{count}} 則更多）...",
-    "searchPlaceholder": "搜尋逐字稿內容",
-    "filter": {
-      "all": "全部",
-      "patient": "病患",
-      "assistant": "AI"
-    },
-    "visibleCount": "顯示 {{visible}} / {{total}} 則對話",
-    "noMatches": "沒有符合條件的逐字稿內容",
-    "redFlag": "紅旗",
-    "lowConfidence": "低辨識信心",
-    "sttConfidence": "STT 信心：{{value}}%",
-    "roles": {
-      "patient": "病患",
-      "assistant": "AI 助手",
-      "system": "系統"
-    }
   },
   "reportList": {
     "eyebrow": "審閱工作台",

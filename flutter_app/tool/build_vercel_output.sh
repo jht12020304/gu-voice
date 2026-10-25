@@ -2,8 +2,11 @@
 set -euo pipefail
 
 app_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-api_base="${API_BASE:-https://gu-voice-app-production.up.railway.app/api/v1}"
-ws_base="${WS_BASE:-wss://gu-voice-app-production.up.railway.app/api/v1/ws}"
+# 生產後端位址集中在 tool/env.production.sh（與 build_ios_testflight.sh 共用）
+# shellcheck source=env.production.sh
+source "${app_dir}/tool/env.production.sh"
+api_base="${API_BASE:-${PROD_API_BASE}}"
+ws_base="${WS_BASE:-${PROD_WS_BASE}}"
 web_test_email="${WEB_TEST_EMAIL:-}"
 web_test_password="${WEB_TEST_PASSWORD:-}"
 static_dir="${app_dir}/.vercel/output/static"

@@ -12,13 +12,13 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.datetime_utils import utc_now
 from app.core.config import Settings
 from app.websocket.auth import authenticate_websocket
 from app.websocket.connection_manager import (
@@ -30,8 +30,6 @@ logger = logging.getLogger(__name__)
 
 # ── Redis key 常數 ───────────────────────────────────────
 _DASHBOARD_STATS_KEY = "gu:dashboard:stats:{doctor_id}"
-_ACTIVE_ALERTS_KEY = "gu:alert:active:{doctor_id}"
-_QUEUE_KEY = "gu:queue:patients"
 
 
 async def dashboard_websocket(
@@ -94,6 +92,9 @@ async def dashboard_websocket(
         # 初始 WS snapshot 一律限縮到本人；system admin 若需全院資料仍由有完整
         # 授權判斷的 REST 端點取得，避免在共用事件通道意外帶出他人主訴。
         initial_state = await _build_initial_state(db, redis, user_id)
+        # 快照查完就結束交易：這個 request-scoped session 會活到 socket 斷線，
+        # 不收的話 Postgres 連線整段時間都是 idle in transaction。
+        await db.commit()
         await websocket.send_json(
             manager._create_envelope(
                 msg_type="initial_state",
@@ -112,7 +113,7 @@ async def dashboard_websocket(
                     manager._create_envelope(
                         msg_type="pong",
                         payload={
-                            "server_time": datetime.now(timezone.utc).isoformat()
+                            "server_time": utc_now().isoformat()
                         },
                     )
                 )
@@ -270,7 +271,7 @@ async def broadcast_queue_and_stats(
     **全域**連線數（由 Redis 維護、跨行程可見），而非本行程的本地計數。
     """
     try:
-        queue_data = await _get_queue_status(db, redis, doctor_id=None)
+        queue_data = await _get_queue_status(db, redis, doctor_id=None, include_items=False)
         await manager.broadcast_queue_updated(
             total_waiting=queue_data.get("total_waiting", 0),
             total_in_progress=queue_data.get("total_in_progress", 0),
@@ -291,29 +292,6 @@ async def broadcast_queue_and_stats(
         )
     except Exception as exc:
         logger.warning("推播 stats_updated 失敗（非致命） | error=%s", str(exc))
-
-
-def _to_camel_queue_items(
-    items: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """把 `_get_queue_status` 的 snake_case 排隊明細轉為前端 camelCase。
-
-    對齊 `QueueUpdatedPayload.queue`（sessionId / patientName /
-    chiefComplaint / status / waitingSeconds）。`_get_queue_status` 不含
-    patientName / waitingSeconds，缺值以保守預設（""/0）填入。
-    """
-    camel_items: list[dict[str, Any]] = []
-    for item in items:
-        camel_items.append(
-            {
-                "sessionId": item.get("session_id", ""),
-                "patientName": item.get("patient_name", ""),
-                "chiefComplaint": item.get("chief_complaint", ""),
-                "status": item.get("status", ""),
-                "waitingSeconds": item.get("waiting_seconds", 0),
-            }
-        )
-    return camel_items
 
 
 # ── 輔助函式 ─────────────────────────────────────────────
@@ -339,7 +317,6 @@ async def _build_initial_state(
     Returns:
         初始狀態字典
     """
-    import json
 
     # 嘗試從 Redis 快取載入
     queue_data = await _get_queue_status(db, redis, doctor_id)
@@ -350,12 +327,12 @@ async def _build_initial_state(
         "queue": queue_data,
         "active_alerts": active_alerts,
         "stats": stats,
-        "connected_at": datetime.now(timezone.utc).isoformat(),
+        "connected_at": utc_now().isoformat(),
     }
 
 
 async def _get_queue_status(
-    db: AsyncSession, redis: Redis, doctor_id: str | None = None
+    db: AsyncSession, redis: Redis, doctor_id: str | None = None, *, include_items: bool = True
 ) -> dict[str, Any]:
     """
     取得目前病患排隊狀態
@@ -373,28 +350,15 @@ async def _get_queue_status(
         from app.services.session_visibility import session_not_deleted
         from sqlalchemy import func, select
 
-        # 統計等待中與進行中的場次（醫師範圍：僅自己負責的場次）
-        waiting_stmt = (
-            select(func.count())
-            .select_from(Session)
-            .where(session_not_deleted())
-            .where(Session.status == "waiting")
-        )
-        in_progress_stmt = (
-            select(func.count())
-            .select_from(Session)
-            .where(session_not_deleted())
-            .where(Session.status == "in_progress")
-        )
+        counts = select(
+            func.count().filter(Session.status == "waiting"),
+            func.count().filter(Session.status == "in_progress"),
+        ).select_from(Session).where(session_not_deleted(), Session.status.in_(["waiting", "in_progress"]))
         if doctor_id:
-            waiting_stmt = waiting_stmt.where(Session.doctor_id == doctor_id)
-            in_progress_stmt = in_progress_stmt.where(Session.doctor_id == doctor_id)
-
-        waiting_result = await db.execute(waiting_stmt)
-        in_progress_result = await db.execute(in_progress_stmt)
-
-        total_waiting = waiting_result.scalar() or 0
-        total_in_progress = in_progress_result.scalar() or 0
+            counts = counts.where(Session.doctor_id == doctor_id)
+        total_waiting, total_in_progress = (await db.execute(counts)).one()
+        if not include_items:
+            return {"total_waiting": total_waiting, "total_in_progress": total_in_progress, "queue": []}
 
         # 取得排隊中的場次明細
         queue_stmt = (
@@ -592,10 +556,11 @@ async def _get_dashboard_stats(
                 RedFlagAlert.session_id.in_(doctor_session_subq)
             )
 
-        sessions_today = (await db.execute(sessions_today_stmt)).scalar() or 0
-        completed = (await db.execute(completed_stmt)).scalar() or 0
-        red_flags = (await db.execute(red_flags_stmt)).scalar() or 0
-        pending_reviews = (await db.execute(pending_stmt)).scalar() or 0
+        # One round trip; all subqueries retain their existing authorization filters.
+        sessions_today, completed, red_flags, pending_reviews = (await db.execute(select(
+            sessions_today_stmt.scalar_subquery(), completed_stmt.scalar_subquery(),
+            red_flags_stmt.scalar_subquery(), pending_stmt.scalar_subquery(),
+        ))).one()
 
         stats = {
             "sessions_today": sessions_today,

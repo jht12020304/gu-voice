@@ -3,8 +3,14 @@
 // =============================================================================
 
 import { create } from 'zustand';
+import i18n from '../i18n';
 import type { RedFlagAlert } from '../types';
 import * as alertsApi from '../services/api/alerts';
+import { useAuthStore } from './authStore';
+import { apiErrorMessage, getAuthEpoch } from '../services/api/client';
+
+let listRequest = 0;
+let countRequest = 0;
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 
@@ -32,7 +38,6 @@ interface AlertActions {
   fetchAlerts: (reset?: boolean) => Promise<void>;
   fetchMore: () => Promise<void>;
   acknowledgeAlert: (id: string, notes?: string) => Promise<void>;
-  addNewAlert: (alert: RedFlagAlert) => void;
   setFilter: (filter: 'all' | 'unacknowledged' | 'acknowledged') => void;
   fetchUnacknowledgedCount: () => Promise<void>;
   clearError: () => void;
@@ -53,6 +58,8 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
   // ---- Actions ----
 
   fetchAlerts: async (reset = true) => {
+    const epoch = getAuthEpoch();
+    const request = ++listRequest;
     if (IS_MOCK) {
       const { filter } = get();
       const filtered = filter === 'all' ? mockAlerts
@@ -73,15 +80,16 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
     const { filter } = get();
     set({ isLoading: true, error: null });
     if (reset) {
-      set({ cursor: null, alerts: [] });
+      set({ cursor: null });
     }
 
     try {
-      const acknowledged = filter === 'all' ? undefined : filter === 'acknowledged';
+      const isAcknowledged = filter === 'all' ? undefined : filter === 'acknowledged';
       const response = await alertsApi.getAlerts({
-        acknowledged,
+        isAcknowledged,
         limit: 20,
       });
+      if (epoch !== getAuthEpoch() || request !== listRequest) return;
       set({
         alerts: response.data,
         cursor: response.pagination.nextCursor,
@@ -90,23 +98,27 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
         allTotalCount: filter === 'all' ? response.pagination.totalCount : get().allTotalCount,
         isLoading: false,
       });
-    } catch {
-      set({ isLoading: false, error: '無法載入警示列表' });
+    } catch (err) {
+      if (epoch !== getAuthEpoch() || request !== listRequest) return;
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入警示列表') });
     }
   },
 
   fetchMore: async () => {
     const { cursor, hasMore, isLoading, alerts, filter } = get();
     if (!hasMore || isLoading || !cursor) return;
+    const request = ++listRequest;
+    const epoch = getAuthEpoch();
 
     set({ isLoading: true });
     try {
-      const acknowledged = filter === 'all' ? undefined : filter === 'acknowledged';
+      const isAcknowledged = filter === 'all' ? undefined : filter === 'acknowledged';
       const response = await alertsApi.getAlerts({
         cursor,
-        acknowledged,
+        isAcknowledged,
         limit: 20,
       });
+      if (epoch !== getAuthEpoch() || request !== listRequest) return;
       set({
         alerts: [...alerts, ...response.data],
         cursor: response.pagination.nextCursor,
@@ -114,37 +126,35 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
         totalCount: response.pagination.totalCount,
         isLoading: false,
       });
-    } catch {
-      set({ isLoading: false, error: '無法載入更多' });
+    } catch (err) {
+      if (epoch !== getAuthEpoch() || request !== listRequest) return;
+      set({ isLoading: false, error: apiErrorMessage(err, i18n.t, '無法載入更多') });
     }
   },
 
   acknowledgeAlert: async (id, notes) => {
+    const epoch = getAuthEpoch();
     try {
       const updated = await alertsApi.acknowledgeAlert(id, notes ? { acknowledgeNotes: notes } : undefined);
+      if (epoch !== getAuthEpoch()) return;
+      ++listRequest; ++countRequest;
       set((state) => ({
+        isLoading: false,
         alerts:
           state.filter === 'unacknowledged'
             ? state.alerts.filter((a) => a.id !== id)
-            : state.alerts.map((a) => (a.id === id ? updated : a)),
+            : state.alerts.map((a) => (a.id === id ? { ...a, ...updated } : a)),
         unacknowledgedCount: Math.max(0, state.unacknowledgedCount - 1),
         totalCount:
           state.filter === 'unacknowledged'
             ? Math.max(0, state.totalCount - 1)
             : state.totalCount,
       }));
-    } catch {
-      set({ error: '確認警示失敗' });
+    } catch (err) {
+      if (epoch !== getAuthEpoch()) return;
+      set({ error: apiErrorMessage(err, i18n.t, '確認警示失敗') });
     }
   },
-
-  addNewAlert: (alert) =>
-    set((state) => ({
-      alerts: [alert, ...state.alerts],
-      unacknowledgedCount: state.unacknowledgedCount + 1,
-      totalCount: state.totalCount + 1,
-      allTotalCount: state.allTotalCount + 1,
-    })),
 
   setFilter: (filter) => {
     set({ filter });
@@ -152,17 +162,28 @@ export const useAlertStore = create<AlertState & AlertActions>((set, get) => ({
   },
 
   fetchUnacknowledgedCount: async () => {
+    const epoch = getAuthEpoch();
+    const request = ++countRequest;
     if (IS_MOCK) {
       set({ unacknowledgedCount: mockAlerts.filter((a) => !a.acknowledgedBy).length });
       return;
     }
     try {
       const count = await alertsApi.getUnacknowledgedCount();
+      if (epoch !== getAuthEpoch() || request !== countRequest) return;
       set({ unacknowledgedCount: count });
     } catch {
+      if (epoch !== getAuthEpoch() || request !== countRequest) return;
       // 靜默失敗
     }
   },
 
   clearError: () => set({ error: null }),
 }));
+
+useAuthStore.subscribe((state, previous) => {
+  if (state.user?.id !== previous.user?.id) {
+    ++listRequest; ++countRequest;
+    useAlertStore.setState(useAlertStore.getInitialState());
+  }
+});

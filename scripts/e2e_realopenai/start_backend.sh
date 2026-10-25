@@ -5,13 +5,13 @@
 #   ./start_backend.sh                       # 原 repo backend
 #   E2E_BACKEND_DIR=/path/to/worktree/backend ./start_backend.sh   # §E 修復 worktree
 #
-# - venv 一律共用主 repo 的 /Users/chun/Desktop/GU_0410/backend/venv
+# - venv 預設用受測 backend 自己的 venv（E2E_VENV 可覆寫）
 # - cwd 切到受測 backend 目錄：pydantic-settings 由該處讀 .env（含 OPENAI_API_KEY）
 # - local.env 覆寫本機 DB/Redis/REDIS_KEY_PREFIX（見 README）
 set -e
 E2E_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND="${E2E_BACKEND_DIR:-$(cd "$E2E_DIR/../../backend" && pwd)}"
-# venv 預設用受測 backend 自己的（舊機器上是 /Users/chun/Desktop/GU_0410/backend/venv）
+# venv 預設用受測 backend 自己的（<repo>/backend/venv）
 VENV="${E2E_VENV:-$BACKEND/venv}"
 PORT="${E2E_PORT:-8000}"
 

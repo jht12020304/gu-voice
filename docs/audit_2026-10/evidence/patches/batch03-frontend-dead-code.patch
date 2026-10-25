@@ -1,0 +1,1401 @@
+diff --git a/frontend/package.json b/frontend/package.json
+index d116609..68ea37f 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -33,10 +33,10 @@
+     "react-hot-toast": "^2.5.1",
+     "react-i18next": "^17.0.2",
+     "react-router-dom": "^6.28.0",
+-    "uuid": "^13.0.0",
+     "zustand": "^5.0.2"
+   },
+   "devDependencies": {
++    "@eslint/js": "^9.39.4",
+     "@playwright/test": "^1.48.0",
+     "@types/node": "^26.1.1",
+     "@types/react": "^18.3.14",
+diff --git a/frontend/scripts/verify/smoothness-browser.mjs b/frontend/scripts/verify/smoothness-browser.mjs
+deleted file mode 100644
+index 540068e..0000000
+--- a/frontend/scripts/verify/smoothness-browser.mjs
++++ /dev/null
+@@ -1,151 +0,0 @@
+-import { chromium, webkit } from 'playwright';
+-import { writeFile } from 'node:fs/promises';
+-import assert from 'node:assert/strict';
+-// Run against npm run build + vite preview (no mock mode). All backend traffic is intercepted.
+-const origin=process.env.SMOOTHNESS_ORIGIN || 'http://127.0.0.1:4317';
+-const engine=process.env.SMOOTHNESS_BROWSER || 'chromium';
+-assert(['chromium','webkit'].includes(engine));
+-const browser=await (engine==='webkit' ? webkit.launch({headless:true}) : chromium.launch({channel:'chrome',headless:true}));
+-const output={environment:{engine,browser:browser.version(),build:'production',backend:'intercepted synthetic data only'},cases:[]};
+-const pause=ms=>new Promise(r=>setTimeout(r,ms));
+-const pagination={has_more:false,next_cursor:null,total_count:20};
+-const timestamp='2026-10-03T01:00:00Z';
+-function session(id){return {id,patient_id:'p-'+id,patient_name:'AUDIT patient '+id,chief_complaint_text:'Synthetic test',status:'completed',red_flag:false,language:'zh-TW',created_at:timestamp,updated_at:timestamp};}
+-const report=(i)=>({id:'r'+i,session_id:'s'+i,status:'generated',review_status:'pending',summary:'Synthetic audit report',patient_name:'Already included '+i,chief_complaint_text:'Already included',session_status:'completed',red_flag:false,generated_at:timestamp,created_at:timestamp,updated_at:timestamp});
+-async function setup({authFailure=false,delayRead=0,delayPatients=0,offline=false,viewport={width:1280,height:800}}={}){
+- const context=await browser.newContext({locale:'zh-TW',viewport});
+- await context.addInitScript(()=>{localStorage.setItem('access_token','audit-fake-access');localStorage.setItem('refresh_token','audit-fake-refresh');localStorage.setItem('urosense:lng','zh-TW');});
+- let version=0;
+- const page=await context.newPage();const api=[],assets=[],errors=[],sockets=[];
+- if(offline)await page.clock.install();
+- page.on('pageerror',e=>errors.push(e.message));
+- page.on('response',r=>{const p=new URL(r.url()).pathname;if(p.startsWith('/locales/'))assets.push({path:p,status:r.status()});});
+- await page.routeWebSocket('**/*',socket=>{sockets.push(socket);if(offline)socket.close({code:1011,reason:'synthetic outage'});else socket.onMessage(()=>{});});
+- await page.route('**/*',async route=>{
+-  const url=new URL(route.request().url()),p=url.pathname;
+-  if(p.includes('/api/v1/')){
+-   const path=p.split('/api/v1')[1];api.push({path,search:url.search,method:route.request().method(),time:Date.now()});
+-   let data={},status=200;
+-   if(path==='/auth/me'){if(authFailure){status=503;data={detail:'synthetic temporary outage'};}else data={id:'audit-doctor',name:'AUDIT doctor',email:'audit@example.invalid',role:'doctor',is_active:true};}
+-   else if(path==='/reports')data={data:Array.from({length:20},(_,i)=>({...report(i),patient_name:'Already included '+i+(version?' updated':'')})),review_counts:{pending:120,approved:30},pagination:{...pagination,total_count:150}};
+-   else if(path.startsWith('/reports/'))data=report(0);
+-   else if(path==='/sessions')data={data:[session('s0')],pagination:{...pagination,total_count:1}};
+-   else if(/^\/sessions\/[^/]+$/.test(path))data=session(path.split('/').at(-1));
+-   else if(path.endsWith('/conversations'))data={data:[],pagination};
+-   else if(path==='/notifications')data={data:[{id:'n1',type:'session_complete',title:'AUDIT notification'+(version?' updated':''),is_read:false,data:{session_id:'s0'},created_at:timestamp}],unread_count:version?2:1,pagination:{...pagination,total_count:1}};
+-   else if(path==='/notifications/n1/read'){await pause(delayRead);data={id:'n1',is_read:true,read_at:timestamp};}
+-   else if(path.endsWith('count'))data={count:1+version};
+-   else if(path.includes('/alerts'))data={data:[],pagination};
+-   else if(path==='/dashboard/monthly-summary')data={month:'2026-10',month_label:'2026年10月',total_sessions:1,total_red_flag_alerts:0,chief_complaint_distribution:[],language_distribution:[],status_distribution:[],daily_trend:[]};
+-   else data={data:[],pagination};
+-   try{await route.fulfill({status,json:data});}catch{}return;
+-  }
+-  if(url.origin!==origin){await route.abort();return;}
+-  if(p.includes('/assets/PatientListPage-'))await pause(delayPatients);
+-  await route.continue();
+- });
+- return {context,page,api,assets,errors,sockets,setVersion:v=>{version=v;}};
+-}
+-try{
+- const a=await setup({delayRead:1200,delayPatients:1000});
+- let started=Date.now();await a.page.goto(origin+'/zh-TW/reports');
+- await a.page.locator('aside').waitFor({state:'visible',timeout:20000});
+- await a.page.getByText('Already included 0',{exact:true}).waitFor({timeout:20000});
+- await pause(150);
+- const listCalls=a.api.filter(x=>x.path==='/reports'||/^\/sessions\/[^/]+$/.test(x.path));
+- output.cases.push({name:'report-list',ready_ms:Date.now()-started,report_requests:listCalls.filter(x=>x.path==='/reports').map(x=>x.search),session_requests:listCalls.filter(x=>x.path.startsWith('/sessions/')).length,total:listCalls.length,locale_requests:a.assets,errors:a.errors.slice()});
+- assert.equal(listCalls.filter(x=>x.path.startsWith('/sessions/')).length,0);
+- assert.equal(listCalls.length,1);
+- assert(a.assets.every(x=>!/^\/locales\/(zh|en|ja|ko|vi)\//.test(x.path)));
+- await a.page.getByText('150',{exact:true}).waitFor();
+- await a.page.locator('a[href="/zh-TW/patients"]').click();
+- await pause(250);
+- output.cases.push({name:'lazy-route-shell',injected_chunk_delay_ms:1000,at_250ms:{sidebar_visible:await a.page.locator('aside').isVisible(),header_visible:await a.page.locator('header').isVisible(),spinner_count:await a.page.locator('.animate-spin').count()}});
+- assert.equal(await a.page.locator('aside').isVisible(),true);
+- assert.equal(await a.page.locator('header').isVisible(),true);
+- await pause(1000);
+- // Navigate with the persistent header bell after the research chunk has settled.
+- await a.page.locator('header button[aria-label]').evaluateAll(nodes=>nodes.map(n=>({label:n.getAttribute('aria-label')}))).then(labels=>output.header_labels=labels);
+- await a.page.getByRole('button',{name:'通知',exact:true}).click();
+- await a.page.getByText('AUDIT notification',{exact:true}).waitFor();
+- await a.page.evaluate(()=>{window.__navStarted=performance.now();window.__navElapsed=null;const push=history.pushState.bind(history);history.pushState=(...args)=>{push(...args);if(String(args[2]).includes('/sessions/s0'))window.__navElapsed=performance.now()-window.__navStarted;};});
+- started=Date.now();await a.page.getByText('AUDIT notification',{exact:true}).click();
+- await pause(250);
+- const at250={path:new URL(a.page.url()).pathname,loading_spinners:await a.page.locator('.animate-spin').count()};
+- assert.equal(at250.path,'/zh-TW/sessions/s0');
+- await a.page.waitForURL('**/sessions/s0',{timeout:5000});
+- output.cases.push({name:'notification-click',injected_mark_read_delay_ms:1200,at_250ms:at250,navigation_ms:await a.page.evaluate(()=>window.__navElapsed)});
+- await a.context.close();
+- const live=await setup();await live.page.goto(origin+'/zh-TW/notifications');
+- await live.page.getByText('AUDIT notification',{exact:true}).waitFor();await pause(200);
+- let countBefore=live.api.filter(x=>x.path==='/notifications').length;
+- live.setVersion(1);
+- for(const type of ['report_generated','stats_updated','session_status_changed'])live.sockets[0].send(JSON.stringify({type,payload:{},timestamp}));
+- await live.page.getByText('AUDIT notification updated',{exact:true}).waitFor({timeout:2000});
+- assert.equal(live.api.filter(x=>x.path==='/notifications').length-countBefore,1);
+- await live.page.locator('a[href="/zh-TW/reports"]').click();
+- await live.page.getByText('Already included 0 updated',{exact:true}).waitFor();
+- assert.equal(live.sockets.length,1,'Route change must retain the dashboard connection');
+- live.setVersion(0);countBefore=live.api.filter(x=>x.path==='/reports').length;
+- live.sockets[0].send(JSON.stringify({type:'report_generated',payload:{},timestamp}));
+- await live.page.getByText('Already included 0',{exact:true}).waitFor({timeout:2000});
+- assert.equal(live.api.filter(x=>x.path==='/reports').length-countBefore,1);
+- assert.deepEqual(live.errors,[]);output.cases.push({name:'live-notifications-and-reports',passed:true,sockets:live.sockets.length});
+- await live.context.close();
+- const b=await setup({authFailure:true});
+- await b.page.goto(origin+'/zh-TW/notifications');
+- await b.page.getByRole('button').filter({hasText:'重試'}).waitFor({timeout:20000});
+- assert.equal(new URL(b.page.url()).pathname,'/zh-TW/notifications');
+- assert(await b.page.evaluate(()=>!!localStorage.getItem('access_token')&&!!localStorage.getItem('refresh_token')));
+- output.cases.push({name:'bootstrap-503',path:new URL(b.page.url()).pathname,tokens:await b.page.evaluate(()=>({access_present:!!localStorage.getItem('access_token'),refresh_present:!!localStorage.getItem('refresh_token')})),requests:b.api.map(x=>({path:x.path,status:x.path==='/auth/me'?503:200}))});
+- await b.context.close();
+- const c=await setup();await c.page.goto(origin+'/zh-TW/sessions');
+- await c.page.getByText('AUDIT patient s0',{exact:true}).waitFor({timeout:20000});
+- const before=c.api.filter(x=>x.path==='/sessions').length;
+- assert(c.sockets.length>0);
+- for(const type of ['session_created','session_status_changed','queue_updated'])c.sockets.at(-1).send(JSON.stringify({type,payload:{sessionId:'s0',status:'in_progress'},timestamp}));
+- await pause(250);
+- output.cases.push({name:'ws-event-burst',events:3,additional_list_requests:c.api.filter(x=>x.path==='/sessions').length-before});
+- assert.equal(c.api.filter(x=>x.path==='/sessions').length-before,1);
+- assert.equal(c.sockets.length,1);
+- assert.deepEqual(c.errors,[]);
+- await c.context.close();
+- const d=await setup({offline:true});await d.page.goto(origin+'/zh-TW/notifications');
+- await d.page.getByText('AUDIT notification',{exact:true}).waitFor();await pause(250);
+- d.setVersion(1);await d.page.clock.fastForward(20500);
+- await d.page.getByRole('status').filter({hasText:'紅旗'}).waitFor({timeout:3000});
+- assert.deepEqual(d.errors,[]);output.cases.push({name:'disconnected-poll-alert',passed:true});
+- await d.context.close();
+- // Mobile layout must leave room for content and retain keyboard-accessible navigation.
+- for(const width of [320,390]){
+-  const m=await setup({viewport:{width,height:844}});
+-  await m.page.goto(origin+'/zh-TW/reports');
+-  await m.page.getByText('Already included 0',{exact:true}).waitFor();
+-  const checkLayout=async()=>{
+-   const layout=await m.page.locator('main').evaluate(e=>({left:e.getBoundingClientRect().left,outer:e.getBoundingClientRect().width,width:e.clientWidth,scroll:e.scrollWidth,viewport:innerWidth,document:document.documentElement.scrollWidth,header:document.querySelector('header').getBoundingClientRect().height}));
+-   assert.equal(layout.left,0);assert.equal(layout.outer,width);
+-   assert(layout.scroll<=layout.width+1,JSON.stringify(layout));
+-   assert.equal(layout.document,layout.viewport);assert.equal(layout.header,56);
+-  };
+-  await checkLayout();
+-  assert.equal(await m.page.locator('aside').isVisible(),false);
+-  const toggle=m.page.getByRole('button',{name:'導覽選單',exact:true});
+-  await toggle.focus();await toggle.press('Enter');
+-  const dialog=m.page.getByRole('dialog',{name:'導覽選單'});
+-  await dialog.waitFor();
+-  await m.page.keyboard.press('Shift+Tab');
+-  assert(await dialog.evaluate(e=>e.contains(document.activeElement)));
+-  await m.page.keyboard.press('Escape');
+-  await dialog.waitFor({state:'hidden'});
+-  assert(await toggle.evaluate(e=>e===document.activeElement));
+-  await toggle.click();
+-  await dialog.locator('a[href="/zh-TW/sessions"]').click();
+-  await m.page.getByText('AUDIT patient s0',{exact:true}).waitFor();
+-  assert.equal(await dialog.count(),0);await checkLayout();
+-  await m.page.goto(origin+'/zh-TW/patient');
+-  await m.page.locator('header').waitFor();await checkLayout();
+-  assert.deepEqual(m.errors,[]);
+-  output.cases.push({name:'mobile-navigation',width,passed:true});
+-  await m.context.close();
+- }
+-} catch(e){output.failure=e.stack;process.exitCode=1;} finally{await writeFile(process.env.SMOOTHNESS_OUTPUT || '/tmp/gu-smoothness-acceptance.json',JSON.stringify(output,null,2));console.log(JSON.stringify(output,null,2));await browser.close();}
+diff --git a/frontend/scripts/verify/smoothness-performance.mjs b/frontend/scripts/verify/smoothness-performance.mjs
+deleted file mode 100644
+index 38c8968..0000000
+--- a/frontend/scripts/verify/smoothness-performance.mjs
++++ /dev/null
+@@ -1,95 +0,0 @@
+-import { chromium } from 'playwright';
+-import { writeFile } from 'node:fs/promises';
+-import assert from 'node:assert/strict';
+-// Run against npm run build + vite preview (no mock mode). All backend traffic is intercepted.
+-const origin=process.env.SMOOTHNESS_ORIGIN || 'http://127.0.0.1:4317';
+-const browser=await chromium.launch({channel:'chrome',headless:true,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});
+-const output={environment:{browser:browser.version(),build:'production',backend:'intercepted synthetic data only'},cases:[]};
+-const pause=ms=>new Promise(r=>setTimeout(r,ms));
+-const pagination={has_more:false,next_cursor:null,total_count:20};
+-const timestamp='2026-10-03T01:00:00Z';
+-function session(id){return {id,patient_id:'p-'+id,patient_name:'AUDIT patient '+id,chief_complaint_text:'Synthetic test',status:'completed',red_flag:false,language:'zh-TW',created_at:timestamp,updated_at:timestamp};}
+-const report=(i)=>({id:'r'+i,session_id:'s'+i,status:'generated',review_status:'pending',summary:'Synthetic audit report',patient_name:'Already included '+i,chief_complaint_text:'Already included',session_status:'completed',red_flag:false,generated_at:timestamp,created_at:timestamp,updated_at:timestamp});
+-async function setup({authFailure=false,delayRead=0,delayPatients=0,activeSession=false,transcriptRows=40,listRows=20}={}){
+- const context=await browser.newContext({permissions:['microphone'],locale:'zh-TW',viewport:{width:1280,height:800}});
+- await context.addInitScript(()=>{localStorage.setItem('access_token','audit-fake-access');localStorage.setItem('refresh_token','audit-fake-refresh');localStorage.setItem('urosense:lng','zh-TW');});
+- await context.addInitScript(()=>{
+-  window.__smoothness={commits:0,bubbleUpdates:0,microphone:false,longTasks:[]};
+-  const lastBubbleProps = new Map();
+-  window.__REACT_DEVTOOLS_GLOBAL_HOOK__={supportsFiber:true,inject:()=>1,onCommitFiberRoot:(_id,root)=>{
+-   window.__smoothness.commits++;
+-   const visit=f=>{if(!f)return;if(f.memoizedProps?.message?.id){const id=f.memoizedProps.message.id;if(lastBubbleProps.get(id)!==f.memoizedProps)window.__smoothness.bubbleUpdates++;lastBubbleProps.set(id,f.memoizedProps);}visit(f.child);visit(f.sibling);};visit(root.current);
+-  },onCommitFiberUnmount:()=>{}};
+-  new PerformanceObserver(list=>{for(const e of list.getEntries())window.__smoothness.longTasks.push(e.duration);}).observe({type:'longtask',buffered:true});
+-  const original=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+-  navigator.mediaDevices.getUserMedia=async options=>{const result=await original(options);window.__smoothness.microphone=true;return result;};
+- });
+- const page=await context.newPage();const api=[],assets=[],errors=[],sockets=[];
+- page.on('pageerror',e=>errors.push(e.message));
+- page.on('response',r=>{const p=new URL(r.url()).pathname;if(p.startsWith('/locales/'))assets.push({path:p,status:r.status()});});
+- await page.routeWebSocket('**/*',socket=>{sockets.push(socket);socket.onMessage(()=>{});});
+- await page.route('**/*',async route=>{
+-  const url=new URL(route.request().url()),p=url.pathname;
+-  if(p.includes('/api/v1/')){
+-   const path=p.split('/api/v1')[1];api.push({path,search:url.search,method:route.request().method(),time:Date.now()});
+-   let data={},status=200;
+-   if(path==='/auth/me'){if(authFailure){status=503;data={detail:'synthetic temporary outage'};}else data={id:'audit-doctor',name:'AUDIT doctor',email:'audit@example.invalid',role:'doctor',is_active:true};}
+-   else if(path==='/reports')data={data:Array.from({length:listRows},(_,i)=>report(i)),review_counts:{pending:120,approved:30},pagination:{...pagination,total_count:150}};
+-   else if(path.startsWith('/reports/'))data=report(0);
+-   else if(path==='/sessions')data={data:[session('s0')],pagination:{...pagination,total_count:1}};
+-   else if(/^\/sessions\/[^/]+$/.test(path))data={...session(path.split('/').at(-1)),status:activeSession?'in_progress':'completed'};
+-   else if(path.endsWith('/conversations'))data={data:Array.from({length:transcriptRows},(_,i)=>({id:'c'+i,session_id:'s0',role:i%2?'patient':'assistant',content_text:'Audit transcript '+i,sequence_number:i,created_at:timestamp})),pagination};
+-   else if(path==='/notifications')data={data:Array.from({length:listRows},(_,i)=>({id:'n'+i,type:'system',title:'AUDIT notification '+i,is_read:false,data:{},created_at:timestamp})),unread_count:1,pagination:{...pagination,total_count:1}};
+-   else if(path==='/notifications/n1/read'){await pause(delayRead);data={id:'n1',is_read:true,read_at:timestamp};}
+-   else if(path.endsWith('count'))data={count:1};
+-   else if(path.includes('/alerts'))data={data:[],pagination};
+-   else if(path==='/dashboard/monthly-summary')data={month:'2026-10',month_label:'2026年10月',total_sessions:1,total_red_flag_alerts:0,chief_complaint_distribution:[],language_distribution:[],status_distribution:[],daily_trend:[]};
+-   else data={data:[],pagination};
+-   try{await route.fulfill({status,json:data});}catch{}return;
+-  }
+-  if(url.origin!==origin){await route.abort();return;}
+-  if(p.includes('/assets/PatientListPage-'))await pause(delayPatients);
+-  await route.continue();
+- });
+- return {context,page,api,assets,errors,sockets};
+-}
+-try {
+- for(const transcriptRows of [40,200]) {
+-  const a=await setup({activeSession:true,transcriptRows});
+-  await a.page.goto(origin+'/zh-TW/conversation/s0');
+-  await a.page.getByText('Audit transcript '+(transcriptRows-1),{exact:true}).waitFor();
+-  await a.page.waitForFunction(()=>window.__smoothness.microphone);
+-  await pause(500);
+-  const initial=await a.page.evaluate(()=>({...window.__smoothness,longTasks:window.__smoothness.longTasks.length,time:performance.now()}));
+-  await pause(3000);
+-  const end=await a.page.evaluate(()=>({...window.__smoothness,time:performance.now()}));
+-  const result={name:'voice',transcriptRows,sample_ms:end.time-initial.time,root_commits:end.commits-initial.commits,bubble_updates:end.bubbleUpdates-initial.bubbleUpdates,long_tasks_ms:end.longTasks.slice(initial.longTasks)};
+-  output.cases.push(result);
+-  assert(result.bubble_updates<=transcriptRows*2,'Waveform must not repeatedly rebuild transcript');
+-  assert.deepEqual(a.errors,[]);await a.context.close();
+- }
+- for(const path of ['reports','notifications']) for(const listRows of [100,1000]) {
+-  const a=await setup({listRows});let started=Date.now();
+-  await a.page.goto(origin+'/zh-TW/'+path);
+-  await a.page.locator('button.card').last().waitFor({state:'attached'});
+-  await a.page.waitForFunction(n=>document.querySelectorAll('button.card').length===n,listRows);
+-  const ready=Date.now()-started;
+-  await pause(300);
+-  const initial=await a.page.evaluate(()=>({longTasks:window.__smoothness.longTasks.length,dom:document.querySelectorAll('*').length}));
+-  started=Date.now();
+-  if(path==='reports')await a.page.locator('input[type="text"]').fill('999');
+-  else await a.page.locator('button.card').first().click();
+-  await a.page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+-  const interaction=Date.now()-started;
+-  const longTasks=await a.page.evaluate(n=>window.__smoothness.longTasks.slice(n),initial.longTasks);
+-  output.cases.push({name:path,listRows,ready_ms:ready,dom_nodes:initial.dom,interaction_ms:interaction,long_tasks_ms:longTasks});
+-  assert(interaction<200, 'Loaded list interaction exceeded 200ms on this host');
+-  if(path==='notifications' && listRows===1000){
+-    await a.page.locator('button.card').last().focus();
+-    await a.page.keyboard.press('Tab');await a.page.keyboard.press('Shift+Tab');
+-    assert(await a.page.locator('button.card').last().evaluate(n=>n===document.activeElement),'Offscreen rows must remain keyboard-accessible');
+-  }
+-  assert.deepEqual(a.errors,[]);await a.context.close();
+- }
+-} catch(error) {output.failure=error.stack;process.exitCode=1;}
+-finally {await writeFile(process.env.SMOOTHNESS_OUTPUT || '/tmp/gu-smoothness-performance.json',JSON.stringify(output,null,2));console.log(JSON.stringify(output,null,2));await browser.close();}
+diff --git a/frontend/scripts/verify/smoothness-state.test.mjs b/frontend/scripts/verify/smoothness-state.test.mjs
+deleted file mode 100644
+index f647f7c..0000000
+--- a/frontend/scripts/verify/smoothness-state.test.mjs
++++ /dev/null
+@@ -1,75 +0,0 @@
+-import assert from 'node:assert/strict';
+-import axios from 'axios';
+-const values = new Map();
+-globalThis.localStorage = {getItem: k => values.get(k) ?? null, setItem: (k,v) => values.set(k,String(v)), removeItem: k => values.delete(k), clear: () => values.clear()};
+-globalThis.window = {location:{pathname:'/zh-TW/notifications',href:''}};
+-globalThis.document = {cookie:''};
+-globalThis.__IMPORT_META_ENV__ = {VITE_API_BASE_URL:'http://api.test/api/v1'};
+-const {default: client, invalidateAuthSession, refreshAccessToken} = await import('../../src/services/api/client.ts');
+-const {useAuthStore: auth} = await import('../../src/stores/authStore.ts');
+-const {useReportStore: reports} = await import('../../src/stores/reportStore.ts');
+-const {useAlertStore: alerts} = await import('../../src/stores/alertStore.ts');
+-const {useNotificationStore: notifications} = await import('../../src/stores/notificationStore.ts');
+-const {coalesceRefresh} = await import('../../src/utils/coalesceRefresh.ts');
+-const pause = ms => new Promise(resolve => setTimeout(resolve,ms));
+-const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => {resolve=a;reject=b;});return {promise,resolve,reject}; };
+-let handle;
+-const adapter = async config => {
+-  const response = {data:null,status:200,statusText:'OK',headers:{},config};
+-  try { response.data = await handle(config); return response; }
+-  catch(error) { error.config=config; if(error.status)error.response={...response,status:error.status};throw error; }
+-};
+-client.defaults.adapter=adapter; axios.defaults.adapter=adapter;
+-const page = (id, extras={}) => ({data:[{id}],pagination:{has_more:false,next_cursor:null,total_count:1},...extras});
+-function reset(id='a') {
+-  invalidateAuthSession(); values.clear(); values.set('access_token','access-'+id);values.set('refresh_token','refresh-'+id);
+-  auth.setState({...auth.getInitialState(),user:{id,role:'doctor'},isAuthenticated:true,isLoading:false});
+-}
+-for(const status of [503,undefined]) {
+-  reset('transient-'+status);
+-  handle=async()=>{throw Object.assign(new Error('temporary outage'),{status});};
+-  await auth.getState().hydrateFromStorage();
+-  assert(auth.getState().recoveryRequired);assert(values.has('access_token'));assert(values.has('refresh_token'));
+-  handle=async()=>({id:'restored',role:'doctor'});
+-  await auth.getState().hydrateFromStorage();
+-  assert(!auth.getState().recoveryRequired);assert.equal(auth.getState().user.id,'restored');
+-}
+-reset('invalid');
+-handle=async()=>{throw Object.assign(new Error('unauthorized'),{status:401});};
+-await auth.getState().hydrateFromStorage();
+-assert(!values.has('access_token'));assert(!values.has('refresh_token'));assert.equal(window.location.href,'/zh-TW/login');
+-
+-reset('old');const old = deferred();handle=()=>old.promise;
+-const hydrating=auth.getState().hydrateFromStorage();await pause(0);
+-reset('new');old.reject(Object.assign(new Error('old unauthorized'),{status:401}));await hydrating;
+-assert.equal(auth.getState().user.id,'new');assert.equal(values.get('access_token'),'access-new');
+-
+-reset('refresh');let calls=0;const gate=deferred();
+-handle=async()=>{calls++;await gate.promise;return {access_token:'rotated',refresh_token:'rotated-refresh'};};
+-const refreshing=[refreshAccessToken(),refreshAccessToken(),refreshAccessToken()];await pause(0);assert.equal(calls,1);
+-gate.resolve();await Promise.all(refreshing);assert.equal(values.get('access_token'),'rotated');
+-
+-for(const [store,action] of [[reports,'fetchReports'],[alerts,'fetchAlerts']]) {
+-  for(const staleFailure of [false,true]) {
+-    reset('list-'+action+staleFailure);const oldList=deferred(),freshList=deferred();let call=0;
+-    handle=()=>++call===1?oldList.promise:freshList.promise;
+-    const a=store.getState()[action]();await pause(0);const b=store.getState()[action]();await pause(0);
+-    freshList.resolve(page('fresh'));await b;
+-    staleFailure ? oldList.reject(new Error('late failure')) : oldList.resolve(page('stale'));
+-    await a;assert.equal((store.getState().reports ?? store.getState().alerts)[0].id,'fresh');assert.equal(store.getState().error,null);
+-  }
+-}
+-reset('read');notifications.setState({notifications:[{id:'n',isRead:false}],unreadCount:1});
+-const read=deferred();handle=config=>config.url.endsWith('/read')?read.promise:config.url.endsWith('count')?{count:0}:page('n',{data:[{id:'n',is_read:false}],unread_count:1});
+-const reading=notifications.getState().markRead('n');assert(notifications.getState().notifications[0].isRead);
+-await notifications.getState().fetchNotifications(false);assert(notifications.getState().notifications[0].isRead);assert.equal(notifications.getState().unreadCount,0);
+-read.resolve({id:'n',is_read:true});await reading;await pause(0);assert.equal(notifications.getState().unreadCount,0);
+-reset('read-fail');notifications.setState({notifications:[{id:'n',isRead:false}],unreadCount:1});
+-handle=config=>{if(config.url.endsWith('/read'))throw new Error('offline');return config.url.endsWith('count')?{count:1}:page('n',{data:[{id:'n',is_read:false}],unread_count:1});};
+-await notifications.getState().markRead('n');await pause(0);assert(!notifications.getState().notifications[0].isRead);assert.equal(notifications.getState().unreadCount,1);assert(notifications.getState().error);
+-
+-let refreshes=0;const inFlight=deferred();const refresh=coalesceRefresh(async()=>{if(++refreshes===1)await inFlight.promise;},1);
+-refresh.schedule();refresh.schedule();refresh.schedule();await pause(10);assert.equal(refreshes,1);
+-refresh.schedule();refresh.schedule();inFlight.resolve();await pause(10);assert.equal(refreshes,2);
+-refresh.schedule();refresh.dispose();await pause(10);assert.equal(refreshes,2);
+-console.log('PASS: transient auth, retry, rejected credentials, account isolation, refresh single flight, reverse replies, optimistic read rollback, event coalescing');
+diff --git a/frontend/src/components/common/ThemeToggle.tsx b/frontend/src/components/common/ThemeToggle.tsx
+deleted file mode 100644
+index a988fb7..0000000
+--- a/frontend/src/components/common/ThemeToggle.tsx
++++ /dev/null
+@@ -1,29 +0,0 @@
+-// =============================================================================
+-// 暗色模式切換按鈕（Header / PatientLayout 共用）
+-// =============================================================================
+-
+-import { useTranslation } from 'react-i18next';
+-import { useSettingsStore } from '../../stores/settingsStore';
+-
+-export default function ThemeToggle() {
+-  const { t } = useTranslation('common');
+-  const { theme, setTheme } = useSettingsStore();
+-
+-  return (
+-    <button
+-      className="btn-ghost h-11 min-w-11 p-2"
+-      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+-      aria-label={theme === 'dark' ? t('header.themeToLight') : t('header.themeToDark')}
+-    >
+-      {theme === 'dark' ? (
+-        <svg className="h-5 w-5 text-ink-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+-        </svg>
+-      ) : (
+-        <svg className="h-5 w-5 text-ink-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+-          <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+-        </svg>
+-      )}
+-    </button>
+-  );
+-}
+diff --git a/frontend/src/hooks/useClickOutside.ts b/frontend/src/hooks/useClickOutside.ts
+deleted file mode 100644
+index 6adf1b9..0000000
+--- a/frontend/src/hooks/useClickOutside.ts
++++ /dev/null
+@@ -1,17 +0,0 @@
+-// =============================================================================
+-// 點擊元素外部時呼叫 callback（下拉選單收合用）
+-// =============================================================================
+-
+-import { useEffect, type RefObject } from 'react';
+-
+-export function useClickOutside(ref: RefObject<HTMLElement>, onOutside: () => void): void {
+-  useEffect(() => {
+-    function handleClick(e: MouseEvent) {
+-      if (ref.current && !ref.current.contains(e.target as Node)) {
+-        onOutside();
+-      }
+-    }
+-    document.addEventListener('mousedown', handleClick);
+-    return () => document.removeEventListener('mousedown', handleClick);
+-  }, [ref, onOutside]);
+-}
+diff --git a/frontend/src/hooks/useInfiniteScroll.ts b/frontend/src/hooks/useInfiniteScroll.ts
+deleted file mode 100644
+index 80af0b2..0000000
+--- a/frontend/src/hooks/useInfiniteScroll.ts
++++ /dev/null
+@@ -1,32 +0,0 @@
+-// =============================================================================
+-// 無限捲動 — sentinel 進入視窗且仍有下一頁時呼叫 onMore
+-// =============================================================================
+-
+-import { useEffect, type RefObject } from 'react';
+-
+-interface UseInfiniteScrollOptions {
+-  hasMore: boolean;
+-  isLoading: boolean;
+-  /** 需為穩定參照（store action 或 useCallback），否則每次 render 都會重建 observer。 */
+-  onMore: () => void;
+-}
+-
+-export function useInfiniteScroll(
+-  sentinelRef: RefObject<HTMLElement>,
+-  { hasMore, isLoading, onMore }: UseInfiniteScrollOptions,
+-): void {
+-  useEffect(() => {
+-    const observer = new IntersectionObserver(
+-      (entries) => {
+-        if (entries[0].isIntersecting && hasMore && !isLoading) {
+-          onMore();
+-        }
+-      },
+-      { threshold: 0.1 },
+-    );
+-
+-    if (sentinelRef.current) observer.observe(sentinelRef.current);
+-
+-    return () => observer.disconnect();
+-  }, [sentinelRef, hasMore, isLoading, onMore]);
+-}
+diff --git a/frontend/src/i18n/index.ts b/frontend/src/i18n/index.ts
+index 5ec4435..353c5f5 100644
+--- a/frontend/src/i18n/index.ts
++++ b/frontend/src/i18n/index.ts
+@@ -23,9 +23,6 @@ export const defaultNS = 'common';
+ export const SUPPORTED_LANGUAGES = ['zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'vi-VN'] as const;
+ export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
+ 
+-// 標示哪些 locale 是 beta（UI 用於加 "(beta)" 標籤）；上線 active 清單由後端 API 權威。
+-export const BETA_LANGUAGES: readonly SupportedLanguage[] = ['ja-JP', 'ko-KR', 'vi-VN'];
+-
+ // 所有頁面 / 元件可能會 useTranslation 的 namespace。未列出的會在首次
+ // 被引用時才以 loadNamespaces() 補抓；列在這裡會在 init 時預載。
+ // NOTE: 新增 namespace 時務必：
+diff --git a/frontend/src/screens/auth/ForgotPasswordPage.tsx b/frontend/src/screens/auth/ForgotPasswordPage.tsx
+index 8815125..0ee3cd4 100644
+--- a/frontend/src/screens/auth/ForgotPasswordPage.tsx
++++ b/frontend/src/screens/auth/ForgotPasswordPage.tsx
+@@ -18,7 +18,7 @@ export default function ForgotPasswordPage() {
+   const [delivery, setDelivery] = useState<'email' | 'onsite'>('onsite');
+   const [error, setError] = useState('');
+ 
+-  // 與 utils/validation.validateEmail 一致的格式檢查，回傳已 i18n 的訊息或 null。
++  // 基本 email 格式檢查，回傳已 i18n 的訊息或 null。
+   const validateEmailField = (value: string): string | null => {
+     if (!value) return t('auth:email.required', '請輸入電子郵件');
+     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+diff --git a/frontend/src/screens/auth/RegisterPage.tsx b/frontend/src/screens/auth/RegisterPage.tsx
+index 4e776ec..d83e654 100644
+--- a/frontend/src/screens/auth/RegisterPage.tsx
++++ b/frontend/src/screens/auth/RegisterPage.tsx
+@@ -25,7 +25,7 @@ export default function RegisterPage() {
+     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+   };
+ 
+-  // 與 ResetPasswordPage（utils/validation.validatePassword）一致的密碼強度規則：
++  // 與 ResetPasswordPage 一致的密碼強度規則：
+   // 至少 8 字元，且包含大寫、小寫與數字。回傳已 i18n 的錯誤訊息或 null。
+   const validatePasswordStrength = (password: string): string | null => {
+     if (!password) return t('auth:password.required', '請輸入密碼');
+diff --git a/frontend/src/screens/auth/ResetPasswordPage.tsx b/frontend/src/screens/auth/ResetPasswordPage.tsx
+index c563582..918fe05 100644
+--- a/frontend/src/screens/auth/ResetPasswordPage.tsx
++++ b/frontend/src/screens/auth/ResetPasswordPage.tsx
+@@ -22,7 +22,7 @@ export default function ResetPasswordPage() {
+   const [isDone, setIsDone] = useState(false);
+   const [error, setError] = useState('');
+ 
+-  // 與 utils/validation.validatePassword 一致的密碼強度規則：
++  // 與 RegisterPage 一致的密碼強度規則：
+   // 至少 8 字元，且包含大寫、小寫與數字。回傳已 i18n 的訊息或 null。
+   const validatePasswordStrength = (value: string): string | null => {
+     if (!value) return t('auth:password.required', '請輸入密碼');
+diff --git a/frontend/src/services/__tests__/wsStaleSocketClose.test.mts b/frontend/src/services/__tests__/wsStaleSocketClose.test.mts
+deleted file mode 100644
+index ce3cdf5..0000000
+--- a/frontend/src/services/__tests__/wsStaleSocketClose.test.mts
++++ /dev/null
+@@ -1,105 +0,0 @@
+-// =============================================================================
+-// 單元測試：WebSocketManager 舊 socket 延後補發的 onclose 不得干擾新 socket
+-//
+-// 瀏覽器的 onclose 是非同步補發的：disconnect()→connect()（StrictMode 重掛、sessionId
+-// 切換）或 CONNECTING 中按重試，舊 socket 的 onclose 可能在新 socket 建立之後才到。
+-// 修復前它會對新 socket clearTimers() + scheduleReconnect()，長出第二條活連線。
+-//
+-// 執行方式（無需 test runner）：
+-//   cd frontend && node --experimental-strip-types \
+-//     src/services/__tests__/wsStaleSocketClose.test.mts
+-// =============================================================================
+-
+-import assert from 'node:assert/strict';
+-
+-class FakeWebSocket {
+-  static readonly CONNECTING = 0;
+-  static readonly OPEN = 1;
+-  static readonly CLOSING = 2;
+-  static readonly CLOSED = 3;
+-  static instances: FakeWebSocket[] = [];
+-
+-  url: string;
+-  readyState: number = FakeWebSocket.CONNECTING;
+-  onopen: (() => void) | null = null;
+-  onmessage: ((event: { data: string }) => void) | null = null;
+-  onclose: ((event: { code: number; reason: string }) => void) | null = null;
+-  onerror: (() => void) | null = null;
+-
+-  constructor(url: string) {
+-    this.url = url;
+-    FakeWebSocket.instances.push(this);
+-  }
+-
+-  send(_data: string): void {}
+-
+-  /** 模擬瀏覽器：close() 後 onclose 要等下一個 macrotask 才補發。 */
+-  close(code = 1000, reason = ''): void {
+-    this.readyState = FakeWebSocket.CLOSED;
+-    setTimeout(() => this.onclose?.({ code, reason }), 0);
+-  }
+-
+-  open(): void {
+-    this.readyState = FakeWebSocket.OPEN;
+-    this.onopen?.();
+-  }
+-}
+-
+-(globalThis as Record<string, unknown>).WebSocket = FakeWebSocket;
+-
+-const { WebSocketManager } = await import('../websocket.ts');
+-
+-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+-
+-// 情境 A：disconnect() 後立刻 connect()（StrictMode 重掛 / sessionId 切換），
+-// 舊 socket 的 onclose 晚一步才到 → 不得排程重連、不得多開第三條連線。
+-{
+-  FakeWebSocket.instances.length = 0;
+-  let reconnecting = 0;
+-  const mgr = new WebSocketManager({ initialRetryDelay: 1, maxRetryDelay: 1 });
+-  mgr.on('_reconnecting', () => reconnecting++);
+-
+-  mgr.connect('ws://test/sessions/A/stream', 'token');
+-  mgr.disconnect();
+-  mgr.connect('ws://test/sessions/B/stream', 'token');
+-  assert.equal(FakeWebSocket.instances.length, 2);
+-  assert.equal(mgr.getConnectionState(), 'connecting');
+-
+-  await sleep(10); // 舊 socket 的 onclose 在這裡補發
+-
+-  assert.equal(reconnecting, 0, '舊 socket 的 onclose 不得觸發重連');
+-  assert.equal(FakeWebSocket.instances.length, 2, '不得長出第三條連線');
+-  assert.equal(mgr.getConnectionState(), 'connecting', '新 socket 狀態不得被舊 onclose 改寫');
+-
+-  FakeWebSocket.instances[1].open();
+-  assert.equal(mgr.isConnected, true);
+-  mgr.disconnect();
+-  console.log('情境 A（disconnect→connect 後舊 onclose 補發）：無第二條連線 — 通過');
+-}
+-
+-// 情境 B：CONNECTING 中按「重試」→ 舊 socket 被拆 handler 並關閉，其晚到的 onclose 同樣無效。
+-{
+-  FakeWebSocket.instances.length = 0;
+-  let reconnecting = 0;
+-  const mgr = new WebSocketManager({ initialRetryDelay: 1, maxRetryDelay: 1 });
+-  mgr.on('_reconnecting', () => reconnecting++);
+-
+-  mgr.connect('ws://test/sessions/C/stream', 'token');
+-  const stale = FakeWebSocket.instances[0];
+-  const staleClose = stale.onclose;
+-  mgr.retry();
+-  await sleep(10);
+-
+-  assert.equal(FakeWebSocket.instances.length, 2, 'retry 應建立恰好一條新連線');
+-  assert.equal(stale.readyState, FakeWebSocket.CLOSED, '舊 socket 應被關閉');
+-  assert.equal(stale.onclose, null, '舊 socket 的 handler 應被拆掉');
+-  staleClose?.({ code: 1006, reason: '' }); // 即使有人仍握著舊 handler
+-  await sleep(10);
+-  assert.equal(reconnecting, 0);
+-  assert.equal(FakeWebSocket.instances.length, 2);
+-
+-  mgr.disconnect();
+-  console.log('情境 B（CONNECTING 中 retry）：舊 socket 不再影響新 socket — 通過');
+-}
+-
+-console.log('wsStaleSocketClose.test.mts — all assertions passed');
+diff --git a/frontend/src/services/api/admin.ts b/frontend/src/services/api/admin.ts
+index 3bd70af..8195bc0 100644
+--- a/frontend/src/services/api/admin.ts
++++ b/frontend/src/services/api/admin.ts
+@@ -3,7 +3,7 @@
+ // =============================================================================
+ 
+ import apiClient from './client';
+-import type { User, PaginatedResponse, AuditLog, RedFlagRule } from '../../types';
++import type { User, PaginatedResponse, AuditLog } from '../../types';
+ import type {
+   UserCreateRequest,
+   UserUpdateRequest,
+@@ -12,7 +12,6 @@ import type {
+ } from '../../types/api';
+ 
+ const USERS_BASE = '/admin/users';
+-const RULES_BASE = '/alerts/rules';
+ const AUDIT_BASE = '/audit-logs';
+ 
+ // ---- 使用者管理 ----
+@@ -69,35 +68,6 @@ export async function resetUserPassword(id: string): Promise<ResetPasswordRespon
+   return data;
+ }
+ 
+-// ---- 紅旗規則管理 ----
+-
+-export async function getRedFlagRules(params?: {
+-  cursor?: string;
+-  limit?: number;
+-  category?: string;
+-  isActive?: boolean;
+-}): Promise<PaginatedResponse<RedFlagRule>> {
+-  const { data } = await apiClient.get<PaginatedResponse<RedFlagRule>>(RULES_BASE, { params });
+-  return data;
+-}
+-
+-export async function createRedFlagRule(payload: Partial<RedFlagRule>): Promise<RedFlagRule> {
+-  const { data } = await apiClient.post<RedFlagRule>(RULES_BASE, payload);
+-  return data;
+-}
+-
+-export async function updateRedFlagRule(
+-  id: string,
+-  payload: Partial<RedFlagRule>,
+-): Promise<RedFlagRule> {
+-  const { data } = await apiClient.put<RedFlagRule>(`${RULES_BASE}/${id}`, payload);
+-  return data;
+-}
+-
+-export async function deleteRedFlagRule(id: string): Promise<void> {
+-  await apiClient.delete(`${RULES_BASE}/${id}`);
+-}
+-
+ // ---- 稽核日誌 ----
+ 
+ export async function getAuditLogs(params?: AuditLogListParams): Promise<PaginatedResponse<AuditLog>> {
+diff --git a/frontend/src/services/api/complaints.ts b/frontend/src/services/api/complaints.ts
+index 1e8b845..cb46408 100644
+--- a/frontend/src/services/api/complaints.ts
++++ b/frontend/src/services/api/complaints.ts
+@@ -19,12 +19,6 @@ export async function getComplaints(params?: {
+   return data;
+ }
+ 
+-/** 取得單一主訴 */
+-export async function getComplaint(id: string): Promise<ChiefComplaint> {
+-  const { data } = await apiClient.get<ChiefComplaint>(`${BASE}/${id}`);
+-  return data;
+-}
+-
+ /** 新增主訴 */
+ export async function createComplaint(payload: ComplaintCreateRequest): Promise<ChiefComplaint> {
+   const { data } = await apiClient.post<ChiefComplaint>(BASE, payload);
+diff --git a/frontend/src/services/api/dashboard.ts b/frontend/src/services/api/dashboard.ts
+index 73f6574..561983f 100644
+--- a/frontend/src/services/api/dashboard.ts
++++ b/frontend/src/services/api/dashboard.ts
+@@ -3,28 +3,10 @@
+ // =============================================================================
+ 
+ import apiClient from './client';
+-import type {
+-  DashboardQueueResponse,
+-  DashboardStatsResponse,
+-  MonthlySummaryResponse,
+-  RecentAlertsResponse,
+-  RecentSessionsResponse,
+-} from '../../types/api';
++import type { MonthlySummaryResponse } from '../../types/api';
+ 
+ const BASE = '/dashboard';
+ 
+-/** 取得儀表板統計 */
+-export async function getDashboardStats(): Promise<DashboardStatsResponse> {
+-  const { data } = await apiClient.get<DashboardStatsResponse>(`${BASE}/stats`);
+-  return data;
+-}
+-
+-/** 取得病患排隊列表 */
+-export async function getDashboardQueue(): Promise<DashboardQueueResponse> {
+-  const { data } = await apiClient.get<DashboardQueueResponse>(`${BASE}/queue`);
+-  return data;
+-}
+-
+ /** 取得月份摘要 */
+ export async function getMonthlySummary(month?: string): Promise<MonthlySummaryResponse> {
+   const { data } = await apiClient.get<MonthlySummaryResponse>(`${BASE}/monthly-summary`, {
+@@ -32,15 +14,3 @@ export async function getMonthlySummary(month?: string): Promise<MonthlySummaryR
+   });
+   return data;
+ }
+-
+-/** 取得最近紅旗警示 */
+-export async function getRecentAlerts(): Promise<RecentAlertsResponse> {
+-  const { data } = await apiClient.get<RecentAlertsResponse>(`${BASE}/recent-alerts`);
+-  return data;
+-}
+-
+-/** 取得最近場次 */
+-export async function getRecentSessions(): Promise<RecentSessionsResponse> {
+-  const { data } = await apiClient.get<RecentSessionsResponse>(`${BASE}/recent-sessions`);
+-  return data;
+-}
+diff --git a/frontend/src/services/api/notifications.ts b/frontend/src/services/api/notifications.ts
+index 4c18109..a472d05 100644
+--- a/frontend/src/services/api/notifications.ts
++++ b/frontend/src/services/api/notifications.ts
+@@ -4,15 +4,7 @@
+ 
+ import apiClient from './client';
+ import type { Notification, PaginatedResponse } from '../../types';
+-import type {
+-  NotificationListParams,
+-  UnreadCountResponse,
+-  MarkReadResponse,
+-  NotificationPreference,
+-  NotificationPreferenceUpdate,
+-  FcmTokenCreateRequest,
+-  FcmTokenResponse,
+-} from '../../types/api';
++import type { NotificationListParams, UnreadCountResponse, MarkReadResponse } from '../../types/api';
+ 
+ const BASE = '/notifications';
+ 
+@@ -40,34 +32,3 @@ export async function getUnreadCount(): Promise<number> {
+   const { data } = await apiClient.get<UnreadCountResponse>(`${BASE}/unread-count`);
+   return data.count;
+ }
+-
+-// ---- 通知偏好（GDPR opt-out）----
+-
+-/** 取得通知偏好 */
+-export async function getNotificationPreferences(): Promise<NotificationPreference> {
+-  const { data } = await apiClient.get<NotificationPreference>(`${BASE}/preferences`);
+-  return data;
+-}
+-
+-/** 更新通知偏好（red_flag 為病安關鍵，後端恆為開） */
+-export async function updateNotificationPreferences(
+-  payload: NotificationPreferenceUpdate,
+-): Promise<NotificationPreference> {
+-  const { data } = await apiClient.put<NotificationPreference>(`${BASE}/preferences`, payload);
+-  return data;
+-}
+-
+-// ---- FCM 推播 Token ----
+-
+-/** 註冊或更新 FCM 裝置 Token */
+-export async function registerFcmToken(
+-  payload: FcmTokenCreateRequest,
+-): Promise<FcmTokenResponse> {
+-  const { data } = await apiClient.post<FcmTokenResponse>(`${BASE}/fcm-token`, payload);
+-  return data;
+-}
+-
+-/** 移除 FCM 裝置 Token（token 置於路徑） */
+-export async function deleteFcmToken(token: string): Promise<void> {
+-  await apiClient.delete(`${BASE}/fcm-token/${encodeURIComponent(token)}`);
+-}
+diff --git a/frontend/src/services/api/patients.ts b/frontend/src/services/api/patients.ts
+index ae82357..4a7170d 100644
+--- a/frontend/src/services/api/patients.ts
++++ b/frontend/src/services/api/patients.ts
+@@ -4,7 +4,7 @@
+ 
+ import apiClient from './client';
+ import type { Patient, PaginatedResponse, Session } from '../../types';
+-import type { PatientCreateRequest, PatientUpdateRequest, PatientListParams, SessionListParams } from '../../types/api';
++import type { PatientListParams, SessionListParams } from '../../types/api';
+ 
+ const BASE = '/patients';
+ 
+@@ -20,18 +20,6 @@ export async function getPatient(id: string): Promise<Patient> {
+   return data;
+ }
+ 
+-/** 新增病患 */
+-export async function createPatient(payload: PatientCreateRequest): Promise<Patient> {
+-  const { data } = await apiClient.post<Patient>(BASE, payload);
+-  return data;
+-}
+-
+-/** 更新病患 */
+-export async function updatePatient(id: string, payload: PatientUpdateRequest): Promise<Patient> {
+-  const { data } = await apiClient.put<Patient>(`${BASE}/${id}`, payload);
+-  return data;
+-}
+-
+ /** 刪除病患 */
+ export async function deletePatient(id: string): Promise<void> {
+   await apiClient.delete(`${BASE}/${id}`);
+diff --git a/frontend/src/services/sentry.ts b/frontend/src/services/sentry.ts
+index 88bf4cd..109c072 100644
+--- a/frontend/src/services/sentry.ts
++++ b/frontend/src/services/sentry.ts
+@@ -62,5 +62,3 @@ export function initSentry(): boolean {
+   return true;
+ }
+ 
+-// 供測試 import
+-export const _redact = redact;
+diff --git a/frontend/src/services/websocket.ts b/frontend/src/services/websocket.ts
+index 44b082d..ec435df 100644
+--- a/frontend/src/services/websocket.ts
++++ b/frontend/src/services/websocket.ts
+@@ -3,7 +3,6 @@
+ // 支援自動重連 (指數退避)、心跳、事件監聽
+ // =============================================================================
+ 
+-import { v4 as uuidv4 } from 'uuid';
+ import type { WSMessage } from '../types/websocket';
+ 
+ type MessageHandler = (payload: unknown, message: WSMessage) => void;
+@@ -168,7 +167,7 @@ export class WebSocketManager {
+ 
+     const message: WSMessage = {
+       type,
+-      id: uuidv4(),
++      id: crypto.randomUUID(),
+       timestamp: new Date().toISOString(),
+       payload: payload as Record<string, unknown>,
+     };
+diff --git a/frontend/src/types/api.ts b/frontend/src/types/api.ts
+index e45e12c..555def5 100644
+--- a/frontend/src/types/api.ts
++++ b/frontend/src/types/api.ts
+@@ -39,36 +39,6 @@ export interface RefreshTokenResponse {
+ 
+ // ---- 病患 ----
+ 
+-export interface PatientCreateRequest {
+-  userId?: string;
+-  medicalRecordNumber: string;
+-  name: string;
+-  gender: 'male' | 'female' | 'other';
+-  dateOfBirth: string;
+-  phone?: string;
+-  emergencyContact?: {
+-    name: string;
+-    relationship: string;
+-    phone: string;
+-  };
+-  medicalHistory?: unknown[];
+-  allergies?: unknown[];
+-  currentMedications?: unknown[];
+-}
+-
+-export interface PatientUpdateRequest {
+-  name?: string;
+-  phone?: string;
+-  emergencyContact?: {
+-    name: string;
+-    relationship: string;
+-    phone: string;
+-  };
+-  medicalHistory?: unknown[];
+-  allergies?: unknown[];
+-  currentMedications?: unknown[];
+-}
+-
+ export interface PatientListParams {
+   cursor?: string;
+   limit?: number;
+@@ -167,62 +137,6 @@ export interface AlertListParams {
+ 
+ // ---- 儀表板 ----
+ 
+-export interface DashboardStatsResponse {
+-  sessionsToday: number;
+-  completed: number;
+-  redFlags: number;
+-  pendingReviews: number;
+-  inProgress?: number;
+-  waiting?: number;
+-  averageDurationSeconds?: number | null;
+-  timestamp?: string;
+-}
+-
+-export interface DashboardQueueResponse {
+-  totalWaiting: number;
+-  totalInProgress: number;
+-  queue: QueueItem[];
+-}
+-
+-export interface QueueItem {
+-  sessionId: string;
+-  patientId: string;
+-  patientName: string;
+-  chiefComplaint: string;
+-  status: string;
+-  waitingSeconds: number;
+-  hasRedFlag: boolean;
+-  createdAt: string;
+-}
+-
+-export interface RecentAlertItem {
+-  alertId: string;
+-  sessionId: string;
+-  patientName: string;
+-  severity: string;
+-  title: string;
+-  acknowledged: boolean;
+-  createdAt: string;
+-}
+-
+-export interface RecentAlertsResponse {
+-  data: RecentAlertItem[];
+-}
+-
+-export interface RecentSessionItem {
+-  sessionId: string;
+-  patientName: string;
+-  chiefComplaint: string;
+-  status: string;
+-  redFlag: boolean;
+-  createdAt: string;
+-  completedAt?: string;
+-}
+-
+-export interface RecentSessionsResponse {
+-  data: RecentSessionItem[];
+-}
+-
+ export interface SummaryBucketItem {
+   key: string;
+   label: string;
+@@ -283,45 +197,6 @@ export interface MarkReadResponse {
+ }
+ 
+ /** 通知偏好（GDPR opt-out）。red_flag 為病安關鍵，後端恆為開。 */
+-export interface NotificationPreference {
+-  userId: string;
+-  redFlagEnabled: boolean;
+-  sessionCompleteEnabled: boolean;
+-  reportReadyEnabled: boolean;
+-  systemEnabled: boolean;
+-  emailEnabled: boolean;
+-  pushEnabled: boolean;
+-}
+-
+-/** 更新通知偏好（僅更新提供的欄位） */
+-export interface NotificationPreferenceUpdate {
+-  redFlagEnabled?: boolean;
+-  sessionCompleteEnabled?: boolean;
+-  reportReadyEnabled?: boolean;
+-  systemEnabled?: boolean;
+-  emailEnabled?: boolean;
+-  pushEnabled?: boolean;
+-}
+-
+-/** 註冊 FCM 推播 Token 請求 */
+-export interface FcmTokenCreateRequest {
+-  deviceToken: string;
+-  platform: 'ios' | 'android' | 'web';
+-  deviceName?: string;
+-}
+-
+-/** FCM Token 回應 */
+-export interface FcmTokenResponse {
+-  id: string;
+-  deviceToken: string;
+-  platform: 'ios' | 'android' | 'web';
+-  deviceName?: string;
+-  isActive: boolean;
+-  createdAt: string;
+-}
+-
+-// ---- 管理員 ----
+-
+ export interface UserCreateRequest {
+   email: string;
+   password: string;
+diff --git a/frontend/src/types/enums.ts b/frontend/src/types/enums.ts
+index e1ab655..dceee16 100644
+--- a/frontend/src/types/enums.ts
++++ b/frontend/src/types/enums.ts
+@@ -91,21 +91,3 @@ export const Gender = {
+   OTHER: 'other',
+ } as const;
+ export type Gender = (typeof Gender)[keyof typeof Gender];
+-
+-// =============================================================================
+-// UI 狀態映射（衍生自後端 Enum）
+-// =============================================================================
+-
+-export const sessionStatusDisplay: Record<SessionStatus, { label: string; color: string }> = {
+-  waiting: { label: '等待中', color: 'gray' },
+-  in_progress: { label: '對話中', color: 'blue' },
+-  completed: { label: '已完成', color: 'green' },
+-  aborted_red_flag: { label: '紅旗中止', color: 'red' },
+-  cancelled: { label: '已取消', color: 'gray' },
+-};
+-
+-export const alertSeverityDisplay: Record<AlertSeverity, { label: string; color: string }> = {
+-  critical: { label: '危急', color: 'red-600' },
+-  high: { label: '高', color: 'orange-500' },
+-  medium: { label: '中', color: 'yellow-500' },
+-};
+diff --git a/frontend/src/types/index.ts b/frontend/src/types/index.ts
+index 0561394..0915241 100644
+--- a/frontend/src/types/index.ts
++++ b/frontend/src/types/index.ts
+@@ -326,23 +326,6 @@ export interface RedFlagAlert {
+   createdAt: string;
+ }
+ 
+-/** 紅旗規則 */
+-export interface RedFlagRule {
+-  id: string;
+-  name: string;
+-  description?: string;
+-  category: string;
+-  keywords: string[];
+-  regexPattern?: string;
+-  severity: 'critical' | 'high' | 'medium';
+-  suspectedDiagnosis?: string;
+-  suggestedAction?: string;
+-  isActive: boolean;
+-  createdBy?: string;
+-  createdAt: string;
+-  updatedAt: string;
+-}
+-
+ /** 通知 */
+ export interface Notification {
+   id: string;
+@@ -369,18 +352,6 @@ export interface AuditLog {
+   createdAt: string;
+ }
+ 
+-/** FCM 裝置 */
+-export interface FCMDevice {
+-  id: string;
+-  userId: string;
+-  deviceToken: string;
+-  platform: 'ios' | 'android' | 'web';
+-  deviceName?: string;
+-  isActive: boolean;
+-  createdAt: string;
+-  updatedAt: string;
+-}
+-
+ /** 分頁回應 */
+ export interface PaginatedResponse<T> {
+   data: T[];
+@@ -391,14 +362,3 @@ export interface PaginatedResponse<T> {
+     totalCount: number;
+   };
+ }
+-
+-/** 錯誤回應 */
+-export interface ErrorResponse {
+-  error: {
+-    code: string;
+-    message: string;
+-    details?: Record<string, unknown>;
+-    requestId: string;
+-    timestamp: string;
+-  };
+-}
+diff --git a/frontend/src/utils/coalesceRefresh.ts b/frontend/src/utils/coalesceRefresh.ts
+deleted file mode 100644
+index f3040c3..0000000
+--- a/frontend/src/utils/coalesceRefresh.ts
++++ /dev/null
+@@ -1,26 +0,0 @@
+-/** Collapse event bursts; an event during a request always gets one follow-up. */
+-export function coalesceRefresh(refresh: () => Promise<unknown>, delay = 100) {
+-  let timer: ReturnType<typeof setTimeout> | undefined;
+-  let running = false;
+-  let dirty = false;
+-  let disposed = false;
+-  const schedule = () => {
+-    if (disposed) return;
+-    dirty = true;
+-    if (running || timer) return;
+-    timer = setTimeout(async () => {
+-      timer = undefined;
+-      dirty = false;
+-      running = true;
+-      try { await refresh(); }
+-      finally {
+-        running = false;
+-        if (dirty) schedule();
+-      }
+-    }, delay);
+-  };
+-  return {
+-    schedule,
+-    dispose: () => { disposed = true; clearTimeout(timer); },
+-  };
+-}
+diff --git a/frontend/src/utils/date.ts b/frontend/src/utils/date.ts
+index f16c5b2..aca03d8 100644
+--- a/frontend/src/utils/date.ts
++++ b/frontend/src/utils/date.ts
+@@ -4,40 +4,6 @@
+ 
+ import i18n from '../i18n';
+ 
+-/**
+- * 安全解析 ISO 日期字串
+- */
+-export function parseISO(dateStr: string): Date {
+-  return new Date(dateStr);
+-}
+-
+-/**
+- * 判斷日期是否為今天
+- */
+-export function isToday(dateStr: string): boolean {
+-  const date = new Date(dateStr);
+-  const today = new Date();
+-  return (
+-    date.getFullYear() === today.getFullYear() &&
+-    date.getMonth() === today.getMonth() &&
+-    date.getDate() === today.getDate()
+-  );
+-}
+-
+-/**
+- * 判斷日期是否在本週
+- */
+-export function isThisWeek(dateStr: string): boolean {
+-  const date = new Date(dateStr);
+-  const now = new Date();
+-  const startOfWeek = new Date(now);
+-  startOfWeek.setDate(now.getDate() - now.getDay());
+-  startOfWeek.setHours(0, 0, 0, 0);
+-  const endOfWeek = new Date(startOfWeek);
+-  endOfWeek.setDate(startOfWeek.getDate() + 7);
+-  return date >= startOfWeek && date < endOfWeek;
+-}
+-
+ /**
+  * 相對時間（例如 "3 分鐘前"、"昨天"）
+  *
+@@ -72,19 +38,3 @@ export function relativeTime(dateStr: string): string {
+   if (diffDays < 365) return rtf.format(-Math.floor(diffDays / 30), 'month');
+   return rtf.format(-Math.floor(diffDays / 365), 'year');
+ }
+-
+-/**
+- * 格式化為日期部分 YYYY-MM-DD
+- */
+-export function toDateString(dateStr: string): string {
+-  const d = new Date(dateStr);
+-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+-}
+-
+-/**
+- * 格式化為時間部分 HH:MM
+- */
+-export function toTimeString(dateStr: string): string {
+-  const d = new Date(dateStr);
+-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+-}
+diff --git a/frontend/src/utils/format.ts b/frontend/src/utils/format.ts
+index 6556825..06aab03 100644
+--- a/frontend/src/utils/format.ts
++++ b/frontend/src/utils/format.ts
+@@ -75,91 +75,9 @@ export function formatMRN(mrn: string | undefined | null): string {
+   return mrn.replace(/([A-Za-z]+)(\d+)/, '$1-$2');
+ }
+ 
+-/**
+- * 截斷文字
+- */
+-export function truncateText(text: string, maxLength: number, suffix = '...'): string {
+-  if (text.length <= maxLength) return text;
+-  return text.slice(0, maxLength - suffix.length) + suffix;
+-}
+-
+-/**
+- * 格式化等候時間（依目前 i18n locale）
+- * 依序嘗試 `秒 / 分鐘 / 小時` 三級單位，套用 `Intl.NumberFormat` 的 `unit` 樣式，
+- * 讓 zh-TW 顯示「2 分鐘」、en-US 顯示「2 min」等 locale 慣用寫法。
+- *
+- * 備註：`Intl.NumberFormat` 的 unit 只接受少量已登記單位；`second / minute / hour`
+- * 為合法值。
+- */
+-export function formatWaitingTime(seconds: number): string {
+-  const locale = currentLocale();
+-  if (seconds < 60) {
+-    return new Intl.NumberFormat(locale, {
+-      style: 'unit',
+-      unit: 'second',
+-      unitDisplay: 'short',
+-    }).format(seconds);
+-  }
+-  if (seconds < 3600) {
+-    return new Intl.NumberFormat(locale, {
+-      style: 'unit',
+-      unit: 'minute',
+-      unitDisplay: 'short',
+-    }).format(Math.floor(seconds / 60));
+-  }
+-  const h = Math.floor(seconds / 3600);
+-  const m = Math.floor((seconds % 3600) / 60);
+-  const hourPart = new Intl.NumberFormat(locale, {
+-    style: 'unit',
+-    unit: 'hour',
+-    unitDisplay: 'short',
+-  }).format(h);
+-  if (m === 0) return hourPart;
+-  const minutePart = new Intl.NumberFormat(locale, {
+-    style: 'unit',
+-    unit: 'minute',
+-    unitDisplay: 'short',
+-  }).format(m);
+-  return `${hourPart} ${minutePart}`;
+-}
+-
+ /**
+  * 格式化數字（依目前 i18n locale 套用千分位）
+  */
+ export function formatNumber(num: number): string {
+   return new Intl.NumberFormat(currentLocale()).format(num);
+ }
+-
+-/**
+- * 相對時間（例如「3 分鐘前」「3 minutes ago」）。
+- *
+- * 依目前 i18n locale 使用 `Intl.RelativeTimeFormat`。輸入為 ISO 字串或 `Date`。
+- * 未來時間會回正值（例如 "in 2 hours"），過去時間為負值。
+- */
+-export function formatRelative(input: string | Date | undefined | null): string {
+-  if (!input) return '-';
+-  try {
+-    const date = input instanceof Date ? input : new Date(input);
+-    if (Number.isNaN(date.getTime())) return typeof input === 'string' ? input : '-';
+-    const locale = currentLocale();
+-    const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+-    const diffSeconds = Math.round((date.getTime() - Date.now()) / 1000);
+-    const abs = Math.abs(diffSeconds);
+-
+-    if (abs < 60) return rtf.format(diffSeconds, 'second');
+-    const diffMinutes = Math.round(diffSeconds / 60);
+-    if (Math.abs(diffMinutes) < 60) return rtf.format(diffMinutes, 'minute');
+-    const diffHours = Math.round(diffSeconds / 3600);
+-    if (Math.abs(diffHours) < 24) return rtf.format(diffHours, 'hour');
+-    const diffDays = Math.round(diffSeconds / 86_400);
+-    if (Math.abs(diffDays) < 7) return rtf.format(diffDays, 'day');
+-    const diffWeeks = Math.round(diffDays / 7);
+-    if (Math.abs(diffWeeks) < 5) return rtf.format(diffWeeks, 'week');
+-    const diffMonths = Math.round(diffDays / 30);
+-    if (Math.abs(diffMonths) < 12) return rtf.format(diffMonths, 'month');
+-    const diffYears = Math.round(diffDays / 365);
+-    return rtf.format(diffYears, 'year');
+-  } catch {
+-    return typeof input === 'string' ? input : '-';
+-  }
+-}
+diff --git a/frontend/src/utils/validation.ts b/frontend/src/utils/validation.ts
+deleted file mode 100644
+index 4a82007..0000000
+--- a/frontend/src/utils/validation.ts
++++ /dev/null
+@@ -1,53 +0,0 @@
+-// =============================================================================
+-// 驗證工具函式
+-// =============================================================================
+-
+-/**
+- * 驗證 Email 格式
+- */
+-export function validateEmail(email: string): string | null {
+-  if (!email) return '請輸入電子郵件';
+-  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+-  if (!re.test(email)) return '電子郵件格式不正確';
+-  return null;
+-}
+-
+-/**
+- * 驗證密碼強度
+- * 至少 8 字元，包含大小寫字母與數字
+- */
+-export function validatePassword(password: string): string | null {
+-  if (!password) return '請輸入密碼';
+-  if (password.length < 8) return '密碼至少需要 8 個字元';
+-  if (!/[A-Z]/.test(password)) return '密碼需包含大寫字母';
+-  if (!/[a-z]/.test(password)) return '密碼需包含小寫字母';
+-  if (!/[0-9]/.test(password)) return '密碼需包含數字';
+-  return null;
+-}
+-
+-/**
+- * 驗證手機號碼（台灣格式）
+- */
+-export function validatePhone(phone: string): string | null {
+-  if (!phone) return null; // 手機非必填
+-  const re = /^09\d{8}$/;
+-  if (!re.test(phone)) return '手機號碼格式不正確（例：0912345678）';
+-  return null;
+-}
+-
+-/**
+- * 驗證必填欄位
+- */
+-export function validateRequired(value: string, fieldName: string): string | null {
+-  if (!value || !value.trim()) return `請輸入${fieldName}`;
+-  return null;
+-}
+-
+-/**
+- * 驗證確認密碼
+- */
+-export function validateConfirmPassword(password: string, confirmPassword: string): string | null {
+-  if (!confirmPassword) return '請確認密碼';
+-  if (password !== confirmPassword) return '密碼不一致';
+-  return null;
+-}
+diff --git a/frontend/tsconfig.json b/frontend/tsconfig.json
+index 676f022..dee4e22 100644
+--- a/frontend/tsconfig.json
++++ b/frontend/tsconfig.json
+@@ -22,22 +22,8 @@
+ 
+     /* 輸出設定 */
+     "noEmit": true,
+-    "skipLibCheck": true,
+-
+-    /* 路徑別名（需與 vite.config.ts 的 resolve.alias 保持一致） */
+-    "baseUrl": ".",
+-    "paths": {
+-      "@/*": ["src/*"],
+-      "@components/*": ["src/components/*"],
+-      "@hooks/*": ["src/hooks/*"],
+-      "@pages/*": ["src/pages/*"],
+-      "@stores/*": ["src/stores/*"],
+-      "@utils/*": ["src/utils/*"],
+-      "@types/*": ["src/types/*"],
+-      "@services/*": ["src/services/*"],
+-      "@assets/*": ["src/assets/*"]
+-    }
++    "skipLibCheck": true
+   },
+-  "include": ["src", "vite-env.d.ts"],
++  "include": ["src"],
+   "references": [{ "path": "./tsconfig.node.json" }]
+ }
+diff --git a/frontend/vite.config.ts b/frontend/vite.config.ts
+index 97926ca..4400a52 100644
+--- a/frontend/vite.config.ts
++++ b/frontend/vite.config.ts
+@@ -87,17 +87,8 @@ export default defineConfig(({ mode }) => {
+ 
+     // 路徑別名設定（對應 tsconfig.json 的 paths）
+     resolve: {
+-      alias: {
+-        '@': path.resolve(__dirname, './src'),
+-        '@components': path.resolve(__dirname, './src/components'),
+-        '@hooks': path.resolve(__dirname, './src/hooks'),
+-        '@pages': path.resolve(__dirname, './src/pages'),
+-        '@stores': path.resolve(__dirname, './src/stores'),
+-        '@utils': path.resolve(__dirname, './src/utils'),
+-        '@types': path.resolve(__dirname, './src/types'),
+-        '@services': path.resolve(__dirname, './src/services'),
+-        '@assets': path.resolve(__dirname, './src/assets'),
+-      },
++      // 專案內全部用相對路徑 import；先前九組 alias（含指向不存在目錄的 @pages/@assets）無人使用，已移除。
++      alias: {},
+     },
+ 
+     // 本地開發伺服器設定

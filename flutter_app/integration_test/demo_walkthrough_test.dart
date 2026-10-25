@@ -371,6 +371,30 @@ Future<void> typeInto(WidgetTester tester, Finder field, String text) async {
   await settle(tester);
 }
 
+/// 影片後製的**階段錨點**。印出的格式是：
+///
+///     DEMO_MARK_STAGE <stage-id> <epoch 秒，浮點>
+///
+/// 為什麼需要它：字卡本來綁固定秒數，但這支 walkthrough 每次跑出來的長度會隨真 LLM
+/// 的快慢浮動（實測 2:14 與 2:21），而成品固定壓成 60 秒——變速倍率跟著變，同一組
+/// 字卡在不同次錄影就會蓋到不同的畫面。改成把字卡綁在這些標記上，後製才知道「第幾秒
+/// 真的到了哪一頁」。
+///
+/// ⚠️ **格式與 stage-id 都是與 `tool/record_demo.sh` 的雙邊約定**（那支用 regex 撈
+/// 這兩個欄位、再照 stage-id 對字卡）。要改格式、改名或增刪 stage-id，**兩邊必須一起
+/// 改**——單邊改了不會有人報錯，只會靜默地把字卡對到空的地方。
+/// 目前約定的九個：login / select-complaint / select-doctor / conversation / finish /
+/// doctor-login / notifications / quick-orders / soap-report。
+///
+/// ⚠️ 呼叫時機一律是「那一頁**真的畫出來了**之後」（＝既有那句 `expect` 之後），
+/// 不是在觸發它的那次點擊之前：字卡是從標記那一刻起蓋上去的，早印會讓字卡提前
+/// 出現在上一頁。
+void markStage(String id) {
+  debugPrint(
+    'DEMO_MARK_STAGE $id ${DateTime.now().millisecondsSinceEpoch / 1000.0}',
+  );
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -419,6 +443,7 @@ void main() {
     final kioskButton = find.text(t('common.login.kioskStart'));
     expect(kioskButton, findsOneWidget,
         reason: '登入頁沒有「開始語音問診」大鈕（KIOSK_* define 沒生效？）');
+    markStage('login');
     await beat(tester, ms: 2000);
 
     // 按下＝以 kiosk 專用 patient 帳號登入並直接進選症狀頁（產品行為，不是測試捷徑）。
@@ -439,6 +464,7 @@ void main() {
       timeout: const Duration(seconds: 20),
     );
     expect(onComplaints, isTrue, reason: 'kiosk 登入後沒有直接進到選症狀頁');
+    markStage('select-complaint');
     await waitFor(
       tester,
       () => find.byType(ListTile).evaluate().isNotEmpty,
@@ -481,6 +507,7 @@ void main() {
 
     final doctorField = find.byType(DropdownButtonFormField<String>);
     expect(doctorField, findsOneWidget, reason: '基本資料頁找不到「負責醫師」下拉');
+    markStage('select-doctor');
     await revealAndTap(tester, doctorField, what: '負責醫師下拉', hold: 1400);
     // 選單展開的那一刻是這一段的主鏡頭：停 2.2s。
     await beat(tester, ms: 2200);
@@ -575,6 +602,7 @@ void main() {
           .any((m) => m.sender != 'patient'),
       timeout: const Duration(seconds: 60),
     );
+    markStage('conversation');
     await beat(tester, ms: 1800);
 
     var sent = 0;
@@ -622,6 +650,7 @@ void main() {
       timeout: const Duration(seconds: 45),
     );
     expect(onThankYou, isTrue, reason: '按了結束問診沒有導到完成頁');
+    markStage('finish');
     // ⚠️ 完成頁 8 秒後會自己跳回首頁（SessionThankYouPage 的 Timer）。停留刻意
     // 壓在 8 秒內，再主動按「返回首頁」，讓轉場是我們決定的、不是計時器決定的。
     await beat(tester, ms: 3000);
@@ -677,6 +706,7 @@ void main() {
       timeout: const Duration(seconds: 25),
     );
     expect(onNotifications, isTrue, reason: '醫師登入後沒有落在通知中心');
+    markStage('doctor-login');
 
     // 「問診完成」（SESSION_COMPLETE）幾乎是立刻就有。
     const sessionCompleteTitle = '問診完成';
@@ -717,6 +747,7 @@ void main() {
     expect(sawReportReady, isTrue,
         reason: '等不到「$reportReadyTitle」——十之八九是 Celery worker 沒開，'
             'SOAP 生成任務只被 .delay() 進 Redis 就沒人消化了');
+    markStage('notifications');
     await beat(tester, ms: 2000);
 
     // ── B9 快速開單頁（本輪新功能，停最久）─────────────────────────────────
@@ -772,6 +803,7 @@ void main() {
     // 摘要卡：醫師點開推播後第一眼看到的東西。
     expect(find.text(t('soap.quickOrders.summaryTitle')), findsOneWidget,
         reason: '快速開單頁沒有「問診摘要」卡');
+    markStage('quick-orders');
     await beat(tester, ms: 2200);
 
     // AI 建議檢查清單。每一項是 CheckboxListTile，key 是 `exam-item-<檢查名>`；
@@ -845,6 +877,7 @@ void main() {
       () => find.byType(CircularProgressIndicator).evaluate().isEmpty,
       timeout: const Duration(seconds: 30),
     );
+    markStage('soap-report');
     await beat(tester, ms: 1800);
 
     // 四段各捲到位停一拍。這裡的 expect 是整支腳本最後一道「我真的在這一頁」的保險：

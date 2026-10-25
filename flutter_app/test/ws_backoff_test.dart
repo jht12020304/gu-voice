@@ -3,6 +3,8 @@
 // wrong backoff either hammers the backend or stops reconnecting, and a missed
 // permanent code retries a rejection forever.
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gu_voice/features/voice/services/ws_manager.dart';
 
@@ -34,6 +36,30 @@ void main() {
 
     test('a negative count degrades to the initial delay, not a crash', () {
       expect(d(-1), 1000);
+    });
+  });
+
+  group('handshake 與目前 channel 的身分綁定', () {
+    test('connect() 連叫兩次，被取代的那條 handshake 不得再把連線標成 open', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((req) async {
+        final socket = await WebSocketTransformer.upgrade(req);
+        socket.listen((_) {});
+      });
+
+      final ws = WebSocketManager();
+      addTearDown(ws.disconnect);
+      var connected = 0;
+      ws.on('_connected', (_, _) => connected++);
+
+      ws.connect('ws://127.0.0.1:${server.port}', () => 'tok');
+      ws.connect('ws://127.0.0.1:${server.port}', () => 'tok'); // 例如語言切換後立刻重連
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      expect(connected, 1,
+          reason: '舊 channel 的 ready 晚到：沒綁身分就會多發一次 auth、多開一支 ping timer、多報一次 _connected');
+      expect(ws.connectionState, WsConnState.open);
     });
   });
 

@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Download, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { apiErrorMessage } from '../../services/api/client';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import EmptyState from '../../components/common/EmptyState';
 import ErrorState from '../../components/common/ErrorState';
 import * as adminApi from '../../services/api/admin';
 import type { AuditLog } from '../../types';
 import type { AuditLogListParams } from '../../types/api';
+import { localDayBounds } from '../../utils/date';
 
 interface FilterState {
   action: string;
@@ -36,12 +38,12 @@ export default function AuditLogsPage() {
       const params: AuditLogListParams = { limit: 100 };
       if (filters.action.trim()) params.action = filters.action.trim();
       if (filters.userId.trim()) params.userId = filters.userId.trim();
-      if (filters.startDate) params.startDate = filters.startDate;
-      if (filters.endDate) params.endDate = filters.endDate;
+      if (filters.startDate) params.startDate = localDayBounds(filters.startDate).start.toISOString();
+      if (filters.endDate) params.endDate = localDayBounds(filters.endDate).end.toISOString();
       const response = await adminApi.getAuditLogs(params);
       setLogs(response.data);
-    } catch {
-      setError(t('admin:audit.loadFailed', '無法載入稽核日誌'));
+    } catch (err) {
+      setError(apiErrorMessage(err, t, t('admin:audit.loadFailed', '無法載入稽核日誌')));
     } finally {
       setIsLoading(false);
     }

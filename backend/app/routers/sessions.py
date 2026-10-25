@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis, require_role
-from app.core.exceptions import AppException
 from app.core.metrics import record_session_created
 from app.core.sentry import set_language_scope
 from app.schemas.session import (
@@ -265,8 +264,12 @@ async def reconnect_session(
     若 checksum 相符，WebSocket handler 將跳過開場白並沿用歷史；
     不符則回退為全新場次（由前端處理）。
     """
-    import hashlib
-    import json as _json
+    # 與 WS handler 共用同一支 key 與 checksum 實作：兩邊各寫一份時，任一邊漂移
+    # 就會讓 resumeFrom 永遠比對不上（前端每次都被當成全新場次）。
+    from app.websocket.conversation_handler import (
+        _history_checksum,
+        _load_conversation_history,
+    )
 
     # 驗證場次存在且使用者有權限（沿用 get_session 的授權）
     session_detail = await session_service.get_session(
@@ -275,23 +278,8 @@ async def reconnect_session(
         current_user=current_user,
     )
 
-    # 從 Redis 讀取 conversation_history
-    context_key = f"gu:session:{session_id}:context"
-    history: list[dict] = []
-    try:
-        raw = await redis.hget(context_key, "conversation_history")
-        if raw:
-            history = _json.loads(raw)
-    except Exception:
-        history = []
-
-    # 穩定序列化（僅 role + content）→ sha256
-    payload = [
-        {"role": e.get("role", ""), "content": e.get("content", "")}
-        for e in history
-    ]
-    serialized = _json.dumps(payload, ensure_ascii=False, sort_keys=True)
-    checksum = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    history = await _load_conversation_history(redis, str(session_id))
+    checksum = _history_checksum(history)
 
     return {
         "sessionId": str(session_id),

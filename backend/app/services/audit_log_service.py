@@ -12,19 +12,11 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.pagination import page_slice
 from app.core.exceptions import NotFoundException
 from app.models.audit_log import AuditLog
 from app.models.enums import AuditAction
-
-
-def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
-    """將 ISO-8601 字串轉成 datetime；無效或 None 時回 None（不拋例外）。"""
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value)
-    except ValueError:
-        return None
+from app.utils.datetime_utils import parse_iso
 
 
 class AuditLogService:
@@ -132,9 +124,7 @@ class AuditLogService:
         result = await db.execute(query.limit(limit + 1))
         logs = result.scalars().all()
 
-        has_more = len(logs) > limit
-        if has_more:
-            logs = logs[:limit]
+        logs, has_more, next_cursor = page_slice(logs, limit)
 
         # 精確總筆數（套用與 list 相同的篩選條件，含日期範圍）
         count_query = select(func.count()).select_from(AuditLog)
@@ -158,7 +148,7 @@ class AuditLogService:
         return {
             "data": logs,
             "pagination": {
-                "next_cursor": str(logs[-1].id) if has_more and logs else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,
@@ -217,8 +207,9 @@ class AuditLogService:
             action=action_enum,
             resource_type=resource_type,
             resource_id=resource_id,
-            date_from=_parse_iso_datetime(date_from),
-            date_to=_parse_iso_datetime(date_to),
+            # 非法日期 → 422（parse_iso），不再靜默丟掉篩選
+            date_from=parse_iso(date_from),
+            date_to=parse_iso(date_to),
             ip_address=ip_address,
         )
 

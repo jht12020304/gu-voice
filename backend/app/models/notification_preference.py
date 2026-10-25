@@ -8,7 +8,7 @@
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID

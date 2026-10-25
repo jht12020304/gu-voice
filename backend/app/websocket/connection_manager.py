@@ -8,8 +8,9 @@ WebSocket 連線管理器 — 集中管理所有 WebSocket 連線
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any
+
+from app.utils.datetime_utils import utc_now
 
 from fastapi import WebSocket
 
@@ -316,8 +317,9 @@ class ConnectionManager:
         ``DASHBOARD_EVENTS_CHANNEL``，由 API 行程的 subscriber task 收到後再對
         本行程的 dashboard WS 連線做本地 fan-out（見 ``local_broadcast_dashboard_event``）。
 
-        韌性：Redis 不可用（測試環境 / 暫時性故障）時絕不可拋例外，僅記 log；
-        每次建立短命 client 並於送出後關閉，避免在 worker 行程持有長連線。
+        韌性：Redis 不可用（測試環境 / 暫時性故障）時絕不可拋例外，僅記 log。
+        API 行程重用 lifespan 建立的連線池（同一 loop）；worker 行程（每個 task
+        新 loop）則每次建立短命 client 並於送出後關閉，避免跨 loop 共用連線。
 
         Args:
             event_type: 事件類型字串，需與前端 `DashboardEventType` 對齊。
@@ -326,6 +328,13 @@ class ConnectionManager:
         message = json.dumps({"type": event_type, "payload": payload or {}})
         client = None
         try:
+            from app.cache.redis_client import pool_for_current_loop
+
+            pooled = pool_for_current_loop()
+            if pooled is not None:
+                await pooled.publish(DASHBOARD_EVENTS_CHANNEL, message)
+                return
+
             import redis.asyncio as aioredis
 
             from app.core.config import settings
@@ -439,24 +448,6 @@ class ConnectionManager:
             },
         )
 
-    async def broadcast_report_generated(
-        self,
-        report_id: str,
-        session_id: str,
-        patient_name: str,
-        status: str,
-    ) -> None:
-        """推播 ``report_generated`` 事件（對齊前端 ``ReportGeneratedPayload``）。"""
-        await self.broadcast_dashboard_event(
-            "report_generated",
-            {
-                "reportId": report_id,
-                "sessionId": session_id,
-                "patientName": patient_name or "",
-                "status": status,
-            },
-        )
-
     async def broadcast_red_flag_acknowledged(
         self,
         alert_id: str,
@@ -487,7 +478,7 @@ class ConnectionManager:
         }
 
         Args:
-            msg_type: 訊息類型（如 "stt_partial", "ai_response_chunk" 等）
+            msg_type: 訊息類型（如 "stt_final", "ai_response_chunk" 等）
             payload: 訊息內容
 
         Returns:
@@ -496,22 +487,9 @@ class ConnectionManager:
         return {
             "type": msg_type,
             "id": str(uuid.uuid4()),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": utc_now().isoformat(),
             "payload": payload,
         }
-
-    def get_session_connection(self, session_id: str) -> WebSocket | None:
-        """取得指定場次的 WebSocket 連線"""
-        return self.active_connections.get(session_id)
-
-    def is_session_connected(self, session_id: str) -> bool:
-        """檢查指定場次是否有活躍的 WebSocket 連線"""
-        return session_id in self.active_connections
-
-    @property
-    def active_session_count(self) -> int:
-        """目前活躍的問診場次數"""
-        return len(self.active_connections)
 
     @property
     def dashboard_connection_count(self) -> int:

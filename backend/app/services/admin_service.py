@@ -9,6 +9,7 @@ import os
 from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.utils.pagination import keyset_after, page_slice, parse_cursor
 from app.core.exceptions import (
     EmailAlreadyExistsException,
     ForbiddenException,
@@ -64,22 +65,12 @@ class AdminService:
             query = query.where(condition)
             count_query = count_query.where(condition)
 
-        if cursor:
-            try:
-                cursor_result = await db.execute(
-                    select(User).where(User.id == UUID(cursor))
-                )
-                cursor_record = cursor_result.scalar_one_or_none()
-                if cursor_record:
-                    query = query.where(
-                        (User.created_at < cursor_record.created_at)
-                        | (
-                            (User.created_at == cursor_record.created_at)
-                            & (User.id < cursor_record.id)
-                        )
-                    )
-            except ValueError:
-                pass
+        _cursor = parse_cursor(cursor)
+        if _cursor is not None:
+            cursor_result = await db.execute(select(User).where(User.id == _cursor))
+            cursor_record = cursor_result.scalar_one_or_none()
+            if cursor_record:
+                query = keyset_after(query, cursor_record, User.created_at, User.id)
 
         total_result = await db.execute(count_query)
         total_count = total_result.scalar() or 0
@@ -87,11 +78,7 @@ class AdminService:
         result = await db.execute(query.limit(limit + 1))
         users = list(result.scalars().all())
 
-        has_more = len(users) > limit
-        if has_more:
-            users = users[:limit]
-
-        next_cursor = str(users[-1].id) if has_more and users else None
+        users, has_more, next_cursor = page_slice(users, limit)
 
         return UserListResponse(
             data=[UserDetail.model_validate(u) for u in users],
@@ -125,7 +112,7 @@ class AdminService:
         now = utc_now()
         user = User(
             email=data.email,
-            password_hash=hash_password(data.password),
+            password_hash=await asyncio.to_thread(hash_password, data.password),
             name=data.name,
             role=data.role,
             phone=data.phone,
@@ -290,7 +277,7 @@ class AdminService:
             raise NotFoundException("errors.user_not_found")
 
         temp_password = generate_temp_password()
-        user.password_hash = hash_password(temp_password)
+        user.password_hash = await asyncio.to_thread(hash_password, temp_password)
         user.updated_at = utc_now()
         await db.flush()
 
@@ -353,38 +340,21 @@ class AdminService:
 _APP_VERSION_FALLBACK = "1.0.0"
 
 
-# ── 健康檢查探測（沿用 main.py deep health check 慣例）───────
-_HEALTH_PROBE_TIMEOUT_SECONDS = 2.0
-
-
-async def _probe_db(db: AsyncSession) -> str:
-    """對 DB 跑 SELECT 1；成功回 "ok"，失敗回 "fail: <err>"。"""
-    from sqlalchemy import text
-
-    try:
-        async def _run() -> None:
-            await db.execute(text("SELECT 1"))
-
-        await asyncio.wait_for(_run(), timeout=_HEALTH_PROBE_TIMEOUT_SECONDS)
-        return "ok"
-    except asyncio.TimeoutError:
-        return f"fail: timeout >{_HEALTH_PROBE_TIMEOUT_SECONDS}s"
-    except Exception as exc:  # noqa: BLE001 — 要回報給呼叫端
-        return f"fail: {exc}"
+# ── 健康檢查探測（與 main.py /healthz/deep 共用 core/health）───────
+from app.core.health import PROBE_TIMEOUT_SECONDS as _HEALTH_PROBE_TIMEOUT_SECONDS  # noqa: E402
+from app.core.health import probe_db as _probe_db  # noqa: E402
+from app.core.health import probe_redis as _probe_redis_client  # noqa: E402
 
 
 async def _probe_redis() -> str:
-    """對 Redis 跑 PING；成功回 "ok"，失敗回 "fail: <err>"。"""
+    """取 app 連線池後交給共用探針。"""
     try:
         from app.cache.redis_client import get_redis
 
         redis = await get_redis()
-        await asyncio.wait_for(redis.ping(), timeout=_HEALTH_PROBE_TIMEOUT_SECONDS)
-        return "ok"
-    except asyncio.TimeoutError:
-        return f"fail: timeout >{_HEALTH_PROBE_TIMEOUT_SECONDS}s"
     except Exception as exc:  # noqa: BLE001
         return f"fail: {exc}"
+    return await _probe_redis_client(redis)
 
 
 async def _probe_openai() -> str:

@@ -87,39 +87,8 @@
     "emptyMessage": "No red-flag alerts match the current filters",
     "groupCount": "{{count}} alerts",
     "unknownComplaintFetchFailed": "Chief complaint unavailable",
-    "sessionStatus": {
-      "waiting": "Waiting",
-      "inProgress": "In Consultation",
-      "completed": "Completed",
-      "abortedRedFlag": "Aborted (Red Flag)",
-      "cancelled": "Cancelled"
-    },
     "acknowledgeAll": "Acknowledge all",
     "acknowledgeAllConfirm": "Mark all unacknowledged red-flag alerts as handled? This cannot be undone."
-  },
-  "transcript": {
-    "title": "Consultation transcript",
-    "emptyTitle": "No conversation content to display",
-    "loading": "Loading conversation...",
-    "messageCount": "{{count}} messages",
-    "summary": "{{patientCount}} patient / {{assistantCount}} AI",
-    "viewFull": "View full transcript ({{count}} more)...",
-    "searchPlaceholder": "Search transcript",
-    "filter": {
-      "all": "All",
-      "patient": "Patient",
-      "assistant": "AI"
-    },
-    "visibleCount": "Showing {{visible}} / {{total}} messages",
-    "noMatches": "No transcript matches the filters",
-    "redFlag": "Red flag",
-    "lowConfidence": "Low STT confidence",
-    "sttConfidence": "STT confidence: {{value}}%",
-    "roles": {
-      "patient": "Patient",
-      "assistant": "AI assistant",
-      "system": "System"
-    }
   },
   "reportList": {
     "eyebrow": "Review Workspace",

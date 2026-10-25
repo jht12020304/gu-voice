@@ -12,7 +12,7 @@ import logging
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache.redis_client import get_redis
@@ -47,6 +47,31 @@ logger = logging.getLogger(__name__)
 
 # 儀表板統計快取 TTL（秒）
 STATS_CACHE_TTL = 300
+# `get_stats` 的快取鍵前綴（key 帶日期與 doctor scope，所以整個前綴一起清）
+_STATS_CACHE_PATTERN = "gu:dashboard:stats:*"
+
+
+async def invalidate_stats_cache() -> None:
+    """清掉 `/dashboard/stats` 的 Redis 快取（`gu:dashboard:stats:*`）。
+
+    `get_stats` 把當日統計快取 300 秒；場次軟刪除或狀態轉移後不清，醫師畫面的
+    數字會停在舊值最多 5 分鐘。這個 keyspace 很小，重算成本遠低於「數字對不上」
+    的困惑。非致命：失敗只記 warning。
+
+    呼叫點：`session_service._after_soft_delete`、`session_service._after_status_transition`；
+    WS 的 `conversation_handler._update_session_status` 也應在轉移後呼叫。
+    """
+    # 刻意在函式內 import：測試以 monkeypatch 替換 `redis_client.get_redis`，
+    # 模組層綁定的名字看不到替身。
+    from app.cache.redis_client import get_redis as _get_redis
+
+    try:
+        redis = await _get_redis()
+        keys = [key async for key in redis.scan_iter(_STATS_CACHE_PATTERN)]
+        if keys:
+            await redis.delete(*keys)
+    except Exception as exc:  # pragma: no cover - 快取清除失敗非致命
+        logger.warning("清除儀表板統計快取失敗（非致命） | error=%s", str(exc))
 
 STATUS_LABELS = {
     SessionStatus.WAITING.value: "等待中",
@@ -370,6 +395,8 @@ class DashboardService:
             .where(session_not_deleted())
             .where(Session.status.in_(status_filters))
             .order_by(Session.created_at.asc())
+            # 與 WS 版（dashboard_handler，上限 50）對齊：排隊清單不該隨歷史無上限成長。
+            .limit(50)
         )
         if scope_filter is not None:
             query = query.where(scope_filter)
@@ -486,6 +513,32 @@ class DashboardService:
         return RecentSessionsResponse(data=items)
 
     @staticmethod
+    async def get_calendar_summary(db: AsyncSession, current_user: Any, day_starts: list[datetime]):
+        if not 2 <= len(day_starts) <= 32 or any(d.tzinfo is None for d in day_starts):
+            raise ValidationException("errors.dashboard_date_format")
+        if any(not 20 * 3600 <= (b - a).total_seconds() <= 28 * 3600
+               for a, b in zip(day_starts, day_starts[1:])):
+            raise ValidationException("errors.dashboard_date_format")
+        _, scope, _ = _resolve_doctor_scope_filter(current_user, None)
+        day = case(*[(Session.created_at < end, i) for i, end in enumerate(day_starts[1:])])
+        duration = func.coalesce(case((Session.duration_seconds >= 0, Session.duration_seconds)),
+                                 func.extract("epoch", Session.completed_at - Session.started_at))
+        duration = case((duration >= 0, func.floor(duration)))
+        query = select(
+            day.label("day_index"), func.count().label("total"),
+            func.count().filter(Session.status == SessionStatus.COMPLETED).label("completed"),
+            func.count().filter(Session.red_flag.is_(True)).label("red_flags"),
+            func.coalesce(func.sum(duration), 0).label("busy_seconds"),
+            func.count(duration).label("duration_count"),
+            func.min(func.coalesce(Session.started_at, Session.created_at)).label("first_start"),
+            func.max(Session.completed_at).label("last_end"),
+        ).where(session_not_deleted(), Session.created_at >= day_starts[0],
+                Session.created_at < day_starts[-1]).group_by(day).order_by(day)
+        if scope is not None:
+            query = query.where(scope)
+        return (await db.execute(query)).mappings().all()
+
+    @staticmethod
     async def get_monthly_summary(
         db: AsyncSession,
         current_user: Any = None,
@@ -497,23 +550,26 @@ class DashboardService:
         _, scope_filter, _ = _resolve_doctor_scope_filter(current_user, doctor_id)
         month_start, month_end, month_key, month_label = _parse_month_range(month)
 
+        created_day = func.date(Session.created_at)
+        complaint = func.coalesce(ChiefComplaint.category, func.nullif(func.trim(Session.chief_complaint_text), ''), '未分類')
         session_query = (
-            select(Session, ChiefComplaint.category)
+            select(created_day, Session.status, complaint, func.count())
             .join(ChiefComplaint, Session.chief_complaint_id == ChiefComplaint.id, isouter=True)
             .where(session_not_deleted())
             .where(Session.created_at >= month_start)
             .where(Session.created_at < month_end)
-            .order_by(Session.created_at.asc())
+            .group_by(created_day, Session.status, complaint)
         )
         if scope_filter is not None:
             session_query = session_query.where(scope_filter)
 
         alert_query = (
-            select(RedFlagAlert.severity, RedFlagAlert.created_at)
+            select(RedFlagAlert.severity, func.date(RedFlagAlert.created_at), func.count())
             .join(Session, RedFlagAlert.session_id == Session.id)
             .where(session_not_deleted())
             .where(RedFlagAlert.created_at >= month_start)
             .where(RedFlagAlert.created_at < month_end)
+            .group_by(RedFlagAlert.severity, func.date(RedFlagAlert.created_at))
         )
         if scope_filter is not None:
             alert_query = alert_query.where(scope_filter)
@@ -549,40 +605,28 @@ class DashboardService:
         completed_sessions = 0
         aborted_red_flag_sessions = 0
 
-        for session, chief_complaint_category in session_rows:
-            status_key = session.status.value
-            status_counts[status_key] += 1
-
-            created_day = session.created_at.date()
+        for created_day, status, complaint_label, count in session_rows:
+            status_key = status.value if hasattr(status, "value") else str(status)
+            status_counts[status_key] += count
             if created_day in daily_map:
-                daily_map[created_day]["sessions"] += 1
-
-            if session.status == SessionStatus.COMPLETED:
-                completed_sessions += 1
+                daily_map[created_day]["sessions"] += count
+            if status == SessionStatus.COMPLETED:
+                completed_sessions += count
                 if created_day in daily_map:
-                    daily_map[created_day]["completed"] += 1
+                    daily_map[created_day]["completed"] += count
+            if status == SessionStatus.ABORTED_RED_FLAG:
+                aborted_red_flag_sessions += count
+            complaint_counts[complaint_label] += count
 
-            if session.status == SessionStatus.ABORTED_RED_FLAG:
-                aborted_red_flag_sessions += 1
-
-            complaint_label = (
-                chief_complaint_category
-                or (session.chief_complaint_text or "").strip()
-                or "未分類"
-            )
-            complaint_counts[complaint_label] += 1
-
-        for severity, created_at in alert_rows:
+        for severity, created_day, count in alert_rows:
             severity_key = severity.value if hasattr(severity, "value") else str(severity)
             if severity_key in severity_counts:
-                severity_counts[severity_key] += 1
-
-            created_day = created_at.date()
+                severity_counts[severity_key] += count
             if created_day in daily_map:
-                daily_map[created_day]["red_flags"] += 1
+                daily_map[created_day]["red_flags"] += count
 
-        total_sessions = len(session_rows)
-        total_red_flag_alerts = len(alert_rows)
+        total_sessions = sum(row[3] for row in session_rows)
+        total_red_flag_alerts = sum(row[2] for row in alert_rows)
         completion_rate = round(
             (completed_sessions / total_sessions) * 100, 1
         ) if total_sessions else 0.0

@@ -331,3 +331,31 @@ def test_missing_target_namespace_file_counts_all_missing(locales_root: Path):
     soap_ns = next(ns for ns in en.namespaces if ns.namespace == "soap")
     assert soap_ns.target_exists is False
     assert soap_ns.missing_keys == ["b", "c"]
+
+
+@pytest.mark.parametrize("client", ["web", "ios"])
+def test_each_client_checks_its_own_translations(tmp_path, monkeypatch, capsys, client):
+    """兩端可有專用 key；任一端漏翻自己的 key 都必須失敗。"""
+    monkeypatch.chdir(tmp_path)
+    roots = {
+        "web": Path("frontend/src/i18n/locales"),
+        "ios": Path("flutter_app/assets/locales"),
+    }
+    mirror = Path("frontend/public/locales")
+    for name, root in roots.items():
+        for locale in ("zh-TW", "en-US"):
+            _write_locale(root, locale, {"common": {name: "translated"}})
+    for locale in ("zh-TW", "en-US"):
+        _write_locale(mirror, locale, {"common": {"web": "translated"}})
+
+    args = ["--json"]
+    if client == "ios":
+        args += ["--locales-dir", str(roots[client])]
+    assert ct.main(args) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert len(report["mirrors"]) == (1 if client == "web" else 0)
+
+    _write_locale(roots[client], "zh-TW", {"common": {client: "translated", "new": "新增"}})
+    assert ct.main(args) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert "en-US" in report["failed_locales"]

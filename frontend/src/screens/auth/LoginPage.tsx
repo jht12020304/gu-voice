@@ -5,13 +5,23 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from '../../stores/authStore';
 import { useCurrentLng } from '../../i18n/paths';
 import LanguageSwitcher from '../../components/common/LanguageSwitcher';
 
 export default function LoginPage() {
   const { t } = useTranslation('common');
-  const { isAuthenticated, isLoading, error, login, clearError, user } = useAuthStore();
+  const { isAuthenticated, isLoading, error, login, clearError, user } = useAuthStore(
+    useShallow((s) => ({
+      isAuthenticated: s.isAuthenticated,
+      isLoading: s.isLoading,
+      error: s.error,
+      login: s.login,
+      clearError: s.clearError,
+      user: s.user,
+    })),
+  );
   const lng = useCurrentLng();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

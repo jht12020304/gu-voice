@@ -335,3 +335,49 @@ def test_logout_body_path_skips_csrf(client):
         assert resp_cookie.status_code == 403
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+# ── _get_optional_current_user：包 get_current_user，黑名單 / is_active 一起生效 ──
+
+def _run(coro):
+    import asyncio
+
+    return asyncio.run(coro)
+
+
+def test_optional_current_user_is_none_when_token_is_rejected(monkeypatch):
+    """以前自己 decode token，跳過黑名單與 is_active：登出過的 admin token
+    仍能拿來註冊特權帳號。現在任何 AppException 都降級成匿名。"""
+    from app.core.exceptions import UnauthorizedException
+    from app.routers import auth as auth_router
+
+    async def _reject(request, authorization, db):
+        raise UnauthorizedException(message="errors.token_revoked")
+
+    monkeypatch.setattr(auth_router, "get_current_user", _reject)
+
+    assert _run(
+        auth_router._get_optional_current_user(
+            request=None, authorization="Bearer revoked", db=None
+        )
+    ) is None
+
+
+def test_optional_current_user_passes_through_valid_user(monkeypatch):
+    from app.routers import auth as auth_router
+
+    user = object()
+
+    async def _ok(request, authorization, db):
+        return user
+
+    monkeypatch.setattr(auth_router, "get_current_user", _ok)
+
+    assert _run(
+        auth_router._get_optional_current_user(
+            request=None, authorization="Bearer ok", db=None
+        )
+    ) is user
+    assert _run(
+        auth_router._get_optional_current_user(request=None, authorization=None, db=None)
+    ) is None

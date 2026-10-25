@@ -6,7 +6,6 @@
 - 未讀計數（Redis 快取）
 """
 
-import json
 import logging
 from typing import Any, Optional
 from uuid import UUID
@@ -14,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.pagination import keyset_after, page_slice, parse_cursor
 from app.core.exceptions import NotFoundException
 from app.models.enums import DevicePlatform, NotificationType
 from app.models.fcm_device import FCMDevice
@@ -34,6 +34,14 @@ _TYPE_FLAG_FIELD: dict[NotificationType, str] = {
     NotificationType.REPORT_READY: "report_ready_enabled",
     NotificationType.SYSTEM: "system_enabled",
 }
+
+
+_UNREAD_CACHE_KEY = "gu:notifications:unread:{user_id}"
+
+
+def _unread_cache_key(user_id: Any) -> str:
+    """未讀數 Redis 快取 key（寫入與失效端共用，避免字面漂移）。"""
+    return _UNREAD_CACHE_KEY.format(user_id=user_id)
 
 
 class NotificationService:
@@ -179,7 +187,6 @@ class NotificationService:
         回傳**實際建立**的通知清單（被偏好抑制的醫師不在內）。
         呼叫端負責 commit；本函式僅 flush。
         """
-        from app.models.user import User
         from app.utils.i18n_messages import get_message
 
         doctor_id, patient_name = await NotificationService._resolve_session_targets(
@@ -191,15 +198,10 @@ class NotificationService:
 
         data = {"session_id": str(session_id), "report_id": str(report_id)}
         created: list[Notification] = []
+        # 一次查全部目標的 preferred_language（先前逐位查＝N 個 round trip）。
+        lang_by_user = await NotificationService._preferred_languages(db, targets)
         for target_id in targets:
-            # 逐位查 preferred_language：fan-out 的規模是「在職醫師數」，
-            # 通常是個位數到十幾位，N+1 在這裡不是問題，而每位醫師看到自己
-            # 語言的通知比省幾個 query 重要（notify_session_complete 同樣作法）。
-            doctor_lang = (
-                await db.execute(
-                    select(User.preferred_language).where(User.id == target_id)
-                )
-            ).scalar_one_or_none()
+            doctor_lang = lang_by_user.get(target_id)
             title = get_message("notifications.report_ready.title", doctor_lang)
             body = get_message(
                 "notifications.report_ready.body",
@@ -242,7 +244,6 @@ class NotificationService:
 
         呼叫端負責 commit；本函式僅 flush。
         """
-        from app.models.user import User
 
         doctor_id, patient_name = await NotificationService._resolve_session_targets(
             db, session_id
@@ -256,12 +257,9 @@ class NotificationService:
             data["report_id"] = str(report_id)
 
         created: list[Notification] = []
+        lang_by_user = await NotificationService._preferred_languages(db, targets)
         for target_id in targets:
-            doctor_lang = (
-                await db.execute(
-                    select(User.preferred_language).where(User.id == target_id)
-                )
-            ).scalar_one_or_none()
+            doctor_lang = lang_by_user.get(target_id)
             title, body = _report_failed_copy(doctor_lang, patient_name or "")
             notification = await NotificationService.create(
                 db,
@@ -305,6 +303,20 @@ class NotificationService:
         if row is None:
             return None, None
         return row.doctor_id, row.name
+
+    @staticmethod
+    async def _preferred_languages(db: AsyncSession, user_ids: list[Any]) -> dict[Any, Optional[str]]:
+        """一個 query 取回多位使用者的 preferred_language（fan-out 通知共用）。"""
+        if not user_ids:
+            return {}
+        from app.models.user import User as _User
+
+        rows = (
+            await db.execute(
+                select(_User.id, _User.preferred_language).where(_User.id.in_(list(user_ids)))
+            )
+        ).all()
+        return {uid: lang for uid, lang in rows}
 
     @staticmethod
     async def _doctor_targets(
@@ -376,60 +388,34 @@ class NotificationService:
         if notification_type is not None:
             query = query.where(Notification.type == notification_type)
 
-        if cursor:
-            # cursor 為 Notification.id（UUID）。先驗證格式，避免將非法字串
-            # 直接餵給 asyncpg 觸發 DataError 裸 500；無效 cursor 視為無 cursor。
-            try:
-                cursor_uuid = UUID(cursor)
-            except (ValueError, TypeError):
-                cursor_uuid = None
-            if cursor_uuid is not None:
-                result = await db.execute(
-                    select(Notification).where(Notification.id == cursor_uuid)
-                )
-                cursor_record = result.scalar_one_or_none()
-                if cursor_record:
-                    query = query.where(
-                        (Notification.created_at < cursor_record.created_at)
-                        | (
-                            (Notification.created_at == cursor_record.created_at)
-                            & (Notification.id < cursor_record.id)
-                        )
-                    )
+        # cursor 為 Notification.id（UUID）；非法字串視為無 cursor（parse_cursor）。
+        _cursor = parse_cursor(cursor)
+        if _cursor is not None:
+            result = await db.execute(select(Notification).where(Notification.id == _cursor))
+            cursor_record = result.scalar_one_or_none()
+            if cursor_record:
+                query = keyset_after(query, cursor_record, Notification.created_at, Notification.id)
 
         result = await db.execute(query.limit(limit + 1))
         notifications = result.scalars().all()
 
-        has_more = len(notifications) > limit
-        if has_more:
-            notifications = notifications[:limit]
+        notifications, has_more, next_cursor = page_slice(notifications, limit)
 
-        # total_count 須與 list 套用相同篩選，分頁總數才一致
-        count_query = (
-            select(func.count())
-            .select_from(Notification)
-            .where(Notification.user_id == user_id)
-        )
+        filters = []
         if is_read is not None:
-            count_query = count_query.where(Notification.is_read.is_(is_read))
+            filters.append(Notification.is_read.is_(is_read))
         if notification_type is not None:
-            count_query = count_query.where(Notification.type == notification_type)
-        count_result = await db.execute(count_query)
-        total_count = count_result.scalar() or 0
-
-        # unread_count 不受篩選影響，永遠回傳該使用者的未讀總數
-        unread_result = await db.execute(
-            select(func.count())
-            .select_from(Notification)
-            .where(Notification.user_id == user_id)
-            .where(Notification.is_read.is_(False))
-        )
-        unread_count = unread_result.scalar() or 0
+            filters.append(Notification.type == notification_type)
+        total = func.count().filter(*filters) if filters else func.count()
+        counts = await db.execute(select(
+            total, func.count().filter(Notification.is_read.is_(False)),
+        ).select_from(Notification).where(Notification.user_id == user_id))
+        total_count, unread_count = counts.one()
 
         return {
             "data": notifications,
             "pagination": {
-                "next_cursor": str(notifications[-1].id) if has_more and notifications else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,
@@ -504,7 +490,7 @@ class NotificationService:
             redis: Redis 連線實例
             user_id: 使用者 ID
         """
-        cache_key = f"gu:notifications:unread:{user_id}"
+        cache_key = _unread_cache_key(user_id)
 
         # 嘗試讀取快取
         try:
@@ -807,7 +793,7 @@ async def _invalidate_unread_cache(user_id: UUID) -> None:
         from app.cache.redis_client import get_redis
 
         redis = await get_redis()
-        cache_key = f"gu:notifications:unread:{user_id}"
+        cache_key = _unread_cache_key(user_id)
         await redis.delete(cache_key)
     except Exception:
         pass

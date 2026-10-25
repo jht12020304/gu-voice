@@ -25,20 +25,4 @@ void main() {
       expect(ci.high <= 1, true);
     });
   });
-
-  group('quantile + boxStats', () {
-    test('type-7 quantile matches d3 on 1..9', () {
-      final s = <double>[1, 2, 3, 4, 5, 6, 7, 8, 9];
-      expect(quantileSorted(s, 0.5), 5);
-      expect(quantileSorted(s, 0.25), 3);
-      expect(quantileSorted(s, 0.75), 7);
-    });
-    test('Tukey whiskers + outlier detection', () {
-      final b = boxStats(<double>[1, 2, 3, 4, 5, 6, 7, 8, 9, 100])!;
-      expect(b.median, closeTo(5.5, 0.001));
-      expect(b.outliers.contains(100), true); // 100 is beyond Q3 + 1.5*IQR
-      expect(b.whiskerHigh, 9); // most extreme within fence
-    });
-    test('empty -> null', () => expect(boxStats([]), isNull));
-  });
 }

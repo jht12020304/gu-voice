@@ -85,6 +85,21 @@ class AppTokens extends ThemeExtension<AppTokens> {
     edge: Color(0x14FFFFFF), edgeHover: Color(0x24FFFFFF), edgeFocus: Color(0xFF60A5FA),
   );
 
+  /// 紅旗 severity → 語意色（critical / high / 其餘＝medium）。各頁別再各自 switch。
+  Color severityColor(String severity) => switch (severity) {
+        'critical' => alertCritical,
+        'high' => alertHigh,
+        _ => alertMedium,
+      };
+
+  /// 處置緊急度 → 語意色；未知／空值走 statusWaiting（中性）。
+  Color urgencyColor(String? urgency) => switch (urgency) {
+        'er_now' => alertCritical,
+        '24h' => alertHigh,
+        'this_week' => alertMedium,
+        _ => statusWaiting,
+      };
+
   @override
   AppTokens copyWith() => this; // ponytail: tokens are const sets, no partial override needed
 

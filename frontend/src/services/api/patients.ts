@@ -4,7 +4,7 @@
 
 import apiClient from './client';
 import type { Patient, PaginatedResponse, Session } from '../../types';
-import type { PatientCreateRequest, PatientUpdateRequest, PatientListParams, SessionListParams } from '../../types/api';
+import type { PatientListParams, SessionListParams } from '../../types/api';
 
 const BASE = '/patients';
 
@@ -17,18 +17,6 @@ export async function getPatients(params?: PatientListParams): Promise<Paginated
 /** 取得單一病患 */
 export async function getPatient(id: string): Promise<Patient> {
   const { data } = await apiClient.get<Patient>(`${BASE}/${id}`);
-  return data;
-}
-
-/** 新增病患 */
-export async function createPatient(payload: PatientCreateRequest): Promise<Patient> {
-  const { data } = await apiClient.post<Patient>(BASE, payload);
-  return data;
-}
-
-/** 更新病患 */
-export async function updatePatient(id: string, payload: PatientUpdateRequest): Promise<Patient> {
-  const { data } = await apiClient.put<Patient>(`${BASE}/${id}`, payload);
   return data;
 }
 

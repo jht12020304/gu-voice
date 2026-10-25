@@ -58,14 +58,6 @@ export function detectInitialLanguage(): SupportedLanguage {
 }
 
 /**
- * 從 pathname 取出第一段 locale；不合法則回 null。
- */
-export function extractLngFromPath(pathname: string): SupportedLanguage | null {
-  const first = pathname.split('/').filter(Boolean)[0];
-  return isSupportedLanguage(first) ? first : null;
-}
-
-/**
  * 去掉 pathname 首段 locale，回傳剩餘 path（保證以 `/` 起頭）。
  */
 export function stripLngFromPath(pathname: string): string {
@@ -137,12 +129,6 @@ export function useLocalizedNavigate() {
     },
     [navigate, lng],
   );
-}
-
-/** 給 <Link to={...}> / <Navigate to={...}> 用：把絕對 path 補 lng 前綴。 */
-export function useLocalizedTo() {
-  const lng = useCurrentLng();
-  return useCallback((path: string) => prefixLngToPath(path, lng), [lng]);
 }
 
 /** 供 LanguageSwitcher 使用：切語言時計算新 URL（保留現有子路徑 + search + hash）。 */

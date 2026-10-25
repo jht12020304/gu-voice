@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { apiErrorMessage } from '../../services/api/client';
 import toast from 'react-hot-toast';
 import { ArrowLeft, AlertTriangle, Clock, Target, CheckCircle, Lightbulb, User } from 'lucide-react';
 import { useCurrentLng } from '../../i18n/paths';
@@ -42,8 +43,8 @@ export default function AlertDetailPage() {
         } catch {
           setSession(null);
         }
-      } catch {
-        setError(t('alert.detail.loadError', '無法載入警示詳情'));
+      } catch (err) {
+        setError(apiErrorMessage(err, t, t('alert.detail.loadError', '無法載入警示詳情')));
       } finally {
         setIsLoading(false);
       }
@@ -65,12 +66,12 @@ export default function AlertDetailPage() {
       });
       // acknowledge 回應為部分欄位（id / acknowledged_*），merge 進現有 alert
       // 以免覆蓋掉 title / severity / triggerReason 等已載入的詳情。
-      setAlert((prev) => (prev ? { ...prev, ...updated } : updated));
+      setAlert((prev) => (prev ? { ...prev, ...updated } : prev));
       setRecordedActionTaken(trimmedAction);
       toast.success(t('alert.detail.acknowledgeSuccess', '已標示為已處理'));
-    } catch {
-      setError(t('alert.detail.acknowledgeError', '確認警示失敗'));
-      toast.error(t('alert.detail.acknowledgeError', '確認警示失敗'));
+    } catch (err) {
+      setError(apiErrorMessage(err, t, t('alert.detail.acknowledgeError', '確認警示失敗')));
+      toast.error(apiErrorMessage(err, t, t('alert.detail.acknowledgeError', '確認警示失敗')));
     } finally {
       setIsSubmitting(false);
     }

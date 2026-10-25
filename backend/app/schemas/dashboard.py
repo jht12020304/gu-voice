@@ -107,6 +107,17 @@ class DailyTrendItem(BaseModel):
     red_flags: int = 0
 
 
+class CalendarDaySummary(BaseModel):
+    day_index: int
+    total: int
+    completed: int
+    red_flags: int
+    busy_seconds: int
+    duration_count: int
+    first_start: Optional[datetime] = None
+    last_end: Optional[datetime] = None
+
+
 class MonthlySummaryResponse(BaseModel):
     """月份摘要回應
 

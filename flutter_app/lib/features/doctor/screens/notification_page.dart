@@ -25,11 +25,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(() {
-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) {
-        ref.read(notificationsProvider.notifier).fetchMore();
-      }
-    });
+    _scroll.onNearEnd(() => ref.read(notificationsProvider.notifier).fetchMore());
   }
 
   @override

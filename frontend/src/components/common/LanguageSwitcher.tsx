@@ -1,6 +1,6 @@
 // =============================================================================
 // LanguageSwitcher — UI 語言切換按鈕（下拉式）
-// 點擊切換介面語言；同步 i18next / settingsStore / <html lang>，toast 告知。
+// 點擊只改 URL `/:lng` 前綴（URL 是語言唯一權威）；i18next / <html lang> 由 LanguageLayout 依 URL 同步。
 // M16：偵測 active session（waiting/in_progress）時先出 modal 要求確認，
 // 確認後呼叫 end-for-language-switch 結束場次再切。
 // =============================================================================
@@ -11,8 +11,8 @@ import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import i18n, { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../../i18n';
-import { buildSwitchedPath } from '../../i18n/paths';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { buildSwitchedPath, useCurrentLng } from '../../i18n/paths';
+import { useClickOutside } from '../../hooks/useClickOutside';
 import { useAuthStore } from '../../stores/authStore';
 import { useConversationStore } from '../../stores/conversationStore';
 import * as authApi from '../../services/api/auth';
@@ -39,8 +39,7 @@ function isActiveSessionStatus(status: string | undefined): status is ActiveStat
 
 export default function LanguageSwitcher({ compact = true }: LanguageSwitcherProps) {
   const { t } = useTranslation('common');
-  const language = useSettingsStore((s) => s.language);
-  const setLanguage = useSettingsStore((s) => s.setLanguage);
+  const language = useCurrentLng();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
   const currentSession = useConversationStore((s) => s.currentSession);
@@ -60,24 +59,17 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
   const [switching, setSwitching] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  useClickOutside(rootRef, () => setOpen(false));
+
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         setOpen(false);
         if (!switching) setPendingLng(null);
       }
     }
-    document.addEventListener('mousedown', handleClick);
     document.addEventListener('keydown', handleKey);
-    return () => {
-      document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('keydown', handleKey);
-    };
+    return () => document.removeEventListener('keydown', handleKey);
   }, [switching]);
 
   const persistPreference = (lng: SupportedLanguage) => {
@@ -93,10 +85,13 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
   };
 
   const applyLanguageLocally = (lng: SupportedLanguage) => {
-    setLanguage(lng);
     syncUrlLng(lng);
-    toast.success(t('language.switched', { name: t(`language.names.${lng}`) }));
     persistPreference(lng);
+    // 新語系資源到位後再提示，提示才會是新語言（changeLanguage 冪等，LanguageLayout 也會做同一件事）。
+    void i18n
+      .changeLanguage(lng)
+      .catch(() => undefined)
+      .then(() => toast.success(t('language.switched', { lng, name: t(`language.names.${lng}`, { lng }) })));
   };
 
   const handleSelect = (lng: SupportedLanguage) => {
@@ -127,7 +122,6 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
     try {
       await sessionsApi.endSessionForLanguageSwitch(currentSession.id, pendingLng);
       resetSession();
-      setLanguage(pendingLng);
       // 刻意**不**用 syncUrlLng：`currentSession` 只在 ConversationPage 存在，所以走到這裡
       // 目前 URL 必定是 `/:lng/conversation/:id`，而那場次剛剛已被後端轉成 cancelled。
       // 換上新 lng 的同一條路徑等於把病患留在一個已死場次的問診頁（React 不會因為只換
@@ -137,7 +131,7 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
       navigate(`/${pendingLng}/patient`, { replace: true });
       persistPreference(pendingLng);
       // 導頁後畫面已是新語言，提示也要用新語言 —— 與 Flutter `switchLanguage` 對齊。
-      // `setLanguage` 內的 `i18n.changeLanguage` 是非同步的（新 locale 的 JSON 還在載），
+      // `i18n.changeLanguage` 是非同步的（新 locale 的 JSON 還在載），
       // 直接 toast 會拿到舊語言的字串，在英文首頁上跳出一句中文（Playwright 實測到）；
       // 光傳 `{ lng }` 也不夠，資源沒載完一樣 fallback。故先等資源到位再提示。
       // 失敗不擋流程：語言已切、場次已收，提示退回目前語言仍是正確資訊。

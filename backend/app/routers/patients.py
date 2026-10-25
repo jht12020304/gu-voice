@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, require_role
-from app.core.exceptions import AppException
 from app.schemas.patient import (
     PatientCreate,
     PatientDetail,

@@ -5,6 +5,9 @@ name: CI
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   # ──────────────────────────────────────────────────────────────────────
   # Backend tests (FastAPI, Python 3.12)
@@ -57,22 +60,39 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
 
       - name: Install backend dependencies
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          # requirements.txt does not pin the test stack; install it explicitly.
+          # requirements-dev.txt = requirements.txt + pinned pytest/pytest-asyncio.
           # pytest-asyncio is required — the async tests carry @pytest.mark.asyncio and
           # fail with "async def functions are not natively supported" without it.
           # This was silently red on main from 2026-08-23 until 2026-09-08.
-          pip install pytest pytest-asyncio
+          pip install -r requirements-dev.txt
 
       - name: Run pytest (unit)
         working-directory: backend
-        run: pytest tests/unit -q --ignore=tests/unit/api --junitxml=pytest-results.xml
+        run: pytest tests/unit -q --junitxml=pytest-results.xml
+
+      # 整合測試打真 Postgres（服務已在上面 provision）：先把 schema 升到 head，
+      # 再跑 tests/integration——軟刪除跳閘器、授權限縮、分頁 SQL 都在這層，
+      # 以前只在開發機跑。TEST_DATABASE_URL 用 asyncpg driver（conftest 預設值指向本機 55432）。
+      - name: Migrate test database to head
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: Run pytest (integration, real Postgres)
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+        run: pytest tests/integration -q
+
+      - name: Test repository checks
+        run: python -m pytest scripts/tests -q
 
       - name: Upload junit results
         if: always()
@@ -83,7 +103,7 @@ jobs:
           if-no-files-found: ignore
 
   # ──────────────────────────────────────────────────────────────────────
-  # Frontend checks (React/Vite/TS, Node 20)
+  # Web checks (React/Vite/TS, Node 22)
   # `npm run build` already runs `tsc -b` first, so typecheck is implicit,
   # but we keep an explicit type-check step for faster failure surfacing.
   # ──────────────────────────────────────────────────────────────────────
@@ -94,10 +114,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node 20
+      - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -113,12 +133,19 @@ jobs:
         working-directory: frontend
         run: npm run type-check
 
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
       - name: Build
         working-directory: frontend
+        env:
+          VITE_API_BASE_URL: http://localhost:8000/api/v1
+          VITE_WS_BASE_URL: ws://localhost:8000/api/v1/ws
         run: npm run build
 
   # ──────────────────────────────────────────────────────────────────────
-  # Flutter checks (flutter_app/ — the single-codebase frontend replacing frontend/)
+  # iOS app checks (Flutter). React remains the maintained web client.
   #
   # Added 2026-07-26: CI had zero Flutter coverage, so an `unnecessary_underscores`
   # info slipped through review. `flutter analyze` exits 1 on info-level issues too
@@ -160,17 +187,47 @@ jobs:
         working-directory: flutter_app
         run: flutter test
 
+      - name: Calendar across daylight saving changes
+        working-directory: flutter_app
+        env:
+          TZ: America/New_York
+        run: flutter test --no-pub test/session_calendar_test.dart
+
   # ──────────────────────────────────────────────────────────────────────
-  # e2e-playwright — PLACEHOLDER
-  # This job is intentionally disabled via `if: false` until `tests/e2e/`
-  # exists and a Playwright config is wired up. Leaving the job shell here
-  # so the wiring (name, structure) is discoverable in the workflow list
-  # without blocking PRs. Remove `if: false` and fill in steps when ready.
+  # Web browser tests use the mocked API in playwright.config.ts.
   # ──────────────────────────────────────────────────────────────────────
   e2e-playwright:
     name: e2e-playwright
     runs-on: ubuntu-latest
-    if: false
+    defaults:
+      run:
+        working-directory: frontend
     steps:
-      - name: TODO
-        run: 'echo "TODO: wire Playwright once tests/e2e/ exists"'
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps --only-shell chromium
+
+      - name: Browser tests
+        run: npm run test:e2e
+
+      - name: Upload failure report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore

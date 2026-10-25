@@ -12,6 +12,8 @@ from uuid import UUID
 from sqlalchemy import Text, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.pagination import page_slice, parse_cursor
+from app.core.authz import get_user_role
 from app.core.config import settings
 from app.core.exceptions import ForbiddenException, NotFoundException
 from app.models.chief_complaint import ChiefComplaint
@@ -95,51 +97,8 @@ def _serialize_complaint(complaint: ChiefComplaint, language: Optional[str]) -> 
     }
 
 
-def _is_admin(current_user: Any) -> bool:
-    """判斷 current_user 是否為 admin（容忍 enum / str / 缺欄位）。"""
-    role = getattr(current_user, "role", None)
-    if role is None:
-        return False
-    return role == UserRole.ADMIN or role == UserRole.ADMIN.value
-
-
 class ComplaintService:
     """主訴業務邏輯"""
-
-    @staticmethod
-    async def get_active_list(db: AsyncSession) -> list[dict[str, Any]]:
-        """
-        取得所有啟用中的主訴，依分類分組並依 display_order 排序
-
-        Returns:
-            依分類分組的主訴列表
-            [
-                {
-                    "category": "排尿症狀",
-                    "complaints": [ChiefComplaint, ...]
-                },
-                ...
-            ]
-        """
-        result = await db.execute(
-            select(ChiefComplaint)
-            .where(ChiefComplaint.is_active.is_(True))
-            .order_by(ChiefComplaint.category, ChiefComplaint.display_order)
-        )
-        complaints = result.scalars().all()
-
-        # 依分類分組
-        grouped: dict[str, list] = {}
-        for complaint in complaints:
-            category = complaint.category
-            if category not in grouped:
-                grouped[category] = []
-            grouped[category].append(complaint)
-
-        return [
-            {"category": category, "complaints": items}
-            for category, items in grouped.items()
-        ]
 
     @staticmethod
     async def create(
@@ -300,9 +259,10 @@ class ComplaintService:
         query = _apply_filters(select(ChiefComplaint))
 
         # Keyset 分頁：取得游標錨點之後的資料
-        if cursor:
+        _cursor = parse_cursor(cursor)
+        if _cursor is not None:
             anchor_result = await db.execute(
-                select(ChiefComplaint).where(ChiefComplaint.id == cursor)
+                select(ChiefComplaint).where(ChiefComplaint.id == _cursor)
             )
             anchor = anchor_result.scalar_one_or_none()
             if anchor is not None:
@@ -320,9 +280,7 @@ class ComplaintService:
         result = await db.execute(query.limit(limit + 1))
         items = result.scalars().all()
 
-        has_more = len(items) > limit
-        if has_more:
-            items = items[:limit]
+        items, has_more, next_cursor = page_slice(items, limit)
 
         # 符合篩選條件的總筆數（套用相同 where 條件，不含 cursor / limit）
         total_result = await db.execute(
@@ -333,7 +291,7 @@ class ComplaintService:
         return {
             "data": [_serialize_complaint(c, language) for c in items],
             "pagination": {
-                "next_cursor": str(items[-1].id) if has_more and items else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,
@@ -408,7 +366,7 @@ class ComplaintService:
         不存在的主訴交由後續 update / delete 統一拋 NotFoundException，
         以保留既有錯誤語意。
         """
-        if _is_admin(current_user):
+        if get_user_role(current_user) == UserRole.ADMIN:
             return
         result = await db.execute(
             select(ChiefComplaint.is_default).where(ChiefComplaint.id == complaint_id)

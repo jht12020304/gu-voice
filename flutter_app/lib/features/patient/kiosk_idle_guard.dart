@@ -54,6 +54,7 @@ class KioskIdleGuard extends ConsumerStatefulWidget {
 
 class _KioskIdleGuardState extends ConsumerState<KioskIdleGuard> {
   Timer? _timer;
+  int _lastArmMs = 0;
 
   bool get _enabled => Env.kioskIdleTimeoutSeconds > 0;
 
@@ -64,8 +65,12 @@ class _KioskIdleGuardState extends ConsumerState<KioskIdleGuard> {
 
   /// Restart the countdown. Called on every interaction and on login.
   void _arm() {
+    // 指尖滑動每幀都會進來；180 s 的倒數差 1 s 內沒有意義，別每次都重建 Timer。
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (_timer != null && now - _lastArmMs < 1000) return;
+    _lastArmMs = now;
     _cancel();
-    _timer = Timer(Duration(seconds: Env.kioskIdleTimeoutSeconds), _onIdle);
+    _timer = Timer(const Duration(seconds: Env.kioskIdleTimeoutSeconds), _onIdle);
   }
 
   /// The route is checked HERE rather than during build. `GoRouterState.of(context)`

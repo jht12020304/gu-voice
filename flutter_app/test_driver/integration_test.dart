@@ -7,7 +7,7 @@
 // --dart-define=SHOTS=true 時逐頁截圖，人眼複核用；不帶 SHOTS 時測試端
 // 根本不呼叫，這個 callback 閒置）。
 //
-// 用法見 flutter_app/README.md 的 web 章節與 mobile_layout_walkthrough_test 檔頭。
+// 用法見 mobile_layout_walkthrough_test 檔頭（`fvm flutter drive --driver=test_driver/integration_test.dart`）。
 import 'dart:io';
 
 import 'package:integration_test/integration_test_driver_extended.dart';

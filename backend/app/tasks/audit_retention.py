@@ -21,7 +21,7 @@ import logging
 from datetime import date
 from typing import Any
 
-from app.tasks import celery_app
+from app.tasks import celery_app, run_async
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +39,7 @@ _PARTITION_PREFIX = "audit_logs_"
 )
 def cleanup_old_audit_partitions(self) -> dict[str, Any]:
     """掃描並清掉 > `RETENTION_YEARS` 年的 audit_logs 分區。"""
-    import asyncio
-
-    try:
-        return asyncio.get_event_loop().run_until_complete(_async_cleanup())
-    except Exception:
-        return asyncio.run(_async_cleanup())
+    return run_async(_async_cleanup)
 
 
 async def _async_cleanup() -> dict[str, Any]:

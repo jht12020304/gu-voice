@@ -1,6 +1,5 @@
 {
   "acknowledge": "Got it",
-  "back": "Back",
   "loading": "Loading...",
   "retry": "Retry",
   "unknownError": "Unknown error",
@@ -8,14 +7,14 @@
   "appTagline": "Urology AI Voice Consultation System",
   "user": "User",
   "close": "Close",
-  "save": "Save",
   "saving": "Saving...",
   "header": {
     "themeToLight": "Switch to light mode",
     "themeToDark": "Switch to dark mode",
     "notifications": "Notifications",
     "settings": "Settings",
-    "logout": "Log out"
+    "logout": "Log out",
+    "navigation": "Navigation menu"
   },
   "login": {
     "prompt": "Please sign in to your account",
@@ -24,19 +23,16 @@
     "passwordPlaceholder": "Enter password",
     "forgotPassword": "Forgot password?",
     "submit": "Sign in",
-    "submitting": "Signing in...",
     "emailRequired": "Email is required",
     "passwordRequired": "Password is required"
   },
   "roles": {
     "patient": "Patient",
     "assistant": "AI Assistant",
-    "system": "System",
     "doctor": "Doctor",
     "admin": "Administrator"
   },
   "language": {
-    "label": "Language",
     "switchTo": "Switch to {{name}}",
     "current": "Current language: {{name}}",
     "switched": "Switched to {{name}}",
@@ -47,7 +43,6 @@
       "ko-KR": "한국어",
       "vi-VN": "Tiếng Việt"
     },
-    "betaTag": " (beta)",
     "switchModal": {
       "title": "End current consultation to switch language",
       "description": "Your consultation (in {{from}}) is in progress. To avoid mixing languages in a single session, switching to {{to}} will end this session. You can start a new consultation afterwards.",
@@ -82,12 +77,10 @@
   },
   "common": {
     "errorTitle": "Something went wrong",
-    "emptyTitle": "No data",
     "notSet": "Not set",
     "dash": "-",
     "defaultDevice": "System default",
     "microphoneLabel": "Microphone {{id}}",
-    "viewAll": "View all",
     "enabled": "Enabled",
     "disabled": "Disabled"
   },
@@ -167,7 +160,6 @@
     },
     "patient": {
       "noPhone": "No contact phone",
-      "noName": "Unnamed patient",
       "labels": {
         "gender": "Gender",
         "dateOfBirth": "Date of birth",
@@ -214,12 +206,7 @@
       "empty": "No consultation records yet",
       "emptyHint": "Let's start your first consultation",
       "durationMinutes": "{{minutes}} min",
-      "defaultComplaint": "Consultation",
-      "statusCompleted": "Completed",
-      "statusInProgress": "In progress",
-      "statusWaiting": "Waiting",
-      "statusAbortedRedFlag": "Red-flag aborted",
-      "statusCancelled": "Cancelled"
+      "defaultComplaint": "Consultation"
     },
     "settings": {
       "tabProfile": "Profile",
@@ -284,8 +271,6 @@
     "noPhone": "No phone provided"
   },
   "pagination": {
-    "loadMore": "Load more",
-    "loadingMore": "Loading more...",
     "allLoaded": "All items shown"
   }
 }

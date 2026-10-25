@@ -152,13 +152,6 @@
       "completed": "已完成",
       "inProgress": "進行中",
       "cancelled": "已取消"
-    },
-    "status": {
-      "completed": "已完成",
-      "inProgress": "進行中",
-      "waiting": "等待中",
-      "abortedRedFlag": "紅旗中止",
-      "cancelled": "已取消"
     }
   }
 }

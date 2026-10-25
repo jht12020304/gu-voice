@@ -1,5 +1,6 @@
 import '../models/alert.dart';
 import 'dio_client.dart';
+import 'parse_page.dart';
 
 typedef AlertPage = ({List<RedFlagAlert> data, String? nextCursor, bool hasMore, int totalCount});
 
@@ -19,15 +20,7 @@ class AlertsApi {
       'isAcknowledged': ?acknowledged,
       'sessionId': ?sessionId,
     });
-    final data = res.data as Map;
-    final list = (data['data'] as List? ?? const []).map((e) => RedFlagAlert.fromJson(e as Map)).toList();
-    final p = (data['pagination'] as Map?) ?? const {};
-    return (
-      data: list,
-      nextCursor: p['nextCursor'] as String?,
-      hasMore: (p['hasMore'] ?? false) as bool,
-      totalCount: (p['totalCount'] as num?)?.toInt() ?? list.length,
-    );
+    return parsePage(res.data, RedFlagAlert.fromJson);
   }
 
   /// 一鍵確認所有未確認警示；回傳實際確認筆數。

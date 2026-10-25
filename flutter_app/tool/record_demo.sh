@@ -11,6 +11,18 @@
 #   然後把 (T1-T0) 當 --trim-start、(T2-T1) 當 --trim-duration 交給 make_demo_video.sh。
 #   Dart 那端若沒印 marker，退回「整段都要」並在最後提醒使用者自己給 --trim-start。
 #
+# 字卡為什麼要綁「階段標記」而不是固定秒數：
+#   walkthrough 每次跑的長度會變（LLM 快慢，實測 2:14 vs 2:21），成品又固定壓成
+#   --seconds 秒 → 變速倍率跟著變 → 同一組寫死秒數的字卡，在不同次錄影會對到
+#   不同畫面（例如「SOAP 報告」字卡疊到問診畫面上）。所以 Dart 端會在每個階段
+#   畫面真的出現之後印一行 `DEMO_MARK_STAGE <stage-id> <epoch 秒>`（九個固定
+#   stage-id，見 demo_captions.example.json 用到的名字）。這支腳本把每個 stage
+#   換算成「相對 T1（DEMO_MARK_START）的秒數偏移」寫成 stages.tsv，交給
+#   make_demo_video.sh 用當次實際的變速倍率換算回成品時間軸——字卡永遠對得上
+#   當次錄影的畫面，不管 walkthrough 這次跑了多久。若 log 裡完全沒有
+#   DEMO_MARK_STAGE（例如舊版 walkthrough），就不產生 stages.tsv、不傳
+#   --stages，退回設定檔裡的固定秒數，並印警告——不因為缺 marker 就整支腳本失敗。
+#
 # 用法：
 #   tool/record_demo.sh                          # 用預設模擬器與本機後端
 #   tool/record_demo.sh --device <udid> --api http://127.0.0.1:8000/api/v1
@@ -170,6 +182,39 @@ if [[ ${#trim_args[@]} -eq 0 ]]; then
   say "   若成品前面有一段桌面畫面，用 --trim-start 手動指定，或請 walkthrough 印出 marker。"
 fi
 
+# ── 抓階段標記，換算成「相對 DEMO_MARK_START 的秒數偏移」──────────────────────
+# 只有在算得出 mark_epoch（T1）時才有意義：stages.tsv 裡的偏移量全部相對 T1，
+# 跟 --trim-start 用的是同一個原點，make_demo_video.sh 才能直接拿偏移量除以
+# 變速倍率換算成成品時間，不必再對齊一次。
+stages_file=""
+if [[ -n "${mark_line}" && "${mark_epoch}" =~ ^[0-9.]+$ ]]; then
+  stage_matches="$(grep "DEMO_MARK_STAGE" "${log}" || true)"
+  if [[ -n "${stage_matches}" ]]; then
+    candidate_stages_file="${out_dir}/stages.tsv"
+    : > "${candidate_stages_file}"
+    while IFS= read -r line; do
+      [[ -z "${line}" ]] && continue
+      stage_id="$(sed -E 's/.*DEMO_MARK_STAGE[[:space:]]+([^[:space:]]+)[[:space:]]+([0-9.]+).*/\1/' <<<"${line}")"
+      stage_epoch="$(sed -E 's/.*DEMO_MARK_STAGE[[:space:]]+([^[:space:]]+)[[:space:]]+([0-9.]+).*/\2/' <<<"${line}")"
+      [[ -n "${stage_id}" && "${stage_epoch}" =~ ^[0-9.]+$ ]] || continue
+      offset="$("${repo_dir}/backend/venv/bin/python" -c "print(max(0.0, ${stage_epoch} - ${mark_epoch}))")"
+      printf '%s\t%s\n' "${stage_id}" "${offset}" >> "${candidate_stages_file}"
+    done <<< "${stage_matches}"
+    if [[ -s "${candidate_stages_file}" ]]; then
+      stages_file="${candidate_stages_file}"
+      say "抓到 $(wc -l < "${stages_file}" | tr -d ' ') 個 DEMO_MARK_STAGE → ${stages_file}"
+    else
+      say "⚠️ log 裡有 DEMO_MARK_STAGE 這幾個字，但解析不出合法的 marker，忽略。"
+    fi
+  fi
+fi
+if [[ -z "${stages_file}" ]]; then
+  say "⚠️ log 裡沒有 DEMO_MARK_STAGE，字卡會退回設定檔裡的固定秒數（若設定檔的字卡是用 \"stage\" 綁定，且沒給偏移量，make_demo_video.sh 會直接失敗，不會安靜跳過字卡）。"
+  say "   舊版 walkthrough（還沒印 stage marker）仍可跑，只是字卡對不準畫面。"
+fi
+stage_args=()
+[[ -n "${stages_file}" ]] && stage_args=(--stages "${stages_file}")
+
 # ── 剪成成品 ────────────────────────────────────────────────────────────────
 say "後製 → ${final}"
 "${app_dir}/tool/make_demo_video.sh" \
@@ -177,7 +222,8 @@ say "後製 → ${final}"
   --config "${app_dir}/tool/demo_captions.example.json" \
   --output "${final}" \
   --target-seconds "${target_seconds}" \
-  ${trim_args[@]+"${trim_args[@]}"}
+  ${trim_args[@]+"${trim_args[@]}"} \
+  ${stage_args[@]+"${stage_args[@]}"}
 
 [[ ${keep_raw} -eq 1 ]] || { rm -f "${raw}"; say "已刪除原始錄影（--keep-raw 可保留）"; }
 say "完成：${final}"

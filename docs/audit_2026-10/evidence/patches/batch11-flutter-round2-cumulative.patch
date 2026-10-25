@@ -1,0 +1,4346 @@
+diff --git a/flutter_app/README.md b/flutter_app/README.md
+index 7933d28..338fa4f 100644
+--- a/flutter_app/README.md
++++ b/flutter_app/README.md
+@@ -164,7 +164,31 @@ doctor／臨床 admin 也只讀自己被指派的病患資料。system admin 仍
+   - `kiosk_idle_logout_test.dart` — 真等逾時驗病患被登出＋token 清除
+   - `patient_text_flow_test.dart` — **病患全流程（文字代替語音）**，打真後端＋真 OpenAI，見上方「已驗過的」
+   - `demo_walkthrough_test.dart` — **不是測試，是產品介紹影片的驅動腳本**（見下方「介紹影片」）
++  - `doctor_walkthrough_test.dart` — **醫師端走查**：登入 → sessions 列表 → session detail（「指派給我」認領種子場次）
++    → dashboard 統計非零 → alerts 看紅旗／acknowledge → reports 開 SOAP 報告驗 S/O/A/P 與逐字稿分頁。
++    打真後端的**既有種子資料**（只讀，不觸發 OpenAI）；斷言用資料特徵（「血尿」、aborted_red_flag、critical），不寫死 id，可重跑。
++    需 `--dart-define=E2E_DOCTOR_EMAIL=… --dart-define=E2E_DOCTOR_PASSWORD=…`
++  - `doctor_dashboard_ws_test.dart` — **dashboard WS 即時性**：登入醫師停在 `/sessions`，印出
++    `L6_READY_FOR_EXTERNAL_TRIGGER marker=<E2E_L6_MARKER>` 後，由 host 端以病患帳號 `POST /sessions`
++    （`chiefComplaintText` 帶同一個 marker），斷言列表**不重進頁面**就出現新場次（走 `session_created` 推播 → `reload()`）。
++    兩段要分開跑（測試等外部觸發）；需 `E2E_DOCTOR_EMAIL` / `E2E_DOCTOR_PASSWORD` / `E2E_L6_MARKER`（唯一字串，例如帶時間戳）
++  - `lng_deep_link_test.dart` — **五語 deep link**：同一個 App 實例依序 `.go('/$lng/login')`，驗登入頁關鍵文字確實切成該語言
++    （釘「URL 是語言唯一權威、新路由要包 `_lngKeyed()`」這條鐵律）。不需要真後端、不需要憑證
+ - 憑證一律只從 `--dart-define` 讀，沒給就 skip。
++- 跑單支（iOS simulator，先 `xcrun simctl list devices booted` 拿 `<simulator>` 名稱或 UDID；`API_BASE`／`WS_BASE`
++  依「跑法」一節帶 path 後綴）：
++
++  ```bash
++  fvm flutter test integration_test/doctor_walkthrough_test.dart -d <simulator> \
++    --dart-define=API_BASE=http://127.0.0.1:8000/api/v1 --dart-define=WS_BASE=ws://127.0.0.1:8000/api/v1/ws \
++    --dart-define=E2E_DOCTOR_EMAIL=… --dart-define=E2E_DOCTOR_PASSWORD=…
++  fvm flutter test integration_test/doctor_dashboard_ws_test.dart -d <simulator> \
++    --dart-define=API_BASE=… --dart-define=WS_BASE=… \
++    --dart-define=E2E_DOCTOR_EMAIL=… --dart-define=E2E_DOCTOR_PASSWORD=… --dart-define=E2E_L6_MARKER=L6WS$(date +%s)
++  fvm flutter test integration_test/lng_deep_link_test.dart -d <simulator>
++  ```
++
++  各檔檔頭另有 `flutter drive … -d web-server` 的 Chrome 跑法（Flutter Web 預覽用）。
+ 
+ ## 介紹影片（自動產生，2026-09-09）
+ 
+diff --git a/flutter_app/analysis_options.yaml b/flutter_app/analysis_options.yaml
+index bf8d421..b141754 100644
+--- a/flutter_app/analysis_options.yaml
++++ b/flutter_app/analysis_options.yaml
+@@ -32,6 +32,9 @@ linter:
+   rules:
+     # avoid_print: false  # Uncomment to disable the `avoid_print` rule
+     # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
++    prefer_const_constructors: true
++    prefer_const_literals_to_create_immutables: true
++    prefer_const_declarations: true
+ 
+ # Additional information about this file can be found at
+ # https://dart.dev/guides/language/analysis-options
+diff --git a/flutter_app/assets/locales/en-US/common.json b/flutter_app/assets/locales/en-US/common.json
+index dd6d0a4..25f4727 100644
+--- a/flutter_app/assets/locales/en-US/common.json
++++ b/flutter_app/assets/locales/en-US/common.json
+@@ -61,19 +61,6 @@
+       "switchFailed": "Could not switch. Your consultation is still in progress. Please try again, or let the staff here know."
+     }
+   },
+-  "status": {
+-    "waiting": "Waiting",
+-    "in_progress": "In progress",
+-    "completed": "Completed",
+-    "aborted_red_flag": "Red-flag aborted",
+-    "cancelled": "Cancelled",
+-    "unknown": "Session status unavailable"
+-  },
+-  "severity": {
+-    "critical": "Critical",
+-    "high": "High",
+-    "medium": "Medium"
+-  },
+   "gender": {
+     "male": "Male",
+     "female": "Female",
+@@ -290,11 +277,5 @@
+     "loadMore": "Load more",
+     "loadingMore": "Loading more...",
+     "allLoaded": "All items shown"
+-  },
+-  "patientUnsupported": {
+-    "title": "For clinical staff only",
+-    "message": "This app lets doctors and clinical staff review consultation reports and notifications. It does not provide voice intake.",
+-    "kioskHint": "To complete a consultation, please use the voice intake kiosk in the waiting area. On-site staff can assist you.",
+-    "logoutAction": "Log out and switch account"
+   }
+ }
+diff --git a/flutter_app/assets/locales/en-US/dashboard.json b/flutter_app/assets/locales/en-US/dashboard.json
+index 097a5f2..f18110c 100644
+--- a/flutter_app/assets/locales/en-US/dashboard.json
++++ b/flutter_app/assets/locales/en-US/dashboard.json
+@@ -87,40 +87,9 @@
+     "emptyMessage": "No red-flag alerts match the current filters",
+     "groupCount": "{{count}} alerts",
+     "unknownComplaintFetchFailed": "Chief complaint unavailable",
+-    "sessionStatus": {
+-      "waiting": "Waiting",
+-      "inProgress": "In Consultation",
+-      "completed": "Completed",
+-      "abortedRedFlag": "Aborted (Red Flag)",
+-      "cancelled": "Cancelled"
+-    },
+     "acknowledgeAll": "Acknowledge all",
+     "acknowledgeAllConfirm": "Mark all unacknowledged red-flag alerts as handled? This cannot be undone."
+   },
+-  "transcript": {
+-    "title": "Consultation transcript",
+-    "emptyTitle": "No conversation content to display",
+-    "loading": "Loading conversation...",
+-    "messageCount": "{{count}} messages",
+-    "summary": "{{patientCount}} patient / {{assistantCount}} AI",
+-    "viewFull": "View full transcript ({{count}} more)...",
+-    "searchPlaceholder": "Search transcript",
+-    "filter": {
+-      "all": "All",
+-      "patient": "Patient",
+-      "assistant": "AI"
+-    },
+-    "visibleCount": "Showing {{visible}} / {{total}} messages",
+-    "noMatches": "No transcript matches the filters",
+-    "redFlag": "Red flag",
+-    "lowConfidence": "Low STT confidence",
+-    "sttConfidence": "STT confidence: {{value}}%",
+-    "roles": {
+-      "patient": "Patient",
+-      "assistant": "AI assistant",
+-      "system": "System"
+-    }
+-  },
+   "reportList": {
+     "eyebrow": "Review Workspace",
+     "subtitle": "Review AI consultation summaries, reports awaiting review, and revision requests in one place. Start with the pending queue, then return to the transcript to verify the supporting evidence.",
+diff --git a/flutter_app/assets/locales/en-US/intake.json b/flutter_app/assets/locales/en-US/intake.json
+index f739b98..b35cea9 100644
+--- a/flutter_app/assets/locales/en-US/intake.json
++++ b/flutter_app/assets/locales/en-US/intake.json
+@@ -90,17 +90,6 @@
+       "conditionPlaceholder": "Condition (e.g. diabetes)",
+       "add": "Add family history"
+     },
+-    "summary": {
+-      "title": "Review before submitting",
+-      "complaint": "Complaint",
+-      "allergy": "Allergies",
+-      "medication": "Medications",
+-      "history": "History",
+-      "noKnownAllergies": "No known allergies",
+-      "noCurrentMedications": "No current medications",
+-      "noPastHistory": "No significant history",
+-      "filled": "Entered"
+-    },
+     "nav": {
+       "back": "Back",
+       "prev": "Previous",
+diff --git a/flutter_app/assets/locales/en-US/session.json b/flutter_app/assets/locales/en-US/session.json
+index 99c197a..d67c456 100644
+--- a/flutter_app/assets/locales/en-US/session.json
++++ b/flutter_app/assets/locales/en-US/session.json
+@@ -152,13 +152,6 @@
+       "completed": "Completed",
+       "inProgress": "In progress",
+       "cancelled": "Cancelled"
+-    },
+-    "status": {
+-      "completed": "Completed",
+-      "inProgress": "In progress",
+-      "waiting": "Waiting",
+-      "abortedRedFlag": "Aborted (Red Flag)",
+-      "cancelled": "Cancelled"
+     }
+   }
+ }
+diff --git a/flutter_app/assets/locales/en-US/soap.json b/flutter_app/assets/locales/en-US/soap.json
+index 8ae3d6a..ffff879 100644
+--- a/flutter_app/assets/locales/en-US/soap.json
++++ b/flutter_app/assets/locales/en-US/soap.json
+@@ -52,37 +52,6 @@
+     "redFlagSession": "Red-Flag Session",
+     "redFlagLoadFailedBadge": "⚠ Failed to load red-flag status"
+   },
+-  "metaCard": {
+-    "patient": "Patient",
+-    "complaint": "Chief Complaint",
+-    "sessionStatus": "Session Status",
+-    "report": "Report",
+-    "createdHelper": "Session created {{date}}",
+-    "completedAt": "Completed at {{date}}",
+-    "startedAt": "Started at {{date}}",
+-    "noTimeInfo": "Time information not available yet",
+-    "notGeneratedTime": "Not generated yet",
+-    "reviewStatusHelper": "Review status: {{status}}",
+-    "awaitingReview": "Awaiting physician review"
+-  },
+-  "highlights": {
+-    "positive": {
+-      "title": "Key Positive Findings",
+-      "empty": "No clear positive findings identified yet."
+-    },
+-    "negative": {
+-      "title": "Key Negative Findings",
+-      "empty": "No clear negative findings identified yet."
+-    },
+-    "riskFactors": {
+-      "title": "Risk Factors",
+-      "empty": "No significant risk factors identified."
+-    },
+-    "impression": {
+-      "title": "Preliminary Impression",
+-      "empty": "No clear impression identified yet."
+-    }
+-  },
+   "diagnosis": {
+     "title": "Diagnosis Codes",
+     "empty": "No ICD-10 codes yet.",
+diff --git a/flutter_app/assets/locales/ja-JP/common.json b/flutter_app/assets/locales/ja-JP/common.json
+index 0738135..6b34db0 100644
+--- a/flutter_app/assets/locales/ja-JP/common.json
++++ b/flutter_app/assets/locales/ja-JP/common.json
+@@ -61,19 +61,6 @@
+       "switchFailed": "切り替えに失敗しました。現在の問診はそのまま進行中です。もう一度お試しいただくか、その場の医療スタッフにお知らせください。"
+     }
+   },
+-  "status": {
+-    "waiting": "待機中",
+-    "in_progress": "問診中",
+-    "completed": "完了",
+-    "aborted_red_flag": "レッドフラグによる中止",
+-    "cancelled": "キャンセル済み",
+-    "unknown": "セッション状態を取得できません"
+-  },
+-  "severity": {
+-    "critical": "危急",
+-    "high": "高",
+-    "medium": "中"
+-  },
+   "gender": {
+     "male": "男性",
+     "female": "女性",
+@@ -290,11 +277,5 @@
+     "loadMore": "さらに読み込む",
+     "loadingMore": "読み込み中...",
+     "allLoaded": "すべて表示しました"
+-  },
+-  "patientUnsupported": {
+-    "title": "本アプリは医療従事者向けです",
+-    "message": "本アプリでは、医師および医療スタッフが問診レポートと通知を確認できます。音声問診の機能はありません。",
+-    "kioskHint": "問診をご希望の場合は、待合エリアの音声問診キオスク端末をご利用ください。ご不明な点は現場のスタッフにお声がけください。",
+-    "logoutAction": "ログアウトしてアカウントを切り替える"
+   }
+ }
+diff --git a/flutter_app/assets/locales/ja-JP/dashboard.json b/flutter_app/assets/locales/ja-JP/dashboard.json
+index 554cf98..09d8912 100644
+--- a/flutter_app/assets/locales/ja-JP/dashboard.json
++++ b/flutter_app/assets/locales/ja-JP/dashboard.json
+@@ -87,40 +87,9 @@
+     "emptyMessage": "条件に一致するレッドフラグ警告はありません",
+     "groupCount": "{{count}} 件の警告",
+     "unknownComplaintFetchFailed": "主訴を取得できません",
+-    "sessionStatus": {
+-      "waiting": "待機中",
+-      "inProgress": "問診中",
+-      "completed": "完了",
+-      "abortedRedFlag": "レッドフラグにより中断",
+-      "cancelled": "キャンセル済み"
+-    },
+     "acknowledgeAll": "すべて確認済みにする",
+     "acknowledgeAllConfirm": "未確認の赤旗アラートをすべて確認済みにしますか？この操作は取り消せません。"
+   },
+-  "transcript": {
+-    "title": "問診会話の逐語記録",
+-    "emptyTitle": "表示できる会話内容はありません",
+-    "loading": "会話記録を読み込み中...",
+-    "messageCount": "{{count}} 件の会話",
+-    "summary": "患者 {{patientCount}} 件 / AI {{assistantCount}} 件",
+-    "viewFull": "全文を表示（残り {{count}} 件）...",
+-    "searchPlaceholder": "逐語記録を検索",
+-    "filter": {
+-      "all": "すべて",
+-      "patient": "患者",
+-      "assistant": "AI"
+-    },
+-    "visibleCount": "{{visible}} / {{total}} 件を表示中",
+-    "noMatches": "条件に一致する逐語記録はありません",
+-    "redFlag": "レッドフラグ",
+-    "lowConfidence": "認識信頼度低",
+-    "sttConfidence": "STT 信頼度：{{value}}%",
+-    "roles": {
+-      "patient": "患者",
+-      "assistant": "AI アシスタント",
+-      "system": "システム"
+-    }
+-  },
+   "reportList": {
+     "eyebrow": "レビューワークスペース",
+     "subtitle": "AI 問診の要約、レビュー待ちのレポート、差し戻し記録をまとめて確認できます。まずレビュー待ちから始め、逐語記録に戻って内容の根拠を照合してください。",
+diff --git a/flutter_app/assets/locales/ja-JP/intake.json b/flutter_app/assets/locales/ja-JP/intake.json
+index d997974..de6ea5b 100644
+--- a/flutter_app/assets/locales/ja-JP/intake.json
++++ b/flutter_app/assets/locales/ja-JP/intake.json
+@@ -90,17 +90,6 @@
+       "conditionPlaceholder": "疾患（例：糖尿病）",
+       "add": "家族歴を追加"
+     },
+-    "summary": {
+-      "title": "送信内容の確認",
+-      "complaint": "主訴",
+-      "allergy": "アレルギー",
+-      "medication": "服用中の薬",
+-      "history": "既往歴",
+-      "noKnownAllergies": "既知のアレルギーなし",
+-      "noCurrentMedications": "現在服用中の薬なし",
+-      "noPastHistory": "特記すべき既往歴なし",
+-      "filled": "入力済み"
+-    },
+     "nav": {
+       "back": "戻る",
+       "prev": "前へ",
+diff --git a/flutter_app/assets/locales/ja-JP/session.json b/flutter_app/assets/locales/ja-JP/session.json
+index c0c8123..5ec6650 100644
+--- a/flutter_app/assets/locales/ja-JP/session.json
++++ b/flutter_app/assets/locales/ja-JP/session.json
+@@ -152,13 +152,6 @@
+       "completed": "完了",
+       "inProgress": "進行中",
+       "cancelled": "キャンセル済み"
+-    },
+-    "status": {
+-      "completed": "完了",
+-      "inProgress": "進行中",
+-      "waiting": "待機中",
+-      "abortedRedFlag": "レッドフラグにより中断",
+-      "cancelled": "キャンセル済み"
+     }
+   }
+ }
+diff --git a/flutter_app/assets/locales/ja-JP/soap.json b/flutter_app/assets/locales/ja-JP/soap.json
+index d56e2ff..5919409 100644
+--- a/flutter_app/assets/locales/ja-JP/soap.json
++++ b/flutter_app/assets/locales/ja-JP/soap.json
+@@ -52,37 +52,6 @@
+     "redFlagSession": "レッドフラグ・セッション",
+     "redFlagLoadFailedBadge": "⚠ レッドフラグ状態の読み込みに失敗"
+   },
+-  "metaCard": {
+-    "patient": "患者",
+-    "complaint": "主訴",
+-    "sessionStatus": "セッション状態",
+-    "report": "レポート",
+-    "createdHelper": "セッション作成日 {{date}}",
+-    "completedAt": "{{date}} に完了",
+-    "startedAt": "{{date}} に開始",
+-    "noTimeInfo": "時間情報はまだありません",
+-    "notGeneratedTime": "生成時刻未定",
+-    "reviewStatusHelper": "審査状態：{{status}}",
+-    "awaitingReview": "医師の審査待ち"
+-  },
+-  "highlights": {
+-    "positive": {
+-      "title": "重要な陽性所見",
+-      "empty": "明確な陽性症状は整理されていません。"
+-    },
+-    "negative": {
+-      "title": "重要な陰性所見",
+-      "empty": "明確な陰性症状は整理されていません。"
+-    },
+-    "riskFactors": {
+-      "title": "リスク因子",
+-      "empty": "明らかなリスク因子はありません。"
+-    },
+-    "impression": {
+-      "title": "初期所見",
+-      "empty": "明確な所見は整理されていません。"
+-    }
+-  },
+   "diagnosis": {
+     "title": "診断コード",
+     "empty": "ICD-10コードはまだありません。",
+diff --git a/flutter_app/assets/locales/ko-KR/common.json b/flutter_app/assets/locales/ko-KR/common.json
+index 00e6110..67f3788 100644
+--- a/flutter_app/assets/locales/ko-KR/common.json
++++ b/flutter_app/assets/locales/ko-KR/common.json
+@@ -61,19 +61,6 @@
+       "switchFailed": "전환하지 못했습니다. 현재 문진은 계속 진행 중입니다. 다시 시도하시거나 현장 의료진에게 알려 주세요."
+     }
+   },
+-  "status": {
+-    "waiting": "대기 중",
+-    "in_progress": "대화 중",
+-    "completed": "완료됨",
+-    "aborted_red_flag": "레드플래그 중단",
+-    "cancelled": "취소됨",
+-    "unknown": "세션 상태를 가져올 수 없습니다"
+-  },
+-  "severity": {
+-    "critical": "위급",
+-    "high": "높음",
+-    "medium": "중간"
+-  },
+   "gender": {
+     "male": "남성",
+     "female": "여성",
+@@ -290,11 +277,5 @@
+     "loadMore": "더 보기",
+     "loadingMore": "불러오는 중...",
+     "allLoaded": "모두 표시했습니다"
+-  },
+-  "patientUnsupported": {
+-    "title": "본 앱은 의료진 전용입니다",
+-    "message": "본 앱에서는 의사와 의료진이 문진 리포트와 알림을 확인할 수 있습니다. 음성 문진 기능은 제공하지 않습니다.",
+-    "kioskHint": "문진을 진행하시려면 대기 구역의 음성 문진 키오스크를 이용해 주세요. 도움이 필요하시면 현장 의료진에게 말씀해 주세요.",
+-    "logoutAction": "로그아웃 후 계정 변경"
+   }
+ }
+diff --git a/flutter_app/assets/locales/ko-KR/dashboard.json b/flutter_app/assets/locales/ko-KR/dashboard.json
+index 1fd39b9..616be4a 100644
+--- a/flutter_app/assets/locales/ko-KR/dashboard.json
++++ b/flutter_app/assets/locales/ko-KR/dashboard.json
+@@ -87,40 +87,9 @@
+     "emptyMessage": "조건에 맞는 레드플래그 경고가 없습니다",
+     "groupCount": "경고 {{count}}건",
+     "unknownComplaintFetchFailed": "주호소를 가져올 수 없습니다",
+-    "sessionStatus": {
+-      "waiting": "대기 중",
+-      "inProgress": "문진 중",
+-      "completed": "완료",
+-      "abortedRedFlag": "레드플래그로 중단",
+-      "cancelled": "취소됨"
+-    },
+     "acknowledgeAll": "모두 확인 처리",
+     "acknowledgeAllConfirm": "미확인 레드플래그 경보를 모두 확인 처리하시겠습니까? 이 작업은 되돌릴 수 없습니다."
+   },
+-  "transcript": {
+-    "title": "문진 대화 전사본",
+-    "emptyTitle": "표시할 대화 내용이 없습니다",
+-    "loading": "대화 기록을 불러오는 중...",
+-    "messageCount": "대화 {{count}}건",
+-    "summary": "환자 {{patientCount}}건 / AI {{assistantCount}}건",
+-    "viewFull": "전체 대화 보기 ({{count}}건 더 보기)...",
+-    "searchPlaceholder": "전사본 내용 검색",
+-    "filter": {
+-      "all": "전체",
+-      "patient": "환자",
+-      "assistant": "AI"
+-    },
+-    "visibleCount": "대화 {{visible}} / {{total}}건 표시",
+-    "noMatches": "조건에 맞는 전사본 내용이 없습니다",
+-    "redFlag": "레드플래그",
+-    "lowConfidence": "낮은 인식 신뢰도",
+-    "sttConfidence": "STT 신뢰도: {{value}}%",
+-    "roles": {
+-      "patient": "환자",
+-      "assistant": "AI 도우미",
+-      "system": "시스템"
+-    }
+-  },
+   "reportList": {
+     "eyebrow": "검토 워크스페이스",
+     "subtitle": "AI 문진 요약, 검토 대기 보고서, 반려 기록을 한곳에서 확인하세요. 검토 대기부터 시작한 뒤 전사본으로 돌아가 근거를 확인하세요.",
+diff --git a/flutter_app/assets/locales/ko-KR/intake.json b/flutter_app/assets/locales/ko-KR/intake.json
+index e396051..5cc3e17 100644
+--- a/flutter_app/assets/locales/ko-KR/intake.json
++++ b/flutter_app/assets/locales/ko-KR/intake.json
+@@ -90,17 +90,6 @@
+       "conditionPlaceholder": "질환명 (예: 당뇨병)",
+       "add": "가족력 추가"
+     },
+-    "summary": {
+-      "title": "제출할 정보 확인",
+-      "complaint": "주호소",
+-      "allergy": "알레르기",
+-      "medication": "복용 약물",
+-      "history": "병력",
+-      "noKnownAllergies": "알려진 알레르기 없음",
+-      "noCurrentMedications": "현재 복용 중인 약물 없음",
+-      "noPastHistory": "중대한 병력 없음",
+-      "filled": "입력 완료"
+-    },
+     "nav": {
+       "back": "뒤로",
+       "prev": "이전",
+diff --git a/flutter_app/assets/locales/ko-KR/session.json b/flutter_app/assets/locales/ko-KR/session.json
+index af62211..7f44e1e 100644
+--- a/flutter_app/assets/locales/ko-KR/session.json
++++ b/flutter_app/assets/locales/ko-KR/session.json
+@@ -152,13 +152,6 @@
+       "completed": "완료",
+       "inProgress": "진행 중",
+       "cancelled": "취소됨"
+-    },
+-    "status": {
+-      "completed": "완료",
+-      "inProgress": "진행 중",
+-      "waiting": "대기 중",
+-      "abortedRedFlag": "레드플래그로 중단",
+-      "cancelled": "취소됨"
+     }
+   }
+ }
+diff --git a/flutter_app/assets/locales/ko-KR/soap.json b/flutter_app/assets/locales/ko-KR/soap.json
+index d47b198..e1aef4a 100644
+--- a/flutter_app/assets/locales/ko-KR/soap.json
++++ b/flutter_app/assets/locales/ko-KR/soap.json
+@@ -52,37 +52,6 @@
+     "redFlagSession": "레드플래그 세션",
+     "redFlagLoadFailedBadge": "⚠ 레드플래그 상태 로드 실패"
+   },
+-  "metaCard": {
+-    "patient": "환자",
+-    "complaint": "주호소",
+-    "sessionStatus": "세션 상태",
+-    "report": "보고서",
+-    "createdHelper": "세션 생성 {{date}}",
+-    "completedAt": "{{date}}에 완료",
+-    "startedAt": "{{date}}에 시작",
+-    "noTimeInfo": "시간 정보를 아직 가져오지 못했습니다",
+-    "notGeneratedTime": "생성 시각 없음",
+-    "reviewStatusHelper": "검토 상태: {{status}}",
+-    "awaitingReview": "의사 검토 대기 중"
+-  },
+-  "highlights": {
+-    "positive": {
+-      "title": "주요 양성 소견",
+-      "empty": "명확한 양성 증상이 정리되지 않았습니다."
+-    },
+-    "negative": {
+-      "title": "주요 음성 소견",
+-      "empty": "명확한 음성 증상이 정리되지 않았습니다."
+-    },
+-    "riskFactors": {
+-      "title": "위험 요인",
+-      "empty": "뚜렷한 위험 요인이 없습니다."
+-    },
+-    "impression": {
+-      "title": "초기 소견",
+-      "empty": "명확한 소견이 정리되지 않았습니다."
+-    }
+-  },
+   "diagnosis": {
+     "title": "진단 코드",
+     "empty": "ICD-10 코드가 없습니다.",
+diff --git a/flutter_app/assets/locales/vi-VN/common.json b/flutter_app/assets/locales/vi-VN/common.json
+index fad8c65..1fb4f3e 100644
+--- a/flutter_app/assets/locales/vi-VN/common.json
++++ b/flutter_app/assets/locales/vi-VN/common.json
+@@ -61,19 +61,6 @@
+       "switchFailed": "Không chuyển được ngôn ngữ. Phiên khám hiện tại vẫn đang tiếp tục. Vui lòng thử lại hoặc báo cho nhân viên y tế tại chỗ."
+     }
+   },
+-  "status": {
+-    "waiting": "Đang chờ",
+-    "in_progress": "Đang khám",
+-    "completed": "Hoàn tất",
+-    "aborted_red_flag": "Ngừng do cờ đỏ",
+-    "cancelled": "Đã hủy",
+-    "unknown": "Không lấy được trạng thái phiên"
+-  },
+-  "severity": {
+-    "critical": "Nguy kịch",
+-    "high": "Cao",
+-    "medium": "Trung bình"
+-  },
+   "gender": {
+     "male": "Nam",
+     "female": "Nữ",
+@@ -290,11 +277,5 @@
+     "loadMore": "Tải thêm",
+     "loadingMore": "Đang tải thêm...",
+     "allLoaded": "Đã hiển thị tất cả"
+-  },
+-  "patientUnsupported": {
+-    "title": "Ứng dụng dành cho nhân viên y tế",
+-    "message": "Ứng dụng này để bác sĩ và nhân viên y tế xem báo cáo hỏi bệnh và thông báo. Ứng dụng không cung cấp chức năng hỏi bệnh bằng giọng nói.",
+-    "kioskHint": "Nếu quý vị cần hỏi bệnh, vui lòng sử dụng máy hỏi bệnh bằng giọng nói tại khu vực chờ. Cần hỗ trợ, xin báo nhân viên y tế tại chỗ.",
+-    "logoutAction": "Đăng xuất và đổi tài khoản"
+   }
+ }
+diff --git a/flutter_app/assets/locales/vi-VN/dashboard.json b/flutter_app/assets/locales/vi-VN/dashboard.json
+index 916bf67..a903228 100644
+--- a/flutter_app/assets/locales/vi-VN/dashboard.json
++++ b/flutter_app/assets/locales/vi-VN/dashboard.json
+@@ -87,40 +87,9 @@
+     "emptyMessage": "Không có cảnh báo cờ đỏ nào khớp với điều kiện",
+     "groupCount": "{{count}} cảnh báo",
+     "unknownComplaintFetchFailed": "Không lấy được lý do khám",
+-    "sessionStatus": {
+-      "waiting": "Đang chờ",
+-      "inProgress": "Đang khám",
+-      "completed": "Đã hoàn tất",
+-      "abortedRedFlag": "Dừng do cờ đỏ",
+-      "cancelled": "Đã hủy"
+-    },
+     "acknowledgeAll": "Xác nhận tất cả",
+     "acknowledgeAllConfirm": "Đánh dấu tất cả cảnh báo cờ đỏ chưa xử lý là đã xử lý? Thao tác này không thể hoàn tác."
+   },
+-  "transcript": {
+-    "title": "Biên bản hội thoại khám",
+-    "emptyTitle": "Hiện chưa có nội dung hội thoại để xem",
+-    "loading": "Đang tải biên bản hội thoại...",
+-    "messageCount": "{{count}} tin nhắn",
+-    "summary": "{{patientCount}} bệnh nhân / {{assistantCount}} AI",
+-    "viewFull": "Xem toàn bộ hội thoại (còn {{count}} tin)...",
+-    "searchPlaceholder": "Tìm trong biên bản",
+-    "filter": {
+-      "all": "Tất cả",
+-      "patient": "Bệnh nhân",
+-      "assistant": "AI"
+-    },
+-    "visibleCount": "Hiển thị {{visible}} / {{total}} tin",
+-    "noMatches": "Không có biên bản nào khớp với điều kiện",
+-    "redFlag": "Cờ đỏ",
+-    "lowConfidence": "Độ tin cậy thấp",
+-    "sttConfidence": "Độ tin cậy STT: {{value}}%",
+-    "roles": {
+-      "patient": "Bệnh nhân",
+-      "assistant": "Trợ lý AI",
+-      "system": "Hệ thống"
+-    }
+-  },
+   "reportList": {
+     "eyebrow": "Không gian xét duyệt",
+     "subtitle": "Xem tập trung các bản tóm tắt hỏi bệnh AI, báo cáo chờ duyệt và hồ sơ trả về chỉnh sửa. Hãy bắt đầu từ mục chờ duyệt, sau đó quay lại biên bản để đối chiếu căn cứ nội dung.",
+diff --git a/flutter_app/assets/locales/vi-VN/intake.json b/flutter_app/assets/locales/vi-VN/intake.json
+index 83e8213..89bb0f9 100644
+--- a/flutter_app/assets/locales/vi-VN/intake.json
++++ b/flutter_app/assets/locales/vi-VN/intake.json
+@@ -90,17 +90,6 @@
+       "conditionPlaceholder": "Bệnh (VD: tiểu đường)",
+       "add": "Thêm tiền sử gia đình"
+     },
+-    "summary": {
+-      "title": "Xác nhận thông tin gửi đi",
+-      "complaint": "Lý do khám",
+-      "allergy": "Dị ứng",
+-      "medication": "Thuốc",
+-      "history": "Tiền sử",
+-      "noKnownAllergies": "Không có dị ứng đã biết",
+-      "noCurrentMedications": "Hiện không dùng thuốc",
+-      "noPastHistory": "Không có tiền sử bệnh đáng kể",
+-      "filled": "Đã điền"
+-    },
+     "nav": {
+       "back": "Quay lại",
+       "prev": "Bước trước",
+diff --git a/flutter_app/assets/locales/vi-VN/session.json b/flutter_app/assets/locales/vi-VN/session.json
+index 5861251..43bc2f3 100644
+--- a/flutter_app/assets/locales/vi-VN/session.json
++++ b/flutter_app/assets/locales/vi-VN/session.json
+@@ -152,13 +152,6 @@
+       "completed": "Đã hoàn tất",
+       "inProgress": "Đang tiến hành",
+       "cancelled": "Đã hủy"
+-    },
+-    "status": {
+-      "completed": "Đã hoàn tất",
+-      "inProgress": "Đang tiến hành",
+-      "waiting": "Đang chờ",
+-      "abortedRedFlag": "Dừng do cờ đỏ",
+-      "cancelled": "Đã hủy"
+     }
+   }
+ }
+diff --git a/flutter_app/assets/locales/vi-VN/soap.json b/flutter_app/assets/locales/vi-VN/soap.json
+index d59d3b1..1e6d97d 100644
+--- a/flutter_app/assets/locales/vi-VN/soap.json
++++ b/flutter_app/assets/locales/vi-VN/soap.json
+@@ -52,37 +52,6 @@
+     "redFlagSession": "Phiên có cờ đỏ",
+     "redFlagLoadFailedBadge": "⚠ Tải trạng thái cờ đỏ thất bại"
+   },
+-  "metaCard": {
+-    "patient": "Bệnh nhân",
+-    "complaint": "Lý do khám",
+-    "sessionStatus": "Trạng thái phiên",
+-    "report": "Báo cáo",
+-    "createdHelper": "Phiên được tạo {{date}}",
+-    "completedAt": "Hoàn tất lúc {{date}}",
+-    "startedAt": "Bắt đầu lúc {{date}}",
+-    "noTimeInfo": "Chưa có thông tin thời gian",
+-    "notGeneratedTime": "Chưa có thời gian tạo",
+-    "reviewStatusHelper": "Trạng thái xem xét: {{status}}",
+-    "awaitingReview": "Đang chờ bác sĩ xem xét"
+-  },
+-  "highlights": {
+-    "positive": {
+-      "title": "Dấu hiệu dương tính quan trọng",
+-      "empty": "Chưa xác định được triệu chứng dương tính rõ ràng."
+-    },
+-    "negative": {
+-      "title": "Dấu hiệu âm tính quan trọng",
+-      "empty": "Chưa xác định được triệu chứng âm tính rõ ràng."
+-    },
+-    "riskFactors": {
+-      "title": "Yếu tố nguy cơ",
+-      "empty": "Không có yếu tố nguy cơ rõ ràng."
+-    },
+-    "impression": {
+-      "title": "Nhận định sơ bộ",
+-      "empty": "Chưa có nhận định rõ ràng."
+-    }
+-  },
+   "diagnosis": {
+     "title": "Mã chẩn đoán",
+     "empty": "Chưa có mã ICD-10.",
+diff --git a/flutter_app/assets/locales/zh-TW/common.json b/flutter_app/assets/locales/zh-TW/common.json
+index d21ca23..bd1d195 100644
+--- a/flutter_app/assets/locales/zh-TW/common.json
++++ b/flutter_app/assets/locales/zh-TW/common.json
+@@ -61,19 +61,6 @@
+       "switchFailed": "切換失敗，目前問診仍在進行中。請再試一次，或請告知現場醫護。"
+     }
+   },
+-  "status": {
+-    "waiting": "等待中",
+-    "in_progress": "對話中",
+-    "completed": "已完成",
+-    "aborted_red_flag": "紅旗中止",
+-    "cancelled": "已取消",
+-    "unknown": "未取得場次狀態"
+-  },
+-  "severity": {
+-    "critical": "危急",
+-    "high": "高度",
+-    "medium": "中度"
+-  },
+   "gender": {
+     "male": "男",
+     "female": "女",
+@@ -290,11 +277,5 @@
+     "loadMore": "載入更多",
+     "loadingMore": "載入中...",
+     "allLoaded": "已顯示全部"
+-  },
+-  "patientUnsupported": {
+-    "title": "此 App 供醫療人員使用",
+-    "message": "本 App 提供醫師與醫療人員查看問診報告與通知，不提供語音問診功能。",
+-    "kioskHint": "若您要進行問診，請使用現場候診區的語音問診機；如需協助，請告知現場醫護人員。",
+-    "logoutAction": "登出並更換帳號"
+   }
+ }
+diff --git a/flutter_app/assets/locales/zh-TW/dashboard.json b/flutter_app/assets/locales/zh-TW/dashboard.json
+index 5efa2c7..156d517 100644
+--- a/flutter_app/assets/locales/zh-TW/dashboard.json
++++ b/flutter_app/assets/locales/zh-TW/dashboard.json
+@@ -87,40 +87,9 @@
+     "emptyMessage": "目前沒有符合條件的紅旗警示",
+     "groupCount": "{{count}} 筆警示",
+     "unknownComplaintFetchFailed": "未取得主訴",
+-    "sessionStatus": {
+-      "waiting": "等待中",
+-      "inProgress": "問診中",
+-      "completed": "已完成",
+-      "abortedRedFlag": "紅旗中止",
+-      "cancelled": "已取消"
+-    },
+     "acknowledgeAll": "全部標示已處理",
+     "acknowledgeAllConfirm": "確認要將所有未處理的紅旗警示標記為已處理嗎？此動作無法復原。"
+   },
+-  "transcript": {
+-    "title": "問診對話逐字稿",
+-    "emptyTitle": "目前沒有可檢視的對話內容",
+-    "loading": "載入對話記錄...",
+-    "messageCount": "{{count}} 則對話",
+-    "summary": "{{patientCount}} 則病患 / {{assistantCount}} 則 AI",
+-    "viewFull": "查看完整對話（{{count}} 則更多）...",
+-    "searchPlaceholder": "搜尋逐字稿內容",
+-    "filter": {
+-      "all": "全部",
+-      "patient": "病患",
+-      "assistant": "AI"
+-    },
+-    "visibleCount": "顯示 {{visible}} / {{total}} 則對話",
+-    "noMatches": "沒有符合條件的逐字稿內容",
+-    "redFlag": "紅旗",
+-    "lowConfidence": "低辨識信心",
+-    "sttConfidence": "STT 信心：{{value}}%",
+-    "roles": {
+-      "patient": "病患",
+-      "assistant": "AI 助手",
+-      "system": "系統"
+-    }
+-  },
+   "reportList": {
+     "eyebrow": "審閱工作台",
+     "subtitle": "集中查看 AI 問診摘要、待審閱報告與退回修改紀錄。先從待審閱開始，再回到逐字稿核對內容依據。",
+diff --git a/flutter_app/assets/locales/zh-TW/intake.json b/flutter_app/assets/locales/zh-TW/intake.json
+index 488a4f6..1cc4dd7 100644
+--- a/flutter_app/assets/locales/zh-TW/intake.json
++++ b/flutter_app/assets/locales/zh-TW/intake.json
+@@ -90,17 +90,6 @@
+       "conditionPlaceholder": "疾病（例：糖尿病）",
+       "add": "新增家族病史"
+     },
+-    "summary": {
+-      "title": "確認送出的資料",
+-      "complaint": "主訴",
+-      "allergy": "過敏",
+-      "medication": "用藥",
+-      "history": "病史",
+-      "noKnownAllergies": "無已知過敏",
+-      "noCurrentMedications": "目前未服藥",
+-      "noPastHistory": "無重大病史",
+-      "filled": "已填寫"
+-    },
+     "nav": {
+       "back": "返回",
+       "prev": "上一步",
+diff --git a/flutter_app/assets/locales/zh-TW/session.json b/flutter_app/assets/locales/zh-TW/session.json
+index 0309c4b..2317ea5 100644
+--- a/flutter_app/assets/locales/zh-TW/session.json
++++ b/flutter_app/assets/locales/zh-TW/session.json
+@@ -152,13 +152,6 @@
+       "completed": "已完成",
+       "inProgress": "進行中",
+       "cancelled": "已取消"
+-    },
+-    "status": {
+-      "completed": "已完成",
+-      "inProgress": "進行中",
+-      "waiting": "等待中",
+-      "abortedRedFlag": "紅旗中止",
+-      "cancelled": "已取消"
+     }
+   }
+ }
+diff --git a/flutter_app/assets/locales/zh-TW/soap.json b/flutter_app/assets/locales/zh-TW/soap.json
+index 2160fb8..bdc6fc0 100644
+--- a/flutter_app/assets/locales/zh-TW/soap.json
++++ b/flutter_app/assets/locales/zh-TW/soap.json
+@@ -52,37 +52,6 @@
+     "redFlagSession": "紅旗場次",
+     "redFlagLoadFailedBadge": "⚠ 紅旗狀態載入失敗"
+   },
+-  "metaCard": {
+-    "patient": "病患",
+-    "complaint": "主訴",
+-    "sessionStatus": "場次狀態",
+-    "report": "報告",
+-    "createdHelper": "場次建立 {{date}}",
+-    "completedAt": "完成於 {{date}}",
+-    "startedAt": "開始於 {{date}}",
+-    "noTimeInfo": "尚未取得時間資訊",
+-    "notGeneratedTime": "尚未產生時間",
+-    "reviewStatusHelper": "審閱狀態：{{status}}",
+-    "awaitingReview": "等待醫師審閱"
+-  },
+-  "highlights": {
+-    "positive": {
+-      "title": "重要陽性",
+-      "empty": "目前沒有整理出明確的陽性症狀。"
+-    },
+-    "negative": {
+-      "title": "重要陰性",
+-      "empty": "目前沒有整理出明確的陰性症狀。"
+-    },
+-    "riskFactors": {
+-      "title": "風險因子",
+-      "empty": "目前沒有明顯風險因子。"
+-    },
+-    "impression": {
+-      "title": "初步判斷",
+-      "empty": "目前沒有整理出明確判斷。"
+-    }
+-  },
+   "diagnosis": {
+     "title": "診斷索引",
+     "empty": "目前沒有 ICD-10 編碼。",
+diff --git a/flutter_app/integration_test/ios_doctor_app_test.dart b/flutter_app/integration_test/ios_doctor_app_test.dart
+index d1970f0..d20b202 100644
+--- a/flutter_app/integration_test/ios_doctor_app_test.dart
++++ b/flutter_app/integration_test/ios_doctor_app_test.dart
+@@ -11,7 +11,7 @@
+ //
+ // ── 三個 test ────────────────────────────────────────────────────────────
+ //  A. doctor landing        — 醫師登入後停在 /notifications（不是 /dashboard）
+-//  B. patient unsupported   — 病患帳號登入後停在 /patient-unsupported，按登出回登入頁
++//  B. patient landing       — 病患帳號登入後落在 /patient（平台閘門已拆），按登出回登入頁
+ //  C. notifications live    — 醫師停在通知頁不動，後端建立一筆新通知並廣播 dashboard WS
+ //                             事件，列表要在數秒內自己長出那筆（不重進頁面、不下拉重整）
+ //
+diff --git a/flutter_app/integration_test/kiosk_idle_logout_test.dart b/flutter_app/integration_test/kiosk_idle_logout_test.dart
+index a58f634..ee7fe77 100644
+--- a/flutter_app/integration_test/kiosk_idle_logout_test.dart
++++ b/flutter_app/integration_test/kiosk_idle_logout_test.dart
+@@ -36,7 +36,7 @@ void main() {
+   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+ 
+   testWidgets('an idle patient is logged out; the app does not crash', (tester) async {
+-    final window = Env.kioskIdleTimeoutSeconds;
++    const window = Env.kioskIdleTimeoutSeconds;
+     if (_email.isEmpty || _password.isEmpty) {
+       markTestSkipped('未提供 E2E_PATIENT_EMAIL / E2E_PATIENT_PASSWORD，跳過');
+       return;
+@@ -79,7 +79,7 @@ void main() {
+     // `tester.pump()` alone is not enough — the guard uses a real `Timer`, which only
+     // fires on the real event loop, and that requires `runAsync`.
+     await tester.runAsync(() async {
+-      await Future<void>.delayed(Duration(seconds: window + 4));
++      await Future<void>.delayed(const Duration(seconds: window + 4));
+     });
+     await tester.pumpAndSettle();
+ 
+diff --git a/flutter_app/lib/data/api/parse_page.dart b/flutter_app/lib/data/api/parse_page.dart
+deleted file mode 100644
+index 0c81051..0000000
+--- a/flutter_app/lib/data/api/parse_page.dart
++++ /dev/null
+@@ -1,15 +0,0 @@
+-/// 後端 cursor 分頁回應的共用解析：`{data: [...], pagination: {nextCursor, hasMore, totalCount}}`。
+-/// 各 API 的欄位名與 fallback（totalCount 缺時用本頁筆數）都在這一處。
+-typedef CursorPage<T> = ({List<T> data, String? nextCursor, bool hasMore, int totalCount});
+-
+-CursorPage<T> parsePage<T>(dynamic body, T Function(Map) fromJson) {
+-  final data = body as Map;
+-  final list = (data['data'] as List? ?? const []).map((e) => fromJson(e as Map)).toList();
+-  final p = (data['pagination'] as Map?) ?? const {};
+-  return (
+-    data: list,
+-    nextCursor: p['nextCursor'] as String?,
+-    hasMore: (p['hasMore'] ?? false) as bool,
+-    totalCount: (p['totalCount'] as num?)?.toInt() ?? list.length,
+-  );
+-}
+diff --git a/flutter_app/lib/data/api/sessions_api.dart b/flutter_app/lib/data/api/sessions_api.dart
+index 796b9eb..7920022 100644
+--- a/flutter_app/lib/data/api/sessions_api.dart
++++ b/flutter_app/lib/data/api/sessions_api.dart
+@@ -1,4 +1,5 @@
+ import '../models/session.dart';
++import 'parse_page.dart';
+ import '../models/soap_report.dart';
+ import 'dio_client.dart';
+ 
+@@ -96,14 +97,8 @@ class SessionsApi {
+         'sortOrder': ?sortOrder,
+       },
+     );
+-    final data = res.data;
+-    final list = (data is Map ? data['data'] : data) as List? ?? const [];
+-    final pagination = (data is Map ? data['pagination'] : null) as Map?;
+-    return SessionsPage(
+-      sessions: list.map((e) => Session.fromJson(e as Map)).toList(),
+-      nextCursor: pagination?['nextCursor'] as String?,
+-      hasMore: (pagination?['hasMore'] as bool?) ?? false,
+-    );
++    final page = parsePage(res.data, Session.fromJson);
++    return SessionsPage(sessions: page.data, nextCursor: page.nextCursor, hasMore: page.hasMore);
+   }
+ 
+   Future<List<Map>> calendarSummary(List<DateTime> boundaries) async {
+diff --git a/flutter_app/lib/features/admin/screens/audit_logs_page.dart b/flutter_app/lib/features/admin/screens/audit_logs_page.dart
+index 2422c7f..1d34c86 100644
+--- a/flutter_app/lib/features/admin/screens/audit_logs_page.dart
++++ b/flutter_app/lib/features/admin/screens/audit_logs_page.dart
+@@ -34,9 +34,7 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
+   @override
+   void initState() {
+     super.initState();
+-    _scroll.addListener(() {
+-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) _fetchMore();
+-    });
++    _scroll.onNearEnd(_fetchMore);
+     Future.microtask(() => _fetch(reset: true));
+   }
+ 
+diff --git a/flutter_app/lib/features/admin/screens/user_management_page.dart b/flutter_app/lib/features/admin/screens/user_management_page.dart
+index 02400d4..0baa66a 100644
+--- a/flutter_app/lib/features/admin/screens/user_management_page.dart
++++ b/flutter_app/lib/features/admin/screens/user_management_page.dart
+@@ -41,9 +41,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
+   @override
+   void initState() {
+     super.initState();
+-    _scroll.addListener(() {
+-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) _fetchMore();
+-    });
++    _scroll.onNearEnd(_fetchMore);
+     Future.microtask(() => _fetch(reset: true));
+   }
+ 
+@@ -185,8 +183,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
+             TextButton(
+               onPressed: () {
+                 Clipboard.setData(ClipboardData(text: info.password));
+-                ScaffoldMessenger.of(ctx).showSnackBar(
+-                    SnackBar(content: Text(t('admin.users.tempPasswordCopied'))));
++                showToast(ctx, t('admin.users.tempPasswordCopied'));
+               },
+               child: Text(t('admin.users.tempPasswordCopy')),
+             ),
+@@ -256,14 +253,6 @@ class _UserManagementPageState extends State<UserManagementPage> {
+   }
+ 
+   Widget _filters(BuildContext context) {
+-    Widget roleChip(String? key, String label) => Padding(
+-          padding: const EdgeInsets.only(right: 8),
+-          child: ChoiceChip(
+-            label: Text(label),
+-            selected: _role == key,
+-            onSelected: (_) => _setRole(key),
+-          ),
+-        );
+     Widget activeChip(bool? key, String label) => Padding(
+           padding: const EdgeInsets.only(right: 8),
+           child: FilterChip(
+@@ -272,18 +261,20 @@ class _UserManagementPageState extends State<UserManagementPage> {
+             onSelected: (_) => _setActive(key),
+           ),
+         );
+-    return SingleChildScrollView(
+-      scrollDirection: Axis.horizontal,
+-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+-      child: Row(children: [
+-        roleChip(null, t('admin.users.roleTab.all')),
+-        roleChip('patient', t('admin.users.roleTab.patient')),
+-        roleChip('doctor', t('admin.users.roleTab.doctor')),
+-        roleChip('admin', t('admin.users.roleTab.admin')),
++    return FilterChipBar<String?>(
++      options: {
++        null: t('admin.users.roleTab.all'),
++        'patient': t('admin.users.roleTab.patient'),
++        'doctor': t('admin.users.roleTab.doctor'),
++        'admin': t('admin.users.roleTab.admin'),
++      },
++      selected: _role,
++      onSelected: _setRole,
++      trailing: [
+         const SizedBox(width: 8),
+         activeChip(true, t('admin.users.statusActive')),
+         activeChip(false, t('admin.users.statusInactive')),
+-      ]),
++      ],
+     );
+   }
+ 
+diff --git a/flutter_app/lib/features/auth/login_page.dart b/flutter_app/lib/features/auth/login_page.dart
+index 96fd5e1..97c906a 100644
+--- a/flutter_app/lib/features/auth/login_page.dart
++++ b/flutter_app/lib/features/auth/login_page.dart
+@@ -77,7 +77,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
+   Future<void> _startKiosk() async {
+     setState(() => _localError = null);
+     try {
+-      await ref.read(authProvider.notifier).login(Env.kioskEmail, Env.kioskPassword);
++      await ref
++          .read(authProvider.notifier)
++          .login(Env.kioskEmail, Env.kioskPassword);
+       if (!mounted) return;
+       if (ref.read(authProvider).user != null) {
+         context.go(prefixLngToPath('/patient/start', currentLng));
+@@ -93,63 +95,26 @@ class _LoginPageState extends ConsumerState<LoginPage> {
+     setState(() => _localError = null);
+   }
+ 
+-  static const _radius = 12.0; // §4.4 shape lock：本頁唯一圓角
+-  static const _buttonHeight = 56.0; // 兩顆動作鈕同一尺寸（kiosk 觸控仍達標）
+-
+-  InputDecoration _fieldDecoration(BuildContext context, {Widget? suffixIcon}) {
+-    // 本頁鎖淺色：直接取 light 常數。不能用 Theme.of(context)——helper 收到的是
+-    // Theme 包裹**外面**的 context，深色模式下會拿到深色 tokens（白 8% 邊線畫在
+-    // 白卡上＝輸入框隱形，2026-08-23 目視抓到）。
+-    const tk = AppTokens.light;
+-    // 不帶 labelText / hintText：label 是欄位上方的獨立 Text（§4.6），
+-    // placeholder 不承載任何必要資訊。
+-    return InputDecoration(
+-      isDense: false,
+-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+-      suffixIcon: suffixIcon,
+-      filled: true,
+-      fillColor: Colors.white,
+-      enabledBorder: OutlineInputBorder(
+-        borderRadius: BorderRadius.circular(_radius),
+-        borderSide: BorderSide(color: tk.edge),
+-      ),
+-      focusedBorder: OutlineInputBorder(
+-        borderRadius: BorderRadius.circular(_radius),
+-        borderSide: BorderSide(color: tk.edgeFocus, width: 2),
+-      ),
+-    );
+-  }
+-
+-  Widget _fieldLabel(BuildContext context, String text) => Padding(
+-        padding: const EdgeInsets.only(bottom: 8),
+-        child: Text(
+-          text,
+-          // 同 _fieldDecoration：鎖 light 常數，不吃外層（可能是深色的）Theme。
+-          style: AppTheme.light.textTheme.labelLarge?.copyWith(
+-                fontWeight: FontWeight.w600,
+-                color: AppTokens.light.inkBody,
+-              ),
+-        ),
+-      );
+-
+   @override
+   Widget build(BuildContext context) {
+     final auth = ref.watch(authProvider);
+     final error = _localError ?? auth.error;
+     // 登入頁**鎖淺色**（2026-08-23 使用者拍板）：候診區迎賓頁不跟系統深色模式——
+     // 明亮診間裡深色登入頁像關機螢幕。整頁包 AppTheme.light，狀態列 icon 轉深。
+-    final theme = AppTheme.light;
+-    final tk = AppTokens.light;
++    const tk = AppTokens.light;
+ 
+     return Theme(
+-      data: theme,
++      data: AppTheme.light,
+       child: AnnotatedRegion<SystemUiOverlayStyle>(
+         value: SystemUiOverlayStyle.dark,
+         child: Scaffold(
+           body: SafeArea(
+             child: Center(
+               child: SingleChildScrollView(
+-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
++                padding: const EdgeInsets.symmetric(
++                  horizontal: 24,
++                  vertical: 40,
++                ),
+                 child: ConstrainedBox(
+                   constraints: const BoxConstraints(maxWidth: 400),
+                   child: AutofillGroup(
+@@ -157,23 +122,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
+                       mainAxisSize: MainAxisSize.min,
+                       crossAxisAlignment: CrossAxisAlignment.stretch,
+                       children: [
+-                        // ── 標題（迎賓構圖——走到 iPad 前第一眼是名字，不是圖示）──
+-                        Text(
+-                          t('common.appTitle'),
+-                          textAlign: TextAlign.center,
+-                          style: theme.textTheme.headlineSmall?.copyWith(
+-                            fontWeight: FontWeight.w700,
+-                            letterSpacing: -0.5,
+-                            color: tk.inkHeading,
+-                          ),
+-                        ),
+-                        const SizedBox(height: 8),
+-                        Text(
+-                          t('common.login.prompt'),
+-                          textAlign: TextAlign.center,
+-                          style: theme.textTheme.bodyMedium
+-                              ?.copyWith(color: tk.inkSecondary),
+-                        ),
++                        const _Hero(),
+                         const SizedBox(height: 36),
+ 
+                         // ── Kiosk 進場（產品功能；未帶 KIOSK define 時整段死碼）────
+@@ -184,13 +133,16 @@ class _LoginPageState extends ConsumerState<LoginPage> {
+                             child: FilledButton.icon(
+                               onPressed: auth.isLoading ? null : _startKiosk,
+                               style: FilledButton.styleFrom(
+-                                minimumSize:
+-                                    const Size.fromHeight(_buttonHeight),
++                                minimumSize: const Size.fromHeight(
++                                  _buttonHeight,
++                                ),
+                                 shape: RoundedRectangleBorder(
+-                                    borderRadius:
+-                                        BorderRadius.circular(_radius)),
++                                  borderRadius: BorderRadius.circular(_radius),
++                                ),
+                                 textStyle: const TextStyle(
+-                                    fontSize: 16, fontWeight: FontWeight.w600),
++                                  fontSize: 16,
++                                  fontWeight: FontWeight.w600,
++                                ),
+                               ),
+                               icon: const Icon(Icons.mic, size: 20),
+                               label: Text(t('common.login.kioskStart')),
+@@ -201,172 +153,24 @@ class _LoginPageState extends ConsumerState<LoginPage> {
+                           const SizedBox(height: 28),
+                         ],
+ 
+-                        // ── 表單（§4.6：label 在上、錯誤在下、行內）──────────
+-                        _fieldLabel(context, t('common.login.emailLabel')),
+-                        TextField(
+-                          controller: _email,
+-                          keyboardType: TextInputType.emailAddress,
+-                          autofillHints: const [AutofillHints.email],
+-                          textInputAction: TextInputAction.next,
+-                          onSubmitted: (_) => _passwordFocus.requestFocus(),
+-                          decoration: _fieldDecoration(context),
+-                        ),
+-                        const SizedBox(height: 20),
+-                        _fieldLabel(context, t('common.login.passwordLabel')),
+-                        TextField(
+-                          controller: _password,
+-                          focusNode: _passwordFocus,
+-                          obscureText: _obscure,
+-                          autofillHints: const [AutofillHints.password],
+-                          onSubmitted: (_) => _submit(),
+-                          decoration: _fieldDecoration(
+-                            context,
+-                            suffixIcon: IconButton(
+-                              icon: Icon(
+-                                _obscure
+-                                    ? Icons.visibility_outlined
+-                                    : Icons.visibility_off_outlined,
+-                                size: 20,
+-                                color: tk.inkMuted,
+-                              ),
+-                              onPressed: () =>
+-                                  setState(() => _obscure = !_obscure),
+-                            ),
+-                          ),
+-                        ),
+-                        if (error != null) ...[
+-                          const SizedBox(height: 12),
+-                          Container(
+-                            padding: const EdgeInsets.symmetric(
+-                                horizontal: 14, vertical: 10),
+-                            decoration: BoxDecoration(
+-                              color: tk.alertCriticalBg,
+-                              borderRadius: BorderRadius.circular(_radius),
+-                            ),
+-                            child: Row(children: [
+-                              Icon(Icons.error_outline,
+-                                  size: 18, color: tk.alertCritical),
+-                              const SizedBox(width: 8),
+-                              Expanded(
+-                                child: Text(error,
+-                                    style: TextStyle(
+-                                        color: tk.alertCritical,
+-                                        fontSize: 13.5)),
+-                              ),
+-                            ]),
+-                          ),
+-                        ],
+-                        const SizedBox(height: 24),
+-
+-                        // ── 登入 CTA（§4.5：loading 保形、按壓回饋）──────────
+-                        //    kiosk 鈕在場時這顆走描邊：整頁只留一塊實心藍
+-                        //    （§4.2 單一 accent 不等於兩顆一樣重的實心鈕——病患走
+-                        //    kiosk、醫師走登入，實心的那顆才是這台 iPad 的主動作）。
+-                        //    沒有 kiosk 鈕的建置（正式版）它就是唯一 CTA，回實心。
+-                        _PressableScale(
+-                          child: Env.hasKioskCredentials
+-                              ? OutlinedButton(
+-                                  key: const Key('login-submit'),
+-                                  onPressed: auth.isLoading ? null : _submit,
+-                                  style: OutlinedButton.styleFrom(
+-                                    minimumSize:
+-                                        const Size.fromHeight(_buttonHeight),
+-                                    foregroundColor: theme.colorScheme.primary,
+-                                    side: BorderSide(
+-                                        color: theme.colorScheme.primary
+-                                            .withValues(alpha: .45)),
+-                                    shape: RoundedRectangleBorder(
+-                                      borderRadius:
+-                                          BorderRadius.circular(_radius),
+-                                    ),
+-                                    textStyle: const TextStyle(
+-                                        fontSize: 16,
+-                                        fontWeight: FontWeight.w600),
+-                                  ),
+-                                  child: auth.isLoading
+-                                      ? SizedBox(
+-                                          height: 22,
+-                                          width: 22,
+-                                          child: CircularProgressIndicator(
+-                                              strokeWidth: 2.5,
+-                                              color:
+-                                                  theme.colorScheme.primary),
+-                                        )
+-                                      : Text(t('common.login.submit')),
+-                                )
+-                              : FilledButton(
+-                                  key: const Key('login-submit'),
+-                                  onPressed: auth.isLoading ? null : _submit,
+-                                  style: FilledButton.styleFrom(
+-                                    minimumSize:
+-                                        const Size.fromHeight(_buttonHeight),
+-                                    shape: RoundedRectangleBorder(
+-                                      borderRadius:
+-                                          BorderRadius.circular(_radius),
+-                                    ),
+-                                    textStyle: const TextStyle(
+-                                        fontSize: 16,
+-                                        fontWeight: FontWeight.w600),
+-                                  ),
+-                                  child: auth.isLoading
+-                                      ? const SizedBox(
+-                                          height: 22,
+-                                          width: 22,
+-                                          child: CircularProgressIndicator(
+-                                              strokeWidth: 2.5,
+-                                              color: Colors.white),
+-                                        )
+-                                      : Text(t('common.login.submit')),
+-                                ),
++                        _LoginForm(
++                          email: _email,
++                          password: _password,
++                          passwordFocus: _passwordFocus,
++                          obscure: _obscure,
++                          onToggleObscure: () =>
++                              setState(() => _obscure = !_obscure),
++                          onSubmit: _submit,
++                          error: error,
++                          isLoading: auth.isLoading,
+                         ),
+ 
+-                        // ── 測試帶入（僅測試建置存在；§4.5 CTA 意圖不重複：
+-                        //    「帶入」是填表意圖，與「登入」CTA 分離）──────────
+                         if (Env.hasE2eCredentials ||
+-                            Env.hasE2eDoctorCredentials) ...[
+-                          const SizedBox(height: 20),
+-                          Row(children: [
+-                            Expanded(child: Divider(color: tk.edge)),
+-                            Padding(
+-                              padding:
+-                                  const EdgeInsets.symmetric(horizontal: 12),
+-                              child: Text(
+-                                '測試帳號',
+-                                style: theme.textTheme.labelSmall
+-                                    ?.copyWith(color: tk.inkMuted),
+-                              ),
+-                            ),
+-                            Expanded(child: Divider(color: tk.edge)),
+-                          ]),
+-                          const SizedBox(height: 12),
+-                          Row(children: [
+-                            if (Env.hasE2eDoctorCredentials)
+-                              Expanded(
+-                                child: _TestFillButton(
+-                                  key: const Key('fill-doctor-credentials'),
+-                                  icon: Icons.medical_services_outlined,
+-                                  label: '帶入醫師帳號',
+-                                  enabled: !auth.isLoading,
+-                                  onTap: () => _fill(Env.e2eDoctorEmail,
+-                                      Env.e2eDoctorPassword),
+-                                ),
+-                              ),
+-                            if (Env.hasE2eCredentials &&
+-                                Env.hasE2eDoctorCredentials)
+-                              const SizedBox(width: 12),
+-                            if (Env.hasE2eCredentials)
+-                              Expanded(
+-                                child: _TestFillButton(
+-                                  key: const Key('fill-e2e-credentials'),
+-                                  icon: Icons.person_outline,
+-                                  label: '帶入病患帳號',
+-                                  enabled: !auth.isLoading,
+-                                  onTap: () =>
+-                                      _fill(Env.e2eEmail, Env.e2ePassword),
+-                                ),
+-                              ),
+-                          ]),
+-                        ],
++                            Env.hasE2eDoctorCredentials)
++                          _TestFillButtons(
++                            enabled: !auth.isLoading,
++                            onFill: _fill,
++                          ),
+ 
+                         // ── 語言：下拉（沿用 LanguageAction 的 PopupMenu 呈現）──
+                         //    收成一顆按鈕，不再是五顆晶片的色塊。
+@@ -385,6 +189,288 @@ class _LoginPageState extends ConsumerState<LoginPage> {
+   }
+ }
+ 
++const _radius = 12.0; // §4.4 shape lock：本頁唯一圓角
++const _buttonHeight = 56.0; // 兩顆動作鈕同一尺寸（kiosk 觸控仍達標）
++
++/// 標題（迎賓構圖——走到 iPad 前第一眼是名字，不是圖示）。
++class _Hero extends StatelessWidget {
++  const _Hero();
++
++  @override
++  Widget build(BuildContext context) {
++    final theme = AppTheme.light;
++    const tk = AppTokens.light;
++    return Column(
++      crossAxisAlignment: CrossAxisAlignment.stretch,
++      children: [
++        Text(
++          t('common.appTitle'),
++          textAlign: TextAlign.center,
++          style: theme.textTheme.headlineSmall?.copyWith(
++            fontWeight: FontWeight.w700,
++            letterSpacing: -0.5,
++            color: tk.inkHeading,
++          ),
++        ),
++        const SizedBox(height: 8),
++        Text(
++          t('common.login.prompt'),
++          textAlign: TextAlign.center,
++          style: theme.textTheme.bodyMedium?.copyWith(color: tk.inkSecondary),
++        ),
++      ],
++    );
++  }
++}
++
++/// 表單（§4.6：label 在上、錯誤在下、行內）＋ 登入 CTA。狀態（controller、
++/// obscure、error、loading）全由頁面持有，這裡只畫。
++class _LoginForm extends StatelessWidget {
++  const _LoginForm({
++    required this.email,
++    required this.password,
++    required this.passwordFocus,
++    required this.obscure,
++    required this.onToggleObscure,
++    required this.onSubmit,
++    required this.error,
++    required this.isLoading,
++  });
++
++  final TextEditingController email;
++  final TextEditingController password;
++  final FocusNode passwordFocus;
++  final bool obscure;
++  final VoidCallback onToggleObscure;
++  final VoidCallback onSubmit;
++  final String? error;
++  final bool isLoading;
++
++  InputDecoration _fieldDecoration({Widget? suffixIcon}) {
++    // 本頁鎖淺色：直接取 light 常數。不能用 Theme.of(context)——helper 收到的是
++    // Theme 包裹**外面**的 context，深色模式下會拿到深色 tokens（白 8% 邊線畫在
++    // 白卡上＝輸入框隱形，2026-08-23 目視抓到）。
++    const tk = AppTokens.light;
++    // 不帶 labelText / hintText：label 是欄位上方的獨立 Text（§4.6），
++    // placeholder 不承載任何必要資訊。
++    return InputDecoration(
++      isDense: false,
++      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
++      suffixIcon: suffixIcon,
++      filled: true,
++      fillColor: Colors.white,
++      enabledBorder: OutlineInputBorder(
++        borderRadius: BorderRadius.circular(_radius),
++        borderSide: BorderSide(color: tk.edge),
++      ),
++      focusedBorder: OutlineInputBorder(
++        borderRadius: BorderRadius.circular(_radius),
++        borderSide: BorderSide(color: tk.edgeFocus, width: 2),
++      ),
++    );
++  }
++
++  Widget _fieldLabel(String text) => Padding(
++    padding: const EdgeInsets.only(bottom: 8),
++    child: Text(
++      text,
++      // 同 _fieldDecoration：鎖 light 常數，不吃外層（可能是深色的）Theme。
++      style: AppTheme.light.textTheme.labelLarge?.copyWith(
++        fontWeight: FontWeight.w600,
++        color: AppTokens.light.inkBody,
++      ),
++    ),
++  );
++
++  @override
++  Widget build(BuildContext context) {
++    final theme = AppTheme.light;
++    const tk = AppTokens.light;
++    final error = this.error;
++    return Column(
++      crossAxisAlignment: CrossAxisAlignment.stretch,
++      children: [
++        _fieldLabel(t('common.login.emailLabel')),
++        TextField(
++          controller: email,
++          keyboardType: TextInputType.emailAddress,
++          autofillHints: const [AutofillHints.email],
++          textInputAction: TextInputAction.next,
++          onSubmitted: (_) => passwordFocus.requestFocus(),
++          decoration: _fieldDecoration(),
++        ),
++        const SizedBox(height: 20),
++        _fieldLabel(t('common.login.passwordLabel')),
++        TextField(
++          controller: password,
++          focusNode: passwordFocus,
++          obscureText: obscure,
++          autofillHints: const [AutofillHints.password],
++          onSubmitted: (_) => onSubmit(),
++          decoration: _fieldDecoration(
++            suffixIcon: IconButton(
++              icon: Icon(
++                obscure
++                    ? Icons.visibility_outlined
++                    : Icons.visibility_off_outlined,
++                size: 20,
++                color: tk.inkMuted,
++              ),
++              onPressed: onToggleObscure,
++            ),
++          ),
++        ),
++        if (error != null) ...[
++          const SizedBox(height: 12),
++          Container(
++            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
++            decoration: BoxDecoration(
++              color: tk.alertCriticalBg,
++              borderRadius: BorderRadius.circular(_radius),
++            ),
++            child: Row(
++              children: [
++                Icon(Icons.error_outline, size: 18, color: tk.alertCritical),
++                const SizedBox(width: 8),
++                Expanded(
++                  child: Text(
++                    error,
++                    style: TextStyle(color: tk.alertCritical, fontSize: 13.5),
++                  ),
++                ),
++              ],
++            ),
++          ),
++        ],
++        const SizedBox(height: 24),
++
++        // ── 登入 CTA（§4.5：loading 保形、按壓回饋）──────────
++        //    kiosk 鈕在場時這顆走描邊：整頁只留一塊實心藍
++        //    （§4.2 單一 accent 不等於兩顆一樣重的實心鈕——病患走
++        //    kiosk、醫師走登入，實心的那顆才是這台 iPad 的主動作）。
++        //    沒有 kiosk 鈕的建置（正式版）它就是唯一 CTA，回實心。
++        _PressableScale(
++          child: Env.hasKioskCredentials
++              ? OutlinedButton(
++                  key: const Key('login-submit'),
++                  onPressed: isLoading ? null : onSubmit,
++                  style: OutlinedButton.styleFrom(
++                    minimumSize: const Size.fromHeight(_buttonHeight),
++                    foregroundColor: theme.colorScheme.primary,
++                    side: BorderSide(
++                      color: theme.colorScheme.primary.withValues(alpha: .45),
++                    ),
++                    shape: RoundedRectangleBorder(
++                      borderRadius: BorderRadius.circular(_radius),
++                    ),
++                    textStyle: const TextStyle(
++                      fontSize: 16,
++                      fontWeight: FontWeight.w600,
++                    ),
++                  ),
++                  child: isLoading
++                      ? SizedBox(
++                          height: 22,
++                          width: 22,
++                          child: CircularProgressIndicator(
++                            strokeWidth: 2.5,
++                            color: theme.colorScheme.primary,
++                          ),
++                        )
++                      : Text(t('common.login.submit')),
++                )
++              : FilledButton(
++                  key: const Key('login-submit'),
++                  onPressed: isLoading ? null : onSubmit,
++                  style: FilledButton.styleFrom(
++                    minimumSize: const Size.fromHeight(_buttonHeight),
++                    shape: RoundedRectangleBorder(
++                      borderRadius: BorderRadius.circular(_radius),
++                    ),
++                    textStyle: const TextStyle(
++                      fontSize: 16,
++                      fontWeight: FontWeight.w600,
++                    ),
++                  ),
++                  child: isLoading
++                      ? const SizedBox(
++                          height: 22,
++                          width: 22,
++                          child: CircularProgressIndicator(
++                            strokeWidth: 2.5,
++                            color: Colors.white,
++                          ),
++                        )
++                      : Text(t('common.login.submit')),
++                ),
++        ),
++      ],
++    );
++  }
++}
++
++/// 測試帶入（僅測試建置存在；§4.5 CTA 意圖不重複：「帶入」是填表意圖，
++/// 與「登入」CTA 分離）。
++class _TestFillButtons extends StatelessWidget {
++  const _TestFillButtons({required this.enabled, required this.onFill});
++
++  final bool enabled;
++  final void Function(String email, String password) onFill;
++
++  @override
++  Widget build(BuildContext context) {
++    final theme = AppTheme.light;
++    const tk = AppTokens.light;
++    return Column(
++      crossAxisAlignment: CrossAxisAlignment.stretch,
++      children: [
++        const SizedBox(height: 20),
++        Row(
++          children: [
++            Expanded(child: Divider(color: tk.edge)),
++            Padding(
++              padding: const EdgeInsets.symmetric(horizontal: 12),
++              child: Text(
++                '測試帳號',
++                style: theme.textTheme.labelSmall?.copyWith(color: tk.inkMuted),
++              ),
++            ),
++            Expanded(child: Divider(color: tk.edge)),
++          ],
++        ),
++        const SizedBox(height: 12),
++        Row(
++          children: [
++            if (Env.hasE2eDoctorCredentials)
++              Expanded(
++                child: _TestFillButton(
++                  key: const Key('fill-doctor-credentials'),
++                  icon: Icons.medical_services_outlined,
++                  label: '帶入醫師帳號',
++                  enabled: enabled,
++                  onTap: () =>
++                      onFill(Env.e2eDoctorEmail, Env.e2eDoctorPassword),
++                ),
++              ),
++            if (Env.hasE2eCredentials && Env.hasE2eDoctorCredentials)
++              const SizedBox(width: 12),
++            if (Env.hasE2eCredentials)
++              Expanded(
++                child: _TestFillButton(
++                  key: const Key('fill-e2e-credentials'),
++                  icon: Icons.person_outline,
++                  label: '帶入病患帳號',
++                  enabled: enabled,
++                  onTap: () => onFill(Env.e2eEmail, Env.e2ePassword),
++                ),
++              ),
++          ],
++        ),
++      ],
++    );
++  }
++}
++
+ /// §4.5 tactile feedback：按下時 scale .98。包在按鈕外層、只作用於視覺，
+ /// 不攔截手勢（Listener 不吃事件）。
+ class _PressableScale extends StatefulWidget {
+@@ -443,8 +529,7 @@ class _TestFillButton extends StatelessWidget {
+           shape: RoundedRectangleBorder(
+             borderRadius: BorderRadius.circular(12),
+           ),
+-          textStyle:
+-              const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
++          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+         ),
+       ),
+     );
+diff --git a/flutter_app/lib/features/doctor/doctor_push_watcher.dart b/flutter_app/lib/features/doctor/doctor_push_watcher.dart
+index c1d4f0c..e20e014 100644
+--- a/flutter_app/lib/features/doctor/doctor_push_watcher.dart
++++ b/flutter_app/lib/features/doctor/doctor_push_watcher.dart
+@@ -38,8 +38,14 @@ class _DoctorPushWatcherState extends ConsumerState<DoctorPushWatcher> {
+     super.initState();
+     // 冷啟動時使用者早就在 state 裡了（main() 先 bootstrap 才 runApp），ref.listen
+     // 不會補一次舊值，所以第一幀後主動同步一次。
++    //
++    // 再多等 1.5 s（比照 main.dart 的 `warmRemaining`）：Firebase.initializeApp +
++    // 權限詢問如果緊貼第一幀起跑，會跟醫師的第一下點擊搶同一段主執行緒；推播註冊
++    // 晚一秒半沒人察覺。登入後才變成醫護的情況仍由 build 裡的 ref.listen 立刻同步。
+     WidgetsBinding.instance.addPostFrameCallback((_) {
+-      if (mounted) _sync(ref.read(authProvider).user);
++      unawaited(Future.delayed(const Duration(milliseconds: 1500), () {
++        if (mounted) _sync(ref.read(authProvider).user);
++      }));
+     });
+   }
+ 
+diff --git a/flutter_app/lib/features/doctor/research/charts.dart b/flutter_app/lib/features/doctor/research/charts.dart
+index 38f16ee..c0a5da8 100644
+--- a/flutter_app/lib/features/doctor/research/charts.dart
++++ b/flutter_app/lib/features/doctor/research/charts.dart
+@@ -126,7 +126,7 @@ class DailyTrendCard extends StatelessWidget {
+                       width: (days.length * 22).clamp(300, 5000).toDouble(),
+                       child: BarChart(BarChartData(
+                         maxY: maxV.toDouble(),
+-                        barTouchData: BarTouchData(enabled: true),
++                        barTouchData: const BarTouchData(enabled: true),
+                         gridData: const FlGridData(show: false),
+                         borderData: FlBorderData(show: false),
+                         titlesData: FlTitlesData(
+diff --git a/flutter_app/lib/features/doctor/research/stats.dart b/flutter_app/lib/features/doctor/research/stats.dart
+index 3271200..10dfa00 100644
+--- a/flutter_app/lib/features/doctor/research/stats.dart
++++ b/flutter_app/lib/features/doctor/research/stats.dart
+@@ -20,7 +20,7 @@ WilsonCi wilsonCi(int numerator, int denominator) {
+   final x = numerator.clamp(0, denominator);
+   final n = denominator.toDouble();
+   final p = x / n;
+-  final z2 = _z * _z;
++  const z2 = _z * _z;
+   final denom = 1 + z2 / n;
+   final center = (p + z2 / (2 * n)) / denom;
+   final margin = (_z / denom) * sqrt(p * (1 - p) / n + z2 / (4 * n * n));
+diff --git a/flutter_app/lib/features/doctor/screens/alert_list_page.dart b/flutter_app/lib/features/doctor/screens/alert_list_page.dart
+index b19ae88..2acc91d 100644
+--- a/flutter_app/lib/features/doctor/screens/alert_list_page.dart
++++ b/flutter_app/lib/features/doctor/screens/alert_list_page.dart
+@@ -27,11 +27,7 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
+   @override
+   void initState() {
+     super.initState();
+-    _scroll.addListener(() {
+-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) {
+-        ref.read(alertsProvider.notifier).fetchMore();
+-      }
+-    });
++    _scroll.onNearEnd(() => ref.read(alertsProvider.notifier).fetchMore());
+   }
+ 
+   @override
+@@ -130,22 +126,10 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
+       'unacknowledged': 'dashboard.alertList.filters.unacknowledged',
+       'acknowledged': 'dashboard.alertList.filters.acknowledged',
+     };
+-    return SingleChildScrollView(
+-      scrollDirection: Axis.horizontal,
+-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+-      child: Row(
+-        children: [
+-          for (final e in filters.entries)
+-            Padding(
+-              padding: const EdgeInsets.only(right: 8),
+-              child: ChoiceChip(
+-                selected: filter == e.key,
+-                label: Text(t(e.value)),
+-                onSelected: (_) => ref.read(alertsProvider.notifier).setFilter(e.key),
+-              ),
+-            ),
+-        ],
+-      ),
++    return FilterChipBar<String>(
++      options: {for (final e in filters.entries) e.key: t(e.value)},
++      selected: filter,
++      onSelected: ref.read(alertsProvider.notifier).setFilter,
+     );
+   }
+ 
+@@ -165,29 +149,22 @@ class _AlertListPageState extends ConsumerState<AlertListPage> {
+         message: t('dashboard.alertList.emptyMessage'),
+       );
+     }
+-    final items = <Object>[
+-      for (final g in groups) ...[
+-        GroupHeader('${g.key}  ·  ${t('dashboard.alertList.groupCount', args: {'count': g.value.length})}'),
+-        ...g.value,
+-      ],
+-      // 分頁尾端小 spinner：非首次載入，保留轉圈（不佔整區）。
+-      if (st.isLoading)
+-        const Center(
+-          child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
+-        ),
+-      if (!st.hasMore)
+-        Center(
+-          child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded'))),
+-        ),
+-    ];
+-    return ListView.builder(
++    return GroupedListView<RedFlagAlert>(
+       controller: _scroll,
+-      padding: const EdgeInsets.all(16),
+-      itemCount: items.length,
+-      itemBuilder: (context, index) {
+-        final item = items[index];
+-        return item is Widget ? item : _card(context, item as RedFlagAlert);
+-      },
++      groups: groups,
++      headerText: (key, count) => '$key  ·  ${t('dashboard.alertList.groupCount', args: {'count': count})}',
++      itemBuilder: _card,
++      trailing: [
++        // 分頁尾端小 spinner：非首次載入，保留轉圈（不佔整區）。
++        if (st.isLoading)
++          const Center(
++            child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
++          ),
++        if (!st.hasMore)
++          Center(
++            child: Padding(padding: const EdgeInsets.all(12), child: Text(t('common.pagination.allLoaded'))),
++          ),
++      ],
+     );
+   }
+ 
+diff --git a/flutter_app/lib/features/doctor/screens/dashboard_page.dart b/flutter_app/lib/features/doctor/screens/dashboard_page.dart
+index 8a14dd4..e0a3f40 100644
+--- a/flutter_app/lib/features/doctor/screens/dashboard_page.dart
++++ b/flutter_app/lib/features/doctor/screens/dashboard_page.dart
+@@ -10,6 +10,7 @@ import '../../../shared/format.dart';
+ import '../../../shared/widgets/ui_kit.dart';
+ import '../../auth/auth_notifier.dart';
+ import '../research/charts.dart';
++import '../state/request_seq.dart';
+ 
+ // 醫師儀表板（2026-08-22 依 design-taste-frontend 重排）。
+ // 版面決策（對照重排前的截圖問題）：
+@@ -34,7 +35,7 @@ class DashboardPage extends ConsumerStatefulWidget {
+ class _DashboardPageState extends ConsumerState<DashboardPage> {
+   MonthlySummary? _summary;
+   bool _loading = true;
+-  int _request = 0;
++  final _seq = RequestSeq();
+   late DateTime _selected; // first-of-month anchor
+ 
+   String get _month => monthKey(_selected);
+@@ -65,18 +66,18 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
+ 
+   Future<void> _load() async {
+     if (!mounted) return;
+-    final request = ++_request;
++    final request = _seq.next();
+     setState(() => _loading = true);
+     try {
+       final s = await DashboardApi().getMonthlySummary(_month);
+-      if (mounted && request == _request) {
++      if (mounted && !_seq.isStale(request)) {
+         setState(() {
+           _summary = s;
+           _loading = false;
+         });
+       }
+     } catch (_) {
+-      if (mounted && request == _request) setState(() => _loading = false);
++      if (mounted && !_seq.isStale(request)) setState(() => _loading = false);
+     }
+   }
+ 
+diff --git a/flutter_app/lib/features/doctor/screens/notification_page.dart b/flutter_app/lib/features/doctor/screens/notification_page.dart
+index f3ed79c..8c811a2 100644
+--- a/flutter_app/lib/features/doctor/screens/notification_page.dart
++++ b/flutter_app/lib/features/doctor/screens/notification_page.dart
+@@ -25,11 +25,7 @@ class _NotificationPageState extends ConsumerState<NotificationPage> {
+   @override
+   void initState() {
+     super.initState();
+-    _scroll.addListener(() {
+-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) {
+-        ref.read(notificationsProvider.notifier).fetchMore();
+-      }
+-    });
++    _scroll.onNearEnd(() => ref.read(notificationsProvider.notifier).fetchMore());
+   }
+ 
+   @override
+diff --git a/flutter_app/lib/features/doctor/screens/patient_list_page.dart b/flutter_app/lib/features/doctor/screens/patient_list_page.dart
+index 7f478b1..1221b34 100644
+--- a/flutter_app/lib/features/doctor/screens/patient_list_page.dart
++++ b/flutter_app/lib/features/doctor/screens/patient_list_page.dart
+@@ -10,6 +10,7 @@ import '../../../data/models/patient.dart';
+ import '../../../shared/format.dart';
+ import '../../../shared/widgets/ui_kit.dart';
+ import '../../../shared/widgets/dashboard_back_button.dart';
++import '../state/request_seq.dart';
+ 
+ // Port of PatientListPage.tsx: month-scoped, cursor-paginated, date-grouped patient list
+ // with debounced search + infinite scroll. ponytail: responsive table/card split reduced
+@@ -30,7 +31,7 @@ class _PatientListPageState extends State<PatientListPage> {
+   String? _cursor;
+   bool _hasMore = true;
+   bool _loading = true;
+-  int _request = 0;
++  final _seq = RequestSeq();
+   int _totalCount = 0;
+   String _search = '';
+   late String _month;
+@@ -40,9 +41,7 @@ class _PatientListPageState extends State<PatientListPage> {
+     super.initState();
+     final now = DateTime.now();
+     _month = monthKey(now);
+-    _scroll.addListener(() {
+-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) _fetchMore();
+-    });
++    _scroll.onNearEnd(_fetchMore);
+     Future.microtask(() => _fetch(reset: true));
+   }
+ 
+@@ -63,7 +62,7 @@ class _PatientListPageState extends State<PatientListPage> {
+ 
+   Future<void> _fetch({required bool reset}) async {
+     if (!mounted) return;
+-    final request = ++_request;
++    final request = _seq.next();
+     setState(() => _loading = true);
+     final (from, to) = _range(_month);
+     try {
+@@ -73,7 +72,7 @@ class _PatientListPageState extends State<PatientListPage> {
+         createdFrom: from,
+         createdTo: to,
+       );
+-      if (!mounted || request != _request) return;
++      if (!mounted || _seq.isStale(request)) return;
+       setState(() {
+         _patients = reset ? page.data : [..._patients, ...page.data];
+         _cursor = page.nextCursor;
+@@ -82,7 +81,7 @@ class _PatientListPageState extends State<PatientListPage> {
+         _loading = false;
+       });
+     } catch (_) {
+-      if (mounted && request == _request) setState(() => _loading = false);
++      if (mounted && !_seq.isStale(request)) setState(() => _loading = false);
+     }
+   }
+ 
+@@ -177,24 +176,17 @@ class _PatientListPageState extends State<PatientListPage> {
+         message: t(_search.isEmpty ? 'common.patientList.emptyMonthMessage' : 'common.patientList.emptySearchMessage'),
+       );
+     }
+-    final items = <Object>[
+-      for (final g in groups) ...[
+-        GroupHeader('${g.key}  ·  ${t('common.patientList.patientCount', args: {'count': g.value.length})}'),
+-        ...g.value,
+-      ],
+-      if (_loading && _patients.isNotEmpty)
+-        const Center(
+-          child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
+-        ),
+-    ];
+-    return ListView.builder(
++    return GroupedListView<Patient>(
+       controller: _scroll,
+-      padding: const EdgeInsets.all(16),
+-      itemCount: items.length,
+-      itemBuilder: (context, index) {
+-        final item = items[index];
+-        return item is Widget ? item : _row(context, item as Patient);
+-      },
++      groups: groups,
++      headerText: (key, count) => '$key  ·  ${t('common.patientList.patientCount', args: {'count': count})}',
++      itemBuilder: _row,
++      trailing: [
++        if (_loading && _patients.isNotEmpty)
++          const Center(
++            child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
++          ),
++      ],
+     );
+   }
+ 
+diff --git a/flutter_app/lib/features/doctor/screens/report_list_page.dart b/flutter_app/lib/features/doctor/screens/report_list_page.dart
+index 99b4887..f8d2660 100644
+--- a/flutter_app/lib/features/doctor/screens/report_list_page.dart
++++ b/flutter_app/lib/features/doctor/screens/report_list_page.dart
+@@ -10,6 +10,7 @@ import '../../../data/models/soap_report.dart';
+ import '../../../shared/format.dart';
+ import '../../../shared/widgets/ui_kit.dart';
+ import '../../../shared/widgets/dashboard_back_button.dart';
++import '../state/request_seq.dart';
+ 
+ class _Meta {
+   final String patientName;
+@@ -39,7 +40,7 @@ class _ReportListPageState extends State<ReportListPage> {
+   bool _hasMore = true;
+   bool _loading = true;
+   String? _error;
+-  int _request = 0;
++  final _seq = RequestSeq();
+   String _reviewFilter = '';
+   String _search = '';
+   String _lastLng = currentLng;
+@@ -47,11 +48,7 @@ class _ReportListPageState extends State<ReportListPage> {
+   @override
+   void initState() {
+     super.initState();
+-    _scroll.addListener(() {
+-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) {
+-        _fetchMore();
+-      }
+-    });
++    _scroll.onNearEnd(_fetchMore);
+     Future.microtask(() {
+       _fetchReports(reset: true);
+     });
+@@ -67,11 +64,11 @@ class _ReportListPageState extends State<ReportListPage> {
+ 
+   Future<void> _fetchReports({required bool reset}) async {
+     if (!mounted) return;
+-    final request = ++_request;
++    final request = _seq.next();
+     setState(() => _loading = true);
+     try {
+       final page = await _reportsApi.list(cursor: reset ? null : _cursor, reviewStatus: _filterParam);
+-      if (!mounted || request != _request) return;
++      if (!mounted || _seq.isStale(request)) return;
+       setState(() {
+         final counts = page.reviewCounts;
+         if (counts != null) {
+@@ -90,7 +87,7 @@ class _ReportListPageState extends State<ReportListPage> {
+       if (page.reviewCounts == null && _counts == null) _fetchSummary();
+       _loadMeta();
+     } catch (_) {
+-      if (mounted && request == _request) setState(() { _loading = false; _error = t('session.doctor.detail.loadError'); });
++      if (mounted && !_seq.isStale(request)) setState(() { _loading = false; _error = t('session.doctor.detail.loadError'); });
+     }
+   }
+ 
+@@ -303,24 +300,14 @@ class _ReportListPageState extends State<ReportListPage> {
+       'approved': 'dashboard.reportList.tabs.approved',
+       'revision_needed': 'dashboard.reportList.tabs.revisionNeeded',
+     };
+-    return SingleChildScrollView(
+-      scrollDirection: Axis.horizontal,
+-      child: Row(
+-        children: [
+-          for (final e in filters.entries)
+-            Padding(
+-              padding: const EdgeInsets.only(right: 8),
+-              child: ChoiceChip(
+-                selected: _reviewFilter == e.key,
+-                label: Text(t(e.value)),
+-                onSelected: (_) {
+-                  setState(() => _reviewFilter = e.key);
+-                  _fetchReports(reset: true);
+-                },
+-              ),
+-            ),
+-        ],
+-      ),
++    return FilterChipBar<String>(
++      options: {for (final e in filters.entries) e.key: t(e.value)},
++      selected: _reviewFilter,
++      padding: EdgeInsets.zero,
++      onSelected: (key) {
++        setState(() => _reviewFilter = key);
++        _fetchReports(reset: true);
++      },
+     );
+   }
+ 
+diff --git a/flutter_app/lib/features/doctor/screens/session_calendar_view.dart b/flutter_app/lib/features/doctor/screens/session_calendar_view.dart
+index 7c23592..d3d97af 100644
+--- a/flutter_app/lib/features/doctor/screens/session_calendar_view.dart
++++ b/flutter_app/lib/features/doctor/screens/session_calendar_view.dart
+@@ -6,6 +6,7 @@ import '../../../core/i18n/loc.dart';
+ import '../../../core/router/lng.dart';
+ import '../../../core/theme/app_tokens.dart';
+ import '../../../data/api/sessions_api.dart';
++import '../state/request_seq.dart';
+ import '../state/sessions_list_controller.dart';
+ import '../../../data/models/session.dart';
+ import '../../../shared/format.dart';
+@@ -30,14 +31,7 @@ import '../../../shared/widgets/ui_kit.dart';
+ /// `sessions.created_at`，錨點與篩選欄位一致，抓回來的區間才不會有一頭一尾
+ /// 落在桶外（建立於 23:58、隔天 00:01 才開口說話的那種場次）。
+ /// 顯示時間仍用 `startedAt ?? createdAt`——病患真正開始講話的時間才是醫師要的。
+-DateTime? sessionLocalDay(Session s) {
+-  final iso = s.createdAt ?? s.startedAt;
+-  if (iso == null) return null;
+-  final dt = DateTime.tryParse(iso);
+-  if (dt == null) return null;
+-  final local = dt.toLocal();
+-  return DateTime(local.year, local.month, local.day);
+-}
++DateTime? sessionLocalDay(Session s) => localDay(s.createdAt ?? s.startedAt);
+ 
+ /// 場次在時間軸上的位置（顯示用）：開始講話的時間。
+ DateTime? sessionLocalStart(Session s) {
+@@ -210,8 +204,8 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+   Map<DateTime, List<Session>> _buckets = const {};
+   Map<DateTime, DayLoad> _summaries = const {};
+   final _monthCache = <DateTime, ({DateTime at, Map<DateTime, DayLoad> data})>{};
+-  int _monthRequest = 0;
+-  int _dayRequest = 0;
++  final _monthSeq = RequestSeq();
++  final _daySeq = RequestSeq();
+   bool _dayLoading = false;
+   bool _dayError = false;
+   String? _cursor;
+@@ -232,7 +226,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+ 
+   Future<void> _load({bool useCache = false}) async {
+     if (!mounted) return;
+-    final request = ++_monthRequest;
++    final request = _monthSeq.next();
+     final month = _month;
+     setState(() {
+       _loading = true;
+@@ -244,7 +238,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+       final cached = _monthCache[month];
+       if (widget.fetchMonth != null) {
+         final sessions = await widget.fetchMonth!(month);
+-        if (!mounted || request != _monthRequest) return;
++        if (!mounted || _monthSeq.isStale(request)) return;
+         _buckets = bucketByLocalDay(sessions);
+         summaries = _buckets.map((day, rows) => MapEntry(day, DayLoad.of(rows)));
+       } else if (useCache && cached != null && DateTime.now().difference(cached.at).inSeconds < 60) {
+@@ -267,13 +261,13 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+         _monthCache[month] = (at: DateTime.now(), data: summaries);
+         if (_monthCache.length > 12) _monthCache.remove(_monthCache.keys.first);
+       }
+-      if (!mounted || request != _monthRequest) return;
++      if (!mounted || _monthSeq.isStale(request)) return;
+       setState(() {
+         _summaries = summaries;
+         _loading = false;
+       });
+     } catch (_) {
+-      if (!mounted || request != _monthRequest) return;
++      if (!mounted || _monthSeq.isStale(request)) return;
+       setState(() {
+         _loading = false;
+         _error = true;
+@@ -283,7 +277,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+ 
+   Future<void> _loadDay({bool more = false}) async {
+     if (widget.fetchMonth != null || (more && (_dayLoading || !_hasMore))) return;
+-    final request = ++_dayRequest;
++    final request = _daySeq.next();
+     final day = _selected;
+     setState(() {
+       _dayLoading = true;
+@@ -303,7 +297,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+         sortBy: 'created_at',
+         sortOrder: 'asc',
+       );
+-      if (!mounted || request != _dayRequest) return;
++      if (!mounted || _daySeq.isStale(request)) return;
+       if (page.hasMore && (page.nextCursor == null || (more && page.nextCursor == _cursor))) {
+         throw StateError('Pagination did not advance');
+       }
+@@ -317,7 +311,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+         _dayLoading = false;
+       });
+     } catch (_) {
+-      if (!mounted || request != _dayRequest) return;
++      if (!mounted || _daySeq.isStale(request)) return;
+       setState(() {
+         _dayLoading = false;
+         _dayError = true;
+@@ -346,16 +340,6 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+ 
+   static String _weekdayKey(DateTime day) => const ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][day.weekday - 1];
+ 
+-  /// 秒 → 「1 小時 20 分」／「20 分」。null → `—`。
+-  String _duration(int? seconds) {
+-    if (seconds == null) return '—';
+-    final minutes = (seconds / 60).round();
+-    if (minutes < 60) {
+-      return t('session.doctor.calendar.minutesShort', args: {'minutes': minutes});
+-    }
+-    return t('session.doctor.calendar.hoursMinutes', args: {'hours': minutes ~/ 60, 'minutes': minutes % 60});
+-  }
+-
+   @override
+   Widget build(BuildContext context) {
+     if (widget.fetchMonth == null) {
+@@ -431,7 +415,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+               Row(
+                 children: [
+                   for (var col = 0; col < 7; col++)
+-                    Expanded(child: _dayCell(context, days[row * 7 + col], today: today)),
++                    Expanded(child: _cell(days[row * 7 + col], today)),
+                 ],
+               ),
+           ],
+@@ -440,90 +424,29 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+     );
+   }
+ 
+-  Widget _dayCell(BuildContext context, DateTime day, {required DateTime today}) {
+-    final theme = Theme.of(context);
+-    final tk = theme.extension<AppTokens>()!;
+-    final count = _summaries[day]?.total ?? 0;
++  /// 月曆格：純資料 → [_DayCell]（42 格每次 setState 都重建，widget 越薄越好）。
++  Widget _cell(DateTime day, DateTime today) {
++    final load = _summaries[day];
+     final inMonth = day.month == _month.month && day.year == _month.year;
+-    final isSelected = day == _selected;
+-    final isToday = day == today;
+-    final hasRedFlag = (_summaries[day]?.redFlags ?? 0) > 0;
+-
+-    // 顏色階梯：沒場次＝無底色；有場次＝品牌藍淡底，越多越深（上限 3 階）。
+-    // 用底色深淺而不是點點數量：一眼看得出哪幾天忙，而且不會在小格子裡擠爆。
+-    final level = count == 0 ? 0 : (count >= 5 ? 3 : (count >= 3 ? 2 : 1));
+-    final fill = isSelected
+-        ? theme.colorScheme.primary
+-        : level == 0
+-        ? null
+-        : theme.colorScheme.primary.withValues(alpha: 0.06 * level + 0.04);
+-    final textColor = isSelected
+-        ? Colors.white
+-        : inMonth
+-        ? tk.inkHeading
+-        : tk.inkMuted;
+-
+-    return Padding(
+-      padding: const EdgeInsets.all(2),
+-      child: InkWell(
+-        borderRadius: BorderRadius.circular(10),
+-        onTap: () {
+-          setState(() {
+-            _selected = day;
+-            // 點到補格＝想看上／下個月那天，順手把月份也切過去（並重抓資料）。
+-            if (!inMonth) {
+-              _month = DateTime(day.year, day.month, 1);
+-              _load(useCache: true);
+-            } else {
+-              _loadDay();
+-            }
+-          });
+-        },
+-        child: Container(
+-          height: 46,
+-          decoration: BoxDecoration(
+-            color: fill,
+-            borderRadius: BorderRadius.circular(10),
+-            border: isToday && !isSelected ? Border.all(color: theme.colorScheme.primary, width: 1.5) : null,
+-          ),
+-          child: Column(
+-            mainAxisAlignment: MainAxisAlignment.center,
+-            children: [
+-              Text(
+-                '${day.day}',
+-                style: theme.textTheme.bodyMedium?.copyWith(
+-                  color: textColor,
+-                  fontWeight: isSelected || isToday ? FontWeight.w700 : FontWeight.w500,
+-                ),
+-              ),
+-              const SizedBox(height: 2),
+-              SizedBox(
+-                height: 6,
+-                child: count == 0
+-                    ? null
+-                    : Row(
+-                        mainAxisAlignment: MainAxisAlignment.center,
+-                        children: [
+-                          Container(
+-                            width: 4,
+-                            height: 4,
+-                            decoration: BoxDecoration(
+-                              shape: BoxShape.circle,
+-                              // 紅旗那天用警示色的點，翻月份時一眼看得到
+-                              color: hasRedFlag
+-                                  ? tk.alertCritical
+-                                  : isSelected
+-                                  ? Colors.white
+-                                  : theme.colorScheme.primary,
+-                            ),
+-                          ),
+-                        ],
+-                      ),
+-              ),
+-            ],
+-          ),
+-        ),
+-      ),
++    return _DayCell(
++      day: day,
++      count: load?.total ?? 0,
++      hasRedFlag: (load?.redFlags ?? 0) > 0,
++      inMonth: inMonth,
++      isSelected: day == _selected,
++      isToday: day == today,
++      onTap: () {
++        setState(() {
++          _selected = day;
++          // 點到補格＝想看上／下個月那天，順手把月份也切過去（並重抓資料）。
++          if (!inMonth) {
++            _month = DateTime(day.year, day.month, 1);
++            _load(useCache: true);
++          } else {
++            _loadDay();
++          }
++        });
++      },
+     );
+   }
+ 
+@@ -575,14 +498,14 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+                   Expanded(
+-                    child: StatCell(label: t('session.doctor.calendar.busyTime'), value: _duration(load.busySeconds)),
++                    child: StatCell(label: t('session.doctor.calendar.busyTime'), value: _durationLabel(load.busySeconds)),
+                   ),
+                   Container(width: 1, height: 48, color: tk.edge),
+                   const SizedBox(width: 16),
+                   Expanded(
+                     child: StatCell(
+                       label: t('session.doctor.calendar.averageDuration'),
+-                      value: _duration(load.averageSeconds),
++                      value: _durationLabel(load.averageSeconds),
+                     ),
+                   ),
+                   Container(width: 1, height: 48, color: tk.edge),
+@@ -627,7 +550,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+                   );
+                 },
+               ),
+-            _sessionRow(context, sessions[i]),
++            _SessionRow(sessions[i]),
+           ],
+           if (_hasMore)
+             TextButton(
+@@ -638,8 +561,120 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+       ],
+     );
+   }
++}
++
++/// 秒 → 「1 小時 20 分」／「20 分」。null → `—`。
++String _durationLabel(int? seconds) {
++  if (seconds == null) return '—';
++  final minutes = (seconds / 60).round();
++  if (minutes < 60) {
++    return t('session.doctor.calendar.minutesShort', args: {'minutes': minutes});
++  }
++  return t('session.doctor.calendar.hoursMinutes', args: {'hours': minutes ~/ 60, 'minutes': minutes % 60});
++}
++
++/// 月曆的一格：日期數字 + 場次量底色 + 紅旗點。只吃算好的旗標，不碰頁面狀態。
++class _DayCell extends StatelessWidget {
++  const _DayCell({
++    required this.day,
++    required this.count,
++    required this.hasRedFlag,
++    required this.inMonth,
++    required this.isSelected,
++    required this.isToday,
++    required this.onTap,
++  });
++
++  final DateTime day;
++  final int count;
++  final bool hasRedFlag;
++  final bool inMonth;
++  final bool isSelected;
++  final bool isToday;
++  final VoidCallback onTap;
++
++  @override
++  Widget build(BuildContext context) {
++    final theme = Theme.of(context);
++    final tk = theme.extension<AppTokens>()!;
++
++    // 顏色階梯：沒場次＝無底色；有場次＝品牌藍淡底，越多越深（上限 3 階）。
++    // 用底色深淺而不是點點數量：一眼看得出哪幾天忙，而且不會在小格子裡擠爆。
++    final level = count == 0 ? 0 : (count >= 5 ? 3 : (count >= 3 ? 2 : 1));
++    final fill = isSelected
++        ? theme.colorScheme.primary
++        : level == 0
++        ? null
++        : theme.colorScheme.primary.withValues(alpha: 0.06 * level + 0.04);
++    final textColor = isSelected
++        ? Colors.white
++        : inMonth
++        ? tk.inkHeading
++        : tk.inkMuted;
++
++    return Padding(
++      padding: const EdgeInsets.all(2),
++      child: InkWell(
++        borderRadius: BorderRadius.circular(10),
++        onTap: onTap,
++        child: Container(
++          height: 46,
++          decoration: BoxDecoration(
++            color: fill,
++            borderRadius: BorderRadius.circular(10),
++            border: isToday && !isSelected ? Border.all(color: theme.colorScheme.primary, width: 1.5) : null,
++          ),
++          child: Column(
++            mainAxisAlignment: MainAxisAlignment.center,
++            children: [
++              Text(
++                '${day.day}',
++                style: theme.textTheme.bodyMedium?.copyWith(
++                  color: textColor,
++                  fontWeight: isSelected || isToday ? FontWeight.w700 : FontWeight.w500,
++                ),
++              ),
++              const SizedBox(height: 2),
++              SizedBox(
++                height: 6,
++                child: count == 0
++                    ? null
++                    : Row(
++                        mainAxisAlignment: MainAxisAlignment.center,
++                        children: [
++                          Container(
++                            width: 4,
++                            height: 4,
++                            decoration: BoxDecoration(
++                              shape: BoxShape.circle,
++                              // 紅旗那天用警示色的點，翻月份時一眼看得到
++                              color: hasRedFlag
++                                  ? tk.alertCritical
++                                  : isSelected
++                                  ? Colors.white
++                                  : theme.colorScheme.primary,
++                            ),
++                          ),
++                        ],
++                      ),
++              ),
++            ],
++          ),
++        ),
++      ),
++    );
++  }
++}
+ 
+-  Widget _sessionRow(BuildContext context, Session s) {
++/// 時間軸上的一場：起訖＋時長欄、病患／主訴、狀態標籤。
++class _SessionRow extends StatelessWidget {
++  const _SessionRow(this.session);
++
++  final Session session;
++
++  @override
++  Widget build(BuildContext context) {
++    final s = session;
+     final theme = Theme.of(context);
+     final tk = theme.extension<AppTokens>()!;
+     final start = sessionLocalStart(s);
+@@ -715,7 +750,7 @@ class _SessionCalendarViewState extends ConsumerState<SessionCalendarView> {
+                 children: [
+                   StatusBadge(s.status),
+                   const SizedBox(height: 4),
+-                  Text(_duration(seconds), style: theme.textTheme.labelSmall?.copyWith(color: tk.inkMuted)),
++                  Text(_durationLabel(seconds), style: theme.textTheme.labelSmall?.copyWith(color: tk.inkMuted)),
+                 ],
+               ),
+             ],
+diff --git a/flutter_app/lib/features/doctor/screens/session_list_page.dart b/flutter_app/lib/features/doctor/screens/session_list_page.dart
+index ad9b3c0..c48e70c 100644
+--- a/flutter_app/lib/features/doctor/screens/session_list_page.dart
++++ b/flutter_app/lib/features/doctor/screens/session_list_page.dart
+@@ -86,20 +86,10 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
+       'waiting': 'session.doctor.list.tabWaiting',
+       'completed': 'session.doctor.list.tabCompleted',
+     };
+-    return SingleChildScrollView(
+-      scrollDirection: Axis.horizontal,
+-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+-      child: Row(children: [
+-        for (final e in filters.entries)
+-          Padding(
+-            padding: const EdgeInsets.only(right: 8),
+-            child: ChoiceChip(
+-              selected: _statusFilter == e.key,
+-              label: Text(t(e.value)),
+-              onSelected: (_) => setState(() => _statusFilter = e.key),
+-            ),
+-          ),
+-      ]),
++    return FilterChipBar<String>(
++      options: {for (final e in filters.entries) e.key: t(e.value)},
++      selected: _statusFilter,
++      onSelected: (key) => setState(() => _statusFilter = key),
+     );
+   }
+ 
+@@ -121,9 +111,10 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
+         message: t('session.doctor.list.emptyMessage'),
+       );
+     }
+-    return ListView(
++    return ListView.builder(
+       padding: const EdgeInsets.all(16),
+-      children: [for (final s in visible) _card(context, s)],
++      itemCount: visible.length,
++      itemBuilder: (context, i) => _card(context, visible[i]),
+     );
+   }
+ 
+diff --git a/flutter_app/lib/features/doctor/state/alerts_controller.dart b/flutter_app/lib/features/doctor/state/alerts_controller.dart
+index 1d17f09..d86c159 100644
+--- a/flutter_app/lib/features/doctor/state/alerts_controller.dart
++++ b/flutter_app/lib/features/doctor/state/alerts_controller.dart
+@@ -6,6 +6,7 @@ import '../../../core/i18n/loc.dart';
+ import '../../../data/api/alerts_api.dart';
+ import '../../../data/models/alert.dart';
+ import '../services/dashboard_ws.dart';
++import 'request_seq.dart';
+ 
+ class AlertsState {
+   final List<RedFlagAlert> alerts;
+@@ -67,8 +68,8 @@ const _wsEvents = ['new_red_flag', 'red_flag_acknowledged', 'initial_state', 'st
+ 
+ class AlertsController extends Notifier<AlertsState> {
+   final _api = AlertsApi();
+-  int _listRequest = 0;
+-  int _countRequest = 0;
++  final _list = RequestSeq();
++  final _count = RequestSeq();
+ 
+   bool? _ackParam(String filter) => switch (filter) {
+     'unacknowledged' => false,
+@@ -78,20 +79,13 @@ class AlertsController extends Notifier<AlertsState> {
+ 
+   @override
+   AlertsState build() {
+-    ++_listRequest;
+-    ++_countRequest;
++    _list.next();
++    _count.next();
+     final lifecycle = ref;
+     final ws = ref.watch(dashboardWsProvider);
+     if (ws == null) return const AlertsState(hasMore: false);
+     ws.ensureConnected();
+-    for (final e in _wsEvents) {
+-      ws.on(e, _onEvent);
+-    }
+-    ref.onDispose(() {
+-      for (final e in _wsEvents) {
+-        ws.off(e, _onEvent);
+-      }
+-    });
++    bindWsEvents(ref, ws, _wsEvents, _onEvent);
+     Future.microtask(() async {
+       if (!lifecycle.mounted || ws.isDisposed) return;
+       await fetchAlerts();
+@@ -106,10 +100,10 @@ class AlertsController extends Notifier<AlertsState> {
+     final ws = ref.read(dashboardWsProvider);
+     if (ws == null || ws.isDisposed) return;
+     state = state.copyWith(isLoading: true, clearError: true, clearCursor: true);
+-    final request = ++_listRequest;
++    final request = _list.next();
+     try {
+       final page = await _api.list(acknowledged: _ackParam(state.filter));
+-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
++      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
+       state = state.copyWith(
+         alerts: page.data,
+         cursor: page.nextCursor,
+@@ -119,7 +113,7 @@ class AlertsController extends Notifier<AlertsState> {
+         isLoading: false,
+       );
+     } catch (_) {
+-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
++      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
+       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
+     }
+   }
+@@ -130,10 +124,10 @@ class AlertsController extends Notifier<AlertsState> {
+     if (ws == null || ws.isDisposed) return;
+     if (!state.hasMore || state.isLoading || state.cursor == null) return;
+     state = state.copyWith(isLoading: true);
+-    final request = ++_listRequest;
++    final request = _list.next();
+     try {
+       final page = await _api.list(cursor: state.cursor, acknowledged: _ackParam(state.filter));
+-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
++      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
+       state = state.copyWith(
+         alerts: [...state.alerts, ...page.data],
+         cursor: page.nextCursor,
+@@ -142,7 +136,7 @@ class AlertsController extends Notifier<AlertsState> {
+         isLoading: false,
+       );
+     } catch (_) {
+-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
++      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
+       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
+     }
+   }
+@@ -216,10 +210,10 @@ class AlertsController extends Notifier<AlertsState> {
+     final lifecycle = ref;
+     final ws = ref.read(dashboardWsProvider);
+     if (ws == null || ws.isDisposed) return;
+-    final request = ++_countRequest;
++    final request = _count.next();
+     try {
+       final count = await _api.unacknowledgedCount();
+-      if (!lifecycle.mounted || ws.isDisposed || request != _countRequest) return;
++      if (!lifecycle.mounted || ws.isDisposed || _count.isStale(request)) return;
+       state = state.copyWith(unacknowledgedCount: count);
+     } catch (_) {
+       /* silent */
+diff --git a/flutter_app/lib/features/doctor/state/notifications_controller.dart b/flutter_app/lib/features/doctor/state/notifications_controller.dart
+index 0b51156..909ec6d 100644
+--- a/flutter_app/lib/features/doctor/state/notifications_controller.dart
++++ b/flutter_app/lib/features/doctor/state/notifications_controller.dart
+@@ -7,6 +7,7 @@ import '../../../core/i18n/loc.dart';
+ import '../../../data/api/notifications_api.dart';
+ import '../../../data/models/notification.dart';
+ import '../services/dashboard_ws.dart';
++import 'request_seq.dart';
+ 
+ class NotifState {
+   final List<AppNotification> notifications;
+@@ -76,8 +77,8 @@ class NotificationsController extends Notifier<NotifState> {
+   final NotificationsApi _api;
+   final Duration _refreshDebounce;
+   Timer? _refreshTimer;
+-  int _listRequest = 0;
+-  int _countRequest = 0;
++  final _list = RequestSeq();
++  final _count = RequestSeq();
+   // build() already fetches, so the first initial_state (WS just connected) is redundant.
+   bool _skipNextInitialState = true;
+ 
+@@ -88,16 +89,11 @@ class NotificationsController extends Notifier<NotifState> {
+     _skipNextInitialState = true;
+     if (ws == null) return const NotifState(hasMore: false);
+     ws.ensureConnected();
+-    for (final e in _wsEvents) {
+-      ws.on(e, _onEvent);
+-    }
+     ref.onDispose(() {
+       _refreshTimer?.cancel();
+       _refreshTimer = null;
+-      for (final e in _wsEvents) {
+-        ws.off(e, _onEvent);
+-      }
+     });
++    bindWsEvents(ref, ws, _wsEvents, _onEvent);
+     // Concurrent, not sequential. These are two independent endpoints writing disjoint
+     // fields of the same state, and on iOS this is the landing screen — chaining them
+     // put a second full round trip to Railway between the doctor and their inbox for
+@@ -115,11 +111,11 @@ class NotificationsController extends Notifier<NotifState> {
+     final lifecycle = ref;
+     final ws = ref.read(dashboardWsProvider);
+     if (ws == null || ws.isDisposed) return;
+-    final request = ++_listRequest;
++    final request = _list.next();
+     state = state.copyWith(isLoading: true, clearError: true, clearCursor: true);
+     try {
+       final page = await _api.list();
+-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
++      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
+       state = state.copyWith(
+         notifications: page.data,
+         cursor: page.nextCursor,
+@@ -127,7 +123,7 @@ class NotificationsController extends Notifier<NotifState> {
+         isLoading: false,
+       );
+     } catch (_) {
+-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
++      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
+       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
+     }
+   }
+@@ -137,11 +133,11 @@ class NotificationsController extends Notifier<NotifState> {
+     final ws = ref.read(dashboardWsProvider);
+     if (ws == null || ws.isDisposed) return;
+     if (!state.hasMore || state.isLoading || state.cursor == null) return;
+-    final request = _listRequest;
++    final request = _list.current;
+     state = state.copyWith(isLoading: true);
+     try {
+       final page = await _api.list(cursor: state.cursor);
+-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
++      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
+       state = state.copyWith(
+         notifications: [...state.notifications, ...page.data],
+         cursor: page.nextCursor,
+@@ -149,7 +145,7 @@ class NotificationsController extends Notifier<NotifState> {
+         isLoading: false,
+       );
+     } catch (_) {
+-      if (!lifecycle.mounted || ws.isDisposed || request != _listRequest) return;
++      if (!lifecycle.mounted || ws.isDisposed || _list.isStale(request)) return;
+       state = state.copyWith(isLoading: false, error: t('common.unknownError'));
+     }
+   }
+@@ -193,10 +189,10 @@ class NotificationsController extends Notifier<NotifState> {
+     final lifecycle = ref;
+     final ws = ref.read(dashboardWsProvider);
+     if (ws == null || ws.isDisposed) return;
+-    final request = ++_countRequest;
++    final request = _count.next();
+     try {
+       final count = await _api.unreadCount();
+-      if (!lifecycle.mounted || ws.isDisposed || request != _countRequest) return;
++      if (!lifecycle.mounted || ws.isDisposed || _count.isStale(request)) return;
+       state = state.copyWith(unreadCount: count);
+     } catch (_) {/* silent */}
+   }
+diff --git a/flutter_app/lib/features/doctor/state/sessions_list_controller.dart b/flutter_app/lib/features/doctor/state/sessions_list_controller.dart
+index 8a2409c..8ce34bd 100644
+--- a/flutter_app/lib/features/doctor/state/sessions_list_controller.dart
++++ b/flutter_app/lib/features/doctor/state/sessions_list_controller.dart
+@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../../data/api/sessions_api.dart';
+ import '../../../data/models/session.dart';
+ import '../services/dashboard_ws.dart';
++import 'request_seq.dart';
+ 
+ // These dashboard events mean "something changed, refetch over HTTP" — the payloads are
+ // NOT merged into the list.
+@@ -31,13 +32,13 @@ class SessionsListState {
+ class SessionsListController extends Notifier<SessionsListState> {
+   final _api = SessionsApi();
+   Timer? _refreshTimer;
+-  int _request = 0;
++  final _seq = RequestSeq();
+   int _inFlight = 0;
+   bool _pending = false;
+ 
+   @override
+   SessionsListState build() {
+-    ++_request;
++    _seq.next();
+     _refreshTimer?.cancel();
+     _refreshTimer = null;
+     _inFlight = 0;
+@@ -46,16 +47,9 @@ class SessionsListController extends Notifier<SessionsListState> {
+     final ws = ref.watch(dashboardWsProvider);
+     if (ws == null) return const SessionsListState(isLoading: false);
+     ws.ensureConnected();
++    ref.onDispose(() => _refreshTimer?.cancel());
+     // Register once (ref-stable); the handler always calls the freshest reload().
+-    for (final e in _reloadEvents) {
+-      ws.on(e, _onEvent);
+-    }
+-    ref.onDispose(() {
+-      _refreshTimer?.cancel();
+-      for (final e in _reloadEvents) {
+-        ws.off(e, _onEvent);
+-      }
+-    });
++    bindWsEvents(ref, ws, _reloadEvents, _onEvent);
+     Future.microtask(() async {
+       if (lifecycle.mounted && !ws.isDisposed) await reload();
+     });
+@@ -74,15 +68,15 @@ class SessionsListController extends Notifier<SessionsListState> {
+     final lifecycle = ref;
+     final ws = ref.read(dashboardWsProvider);
+     if (ws == null || ws.isDisposed) return;
+-    final request = ++_request;
++    final request = _seq.next();
+     ++_inFlight;
+     _pending = false;
+     try {
+       final data = await _api.getSessions(limit: 50);
+-      if (!lifecycle.mounted || ws.isDisposed || request != _request) return;
++      if (!lifecycle.mounted || ws.isDisposed || _seq.isStale(request)) return;
+       state = state.copyWith(sessions: data, isLoading: false, hasError: false);
+     } catch (_) {
+-      if (!lifecycle.mounted || ws.isDisposed || request != _request) return;
++      if (!lifecycle.mounted || ws.isDisposed || _seq.isStale(request)) return;
+       // A failed background reload must NOT wipe an already-loaded list.
+       state = state.copyWith(isLoading: false, hasError: true);
+     } finally {
+diff --git a/flutter_app/lib/features/patient/kiosk_idle_guard.dart b/flutter_app/lib/features/patient/kiosk_idle_guard.dart
+index 61cae45..605beae 100644
+--- a/flutter_app/lib/features/patient/kiosk_idle_guard.dart
++++ b/flutter_app/lib/features/patient/kiosk_idle_guard.dart
+@@ -70,7 +70,7 @@ class _KioskIdleGuardState extends ConsumerState<KioskIdleGuard> {
+     if (_timer != null && now - _lastArmMs < 1000) return;
+     _lastArmMs = now;
+     _cancel();
+-    _timer = Timer(Duration(seconds: Env.kioskIdleTimeoutSeconds), _onIdle);
++    _timer = Timer(const Duration(seconds: Env.kioskIdleTimeoutSeconds), _onIdle);
+   }
+ 
+   /// The route is checked HERE rather than during build. `GoRouterState.of(context)`
+diff --git a/flutter_app/lib/features/patient/medical_info_page.dart b/flutter_app/lib/features/patient/medical_info_page.dart
+index 064c27a..4a96bbe 100644
+--- a/flutter_app/lib/features/patient/medical_info_page.dart
++++ b/flutter_app/lib/features/patient/medical_info_page.dart
+@@ -275,7 +275,6 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
+ 
+   @override
+   Widget build(BuildContext context) {
+-    final err = Theme.of(context).colorScheme.error;
+     return Scaffold(
+       appBar: AppBar(
+         title: Text(
+@@ -295,137 +294,7 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
+         child: ListView(
+           padding: const EdgeInsets.all(16),
+           children: [
+-            _card(
+-              Column(
+-                crossAxisAlignment: CrossAxisAlignment.start,
+-                children: [
+-                  Text(
+-                    t('intake.medicalInfo.patient.title'),
+-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+-                      fontWeight: FontWeight.w600,
+-                    ),
+-                  ),
+-                  const SizedBox(height: 16),
+-                  DropdownButtonFormField<String>(
+-                    key: ValueKey('${_doctors.length}:$_doctorId'),
+-                    initialValue: _doctorId,
+-                    isExpanded: true,
+-                    decoration: InputDecoration(
+-                      labelText: t('intake.medicalInfo.patient.doctorLabel'),
+-                      helperText: t(
+-                        _doctorLoadFailed
+-                            ? 'intake.medicalInfo.patient.doctorLoadFailed'
+-                            : 'intake.medicalInfo.patient.doctorHint',
+-                      ),
+-                      errorText:
+-                          _showErrors && !_doctorLoadFailed && _doctorId == null
+-                          ? t('intake.medicalInfo.patient.doctorError')
+-                          : null,
+-                      suffixIcon: _loadingDoctors
+-                          ? const Padding(
+-                              padding: EdgeInsets.all(12),
+-                              child: CircularProgressIndicator(strokeWidth: 2),
+-                            )
+-                          : null,
+-                    ),
+-                    hint: Text(
+-                      t('intake.medicalInfo.patient.doctorPlaceholder'),
+-                    ),
+-                    items: [
+-                      for (final doctor in _doctors)
+-                        DropdownMenuItem(
+-                          value: doctor.id,
+-                          child: Text(
+-                            [
+-                              doctor.name,
+-                              if (doctor.department?.isNotEmpty == true)
+-                                doctor.department!,
+-                            ].join(' · '),
+-                          ),
+-                        ),
+-                    ],
+-                    onChanged: _loadingDoctors
+-                        ? null
+-                        : (value) => setState(() => _doctorId = value),
+-                  ),
+-                  if (_doctorLoadFailed)
+-                    Align(
+-                      alignment: Alignment.centerLeft,
+-                      child: TextButton.icon(
+-                        onPressed: _loadDoctors,
+-                        icon: const Icon(Icons.refresh),
+-                        label: Text(t('common.retry')),
+-                      ),
+-                    ),
+-                  const SizedBox(height: 16),
+-                  TextField(
+-                    controller: _nameCtrl,
+-                    maxLength: 100,
+-                    onChanged: (_) { if (_showErrors) setState(() {}); },
+-                    decoration: InputDecoration(
+-                      labelText: t('intake.medicalInfo.patient.nameLabel'),
+-                      errorText: _showErrors && _nameCtrl.text.trim().isEmpty
+-                          ? t('intake.medicalInfo.patient.nameError')
+-                          : null,
+-                    ),
+-                  ),
+-                  const SizedBox(height: 8),
+-                  Text(t('intake.medicalInfo.patient.genderLabel')),
+-                  Wrap(
+-                    spacing: 8,
+-                    children: [
+-                      for (final g in const ['male', 'female', 'other'])
+-                        ChoiceChip(
+-                          selected: _gender == g,
+-                          label: Text(
+-                            t(
+-                              'intake.medicalInfo.patient.gender${g[0].toUpperCase()}${g.substring(1)}',
+-                            ),
+-                          ),
+-                          onSelected: (_) => setState(() => _gender = g),
+-                        ),
+-                    ],
+-                  ),
+-                  if (_showErrors && _gender == null)
+-                    Text(
+-                      t('intake.medicalInfo.patient.genderError'),
+-                      style: TextStyle(color: err),
+-                    ),
+-                  const SizedBox(height: 12),
+-                  OutlinedButton.icon(
+-                    icon: const Icon(Icons.calendar_today),
+-                    label: Text(
+-                      _dob == null
+-                          ? t('intake.medicalInfo.patient.dobLabel')
+-                          : isoDate(_dob!),
+-                    ),
+-                    onPressed: () async {
+-                      final picked = await showDatePicker(
+-                        context: context,
+-                        firstDate: DateTime(1900),
+-                        lastDate: DateTime.now(),
+-                        initialDate: DateTime(1980),
+-                      );
+-                      if (picked != null) setState(() => _dob = picked);
+-                    },
+-                  ),
+-                  if (_showErrors && _dob == null)
+-                    Text(
+-                      t('intake.medicalInfo.patient.dobError'),
+-                      style: TextStyle(color: err),
+-                    ),
+-                  const SizedBox(height: 8),
+-                  TextField(
+-                    controller: _phoneCtrl,
+-                    maxLength: 20,
+-                    keyboardType: TextInputType.phone,
+-                    decoration: InputDecoration(
+-                      labelText: t('intake.medicalInfo.patient.phoneLabel'),
+-                    ),
+-                  ),
+-                ],
+-              ),
+-            ),
++            _card(_patientSection(context)),
+             _card(_allergySection(context)),
+             _card(_medicationSection(context)),
+             _card(_historySection(context)),
+@@ -452,6 +321,139 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
+     );
+   }
+ 
++  /// 病患基本資料 + 看診醫師（與下面四段 intake 同一個 _card 包法）。
++  Widget _patientSection(BuildContext context) {
++    final err = Theme.of(context).colorScheme.error;
++    return Column(
++      crossAxisAlignment: CrossAxisAlignment.start,
++      children: [
++        Text(
++          t('intake.medicalInfo.patient.title'),
++          style: Theme.of(
++            context,
++          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
++        ),
++        const SizedBox(height: 16),
++        DropdownButtonFormField<String>(
++          key: ValueKey('${_doctors.length}:$_doctorId'),
++          initialValue: _doctorId,
++          isExpanded: true,
++          decoration: InputDecoration(
++            labelText: t('intake.medicalInfo.patient.doctorLabel'),
++            helperText: t(
++              _doctorLoadFailed
++                  ? 'intake.medicalInfo.patient.doctorLoadFailed'
++                  : 'intake.medicalInfo.patient.doctorHint',
++            ),
++            errorText: _showErrors && !_doctorLoadFailed && _doctorId == null
++                ? t('intake.medicalInfo.patient.doctorError')
++                : null,
++            suffixIcon: _loadingDoctors
++                ? const Padding(
++                    padding: EdgeInsets.all(12),
++                    child: CircularProgressIndicator(strokeWidth: 2),
++                  )
++                : null,
++          ),
++          hint: Text(t('intake.medicalInfo.patient.doctorPlaceholder')),
++          items: [
++            for (final doctor in _doctors)
++              DropdownMenuItem(
++                value: doctor.id,
++                child: Text(
++                  [
++                    doctor.name,
++                    if (doctor.department?.isNotEmpty == true)
++                      doctor.department!,
++                  ].join(' · '),
++                ),
++              ),
++          ],
++          onChanged: _loadingDoctors
++              ? null
++              : (value) => setState(() => _doctorId = value),
++        ),
++        if (_doctorLoadFailed)
++          Align(
++            alignment: Alignment.centerLeft,
++            child: TextButton.icon(
++              onPressed: _loadDoctors,
++              icon: const Icon(Icons.refresh),
++              label: Text(t('common.retry')),
++            ),
++          ),
++        const SizedBox(height: 16),
++        TextField(
++          controller: _nameCtrl,
++          maxLength: 100,
++          onChanged: (_) {
++            if (_showErrors) setState(() {});
++          },
++          decoration: InputDecoration(
++            labelText: t('intake.medicalInfo.patient.nameLabel'),
++            errorText: _showErrors && _nameCtrl.text.trim().isEmpty
++                ? t('intake.medicalInfo.patient.nameError')
++                : null,
++          ),
++        ),
++        const SizedBox(height: 8),
++        Text(t('intake.medicalInfo.patient.genderLabel')),
++        Wrap(
++          spacing: 8,
++          children: [
++            for (final g in const ['male', 'female', 'other'])
++              ChoiceChip(
++                selected: _gender == g,
++                label: Text(
++                  t(
++                    'intake.medicalInfo.patient.gender${g[0].toUpperCase()}${g.substring(1)}',
++                  ),
++                ),
++                onSelected: (_) => setState(() => _gender = g),
++              ),
++          ],
++        ),
++        if (_showErrors && _gender == null)
++          Text(
++            t('intake.medicalInfo.patient.genderError'),
++            style: TextStyle(color: err),
++          ),
++        const SizedBox(height: 12),
++        OutlinedButton.icon(
++          icon: const Icon(Icons.calendar_today),
++          label: Text(
++            _dob == null
++                ? t('intake.medicalInfo.patient.dobLabel')
++                : isoDate(_dob!),
++          ),
++          onPressed: () async {
++            final picked = await showDatePicker(
++              context: context,
++              firstDate: DateTime(1900),
++              lastDate: DateTime.now(),
++              initialDate: DateTime(1980),
++            );
++            if (picked != null) setState(() => _dob = picked);
++          },
++        ),
++        if (_showErrors && _dob == null)
++          Text(
++            t('intake.medicalInfo.patient.dobError'),
++            style: TextStyle(color: err),
++          ),
++        const SizedBox(height: 8),
++        TextField(
++          controller: _phoneCtrl,
++          maxLength: 20,
++          keyboardType: TextInputType.phone,
++          decoration: InputDecoration(
++            labelText: t('intake.medicalInfo.patient.phoneLabel'),
++          ),
++        ),
++      ],
++    );
++  }
++
+   Widget _card(Widget child) => Card(
+     margin: const EdgeInsets.only(bottom: 12),
+     child: Padding(padding: const EdgeInsets.all(16), child: child),
+@@ -515,7 +517,9 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
+                   child: TextField(
+                     controller: _allergies[i].ctrl,
+                     maxLength: 100,
+-                    onChanged: (_) { if (_showErrors) setState(() {}); },
++                    onChanged: (_) {
++                      if (_showErrors) setState(() {});
++                    },
+                     decoration: InputDecoration(
+                       labelText: t('intake.medicalInfo.allergy.placeholder'),
+                       counterText: '',
+@@ -539,7 +543,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
+                 ),
+                 IconButton(
+                   icon: const Icon(Icons.remove_circle_outline),
+-                  onPressed: () => setState(() => _allergies.removeAt(i).ctrl.dispose()),
++                  onPressed: () =>
++                      setState(() => _allergies.removeAt(i).ctrl.dispose()),
+                 ),
+               ],
+             ),
+@@ -598,7 +603,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
+                 ),
+                 IconButton(
+                   icon: const Icon(Icons.remove_circle_outline),
+-                  onPressed: () => setState(() => _medications.removeAt(i).ctrl.dispose()),
++                  onPressed: () =>
++                      setState(() => _medications.removeAt(i).ctrl.dispose()),
+                 ),
+               ],
+             ),
+@@ -693,7 +699,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
+                 ),
+                 IconButton(
+                   icon: const Icon(Icons.remove_circle_outline),
+-                  onPressed: () => setState(() => _families.removeAt(i).ctrl.dispose()),
++                  onPressed: () =>
++                      setState(() => _families.removeAt(i).ctrl.dispose()),
+                 ),
+               ],
+             ),
+@@ -741,7 +748,9 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
+                   child: TextField(
+                     controller: _histories[i].ctrl,
+                     maxLength: 100,
+-                    onChanged: (_) { if (_showErrors) setState(() {}); },
++                    onChanged: (_) {
++                      if (_showErrors) setState(() {});
++                    },
+                     decoration: InputDecoration(
+                       labelText: t('intake.medicalInfo.history.placeholder'),
+                       counterText: '',
+@@ -775,7 +784,8 @@ class _MedicalInfoPageState extends ConsumerState<MedicalInfoPage> {
+                 ),
+                 IconButton(
+                   icon: const Icon(Icons.remove_circle_outline),
+-                  onPressed: () => setState(() => _histories.removeAt(i).ctrl.dispose()),
++                  onPressed: () =>
++                      setState(() => _histories.removeAt(i).ctrl.dispose()),
+                 ),
+               ],
+             ),
+diff --git a/flutter_app/lib/features/patient/patient_home_page.dart b/flutter_app/lib/features/patient/patient_home_page.dart
+index dcabda5..f0ebe40 100644
+--- a/flutter_app/lib/features/patient/patient_home_page.dart
++++ b/flutter_app/lib/features/patient/patient_home_page.dart
+@@ -117,7 +117,7 @@ class _PatientHomePageState extends ConsumerState<PatientHomePage> {
+           crossAxisAlignment: CrossAxisAlignment.start,
+           children: [
+             Text(t('common.patient.home.startEyebrow').toUpperCase(),
+-                style: TextStyle(color: Colors.white70, letterSpacing: 1.2, fontSize: 12)),
++                style: const TextStyle(color: Colors.white70, letterSpacing: 1.2, fontSize: 12)),
+             const SizedBox(height: 8),
+             Text(t('common.patient.home.startTitle'),
+                 style: theme.textTheme.titleLarge?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
+diff --git a/flutter_app/lib/features/patient/patient_session_tile.dart b/flutter_app/lib/features/patient/patient_session_tile.dart
+deleted file mode 100644
+index 2861201..0000000
+--- a/flutter_app/lib/features/patient/patient_session_tile.dart
++++ /dev/null
+@@ -1,51 +0,0 @@
+-import 'package:flutter/material.dart';
+-import 'package:go_router/go_router.dart';
+-
+-import '../../core/i18n/loc.dart';
+-import '../../core/router/lng.dart';
+-import '../../core/theme/app_tokens.dart';
+-import '../../data/models/session.dart';
+-import '../../shared/format.dart';
+-import '../../shared/widgets/status_badge.dart';
+-import '../../shared/widgets/ui_kit.dart';
+-
+-/// 病患端點開自己的場次：完成／紅旗中止 → 完成頁；進行中／等待 → 對話頁。
+-/// cancelled / unknown 不導頁（與 web 一致）。病患首頁與歷史頁共用。
+-void openPatientSession(BuildContext context, Session s) {
+-  if (s.status == 'completed' || s.status == 'aborted_red_flag') {
+-    context.go(prefixLngToPath('/patient/session/${s.id}/complete', currentLng));
+-  } else if (s.status == 'in_progress' || s.status == 'waiting') {
+-    context.go(prefixLngToPath('/conversation/${s.id}', currentLng), extra: s);
+-  }
+-}
+-
+-/// 病患端場次列（首頁最近 5 筆／歷史頁清單同一顆）。
+-/// [durationKey] 由頁面帶自己既有的 i18n key（兩頁的 key 不同、文案相同）。
+-class PatientSessionTile extends StatelessWidget {
+-  const PatientSessionTile(this.session, {super.key, required this.durationKey});
+-
+-  final Session session;
+-  final String durationKey;
+-
+-  @override
+-  Widget build(BuildContext context) {
+-    final s = session;
+-    final redFlagColor = Theme.of(context).extension<AppTokens>()!.statusRedFlag;
+-    final duration = s.durationSeconds != null
+-        ? ' · ${t(durationKey, args: {'minutes': durationMinutes(s.durationSeconds)})}'
+-        : '';
+-    return Card(
+-      margin: const EdgeInsets.symmetric(vertical: 4),
+-      child: ListTile(
+-        onTap: () => openPatientSession(context, s),
+-        leading: s.redFlag ? IconTile(Icons.flag, color: redFlagColor) : null,
+-        title: Text(s.chiefComplaintText ?? t('common.patient.home.defaultComplaint')),
+-        subtitle: Text('${formatDateTime(s.createdAt)}$duration'),
+-        trailing: Row(
+-          mainAxisSize: MainAxisSize.min,
+-          children: [StatusBadge(s.status), const SizedBox(width: 4), const Icon(Icons.chevron_right)],
+-        ),
+-      ),
+-    );
+-  }
+-}
+diff --git a/flutter_app/lib/shared/format.dart b/flutter_app/lib/shared/format.dart
+index 6be763e..62e09d9 100644
+--- a/flutter_app/lib/shared/format.dart
++++ b/flutter_app/lib/shared/format.dart
+@@ -28,13 +28,21 @@ String monthKey(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.t
+ /// `yyyy-MM-dd`（不轉時區：給的是什麼日期就印什麼日期）。
+ String isoDate(DateTime d) => '${monthKey(d)}-${d.day.toString().padLeft(2, '0')}';
+ 
+-/// ISO 時間字串 → **裝置本地**日期 key（`yyyy-MM-dd`）。
+-/// 給「依日期分組」用；裸 `substring(0, 10)` 是 UTC 切日，23:30 的本地事件會掉到前一天。
+-String? localDayKey(String? iso) {
++/// ISO 時間字串 → **裝置本地**的那一天（當地 00:00 的 `DateTime`）。
++/// 本地日只有這一份實作：日曆的 `sessionLocalDay`／`bucketByLocalDay` 與分組清單的
++/// [localDayKey] 都從這裡派生。裸 `substring(0, 10)` 是 UTC 切日，23:30 的本地事件會掉到前一天。
++DateTime? localDay(String? iso) {
+   if (iso == null) return null;
+   final dt = DateTime.tryParse(iso);
+   if (dt == null) return null;
+-  return isoDate(dt.toLocal());
++  final local = dt.toLocal();
++  return DateTime(local.year, local.month, local.day);
++}
++
++/// [localDay] 的 `yyyy-MM-dd` 字串版——給「依日期分組」的 map key 用。
++String? localDayKey(String? iso) {
++  final day = localDay(iso);
++  return day == null ? null : isoDate(day);
+ }
+ 
+ int durationMinutes(int? seconds) => seconds == null ? 0 : (seconds / 60).round();
+diff --git a/flutter_app/lib/shared/share_bytes.dart b/flutter_app/lib/shared/share_bytes.dart
+deleted file mode 100644
+index d6d4ede..0000000
+--- a/flutter_app/lib/shared/share_bytes.dart
++++ /dev/null
+@@ -1,23 +0,0 @@
+-import 'dart:typed_data';
+-
+-import 'package:flutter/foundation.dart' show kIsWeb;
+-import 'package:share_plus/share_plus.dart';
+-
+-import 'pdf_download.dart';
+-
+-/// Share/save bytes（SOAP PDF、研究圖 PNG）。
+-///
+-/// Native: the OS share sheet (save to Files, AirDrop, …).
+-///
+-/// Web: share_plus routes through `navigator.share(files)`, which **most desktop
+-/// browsers do not implement** — it throws, the caller catches, and the doctor sees
+-/// nothing at all (TODO §G medium). So on web we trigger a real anchor download
+-/// instead, matching what the React app does.
+-Future<void> shareBytes(Uint8List bytes, String filename, String mimeType) async {
+-  if (kIsWeb) {
+-    downloadBytes(bytes, filename, mimeType);
+-    return;
+-  }
+-  final file = XFile.fromData(bytes, mimeType: mimeType, name: filename);
+-  await SharePlus.instance.share(ShareParams(files: [file]));
+-}
+diff --git a/flutter_app/lib/shared/toast.dart b/flutter_app/lib/shared/toast.dart
+deleted file mode 100644
+index 01e25c4..0000000
+--- a/flutter_app/lib/shared/toast.dart
++++ /dev/null
+@@ -1,10 +0,0 @@
+-import 'package:flutter/material.dart';
+-
+-/// 全 App 共用的 SnackBar 提示（取代各頁自抄的 `_toast`／inline showSnackBar）。
+-/// await 之後呼叫也安全：context 已卸載就靜默略過。
+-void showToast(BuildContext context, String message, {Duration? duration}) {
+-  if (!context.mounted) return;
+-  ScaffoldMessenger.of(context).showSnackBar(
+-    SnackBar(content: Text(message), duration: duration ?? const Duration(milliseconds: 4000)),
+-  );
+-}
+diff --git a/flutter_app/lib/shared/widgets/ui_kit.dart b/flutter_app/lib/shared/widgets/ui_kit.dart
+index b7320ae..0c78cee 100644
+--- a/flutter_app/lib/shared/widgets/ui_kit.dart
++++ b/flutter_app/lib/shared/widgets/ui_kit.dart
+@@ -285,15 +285,15 @@ class SkeletonList extends StatelessWidget {
+       shrinkWrap: true,
+       children: [
+         for (var i = 0; i < rows; i++)
+-          Card(
+-            margin: const EdgeInsets.symmetric(vertical: 4),
++          const Card(
++            margin: EdgeInsets.symmetric(vertical: 4),
+             child: Padding(
+-              padding: const EdgeInsets.all(14),
++              padding: EdgeInsets.all(14),
+               child: Row(children: [
+-                const SkeletonBox(width: 36, height: 36, radius: 18),
+-                const SizedBox(width: 12),
++                SkeletonBox(width: 36, height: 36, radius: 18),
++                SizedBox(width: 12),
+                 Expanded(
+-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: const [
++                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                     SkeletonBox(width: 140, height: 14),
+                     SizedBox(height: 8),
+                     SkeletonBox(width: 220, height: 12),
+@@ -428,3 +428,89 @@ class MonthStatsCard extends StatelessWidget {
+     );
+   }
+ }
++
++/// 無限捲動：捲到距底 [threshold] px 內就呼叫 [onNearEnd]（六個分頁清單同一條件）。
++extension ScrollNearEnd on ScrollController {
++  void onNearEnd(VoidCallback onNearEnd, {double threshold = 300}) {
++    addListener(() {
++      if (position.pixels >= position.maxScrollExtent - threshold) onNearEnd();
++    });
++  }
++}
++
++/// 橫向 ChoiceChip 篩選列：[options] 是 值 → 已翻譯標籤（kit 不碰 i18n，由頁面先 t()）。
++/// [trailing] 接在 chip 後、同一條橫向捲動列內（使用者管理頁的啟用/停用兩顆）。
++class FilterChipBar<K> extends StatelessWidget {
++  const FilterChipBar({
++    super.key,
++    required this.options,
++    required this.selected,
++    required this.onSelected,
++    this.padding = const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
++    this.trailing = const [],
++  });
++
++  final Map<K, String> options;
++  final K selected;
++  final ValueChanged<K> onSelected;
++  final EdgeInsetsGeometry padding;
++  final List<Widget> trailing;
++
++  @override
++  Widget build(BuildContext context) {
++    return SingleChildScrollView(
++      scrollDirection: Axis.horizontal,
++      padding: padding,
++      child: Row(children: [
++        for (final e in options.entries)
++          Padding(
++            padding: const EdgeInsets.only(right: 8),
++            child: ChoiceChip(
++              selected: selected == e.key,
++              label: Text(e.value),
++              onSelected: (_) => onSelected(e.key),
++            ),
++          ),
++        ...trailing,
++      ]),
++    );
++  }
++}
++
++/// 分組扁平清單：每組一個 [GroupHeader] + 該組的列，尾端接 [trailing]
++/// （分頁 spinner／「已全部載入」）。走 `ListView.builder`，列只在進入視窗時建。
++class GroupedListView<T extends Object> extends StatelessWidget {
++  const GroupedListView({
++    super.key,
++    required this.groups,
++    required this.headerText,
++    required this.itemBuilder,
++    this.controller,
++    this.trailing = const [],
++    this.padding = const EdgeInsets.all(16),
++  });
++
++  final List<MapEntry<String, List<T>>> groups;
++  final String Function(String key, int count) headerText;
++  final Widget Function(BuildContext context, T item) itemBuilder;
++  final ScrollController? controller;
++  final List<Widget> trailing;
++  final EdgeInsetsGeometry padding;
++
++  @override
++  Widget build(BuildContext context) {
++    final items = <Object>[
++      for (final g in groups) ...[GroupHeader(headerText(g.key, g.value.length)), ...g.value],
++      ...trailing,
++    ];
++    return ListView.builder(
++      controller: controller,
++      padding: padding,
++      itemCount: items.length,
++      itemBuilder: (context, index) {
++        final item = items[index];
++        return item is Widget ? item : itemBuilder(context, item as T);
++      },
++    );
++  }
++}
+diff --git a/flutter_app/pubspec.yaml b/flutter_app/pubspec.yaml
+index 4cb4d87..6e345b5 100644
+--- a/flutter_app/pubspec.yaml
++++ b/flutter_app/pubspec.yaml
+@@ -31,15 +31,12 @@ dependencies:
+   flutter:
+     sdk: flutter
+ 
+-  # The following adds the Cupertino Icons font to your application.
+-  # Use with the CupertinoIcons class for iOS style icons.
+-  cupertino_icons: ^1.0.8
+   dio: ^5.10.0
+   go_router: ^17.3.0
+   flutter_riverpod: ^3.3.2
+   flutter_secure_storage: ^10.3.1
+   google_fonts: ^8.2.0
+-  intl: any
++  intl: ^0.20.2
+   flutter_localizations:
+     sdk: flutter
+   # web-only：讓路由走真實 path 而不是 # fragment（見 lib/core/router/url_strategy*.dart）。
+@@ -49,16 +46,14 @@ dependencies:
+   record: ^6.2.1
+   just_audio: ^0.10.6
+   audio_session: ^0.2.4
+-  permission_handler: ^12.0.3
+   web_socket_channel: ^3.0.3
+   uuid: ^4.6.0
+   share_plus: ^13.3.0
+-  path_provider: ^2.1.6
+   fl_chart: ^1.2.0
+   # web-only：SOAP PDF 在瀏覽器走 anchor download（見 lib/shared/pdf_download_web.dart）。
+   # 桌面瀏覽器多不支援 navigator.share(files)，share_plus 那條路會直接拋。
+   web: ^1.1.1
+-  # iOS 醫師 App 的推播。Dart 端只在 isDoctorOnlyPlatform 才碰得到（見
++  # iOS 醫師 App 的推播。Dart 端只在 dart.library.io 分支（push_backend_firebase.dart） 才碰得到（見
+   # lib/features/doctor/services/push_backend.dart 的 conditional import）；
+   # web build 完全不匯入 Firebase 程式碼。
+   firebase_core: ^4.13.0
+diff --git a/flutter_app/test/api_auth_recovery_test.dart b/flutter_app/test/api_auth_recovery_test.dart
+deleted file mode 100644
+index d979b27..0000000
+--- a/flutter_app/test/api_auth_recovery_test.dart
++++ /dev/null
+@@ -1,227 +0,0 @@
+-import 'dart:async';
+-import 'dart:convert';
+-
+-import 'package:dio/dio.dart';
+-import 'package:flutter_riverpod/flutter_riverpod.dart';
+-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+-import 'package:flutter_test/flutter_test.dart';
+-import 'package:gu_voice/data/api/dio_client.dart';
+-import 'package:gu_voice/data/api/token_store.dart';
+-import 'package:gu_voice/features/auth/auth_notifier.dart';
+-
+-import 'support/api_stub.dart';
+-
+-ResponseBody response(int status, [Object body = const {}]) =>
+-    ResponseBody.fromString(
+-      jsonEncode(body),
+-      status,
+-      headers: {
+-        Headers.contentTypeHeader: ['application/json'],
+-      },
+-    );
+-
+-void main() {
+-  TestWidgetsFlutterBinding.ensureInitialized();
+-  final tokens = TokenStore.instance;
+-  final client = ApiClient.instance;
+-  final refreshDio = Dio(BaseOptions(baseUrl: 'http://localhost'));
+-  int cleared = 0;
+-  int refreshed = 0;
+-
+-  setUp(() async {
+-    FlutterSecureStorage.setMockInitialValues({});
+-    await tokens.clear();
+-    await tokens.save(access: 'A-access', refresh: 'A-refresh');
+-    cleared = 0;
+-    refreshed = 0;
+-    installApiStub((request) => response(401), refreshDio: refreshDio);
+-    client.onAuthCleared = () => cleared++;
+-    refreshDio.httpClientAdapter = StubAdapter((request) {
+-      refreshed++;
+-      return {'access_token': 'A-new-access', 'refresh_token': 'A-new-refresh'};
+-    });
+-  });
+-  tearDown(() {
+-    client.onAuthCleared = null;
+-  });
+-
+-  for (final phase in ['refresh', 'retry']) {
+-    for (final status in [0, 500, 503]) {
+-      test(
+-        '$phase ${status == 0 ? 'timeout' : status} 保留登入，回傳真正錯誤且可重試',
+-        () async {
+-          Object fail(RequestOptions request) {
+-            if (status == 0) {
+-              throw DioException(
+-                requestOptions: request,
+-                type: DioExceptionType.receiveTimeout,
+-              );
+-            }
+-            return response(status);
+-          }
+-
+-          if (phase == 'refresh') {
+-            refreshDio.httpClientAdapter = StubAdapter(fail);
+-          } else {
+-            installApiStub(
+-              (request) => request.extra['_retry'] == true
+-                  ? fail(request)
+-                  : response(401),
+-            );
+-          }
+-          await expectLater(
+-            client.dio.get('/protected'),
+-            throwsA(
+-              isA<DioException>()
+-                  .having(
+-                    (e) => e.response?.statusCode,
+-                    'status',
+-                    status == 0 ? null : status,
+-                  )
+-                  .having(
+-                    (e) => e.type,
+-                    'type',
+-                    status == 0
+-                        ? DioExceptionType.receiveTimeout
+-                        : DioExceptionType.badResponse,
+-                  ),
+-            ),
+-          );
+-          expect(
+-            tokens.accessToken,
+-            phase == 'refresh' ? 'A-access' : 'A-new-access',
+-          );
+-          expect(
+-            await tokens.readRefresh(),
+-            phase == 'refresh' ? 'A-refresh' : 'A-new-refresh',
+-          );
+-          expect(cleared, 0);
+-          refreshDio.httpClientAdapter = StubAdapter(
+-            (_) => {
+-              'access_token': 'recovered',
+-              'refresh_token': 'recovered-refresh',
+-            },
+-          );
+-          expect(await client.forceRefresh(), isTrue);
+-        },
+-      );
+-    }
+-  }
+-
+-  for (final status in [401, 403]) {
+-    test('refresh $status 確實拒絕憑證時清除登入', () async {
+-      refreshDio.httpClientAdapter = StubAdapter((_) => response(status));
+-      await expectLater(
+-        client.dio.get('/protected'),
+-        throwsA(isA<DioException>()),
+-      );
+-      expect(tokens.accessToken, isNull);
+-      expect(await tokens.readRefresh(), isNull);
+-      expect(cleared, 1);
+-    });
+-  }
+-
+-  test('重送仍為 401 登出；資源 403 保留登入', () async {
+-    for (final status in [403, 401]) {
+-      installApiStub(
+-        (request) => response(request.extra['_retry'] == true ? status : 401),
+-      );
+-      await expectLater(
+-        client.dio.get('/protected'),
+-        throwsA(
+-          isA<DioException>().having(
+-            (e) => e.response?.statusCode,
+-            'status',
+-            status,
+-          ),
+-        ),
+-      );
+-      expect(cleared, status == 401 ? 1 : 0);
+-      expect(tokens.accessToken, status == 401 ? isNull : isNotNull);
+-    }
+-  });
+-
+-  test('並行 401 與 bootstrap 重試共用一次刷新，各自只重送一次', () async {
+-    final gate = Completer<void>();
+-    refreshDio.httpClientAdapter = StubAdapter((_) async {
+-      refreshed++;
+-      await gate.future;
+-      return {'access_token': 'fresh', 'refresh_token': 'fresh-refresh'};
+-    });
+-    var retried = 0;
+-    installApiStub((request) {
+-      if (request.extra['_retry'] != true) return response(401);
+-      expect(request.headers['Authorization'], 'Bearer fresh');
+-      retried++;
+-      return {'ok': true};
+-    });
+-    final first = client.dio.get('/one');
+-    await pumpEventQueue();
+-    await tokens.load();
+-    final pending = Future.wait([first, client.dio.get('/two')]);
+-    await pumpEventQueue();
+-    expect(refreshed, 1);
+-    gate.complete();
+-    await pending;
+-    expect(retried, 2);
+-    expect(cleared, 0);
+-  });
+-
+-  for (final status in [200, 401, 503]) {
+-    test('A 的 refresh $status 晚到不覆蓋或登出 B', () async {
+-      final gate = Completer<void>();
+-      refreshDio.httpClientAdapter = StubAdapter((_) async {
+-        await gate.future;
+-        return response(status, {
+-          'access_token': 'late-A',
+-          'refresh_token': 'late-A-refresh',
+-        });
+-      });
+-      final pending = client.dio.get('/protected');
+-      final check = expectLater(
+-        pending,
+-        throwsA(
+-          isA<DioException>().having(
+-            (e) => e.type,
+-            'type',
+-            DioExceptionType.cancel,
+-          ),
+-        ),
+-      );
+-      await pumpEventQueue();
+-      await tokens.clear();
+-      await tokens.save(access: 'B-access', refresh: 'B-refresh');
+-      gate.complete();
+-      await check;
+-      expect(tokens.accessToken, 'B-access');
+-      expect(await tokens.readRefresh(), 'B-refresh');
+-      expect(cleared, 0);
+-    });
+-  }
+-
+-  test('bootstrap 遇 refresh 503 顯示可重試狀態，保留 Keychain 憑證', () async {
+-    refreshDio.httpClientAdapter = StubAdapter((_) => response(503));
+-    final container = ProviderContainer();
+-    addTearDown(container.dispose);
+-    client.onAuthCleared = container.read(authProvider.notifier).forceLoggedOut;
+-    await container.read(authProvider.notifier).bootstrap();
+-    expect(container.read(authProvider).bootOffline, isTrue);
+-    expect(tokens.accessToken, 'A-access');
+-    expect(await tokens.readRefresh(), 'A-refresh');
+-  });
+-
+-  test('Keychain 依序完成刷新、登出、新登入，重開後仍是 B', () async {
+-    await Future.wait([
+-      tokens.save(
+-        access: 'late-A',
+-        refresh: 'late-A-refresh',
+-        newSession: false,
+-      ),
+-      tokens.clear(),
+-      tokens.save(access: 'B-access', refresh: 'B-refresh'),
+-    ]);
+-    await tokens.load();
+-    expect(tokens.accessToken, 'B-access');
+-    expect(await tokens.readRefresh(), 'B-refresh');
+-  });
+-}
+diff --git a/flutter_app/test/doctor_alert_watcher_test.dart b/flutter_app/test/doctor_alert_watcher_test.dart
+deleted file mode 100644
+index c8db4a8..0000000
+--- a/flutter_app/test/doctor_alert_watcher_test.dart
++++ /dev/null
+@@ -1,71 +0,0 @@
+-// DoctorAlertWatcher 坐在 MaterialApp.router 的 `builder` 裡——Router **之上**。
+-// 那一層拿不到 GoRouter，toast 的「查看」按鈕若走 `context.go` 會拋
+-// 「No GoRouter found in context」，醫師點了什麼都不會發生。這裡把導頁釘在
+-// routerProvider 上：按鈕按下去真的要換頁。
+-
+-import 'package:flutter/material.dart';
+-import 'package:flutter_riverpod/flutter_riverpod.dart';
+-import 'package:flutter_test/flutter_test.dart';
+-import 'package:go_router/go_router.dart';
+-
+-import 'package:gu_voice/core/router/app_router.dart';
+-import 'package:gu_voice/data/models/user.dart';
+-import 'package:gu_voice/features/auth/auth_notifier.dart';
+-import 'package:gu_voice/features/doctor/doctor_alert_watcher.dart';
+-import 'package:gu_voice/features/doctor/state/alerts_controller.dart';
+-
+-import 'support/api_stub.dart';
+-
+-class _DoctorAuth extends AuthNotifier {
+-  @override
+-  AuthState build() => const AuthState(
+-        user: User(id: 'd1', email: 'd@x.y', name: 'Dr', role: 'doctor'),
+-        booted: true,
+-      );
+-}
+-
+-class _FakeAlerts extends AlertsController {
+-  @override
+-  AlertsState build() => const AlertsState();
+-
+-  void bump() => state = state.copyWith(newAlertSeq: state.newAlertSeq + 1);
+-}
+-
+-void main() {
+-  testWidgets('新紅旗 toast 的「查看」按鈕從 Router 之上也導得到 /alerts', (tester) async {
+-    installApiStub((_) => null); // 只為了初始化 ApiClient；fake 不打網路
+-    final router = GoRouter(
+-      initialLocation: '/',
+-      routes: [
+-        GoRoute(path: '/', builder: (_, _) => const Scaffold(body: Text('home'))),
+-        GoRoute(path: '/:lng/alerts', builder: (_, _) => const Scaffold(body: Text('alerts page'))),
+-      ],
+-    );
+-    final container = ProviderContainer(overrides: [
+-      authProvider.overrideWith(_DoctorAuth.new),
+-      alertsProvider.overrideWith(_FakeAlerts.new),
+-      routerProvider.overrideWithValue(router),
+-    ]);
+-    addTearDown(container.dispose);
+-
+-    await tester.pumpWidget(UncontrolledProviderScope(
+-      container: container,
+-      child: MaterialApp.router(
+-        routerConfig: router,
+-        builder: (context, child) => DoctorAlertWatcher(child: child!),
+-      ),
+-    ));
+-    expect(find.text('home'), findsOneWidget);
+-
+-    (container.read(alertsProvider.notifier) as _FakeAlerts).bump();
+-    await tester.pump();
+-    await tester.pump(const Duration(milliseconds: 300)); // SnackBar 進場動畫
+-    expect(find.byType(SnackBarAction), findsOneWidget);
+-
+-    await tester.tap(find.byType(SnackBarAction));
+-    await tester.pumpAndSettle();
+-
+-    expect(find.text('alerts page'), findsOneWidget,
+-        reason: 'builder 層沒有 GoRouter；導頁必須走 routerProvider');
+-  });
+-}
+diff --git a/flutter_app/test/doctor_session_lifecycle_test.dart b/flutter_app/test/doctor_session_lifecycle_test.dart
+deleted file mode 100644
+index d28bfc1..0000000
+--- a/flutter_app/test/doctor_session_lifecycle_test.dart
++++ /dev/null
+@@ -1,171 +0,0 @@
+-import 'dart:async';
+-
+-import 'package:flutter_riverpod/flutter_riverpod.dart';
+-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+-import 'package:flutter_test/flutter_test.dart';
+-import 'package:gu_voice/data/api/dio_client.dart';
+-import 'package:gu_voice/data/api/token_store.dart';
+-import 'package:gu_voice/features/auth/auth_notifier.dart';
+-import 'package:gu_voice/features/doctor/services/dashboard_ws.dart';
+-import 'package:gu_voice/features/doctor/state/alerts_controller.dart';
+-import 'package:gu_voice/features/doctor/state/notifications_controller.dart';
+-import 'package:gu_voice/features/doctor/state/sessions_list_controller.dart';
+-import 'package:gu_voice/features/voice/state/settings_notifier.dart';
+-
+-import 'support/api_stub.dart';
+-
+-void main() {
+-  TestWidgetsFlutterBinding.ensureInitialized();
+-  late ProviderContainer container;
+-  late AuthNotifier auth;
+-  Completer<void>? gate;
+-  final waiting = <String>[];
+-
+-  setUp(() async {
+-    FlutterSecureStorage.setMockInitialValues({});
+-    await TokenStore.instance.clear();
+-    gate = null;
+-    waiting.clear();
+-    installApiStub((request) async {
+-      if (request.path == '/auth/login') {
+-        final id = (request.data as Map)['email'] as String;
+-        return {
+-          'access_token': id,
+-          'refresh_token': '$id-refresh',
+-          'user': {'id': id, 'role': id == 'patient' ? 'patient' : 'doctor'},
+-        };
+-      }
+-      if (request.path == '/auth/logout') return <String, dynamic>{};
+-      final owner = request.headers['Authorization'].toString().replaceFirst(
+-        'Bearer ',
+-        '',
+-      );
+-      if (request.path == '/auth/me') {
+-        return {'id': owner, 'name': 'updated', 'role': 'doctor'};
+-      }
+-      final pending = gate;
+-      if (pending != null && owner == 'doctor-A') {
+-        waiting.add(request.path);
+-        await pending.future;
+-      }
+-      if (request.path.endsWith('count')) {
+-        return {'count': owner == 'doctor-A' ? 1 : 2};
+-      }
+-      if (request.path == '/notifications/read-all') return <String, dynamic>{};
+-      if (request.path == '/alerts/acknowledge-all') return {'acknowledged': 1};
+-      if (request.path.endsWith('/acknowledge')) {
+-        return {'acknowledged_at': '2026-10-03T00:00:00Z'};
+-      }
+-      return {
+-        'data': [
+-          {'id': owner, 'title': owner},
+-        ],
+-        'pagination': {
+-          'has_more': true,
+-          'next_cursor': 'next',
+-          'total_count': 1,
+-        },
+-      };
+-    });
+-    container = ProviderContainer();
+-    addTearDown(() {
+-      container.dispose();
+-      ApiClient.instance.onAuthCleared = null;
+-    });
+-    auth = container.read(authProvider.notifier);
+-    ApiClient.instance.onAuthCleared = auth.forceLoggedOut;
+-    await auth.login('doctor-A', 'test');
+-    container.listen(notificationsProvider, (_, _) {});
+-    container.listen(alertsProvider, (_, _) {});
+-    container.listen(sessionsListProvider, (_, _) {});
+-    await pumpEventQueue();
+-  });
+-
+-  void expectOwner(String id) {
+-    expect(container.read(notificationsProvider).notifications.single.id, id);
+-    expect(container.read(alertsProvider).alerts.single.id, id);
+-    expect(container.read(sessionsListProvider).sessions.single.id, id);
+-    expect(container.read(notificationsProvider).error, isNull);
+-    expect(container.read(alertsProvider).error, isNull);
+-    expect(container.read(sessionsListProvider).hasError, isFalse);
+-  }
+-
+-  void expectEmpty() {
+-    expect(container.read(dashboardWsProvider), isNull);
+-    expect(container.read(notificationsProvider).notifications, isEmpty);
+-    expect(container.read(notificationsProvider).unreadCount, 0);
+-    expect(container.read(alertsProvider).alerts, isEmpty);
+-    expect(container.read(alertsProvider).unacknowledgedCount, 0);
+-    expect(container.read(sessionsListProvider).sessions, isEmpty);
+-  }
+-
+-  for (final forced in [false, true]) {
+-    test('${forced ? '認證失效' : '主動登出'}清空所有醫師資料，B 登入重建連線與資料', () async {
+-      expectOwner('doctor-A');
+-      final oldWs = container.read(dashboardWsProvider)!;
+-      container.read(settingsProvider.notifier).toggleTtsMuted();
+-      if (forced) {
+-        await TokenStore.instance.clear();
+-        auth.forceLoggedOut();
+-      } else {
+-        await auth.logout();
+-      }
+-      expectEmpty();
+-      expect(oldWs.isDisposed, isTrue);
+-      expect(container.read(settingsProvider).ttsMuted, isFalse,
+-          reason: 'kiosk 跨病患：上一位的靜音／字級不得留給下一位');
+-      await auth.login('doctor-B', 'test');
+-      await pumpEventQueue();
+-      expectOwner('doctor-B');
+-      expect(container.read(dashboardWsProvider), isNot(same(oldWs)));
+-      expect(container.read(notificationsProvider).unreadCount, 2);
+-    });
+-  }
+-
+-  test('直接切換醫師或病患也隔離資料，更新同帳號個人資料不重連', () async {
+-    final original = container.read(dashboardWsProvider)!;
+-    await auth.updateProfile({'name': 'updated'});
+-    expect(container.read(dashboardWsProvider), same(original));
+-    expectOwner('doctor-A');
+-    await auth.login('doctor-B', 'test');
+-    await pumpEventQueue();
+-    expectOwner('doctor-B');
+-    expect(original.isDisposed, isTrue);
+-    final doctorWs = container.read(dashboardWsProvider)!;
+-    await auth.login('patient', 'test');
+-    expectEmpty();
+-    expect(doctorWs.isDisposed, isTrue);
+-  });
+-
+-  test('A 的清單、分頁、計數與寫入延遲完成，不污染 B 或觸發 B 的後續請求', () async {
+-    gate = Completer<void>();
+-    final notifications = container.read(notificationsProvider.notifier);
+-    final alerts = container.read(alertsProvider.notifier);
+-    final pending = Future.wait([
+-      notifications.fetchMore(),
+-      notifications.fetch(),
+-      notifications.fetchUnreadCount(),
+-      notifications.markAllRead(),
+-      alerts.fetchMore(),
+-      alerts.fetchAlerts(),
+-      alerts.fetchUnacknowledgedCount(),
+-      alerts.acknowledge('doctor-A'),
+-      alerts.acknowledgeAll(),
+-      container.read(sessionsListProvider.notifier).reload(),
+-    ]);
+-    await pumpEventQueue();
+-    expect(waiting.length, 10);
+-    await auth.logout();
+-    await auth.login('doctor-B', 'test');
+-    await pumpEventQueue();
+-    expectOwner('doctor-B');
+-    final requestsBefore = sentRequests.length;
+-    gate!.complete();
+-    await pending;
+-    await pumpEventQueue();
+-    expectOwner('doctor-B');
+-    expect(sentRequests.length, requestsBefore);
+-    expect(container.read(notificationsProvider).unreadCount, 2);
+-    expect(container.read(alertsProvider).unacknowledgedCount, 2);
+-  });
+-}
+diff --git a/flutter_app/test/quick_orders_test.dart b/flutter_app/test/quick_orders_test.dart
+index 362564d..1f8c8d9 100644
+--- a/flutter_app/test/quick_orders_test.dart
++++ b/flutter_app/test/quick_orders_test.dart
+@@ -111,23 +111,23 @@ void main() {
+ 
+   group('推播落點', () {
+     test('report_ready 導到快速開單頁，不是完整報告頁', () {
+-      final n = AppNotification(
++      const n = AppNotification(
+         id: 'n-1',
+         type: 'report_ready',
+         title: '',
+         createdAt: '',
+-        data: const {'sessionId': _sessionId, 'reportId': _reportId},
++        data: {'sessionId': _sessionId, 'reportId': _reportId},
+       );
+       expect(n.route(), '/orders/$_sessionId');
+     });
+ 
+     test('session_complete 仍落在場次詳情（那時報告還沒生成）', () {
+-      final n = AppNotification(
++      const n = AppNotification(
+         id: 'n-2',
+         type: 'session_complete',
+         title: '',
+         createdAt: '',
+-        data: const {'sessionId': _sessionId},
++        data: {'sessionId': _sessionId},
+       );
+       expect(n.route(), '/sessions/$_sessionId');
+     });
+diff --git a/flutter_app/test/session_calendar_test.dart b/flutter_app/test/session_calendar_test.dart
+index 7f75754..fa1ed9d 100644
+--- a/flutter_app/test/session_calendar_test.dart
++++ b/flutter_app/test/session_calendar_test.dart
+@@ -114,7 +114,7 @@ void main() {
+     });
+ 
+     test('沒有任何時間戳的場次不進桶（不是丟到今天）', () {
+-      final ghost = Session(id: 'x', status: 'waiting', language: 'zh-TW');
++      const ghost = Session(id: 'x', status: 'waiting', language: 'zh-TW');
+       expect(sessionLocalDay(ghost), isNull);
+       expect(bucketByLocalDay([ghost]), isEmpty);
+     });
+diff --git a/flutter_app/test/smoothness_regression_test.dart b/flutter_app/test/smoothness_regression_test.dart
+deleted file mode 100644
+index f57149f..0000000
+--- a/flutter_app/test/smoothness_regression_test.dart
++++ /dev/null
+@@ -1,341 +0,0 @@
+-import 'dart:async';
+-import 'package:flutter/material.dart';
+-import 'package:flutter_riverpod/flutter_riverpod.dart';
+-import 'package:flutter_test/flutter_test.dart';
+-import 'package:gu_voice/core/i18n/locales_loader.dart';
+-import 'package:gu_voice/core/router/app_router.dart';
+-import 'package:gu_voice/core/router/lng.dart';
+-import 'package:gu_voice/core/theme/app_theme.dart';
+-import 'package:gu_voice/data/models/user.dart';
+-import 'package:gu_voice/features/auth/auth_notifier.dart';
+-import 'package:gu_voice/features/doctor/services/dashboard_ws.dart';
+-import 'package:gu_voice/features/doctor/state/sessions_list_controller.dart';
+-import 'package:gu_voice/features/voice/services/ws_manager.dart';
+-import 'support/api_stub.dart';
+-import 'package:gu_voice/core/i18n/loc.dart';
+-import 'package:gu_voice/features/doctor/screens/session_calendar_view.dart';
+-import 'package:gu_voice/features/doctor/screens/patient_list_page.dart';
+-import 'package:gu_voice/features/doctor/screens/report_list_page.dart';
+-import 'package:gu_voice/features/doctor/screens/alert_list_page.dart';
+-
+-class AuditAuth extends AuthNotifier {
+-  void switchUser(String id) => state = AuthState(
+-    booted: true,
+-    user: User(id: id, email: "$id@example.invalid", name: id, role: "doctor"),
+-  );
+-  @override
+-  AuthState build() => const AuthState(
+-    booted: true,
+-    user: User(id: 'audit', email: 'audit@example.invalid', name: 'Audit', role: 'doctor'),
+-  );
+-}
+-
+-class AuditSocket extends DashboardWs {
+-  final listeners = <String, List<WsHandler>>{};
+-  @override
+-  void ensureConnected() {}
+-  @override
+-  void on(String type, WsHandler handler) => listeners.putIfAbsent(type, () => []).add(handler);
+-  @override
+-  void off(String type, WsHandler handler) => listeners[type]?.remove(handler);
+-  void emit(String type) {
+-    for (final h in List<WsHandler>.of(listeners[type] ?? [])) {
+-      h({'sessionId': 'audit-s', 'status': 'in_progress'}, {'type': type});
+-    }
+-  }
+-}
+-
+-void main() {
+-  TestWidgetsFlutterBinding.ensureInitialized();
+-  setUpAll(() async {
+-    await Locales.loadAll();
+-    setCurrentLng('zh-TW');
+-  });
+-  testWidgets('retained tabs preserve search, month, scroll and request budget', (tester) async {
+-    final calls = <String>[];
+-    installApiStub((r) {
+-      calls.add(r.path);
+-      if (r.path.endsWith('count')) return {'count': 0};
+-      if (r.path == '/dashboard/monthly-summary') {
+-        return {
+-          'month': r.queryParameters['month'],
+-          'total_sessions': 1,
+-          'total_red_flag_alerts': 0,
+-          'chief_complaint_distribution': [],
+-          'daily_trend': [],
+-        };
+-      }
+-      return {
+-        'data': r.path == '/sessions'
+-            ? List.generate(50, (i) => {'id': 'tab-$i', 'patient_name': 'AUDIT search $i', 'status': 'completed'})
+-            : [],
+-        'pagination': {'has_more': false, 'total_count': 50},
+-      };
+-    });
+-    final ws = AuditSocket();
+-    final c = ProviderContainer(
+-      overrides: [authProvider.overrideWith(AuditAuth.new), dashboardWsProvider.overrideWithValue(ws)],
+-    );
+-    final router = c.read(routerProvider);
+-    router.go('/zh-TW/dashboard');
+-    await tester.pumpWidget(
+-      UncontrolledProviderScope(
+-        container: c,
+-        child: MaterialApp.router(theme: AppTheme.light, routerConfig: router),
+-      ),
+-    );
+-    await tester.pumpAndSettle();
+-    await tester.tap(find.byTooltip(t('common.doctor.dashboard.prevMonth')));
+-    await tester.pumpAndSettle();
+-    final now = DateTime.now();
+-    final previousMonth = DateTime(now.year, now.month - 1);
+-    final monthLabel = t(
+-      'common.doctor.dashboard.monthFormat',
+-      args: {'year': previousMonth.year, 'month': previousMonth.month},
+-    );
+-    expect(find.text(monthLabel), findsOneWidget);
+-    final initial = calls.where((p) => p == '/dashboard/monthly-summary').length;
+-    router.go('/zh-TW/sessions');
+-    await tester.pumpAndSettle();
+-    await tester.enterText(find.byType(TextField), 'AUDIT search');
+-    await tester.pump();
+-    final listScroll = tester.state<ScrollableState>(find.byType(Scrollable).last).position;
+-    listScroll.jumpTo(300);
+-    await tester.pump();
+-    for (var i = 0; i < 20; i++) {
+-      router.go('/zh-TW/dashboard');
+-      await tester.pumpAndSettle();
+-      expect(find.text(monthLabel), findsOneWidget);
+-      router.go('/zh-TW/sessions');
+-      await tester.pumpAndSettle();
+-    }
+-    final returned = calls.where((p) => p == '/dashboard/monthly-summary').length;
+-    router.go('/zh-TW/sessions');
+-    await tester.pumpAndSettle();
+-    final search = tester.widget<EditableText>(find.byType(EditableText)).controller.text;
+-    final before = calls.where((p) => p == '/sessions').length;
+-    for (final e in ['session_created', 'session_status_changed', 'queue_updated']) {
+-      ws.emit(e);
+-    }
+-    await tester.pump(const Duration(milliseconds: 150));
+-    await tester.pumpAndSettle();
+-    final after = calls.where((p) => p == '/sessions').length;
+-    expect(initial, 2); // initial month + deliberate previous-month selection
+-    expect(returned, initial);
+-    expect(tester.state<ScrollableState>(find.byType(Scrollable).last).position.pixels, 300);
+-    expect(search, 'AUDIT search');
+-    expect(after - before, 1);
+-    await tester.pumpWidget(const SizedBox());
+-    c.dispose();
+-  });
+-  test('late list result cannot revert fresher data within one account', () async {
+-    final older = Completer<Object?>(), newer = Completer<Object?>();
+-    var count = 0;
+-    installApiStub((r) {
+-      if (++count == 1) return {'data': []};
+-      return count == 2 ? older.future : newer.future;
+-    });
+-    final c = ProviderContainer(overrides: [dashboardWsProvider.overrideWithValue(AuditSocket())]);
+-    c.listen(sessionsListProvider, (_, _) {});
+-    await pumpEventQueue();
+-    final controller = c.read(sessionsListProvider.notifier);
+-    final a = controller.reload(), b = controller.reload();
+-    await pumpEventQueue();
+-    newer.complete({
+-      'data': [
+-        {'id': 'new', 'status': 'completed'},
+-      ],
+-    });
+-    await b;
+-    older.complete({
+-      'data': [
+-        {'id': 'old', 'status': 'waiting'},
+-      ],
+-    });
+-    await a;
+-    final id = c.read(sessionsListProvider).sessions.single.id;
+-    expect(id, "new");
+-    c.dispose();
+-  });
+-
+-  testWidgets('switching language and accounts clears retained navigators safely', (tester) async {
+-    installApiStub(
+-      (r) => r.path.endsWith('count')
+-          ? {'count': 0}
+-          : {
+-              'data': [],
+-              'pagination': {'has_more': false},
+-            },
+-    );
+-    final c = ProviderContainer(
+-      overrides: [authProvider.overrideWith(AuditAuth.new), dashboardWsProvider.overrideWithValue(AuditSocket())],
+-    );
+-    c.read(routerProvider).go('/zh-TW/sessions');
+-    await tester.pumpWidget(
+-      UncontrolledProviderScope(
+-        container: c,
+-        child: Consumer(
+-          builder: (_, ref, _) => MaterialApp.router(theme: AppTheme.light, routerConfig: ref.watch(routerProvider)),
+-        ),
+-      ),
+-    );
+-    await tester.pumpAndSettle();
+-    await tester.enterText(find.byType(TextField), 'private A search');
+-    c.read(routerProvider).go('/en-US/sessions');
+-    await tester.pumpAndSettle();
+-    expect(currentLng, 'en-US');
+-    expect(tester.takeException(), isNull);
+-    (c.read(authProvider.notifier) as AuditAuth).switchUser('B');
+-    await tester.pumpAndSettle();
+-    c.read(routerProvider).go('/zh-TW/sessions');
+-    await tester.pumpAndSettle();
+-    expect(tester.widget<EditableText>(find.byType(EditableText)).controller.text, isEmpty);
+-    expect(tester.takeException(), isNull);
+-    await tester.pumpWidget(const SizedBox());
+-    c.dispose();
+-  });
+-
+-  testWidgets('calendar uses one aggregate and one day page; totals exceed 1000', (tester) async {
+-    final today = DateTime(2026, 10, 3);
+-    installApiStub((r) {
+-      if (r.path == '/dashboard/calendar') {
+-        return [
+-          {
+-            'day_index': 2,
+-            'total': 1001,
+-            'completed': 1001,
+-            'red_flags': 0,
+-            'busy_seconds': 60060,
+-            'duration_count': 1001,
+-          },
+-        ];
+-      }
+-      if (r.path == '/sessions') {
+-        final more = r.queryParameters['cursor'] != null;
+-        return {
+-          'data': List.generate(
+-            more ? 1 : 20,
+-            (i) => {
+-              'id': 'day-${more ? 20 : i}',
+-              'patient_name': 'Calendar ${more ? 20 : i}',
+-              'status': 'completed',
+-              'created_at': today.toIso8601String(),
+-            },
+-          ),
+-          'pagination': {'has_more': !more, 'next_cursor': more ? null : 'next-day-page', 'total_count': 1001},
+-        };
+-      }
+-      return {'count': 0};
+-    });
+-    await tester.pumpWidget(
+-      ProviderScope(
+-        child: MaterialApp(
+-          theme: AppTheme.light,
+-          home: Scaffold(body: SessionCalendarView(today: today)),
+-        ),
+-      ),
+-    );
+-    await tester.pumpAndSettle();
+-    expect(sentRequests.where((r) => r.path == '/dashboard/calendar').length, 1);
+-    expect(sentRequests.where((r) => r.path == '/sessions').length, 1);
+-    expect(find.text('1001'), findsWidgets);
+-    final calendar = sentRequests.firstWhere((r) => r.path == '/dashboard/calendar');
+-    final boundaries = calendar.queryParameters['day_starts'] as List;
+-    expect(boundaries.length, 32);
+-    expect(DateTime.parse(boundaries.first), DateTime(2026, 10, 1).toUtc());
+-    for (var i = 0; i < 15 && find.text(t('common.pagination.loadMore')).hitTestable().evaluate().isEmpty; i++) {
+-      await tester.drag(find.byType(ListView), const Offset(0, -500));
+-      await tester.pumpAndSettle();
+-    }
+-    await tester.tap(find.text(t('common.pagination.loadMore')));
+-    await tester.pumpAndSettle();
+-    expect(sentRequests.where((r) => r.path == '/sessions').length, 2);
+-    expect(find.text('Calendar 20'), findsOneWidget);
+-    tester.state<ScrollableState>(find.byType(Scrollable).first).position.jumpTo(0);
+-    await tester.pumpAndSettle();
+-    await tester.tap(find.byTooltip(t('session.doctor.calendar.nextMonth')));
+-    await tester.pumpAndSettle();
+-    await tester.tap(find.byTooltip(t('session.doctor.calendar.previousMonth')));
+-    await tester.pumpAndSettle();
+-    expect(
+-      sentRequests.where((r) => r.path == '/dashboard/calendar').length,
+-      2,
+-      reason: 'Returning to a fresh cached month needs no new aggregate',
+-    );
+-
+-    expect(tester.takeException(), isNull);
+-  });
+-
+-  for (final kind in ['patients', 'reports', 'alerts']) {
+-    testWidgets('$kind builds visible rows from a 1000 row data set', (tester) async {
+-      final now = DateTime.now().toIso8601String();
+-      installApiStub((r) {
+-        if (r.path.endsWith('count')) return {'count': 1000};
+-        if (r.path.startsWith('/sessions/')) {
+-          return {'id': r.path.split('/').last, 'patient_name': 'Synthetic', 'status': 'completed'};
+-        }
+-        return {
+-          'data': List.generate(
+-            1000,
+-            (i) => {
+-              'id': 'row-$i',
+-              'session_id': 's$i',
+-              'name': 'Patient $i',
+-              'patient_name': 'Patient $i',
+-              'chief_complaint_text': 'Synthetic',
+-              'title': 'Alert $i',
+-              'severity': 'medium',
+-              'status': 'generated',
+-              'review_status': 'pending',
+-              'session_status': 'completed',
+-              'session_red_flag': false,
+-              'created_at': now,
+-            },
+-          ),
+-          'review_counts': {'pending': 1000},
+-          'pagination': {'has_more': false, 'total_count': 1000},
+-        };
+-      });
+-      final widget = switch (kind) {
+-        'patients' => const PatientListPage(),
+-        'reports' => const ReportListPage(),
+-        _ => const AlertListPage(),
+-      };
+-      await tester.pumpWidget(
+-        ProviderScope(
+-          overrides: [dashboardWsProvider.overrideWithValue(AuditSocket())],
+-          child: MaterialApp(theme: AppTheme.light, home: widget),
+-        ),
+-      );
+-      await tester.pumpAndSettle();
+-      expect(find.byType(Card).evaluate().length, lessThan(30));
+-      expect(find.byType(ListView), findsWidgets);
+-      await tester.drag(find.byType(ListView).last, const Offset(0, -1000));
+-      await tester.pumpAndSettle();
+-      expect(find.byType(Card).evaluate().length, lessThan(30));
+-      expect(tester.takeException(), isNull);
+-      if (kind == 'reports') expect(sentRequests.where((r) => r.path == '/reports').length, 1);
+-    });
+-  }
+-  test('events during a pending request produce one follow-up', () async {
+-    var calls = 0;
+-    final gate = Completer<Object?>();
+-    installApiStub((r) => ++calls == 2 ? gate.future : {'data': []});
+-    final ws = AuditSocket();
+-    final c = ProviderContainer(overrides: [dashboardWsProvider.overrideWithValue(ws)]);
+-    c.listen(sessionsListProvider, (_, _) {});
+-    await pumpEventQueue();
+-    final pending = c.read(sessionsListProvider.notifier).reload();
+-    await pumpEventQueue();
+-    for (final event in ['session_created', 'queue_updated', 'report_generated']) {
+-      ws.emit(event);
+-    }
+-    await Future<void>.delayed(const Duration(milliseconds: 150));
+-    expect(calls, 2);
+-    gate.complete({'data': []});
+-    await pending;
+-    await pumpEventQueue();
+-    expect(calls, 3);
+-    c.dispose();
+-  });
+-}
+diff --git a/flutter_app/test_driver/integration_test.dart b/flutter_app/test_driver/integration_test.dart
+index 45e1b41..a28350b 100644
+--- a/flutter_app/test_driver/integration_test.dart
++++ b/flutter_app/test_driver/integration_test.dart
+@@ -7,7 +7,7 @@
+ // --dart-define=SHOTS=true 時逐頁截圖，人眼複核用；不帶 SHOTS 時測試端
+ // 根本不呼叫，這個 callback 閒置）。
+ //
+-// 用法見 flutter_app/README.md 的 web 章節與 mobile_layout_walkthrough_test 檔頭。
++// 用法見 mobile_layout_walkthrough_test 檔頭（`fvm flutter drive --driver=test_driver/integration_test.dart`）。
+ import 'dart:io';
+ 
+ import 'package:integration_test/integration_test_driver_extended.dart';
+diff --git a/flutter_app/tool/env.production.sh b/flutter_app/tool/env.production.sh
+deleted file mode 100644
+index df9609a..0000000
+--- a/flutter_app/tool/env.production.sh
++++ /dev/null
+@@ -1,6 +0,0 @@
+-# 生產後端位址——build_ios_testflight.sh 與 build_vercel_output.sh 共用（source 進來）。
+-# 變數名是 API_BASE / WS_BASE（不是 *_BASE_URL），值含 path 後綴；
+-# 呼叫端用 ${API_BASE:-${PROD_API_BASE}}，所以明確給的環境變數永遠優先。
+-# 注意：`api-` 開頭的域名是死的，不要用。staging 位址見 docs/ios_release_settings.md §0。
+-PROD_API_BASE="https://gu-voice-app-production.up.railway.app/api/v1"
+-PROD_WS_BASE="wss://gu-voice-app-production.up.railway.app/api/v1/ws"
+diff --git a/flutter_app/tool/voice_encode_benchmark.dart b/flutter_app/tool/voice_encode_benchmark.dart
+deleted file mode 100644
+index a6cb384..0000000
+--- a/flutter_app/tool/voice_encode_benchmark.dart
++++ /dev/null
+@@ -1,31 +0,0 @@
+-// Native AOT host benchmark; this does not measure iPhone frames or microphone I/O.
+-// fvm dart compile exe tool/voice_encode_benchmark.dart -o /tmp/gu-voice-encode
+-import 'dart:convert';
+-import 'dart:io';
+-import 'dart:typed_data';
+-import 'package:gu_voice/features/voice/services/wav_encoder.dart';
+-
+-void main() {
+-  final result = <Map<String, Object>>[];
+-  for (final seconds in [10, 30, 60]) {
+-    final frames = List.generate(seconds * 50, (_) => Int16List(320));
+-    final times = <int>[];
+-    var bytes = 0;
+-    for (var i = 0; i < 35; i++) {
+-      final watch = Stopwatch()..start();
+-      final encoded = bytesToBase64(encodeWav(frames, 16000));
+-      watch.stop();
+-      bytes = encoded.length;
+-      if (i >= 5) times.add(watch.elapsedMicroseconds);
+-    }
+-    times.sort();
+-    result.add({
+-      'seconds': seconds,
+-      'samples': times.length,
+-      'base64_bytes': bytes,
+-      'p50_ms': times[times.length ~/ 2] / 1000,
+-      'p95_ms': times[(times.length * .95).ceil() - 1] / 1000,
+-    });
+-  }
+-  stdout.writeln(jsonEncode(result));
+-}

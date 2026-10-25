@@ -115,13 +115,6 @@
       "completed": "Đã hoàn tất",
       "inProgress": "Đang tiến hành",
       "cancelled": "Đã hủy"
-    },
-    "status": {
-      "completed": "Đã hoàn tất",
-      "inProgress": "Đang tiến hành",
-      "waiting": "Đang chờ",
-      "abortedRedFlag": "Dừng do cờ đỏ",
-      "cancelled": "Đã hủy"
     }
   },
   "patientFacing": {

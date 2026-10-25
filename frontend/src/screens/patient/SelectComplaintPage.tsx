@@ -29,6 +29,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import { useComplaintStore } from '../../stores/complaintStore';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -135,7 +136,13 @@ function groupByCategory(complaints: ChiefComplaint[]): Record<string, ChiefComp
 export default function SelectComplaintPage() {
   const navigate = useLocalizedNavigate();
   const { t, i18n } = useTranslation('intake');
-  const { complaints, isLoading: storeLoading, fetchComplaints } = useComplaintStore();
+  const { complaints, isLoading: storeLoading, fetchComplaints } = useComplaintStore(
+    useShallow((s) => ({
+      complaints: s.complaints,
+      isLoading: s.isLoading,
+      fetchComplaints: s.fetchComplaints,
+    })),
+  );
   // selected 以「選取順序」保存；selected[0] = primary（送後端的單一 FK）
   const [selected, setSelected] = useState<ChiefComplaint[]>([]);
   const [customText, setCustomText] = useState('');

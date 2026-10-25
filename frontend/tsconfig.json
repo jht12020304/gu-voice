@@ -22,22 +22,8 @@
 
     /* 輸出設定 */
     "noEmit": true,
-    "skipLibCheck": true,
-
-    /* 路徑別名（需與 vite.config.ts 的 resolve.alias 保持一致） */
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"],
-      "@components/*": ["src/components/*"],
-      "@hooks/*": ["src/hooks/*"],
-      "@pages/*": ["src/pages/*"],
-      "@stores/*": ["src/stores/*"],
-      "@utils/*": ["src/utils/*"],
-      "@types/*": ["src/types/*"],
-      "@services/*": ["src/services/*"],
-      "@assets/*": ["src/assets/*"]
-    }
+    "skipLibCheck": true
   },
-  "include": ["src", "vite-env.d.ts"],
+  "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

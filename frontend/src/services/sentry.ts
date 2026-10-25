@@ -3,8 +3,7 @@
 // =============================================================================
 // - 未設 VITE_SENTRY_DSN 時靜默跳過，允許本機 / mock 開發不啟用
 // - beforeSend 移除事件中常見敏感欄位（密碼 / JWT / Authorization header）
-
-import * as Sentry from '@sentry/react';
+// - SDK 以動態 import 載入：只有設了 DSN 才下載，且永遠落在獨立 chunk，不進 index chunk
 
 const SENSITIVE_KEY_FRAGMENTS = [
   'password',
@@ -46,21 +45,25 @@ export function initSentry(): boolean {
     return false;
   }
 
-  Sentry.init({
-    dsn,
-    environment: env,
-    tracesSampleRate: 0.1,
-    sendDefaultPii: false,
-    beforeSend(event) {
-      return redact(event) as typeof event;
-    },
-    beforeBreadcrumb(breadcrumb) {
-      return redact(breadcrumb) as typeof breadcrumb;
-    },
-  });
+  void import('@sentry/react')
+    .then((Sentry) => {
+      Sentry.init({
+        dsn,
+        environment: env,
+        tracesSampleRate: 0.1,
+        sendDefaultPii: false,
+        beforeSend(event) {
+          return redact(event) as typeof event;
+        },
+        beforeBreadcrumb(breadcrumb) {
+          return redact(breadcrumb) as typeof breadcrumb;
+        },
+      });
+    })
+    .catch((err) => {
+      console.warn('[sentry] SDK 載入失敗，錯誤回報停用', err);
+    });
 
   return true;
 }
 
-// 供測試 import
-export const _redact = redact;

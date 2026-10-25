@@ -2,6 +2,7 @@
 // 認證 API 服務
 // =============================================================================
 
+import type { AxiosRequestConfig } from 'axios';
 import apiClient from './client';
 import type { LoginRequest, LoginResponse, RegisterRequest, RefreshTokenResponse } from '../../types/api';
 import type { User } from '../../types';
@@ -31,9 +32,16 @@ export async function refreshToken(token: string): Promise<RefreshTokenResponse>
   return data;
 }
 
-/** 登出 */
-export async function logout(refreshToken?: string): Promise<void> {
-  await apiClient.post(`${AUTH_BASE}/logout`, { refreshToken });
+/**
+ * 登出。`accessToken` 若給定則自帶 Bearer（呼叫端已先清掉 localStorage，攔截器拿不到），
+ * 並標 `_retry` 跳過 401 自動 refresh 重試——refresh 會把新 token 寫回已登出的
+ * localStorage / store，等於登出後又偷偷登入。
+ */
+export async function logout(refreshToken?: string, accessToken?: string): Promise<void> {
+  const config = accessToken
+    ? ({ headers: { Authorization: `Bearer ${accessToken}` }, _retry: true } as AxiosRequestConfig)
+    : undefined;
+  await apiClient.post(`${AUTH_BASE}/logout`, { refreshToken }, config);
 }
 
 /** 變更密碼 */

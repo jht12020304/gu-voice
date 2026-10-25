@@ -2,7 +2,8 @@
 // API 請求/回應型別
 // =============================================================================
 
-import type { User, SessionIntake } from './index';
+import type { User, SessionIntake, RedFlagAlert } from './index';
+import type { UserRole } from './enums';
 
 // ---- 認證 ----
 
@@ -24,7 +25,7 @@ export interface RegisterRequest {
   password: string;
   name: string;
   // 對齊後端 UserRole（patient/doctor/admin）；後端註冊預設為 patient
-  role: 'patient' | 'doctor' | 'admin';
+  role: UserRole;
   phone?: string;
   licenseNumber?: string;
   department?: string;
@@ -37,36 +38,6 @@ export interface RefreshTokenResponse {
 }
 
 // ---- 病患 ----
-
-export interface PatientCreateRequest {
-  userId?: string;
-  medicalRecordNumber: string;
-  name: string;
-  gender: 'male' | 'female' | 'other';
-  dateOfBirth: string;
-  phone?: string;
-  emergencyContact?: {
-    name: string;
-    relationship: string;
-    phone: string;
-  };
-  medicalHistory?: unknown[];
-  allergies?: unknown[];
-  currentMedications?: unknown[];
-}
-
-export interface PatientUpdateRequest {
-  name?: string;
-  phone?: string;
-  emergencyContact?: {
-    name: string;
-    relationship: string;
-    phone: string;
-  };
-  medicalHistory?: unknown[];
-  allergies?: unknown[];
-  currentMedications?: unknown[];
-}
 
 export interface PatientListParams {
   cursor?: string;
@@ -152,71 +123,19 @@ export interface AlertAcknowledgeRequest {
   acknowledgeNotes?: string;
 }
 
+/** 後端 AcknowledgeAlertResponse：只回 4 個欄位，呼叫端須 merge 進既有 alert */
+export type AlertAcknowledgeResponse = Pick<RedFlagAlert, 'id' | 'acknowledgedBy' | 'acknowledgedAt' | 'acknowledgeNotes'>;
+
 export interface AlertListParams {
   cursor?: string;
   limit?: number;
   severity?: string;
-  acknowledged?: boolean;
+  /** 後端 query param 是 is_acknowledged（client 攔截器轉 snake_case） */
+  isAcknowledged?: boolean;
   sessionId?: string;
 }
 
 // ---- 儀表板 ----
-
-export interface DashboardStatsResponse {
-  sessionsToday: number;
-  completed: number;
-  redFlags: number;
-  pendingReviews: number;
-  inProgress?: number;
-  waiting?: number;
-  averageDurationSeconds?: number | null;
-  timestamp?: string;
-}
-
-export interface DashboardQueueResponse {
-  totalWaiting: number;
-  totalInProgress: number;
-  queue: QueueItem[];
-}
-
-export interface QueueItem {
-  sessionId: string;
-  patientId: string;
-  patientName: string;
-  chiefComplaint: string;
-  status: string;
-  waitingSeconds: number;
-  hasRedFlag: boolean;
-  createdAt: string;
-}
-
-export interface RecentAlertItem {
-  alertId: string;
-  sessionId: string;
-  patientName: string;
-  severity: string;
-  title: string;
-  acknowledged: boolean;
-  createdAt: string;
-}
-
-export interface RecentAlertsResponse {
-  data: RecentAlertItem[];
-}
-
-export interface RecentSessionItem {
-  sessionId: string;
-  patientName: string;
-  chiefComplaint: string;
-  status: string;
-  redFlag: boolean;
-  createdAt: string;
-  completedAt?: string;
-}
-
-export interface RecentSessionsResponse {
-  data: RecentSessionItem[];
-}
 
 export interface SummaryBucketItem {
   key: string;
@@ -278,50 +197,11 @@ export interface MarkReadResponse {
 }
 
 /** 通知偏好（GDPR opt-out）。red_flag 為病安關鍵，後端恆為開。 */
-export interface NotificationPreference {
-  userId: string;
-  redFlagEnabled: boolean;
-  sessionCompleteEnabled: boolean;
-  reportReadyEnabled: boolean;
-  systemEnabled: boolean;
-  emailEnabled: boolean;
-  pushEnabled: boolean;
-}
-
-/** 更新通知偏好（僅更新提供的欄位） */
-export interface NotificationPreferenceUpdate {
-  redFlagEnabled?: boolean;
-  sessionCompleteEnabled?: boolean;
-  reportReadyEnabled?: boolean;
-  systemEnabled?: boolean;
-  emailEnabled?: boolean;
-  pushEnabled?: boolean;
-}
-
-/** 註冊 FCM 推播 Token 請求 */
-export interface FcmTokenCreateRequest {
-  deviceToken: string;
-  platform: 'ios' | 'android' | 'web';
-  deviceName?: string;
-}
-
-/** FCM Token 回應 */
-export interface FcmTokenResponse {
-  id: string;
-  deviceToken: string;
-  platform: 'ios' | 'android' | 'web';
-  deviceName?: string;
-  isActive: boolean;
-  createdAt: string;
-}
-
-// ---- 管理員 ----
-
 export interface UserCreateRequest {
   email: string;
   password: string;
   name: string;
-  role: 'patient' | 'doctor' | 'admin';
+  role: UserRole;
   phone?: string;
   department?: string;
   licenseNumber?: string;
@@ -335,7 +215,7 @@ export interface UserUpdateRequest {
   department?: string;
   licenseNumber?: string;
   isActive?: boolean;
-  role?: 'patient' | 'doctor' | 'admin';
+  role?: UserRole;
 }
 
 export interface UserListParams {

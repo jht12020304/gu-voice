@@ -63,7 +63,7 @@ def published(monkeypatch) -> list[tuple[str, dict[str, Any]]]:
 def stub_queue_and_stats(monkeypatch) -> None:
     """讓 broadcast_queue_and_stats 的 DB 查詢改回固定值（不接真 DB）。"""
 
-    async def _fake_queue(db, redis, doctor_id=None):
+    async def _fake_queue(db, redis, doctor_id=None, *, include_items=True):
         return {
             "total_waiting": 3,
             "total_in_progress": 1,

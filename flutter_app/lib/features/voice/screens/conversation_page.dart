@@ -40,15 +40,37 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   }
 
   Future<void> _init() async {
-    final session =
-        widget.session ?? await SessionsApi().getSession(widget.sessionId);
+    final session = widget.session ?? await SessionsApi().getSession(widget.sessionId);
     if (!mounted) return;
     await ref.read(conversationControllerProvider.notifier).start(session);
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = ref.watch(conversationControllerProvider);
+    // Waveform and recording duration are rendered only by the status subtree.
+    ref.watch(
+      conversationControllerProvider.select(
+        (s) => (
+          s.session,
+          s.messages,
+          s.isRecording,
+          s.isAIResponding,
+          s.sttProcessing,
+          s.userPaused,
+          s.aiStreamingText,
+          s.redFlags,
+          s.guidance,
+          s.supervisorDegraded,
+          s.error,
+          s.voiceUnavailable,
+          s.connection,
+          s.noSpeechHint,
+          s.completed,
+          s.abortedRedFlag,
+        ),
+      ),
+    );
+    final s = ref.read(conversationControllerProvider);
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     // On completion, route to the thank-you page (red-flag variant carried via extra).
@@ -60,23 +82,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     // thank-you page plus its 8s auto-redirect home, never seeing "tell the staff
     // here" (voice-pipeline-invariants #11). Reading both off the same emission
     // makes that stale read structurally impossible.
-    ref.listen(
-      conversationControllerProvider.select(
-        (v) => (v.completed, v.abortedRedFlag),
-      ),
-      (_, next) {
-        final (completed, abortedRedFlag) = next;
-        if (completed) {
-          context.go(
-            prefixLngToPath(
-              '/patient/session/${widget.sessionId}/thank-you',
-              currentLng,
-            ),
-            extra: {'abortedRedFlag': abortedRedFlag},
-          );
-        }
-      },
-    );
+    ref.listen(conversationControllerProvider.select((v) => (v.completed, v.abortedRedFlag)), (_, next) {
+      final (completed, abortedRedFlag) = next;
+      if (completed) {
+        context.go(
+          prefixLngToPath('/patient/session/${widget.sessionId}/thank-you', currentLng),
+          extra: {'abortedRedFlag': abortedRedFlag},
+        );
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -88,8 +102,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
           // WS 與收音都不受影響（autoDispose 的 controller 只在真的離頁時才拆）。
           const LanguageAction(),
           TextButton(
-            onPressed: () =>
-                ref.read(conversationControllerProvider.notifier).endSession(),
+            onPressed: () => ref.read(conversationControllerProvider.notifier).endSession(),
             child: Text(t('conversation.endSession')),
           ),
         ],
@@ -98,13 +111,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         children: [
           if (s.connection != WsConnState.open) _banner(context, s.connection),
           if (s.redFlags.isNotEmpty) _redFlagBanner(context, s),
-          if (s.supervisorDegraded || s.guidance != null)
-            _supervisorBanner(context, s, compact: keyboardOpen),
-          if (s.voiceUnavailable != null)
-            _voiceUnavailableBanner(context, s.voiceUnavailable!),
+          if (s.supervisorDegraded || s.guidance != null) _supervisorBanner(context, s, compact: keyboardOpen),
+          if (s.voiceUnavailable != null) _voiceUnavailableBanner(context, s.voiceUnavailable!),
           if (s.error != null) _errorBanner(context, s.error!),
           Expanded(child: _transcript(context, s)),
-          _statusBar(context, s),
+          Consumer(builder: (context, ref, _) => _statusBar(context, ref.watch(conversationControllerProvider))),
           _textInput(context, s),
           _controls(context, s),
         ],
@@ -114,11 +125,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   // Stacked, severity-colored, acknowledge-able red-flag banner (≤3 sorted, then overflow
   // count) — safety-UI parity with the React ConversationPage.
-  Widget _supervisorBanner(
-    BuildContext context,
-    ConversationState s, {
-    required bool compact,
-  }) {
+  Widget _supervisorBanner(BuildContext context, ConversationState s, {required bool compact}) {
     final tk = Theme.of(context).extension<AppTokens>()!;
     final g = s.guidance;
     if (compact) {
@@ -139,19 +146,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
                 summary,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: tk.alertMedium,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(color: tk.alertMedium, fontWeight: FontWeight.w600),
               ),
             ),
             if (g != null && g.missingHpi.isNotEmpty) ...[
               const SizedBox(width: 8),
               PillTag(
-                t(
-                  'conversation.supervisor.remainingCount',
-                  args: {'count': g.missingHpi.length},
-                ),
+                t('conversation.supervisor.remainingCount', args: {'count': g.missingHpi.length}),
                 color: tk.alertMedium,
               ),
             ],
@@ -168,17 +169,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (s.supervisorDegraded)
-            Text(
-              t('conversation.supervisor.degraded'),
-              style: TextStyle(color: tk.alertMedium),
-            ),
+            Text(t('conversation.supervisor.degraded'), style: TextStyle(color: tk.alertMedium)),
           if (g != null && g.nextFocus.isNotEmpty)
             Text(
               '${t('conversation.supervisor.hintLabel')}: ${g.nextFocus}',
-              style: TextStyle(
-                color: tk.alertMedium,
-                fontWeight: FontWeight.w600,
-              ),
+              style: TextStyle(color: tk.alertMedium, fontWeight: FontWeight.w600),
             ),
           if (g != null && g.missingHpi.isNotEmpty)
             Padding(
@@ -187,10 +182,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
                 spacing: 6,
                 runSpacing: 4,
                 children: [
-                  Text(
-                    '${t('conversation.supervisor.missingLabel')}:',
-                    style: TextStyle(color: tk.alertMedium),
-                  ),
+                  Text('${t('conversation.supervisor.missingLabel')}:', style: TextStyle(color: tk.alertMedium)),
                   for (final h in g.missingHpi)
                     Chip(
                       label: Text(t('conversation.supervisor.hpi.$h')),
@@ -251,11 +243,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       });
     final shown = sorted.take(3).toList();
     final overflow = sorted.length - shown.length;
-    Color sev(String s) => switch (s) {
-      'critical' => tk.alertCritical,
-      'high' => tk.alertHigh,
-      _ => tk.alertMedium,
-    };
 
     return Container(
       width: double.infinity,
@@ -270,11 +257,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.warning_amber_rounded,
-                    color: sev(f.severity),
-                    size: 20,
-                  ),
+                  Icon(Icons.warning_amber_rounded, color: tk.severityColor(f.severity), size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     // 病患橫幅只呈現「症狀名（title，後端依場次語言解析）」＋下方固定的
@@ -290,28 +273,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
                     // title 為空（後端解析不到 canonical 顯示名）時退回中性的在地化說法，
                     // 否則橫幅只剩一個驚嘆號圖示，病患不知道發生什麼事。
                     child: Text(
-                      f.title.trim().isEmpty
-                          ? t('conversation.redFlag.generic')
-                          : f.title,
-                      style: TextStyle(
-                        color: sev(f.severity),
-                        fontWeight: FontWeight.w600,
-                      ),
+                      f.title.trim().isEmpty ? t('conversation.redFlag.generic') : f.title,
+                      style: TextStyle(color: tk.severityColor(f.severity), fontWeight: FontWeight.w600),
                     ),
                   ),
                   if (!f.isAcknowledged)
                     TextButton(
-                      onPressed: () => ref
-                          .read(conversationControllerProvider.notifier)
-                          .acknowledgeRedFlag(f.id),
+                      onPressed: () => ref.read(conversationControllerProvider.notifier).acknowledgeRedFlag(f.id),
                       child: Text(t('dashboard.alert.acknowledge')),
                     )
                   else
-                    Icon(
-                      Icons.check_circle,
-                      color: tk.statusCompleted,
-                      size: 18,
-                    ),
+                    Icon(Icons.check_circle, color: tk.statusCompleted, size: 18),
                 ],
               ),
             ),
@@ -332,12 +304,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              _sharedPatientNotice(shown) ??
-                  t('conversation.redFlag.patientNotice'),
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontSize: 12,
-              ),
+              _sharedPatientNotice(shown) ?? t('conversation.redFlag.patientNotice'),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
             ),
           ),
         ],
@@ -361,11 +329,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               onTapOutside: (_) => _dismissKeyboard(),
               decoration: InputDecoration(
                 isDense: true,
-                hintText: t(
-                  online
-                      ? 'conversation.input.textPlaceholder'
-                      : 'conversation.input.sendOffline',
-                ),
+                hintText: t(online ? 'conversation.input.textPlaceholder' : 'conversation.input.sendOffline'),
               ),
             ),
           ),
@@ -391,23 +355,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   /// 語音降級提示。刻意不是紅色的 `_errorBanner`：問診沒有壞掉，只是要改用打字。
   /// 全部用既有的 i18n key（五語都有），不新增翻譯字串。
-  Widget _voiceUnavailableBanner(
-    BuildContext context,
-    MicUnavailableReason reason,
-  ) {
+  Widget _voiceUnavailableBanner(BuildContext context, MicUnavailableReason reason) {
     final key = switch (reason) {
-      MicUnavailableReason.permissionDenied =>
-        'conversation.error.micPermission',
+      MicUnavailableReason.permissionDenied => 'conversation.error.micPermission',
       _ => 'conversation.error.micNotFound',
     };
     return Container(
       width: double.infinity,
       color: Theme.of(context).colorScheme.secondaryContainer,
       padding: const EdgeInsets.all(8),
-      child: Text(
-        '${t(key)}\n${t('conversation.input.textPlaceholder')}',
-        textAlign: TextAlign.center,
-      ),
+      child: Text('${t(key)}\n${t('conversation.input.textPlaceholder')}', textAlign: TextAlign.center),
     );
   }
 
@@ -444,34 +401,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
             : isPatient
             ? Alignment.centerRight
             : Alignment.centerLeft;
-        final bg = isSystem
-            ? tk.chatBg
-            : (isPatient ? tk.chatPatientBg : tk.chatAiBg);
+        final bg = isSystem ? tk.chatBg : (isPatient ? tk.chatPatientBg : tk.chatAiBg);
         final bubble = Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          constraints: BoxConstraints(
-            maxWidth:
-                MediaQuery.sizeOf(context).width * (isAssistant ? 0.66 : 0.78),
-          ),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(16),
-          ),
+          constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * (isAssistant ? 0.66 : 0.78)),
+          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(16)),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Flexible(
-                child: Text(
-                  m.content.isEmpty && m.isStreaming ? '…' : m.content,
-                ),
-              ),
+              Flexible(child: Text(m.content.isEmpty && m.isStreaming ? '…' : m.content)),
               if (isAssistant && m.ttsAudioChunks.isNotEmpty) ...[
                 const SizedBox(width: 6),
                 InkWell(
-                  onTap: () => ref
-                      .read(conversationControllerProvider.notifier)
-                      .replay(m.id),
+                  onTap: () => ref.read(conversationControllerProvider.notifier).replay(m.id),
                   child: const Icon(Icons.replay, size: 18),
                 ),
               ],
@@ -560,10 +503,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               width: 3,
               height: (4 + b * 32).clamp(4, 36),
               margin: const EdgeInsets.symmetric(horizontal: 1),
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(2),
-              ),
+              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
             ),
         ],
       ),
@@ -585,22 +525,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               Expanded(
                 child: _iconBtn(
                   icon: s.userPaused ? Icons.play_arrow : Icons.pause,
-                  label: t(
-                    s.userPaused
-                        ? 'conversation.voiceControl.resume'
-                        : 'conversation.voiceControl.pause',
-                  ),
+                  label: t(s.userPaused ? 'conversation.voiceControl.resume' : 'conversation.voiceControl.pause'),
                   onTap: () => s.userPaused ? ctrl.resume() : ctrl.pause(),
                 ),
               ),
               Expanded(
                 child: _iconBtn(
                   icon: settings.ttsMuted ? Icons.volume_off : Icons.volume_up,
-                  label: t(
-                    settings.ttsMuted
-                        ? 'conversation.tts.unmuteLabel'
-                        : 'conversation.tts.muteLabel',
-                  ),
+                  label: t(settings.ttsMuted ? 'conversation.tts.unmuteLabel' : 'conversation.tts.muteLabel'),
                   onTap: () {
                     ref.read(settingsProvider.notifier).toggleTtsMuted();
                     ctrl.onTtsMuteToggled(ref.read(settingsProvider).ttsMuted);
@@ -612,10 +544,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
                   key: const ValueKey('tts-speed-control'),
                   icon: Icons.speed,
                   label: '${settings.ttsSpeed}x',
-                  semanticLabel: t(
-                    'conversation.tts.speedLabel',
-                    args: {'rate': settings.ttsSpeed},
-                  ),
+                  semanticLabel: t('conversation.tts.speedLabel', args: {'rate': settings.ttsSpeed}),
                   onTap: () => ref.read(settingsProvider.notifier).cycleSpeed(),
                 ),
               ),
@@ -625,9 +554,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
                 child: _iconBtn(
                   icon: Icons.done_all,
                   label: t('conversation.voiceControl.finishSpeaking'),
-                  onTap: s.isRecording && !s.userPaused
-                      ? ctrl.finishSpeaking
-                      : null,
+                  onTap: s.isRecording && !s.userPaused ? ctrl.finishSpeaking : null,
                 ),
               ),
             ],

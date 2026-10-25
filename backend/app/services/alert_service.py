@@ -6,17 +6,17 @@
 """
 
 import logging
-from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.pagination import keyset_after, page_slice, parse_cursor
 from app.core.authz import (
     clinician_session_filter,
     get_clinician_scope_id,
-    get_user_role as _get_user_role,
+    get_user_role,
 )
 from app.core.exceptions import (
     AlertAlreadyAcknowledgedException,
@@ -32,8 +32,8 @@ from app.models.enums import (
 from app.models.red_flag_alert import RedFlagAlert
 from app.models.red_flag_rule import RedFlagRule
 from app.models.session import Session
-from app.services.session_visibility import visible_session_ids
-from app.utils.datetime_utils import utc_now
+from app.services.session_visibility import session_not_deleted, visible_session_ids
+from app.utils.datetime_utils import parse_iso, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -73,23 +73,6 @@ async def _broadcast_red_flag_acknowledged(
         )
 
 
-def _parse_iso_datetime(value: Any) -> Optional[datetime]:
-    """將 ISO-8601 字串轉成 datetime；無效或 None 時回 None（不拋例外）。"""
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        return value
-    try:
-        return datetime.fromisoformat(str(value))
-    except ValueError:
-        return None
-
-
-def _doctor_scope_id(current_user: Any) -> Optional[UUID]:
-    """臨床帳號只看自己負責或尚未指派場次的紅旗；system admin 不限縮。"""
-    return get_clinician_scope_id(current_user)
-
-
 class AlertService:
     """紅旗警示業務邏輯"""
 
@@ -127,12 +110,13 @@ class AlertService:
         """
         limit = min(limit, 100)
 
-        parsed_date_from = _parse_iso_datetime(date_from)
-        parsed_date_to = _parse_iso_datetime(date_to)
+        # 非法日期 → 422（parse_iso），不再靜默丟掉篩選回整張未過濾清單
+        parsed_date_from = parse_iso(date_from)
+        parsed_date_to = parse_iso(date_to)
 
         # 醫師範圍限制：join Session 並以 session.doctor_id == self.id 過濾。
         # 在 query 層過濾（非 post-hoc），確保分頁 / 計數一致。
-        doctor_scope_id = _doctor_scope_id(current_user)
+        doctor_scope_id = get_clinician_scope_id(current_user)
 
         # patient_id 需 join Session（patient_id 為 session 欄位）。doctor 範圍
         # 限制同樣 join Session，避免重複 join；故只在任一條件需要時 join 一次。
@@ -175,26 +159,19 @@ class AlertService:
             else:
                 query = query.where(RedFlagAlert.acknowledged_by.is_(None))
 
-        if cursor:
+        _cursor = parse_cursor(cursor)
+        if _cursor is not None:
             result = await db.execute(
-                select(RedFlagAlert).where(RedFlagAlert.id == cursor)
+                select(RedFlagAlert).where(RedFlagAlert.id == _cursor)
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:
-                query = query.where(
-                    (RedFlagAlert.created_at < cursor_record.created_at)
-                    | (
-                        (RedFlagAlert.created_at == cursor_record.created_at)
-                        & (RedFlagAlert.id < cursor_record.id)
-                    )
-                )
+                query = keyset_after(query, cursor_record, RedFlagAlert.created_at, RedFlagAlert.id)
 
         result = await db.execute(query.limit(limit + 1))
         alerts = result.scalars().all()
 
-        has_more = len(alerts) > limit
-        if has_more:
-            alerts = alerts[:limit]
+        alerts, has_more, next_cursor = page_slice(alerts, limit)
 
         count_query = select(func.count()).select_from(RedFlagAlert)
         count_query = _apply_session_filters(count_query)
@@ -214,7 +191,7 @@ class AlertService:
         return {
             "data": alerts,
             "pagination": {
-                "next_cursor": str(alerts[-1].id) if has_more and alerts else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,
@@ -237,19 +214,18 @@ class AlertService:
         呼叫後自行 refetch 收斂。回傳實際確認筆數。
         """
         now = utc_now()
+        # 已軟刪除場次的警示對所有角色（含 admin）都不可見，一鍵確認也不該碰到它們
         stmt = (
             update(RedFlagAlert)
             .where(RedFlagAlert.acknowledged_by.is_(None))
+            .where(RedFlagAlert.session_id.in_(visible_session_ids()))
             .values(acknowledged_by=user_id, acknowledged_at=now, acknowledge_notes=notes)
         )
-        doctor_scope_id = _doctor_scope_id(current_user)
+        doctor_scope_id = get_clinician_scope_id(current_user)
         if doctor_scope_id is not None:
             stmt = stmt.where(
                 RedFlagAlert.session_id.in_(
-                    select(Session.id).where(
-                        clinician_session_filter(doctor_scope_id),
-                        Session.id.in_(visible_session_ids()),
-                    )
+                    select(Session.id).where(clinician_session_filter(doctor_scope_id))
                 )
             )
         result = await db.execute(stmt)
@@ -269,7 +245,7 @@ class AlertService:
         - ADMIN：看全部，不加範圍限制。
         - patient / 未知角色：回傳 0（router 已以 require_role 擋下，這裡 fail-safe）。
         """
-        role = _get_user_role(current_user)
+        role = get_user_role(current_user)
         if role not in (UserRole.DOCTOR, UserRole.ADMIN):
             return 0
 
@@ -280,7 +256,7 @@ class AlertService:
             .where(RedFlagAlert.acknowledged_by.is_(None))
         )
 
-        doctor_scope_id = _doctor_scope_id(current_user)
+        doctor_scope_id = get_clinician_scope_id(current_user)
         if doctor_scope_id is not None:
             count_query = count_query.join(
                 Session, RedFlagAlert.session_id == Session.id
@@ -313,7 +289,7 @@ class AlertService:
         )
 
         # 醫師範圍限制：join Session 並以 session.doctor_id == self.id 過濾。
-        doctor_scope_id = _doctor_scope_id(current_user)
+        doctor_scope_id = get_clinician_scope_id(current_user)
         if doctor_scope_id is not None:
             query = query.join(
                 Session, RedFlagAlert.session_id == Session.id
@@ -406,7 +382,7 @@ class AlertService:
             from app.models.session import Session
 
             session_result = await db.execute(
-                select(Session).where(Session.id == data["session_id"])
+                select(Session).where(Session.id == data["session_id"]).where(session_not_deleted())
             )
             session = session_result.scalar_one_or_none()
 
@@ -499,25 +475,6 @@ class AlertService:
     # ── 紅旗規則管理 ──────────────────────────────────────
 
     @staticmethod
-    async def get_rules(
-        db: AsyncSession,
-        is_active: Optional[bool] = None,
-    ) -> list[RedFlagRule]:
-        """
-        取得紅旗規則列表
-
-        Args:
-            is_active: 篩選啟用狀態（None 表示全部）
-        """
-        query = select(RedFlagRule).order_by(RedFlagRule.created_at.desc())
-
-        if is_active is not None:
-            query = query.where(RedFlagRule.is_active == is_active)
-
-        result = await db.execute(query)
-        return list(result.scalars().all())
-
-    @staticmethod
     async def get_rules_paginated(
         db: AsyncSession,
         cursor: Optional[str] = None,
@@ -554,26 +511,19 @@ class AlertService:
             )
         )
 
-        if cursor:
+        _cursor = parse_cursor(cursor)
+        if _cursor is not None:
             result = await db.execute(
-                select(RedFlagRule).where(RedFlagRule.id == cursor)
+                select(RedFlagRule).where(RedFlagRule.id == _cursor)
             )
             cursor_record = result.scalar_one_or_none()
             if cursor_record:
-                query = query.where(
-                    (RedFlagRule.created_at < cursor_record.created_at)
-                    | (
-                        (RedFlagRule.created_at == cursor_record.created_at)
-                        & (RedFlagRule.id < cursor_record.id)
-                    )
-                )
+                query = keyset_after(query, cursor_record, RedFlagRule.created_at, RedFlagRule.id)
 
         result = await db.execute(query.limit(limit + 1))
         rules = list(result.scalars().all())
 
-        has_more = len(rules) > limit
-        if has_more:
-            rules = rules[:limit]
+        rules, has_more, next_cursor = page_slice(rules, limit)
 
         count_query = _apply_filters(
             select(func.count()).select_from(RedFlagRule)
@@ -584,7 +534,7 @@ class AlertService:
         return {
             "data": rules,
             "pagination": {
-                "next_cursor": str(rules[-1].id) if has_more and rules else None,
+                "next_cursor": next_cursor,
                 "has_more": has_more,
                 "limit": limit,
                 "total_count": total_count,
@@ -717,5 +667,3 @@ class AlertService:
     async def update_rule_entry(self, db, rule_id, data):
         return await self.update_rule(db, rule_id=rule_id, data=data.model_dump(exclude_unset=True) if hasattr(data, 'model_dump') else data)
 
-    async def delete_rule_entry(self, db, rule_id):
-        return await self.delete_rule(db, rule_id=rule_id)

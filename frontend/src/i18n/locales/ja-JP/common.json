@@ -1,6 +1,5 @@
 {
   "acknowledge": "了解しました",
-  "back": "戻る",
   "loading": "読み込み中...",
   "retry": "再試行",
   "unknownError": "不明なエラーが発生しました",
@@ -8,14 +7,14 @@
   "appTagline": "泌尿器科 AI 音声問診システム",
   "user": "ユーザー",
   "close": "閉じる",
-  "save": "保存",
   "saving": "保存中...",
   "header": {
     "themeToLight": "ライトモードに切り替え",
     "themeToDark": "ダークモードに切り替え",
     "notifications": "通知",
     "settings": "設定",
-    "logout": "ログアウト"
+    "logout": "ログアウト",
+    "navigation": "ナビゲーションメニュー"
   },
   "login": {
     "prompt": "アカウントにログインしてください",
@@ -24,19 +23,16 @@
     "passwordPlaceholder": "パスワードを入力",
     "forgotPassword": "パスワードをお忘れですか？",
     "submit": "ログイン",
-    "submitting": "ログイン中...",
     "emailRequired": "メールアドレスを入力してください",
     "passwordRequired": "パスワードを入力してください"
   },
   "roles": {
     "patient": "患者",
     "assistant": "AI アシスタント",
-    "system": "システム",
     "doctor": "医師",
     "admin": "管理者"
   },
   "language": {
-    "label": "言語",
     "switchTo": "{{name}}に切り替え",
     "current": "現在の言語：{{name}}",
     "switched": "{{name}}に切り替えました",
@@ -47,7 +43,6 @@
       "ko-KR": "한국어",
       "vi-VN": "Tiếng Việt"
     },
-    "betaTag": "（beta）",
     "switchModal": {
       "title": "言語を切り替えるには現在の問診を終了してください",
       "description": "現在の問診（{{from}}）が進行中です。問診内で言語が混在するのを避けるため、{{to}}へ切り替えると本セッションは終了します。終了後、新しい問診を開始できます。",
@@ -82,12 +77,10 @@
   },
   "common": {
     "errorTitle": "エラーが発生しました",
-    "emptyTitle": "データがありません",
     "notSet": "未設定",
     "dash": "-",
     "defaultDevice": "システム既定",
     "microphoneLabel": "マイク {{id}}",
-    "viewAll": "すべて表示",
     "enabled": "有効",
     "disabled": "無効"
   },
@@ -167,7 +160,6 @@
     },
     "patient": {
       "noPhone": "連絡先電話番号未登録",
-      "noName": "氏名未登録の患者",
       "labels": {
         "gender": "性別",
         "dateOfBirth": "生年月日",
@@ -214,12 +206,7 @@
       "empty": "問診履歴はまだありません",
       "emptyHint": "最初の問診を始めましょう",
       "durationMinutes": "{{minutes}} 分",
-      "defaultComplaint": "問診",
-      "statusCompleted": "完了",
-      "statusInProgress": "進行中",
-      "statusWaiting": "待機中",
-      "statusAbortedRedFlag": "レッドフラグによる中止",
-      "statusCancelled": "キャンセル済み"
+      "defaultComplaint": "問診"
     },
     "settings": {
       "tabProfile": "プロフィール",
@@ -284,8 +271,6 @@
     "noPhone": "電話番号なし"
   },
   "pagination": {
-    "loadMore": "さらに読み込む",
-    "loadingMore": "読み込み中...",
     "allLoaded": "すべて表示しました"
   }
 }

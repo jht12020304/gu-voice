@@ -86,14 +86,7 @@
     "emptyTitle": "경고 없음",
     "emptyMessage": "조건에 맞는 레드플래그 경고가 없습니다",
     "groupCount": "경고 {{count}}건",
-    "unknownComplaintFetchFailed": "주호소를 가져올 수 없습니다",
-    "sessionStatus": {
-      "waiting": "대기 중",
-      "inProgress": "문진 중",
-      "completed": "완료",
-      "abortedRedFlag": "레드플래그로 중단",
-      "cancelled": "취소됨"
-    }
+    "unknownComplaintFetchFailed": "주호소를 가져올 수 없습니다"
   },
   "transcript": {
     "title": "문진 대화 전사본",

@@ -52,37 +52,6 @@
     "redFlagSession": "레드플래그 세션",
     "redFlagLoadFailedBadge": "⚠ 레드플래그 상태 로드 실패"
   },
-  "metaCard": {
-    "patient": "환자",
-    "complaint": "주호소",
-    "sessionStatus": "세션 상태",
-    "report": "보고서",
-    "createdHelper": "세션 생성 {{date}}",
-    "completedAt": "{{date}}에 완료",
-    "startedAt": "{{date}}에 시작",
-    "noTimeInfo": "시간 정보를 아직 가져오지 못했습니다",
-    "notGeneratedTime": "생성 시각 없음",
-    "reviewStatusHelper": "검토 상태: {{status}}",
-    "awaitingReview": "의사 검토 대기 중"
-  },
-  "highlights": {
-    "positive": {
-      "title": "주요 양성 소견",
-      "empty": "명확한 양성 증상이 정리되지 않았습니다."
-    },
-    "negative": {
-      "title": "주요 음성 소견",
-      "empty": "명확한 음성 증상이 정리되지 않았습니다."
-    },
-    "riskFactors": {
-      "title": "위험 요인",
-      "empty": "뚜렷한 위험 요인이 없습니다."
-    },
-    "impression": {
-      "title": "초기 소견",
-      "empty": "명확한 소견이 정리되지 않았습니다."
-    }
-  },
   "diagnosis": {
     "title": "진단 코드",
     "empty": "ICD-10 코드가 없습니다.",

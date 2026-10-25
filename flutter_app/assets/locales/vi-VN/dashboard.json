@@ -87,39 +87,8 @@
     "emptyMessage": "Không có cảnh báo cờ đỏ nào khớp với điều kiện",
     "groupCount": "{{count}} cảnh báo",
     "unknownComplaintFetchFailed": "Không lấy được lý do khám",
-    "sessionStatus": {
-      "waiting": "Đang chờ",
-      "inProgress": "Đang khám",
-      "completed": "Đã hoàn tất",
-      "abortedRedFlag": "Dừng do cờ đỏ",
-      "cancelled": "Đã hủy"
-    },
     "acknowledgeAll": "Xác nhận tất cả",
     "acknowledgeAllConfirm": "Đánh dấu tất cả cảnh báo cờ đỏ chưa xử lý là đã xử lý? Thao tác này không thể hoàn tác."
-  },
-  "transcript": {
-    "title": "Biên bản hội thoại khám",
-    "emptyTitle": "Hiện chưa có nội dung hội thoại để xem",
-    "loading": "Đang tải biên bản hội thoại...",
-    "messageCount": "{{count}} tin nhắn",
-    "summary": "{{patientCount}} bệnh nhân / {{assistantCount}} AI",
-    "viewFull": "Xem toàn bộ hội thoại (còn {{count}} tin)...",
-    "searchPlaceholder": "Tìm trong biên bản",
-    "filter": {
-      "all": "Tất cả",
-      "patient": "Bệnh nhân",
-      "assistant": "AI"
-    },
-    "visibleCount": "Hiển thị {{visible}} / {{total}} tin",
-    "noMatches": "Không có biên bản nào khớp với điều kiện",
-    "redFlag": "Cờ đỏ",
-    "lowConfidence": "Độ tin cậy thấp",
-    "sttConfidence": "Độ tin cậy STT: {{value}}%",
-    "roles": {
-      "patient": "Bệnh nhân",
-      "assistant": "Trợ lý AI",
-      "system": "Hệ thống"
-    }
   },
   "reportList": {
     "eyebrow": "Không gian xét duyệt",

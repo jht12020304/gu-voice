@@ -3,12 +3,14 @@
 // 所有欄位使用 camelCase，由 API 層自動轉換 snake_case
 // =============================================================================
 
+import type { UserRole } from './enums';
+
 /** 使用者 */
 export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'patient' | 'doctor' | 'admin';
+  role: UserRole;
   phone?: string;
   department?: string;
   licenseNumber?: string;
@@ -177,6 +179,10 @@ export interface PatientFacingLocalized {
 
 /** SOAP 報告 */
 export interface SOAPReport {
+  patientName?: string | null;
+  chiefComplaintText?: string | null;
+  sessionStatus?: Session['status'] | null;
+  sessionRedFlag?: boolean | null;
   id: string;
   sessionId: string;
   status: 'generating' | 'generated' | 'failed';
@@ -320,23 +326,6 @@ export interface RedFlagAlert {
   createdAt: string;
 }
 
-/** 紅旗規則 */
-export interface RedFlagRule {
-  id: string;
-  name: string;
-  description?: string;
-  category: string;
-  keywords: string[];
-  regexPattern?: string;
-  severity: 'critical' | 'high' | 'medium';
-  suspectedDiagnosis?: string;
-  suggestedAction?: string;
-  isActive: boolean;
-  createdBy?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 /** 通知 */
 export interface Notification {
   id: string;
@@ -363,18 +352,6 @@ export interface AuditLog {
   createdAt: string;
 }
 
-/** FCM 裝置 */
-export interface FCMDevice {
-  id: string;
-  userId: string;
-  deviceToken: string;
-  platform: 'ios' | 'android' | 'web';
-  deviceName?: string;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
 /** 分頁回應 */
 export interface PaginatedResponse<T> {
   data: T[];
@@ -383,16 +360,5 @@ export interface PaginatedResponse<T> {
     hasMore: boolean;
     limit: number;
     totalCount: number;
-  };
-}
-
-/** 錯誤回應 */
-export interface ErrorResponse {
-  error: {
-    code: string;
-    message: string;
-    details?: Record<string, unknown>;
-    requestId: string;
-    timestamp: string;
   };
 }

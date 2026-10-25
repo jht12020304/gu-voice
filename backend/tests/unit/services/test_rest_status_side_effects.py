@@ -62,7 +62,8 @@ class _FakeDB:
         self.commits = 0
 
     async def execute(self, stmt: Any):
-        return SimpleNamespace(scalar_one_or_none=lambda: self._user)
+        # rowcount=1：狀態轉移改走 compare-and-set，UPDATE 要回「命中」
+        return SimpleNamespace(scalar_one_or_none=lambda: self._user, rowcount=1)
 
     async def flush(self) -> None:
         self.flushed += 1
@@ -420,3 +421,48 @@ def test_language_switch_idempotent_path_does_not_broadcast(monkeypatch, wiring)
 
     assert wiring.dashboard.localized_dashboard_calls == []
     assert wiring.queue_calls == []
+
+
+# ── compare-and-set：別的行程先轉終態就不得覆寫 ─────────────────
+class _RaceDB(_FakeDB):
+    """UPDATE … WHERE status = <prev> 沒命中（rowcount=0）；重讀回 aborted_red_flag。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.updates = 0
+
+    async def execute(self, stmt: Any):
+        if str(stmt).lstrip().lower().startswith("update"):
+            self.updates += 1
+            return SimpleNamespace(rowcount=0)
+        return SimpleNamespace(
+            scalar_one_or_none=lambda: SessionStatus.ABORTED_RED_FLAG, rowcount=0
+        )
+
+
+def test_rest_status_cas_miss_raises_and_does_not_overwrite(monkeypatch, wiring):
+    """REST 以前是 read-modify-write：WS 紅旗中止後慢一拍的 PUT /status 會把
+    aborted_red_flag 蓋成 completed。現在走 CAS，沒命中就 409、記憶體物件不動、
+    不 commit、不派 SOAP。"""
+    from app.core.exceptions import InvalidStatusTransitionException
+
+    session = _FakeSession(status=SessionStatus.IN_PROGRESS)
+    _install_get_by_id(monkeypatch, session)
+    db = _RaceDB()
+
+    with pytest.raises(InvalidStatusTransitionException) as exc_info:
+        _run(
+            SessionService().update_status(
+                db,
+                session_id=session.id,
+                new_status=SessionStatus.COMPLETED,
+                current_user=_FakeUser(),
+            )
+        )
+
+    assert db.updates == 1
+    assert session.status == SessionStatus.IN_PROGRESS
+    assert session.completed_at is None
+    assert db.commits == 0
+    assert wiring.soap_calls == []
+    assert exc_info.value.details["current_status"] == "aborted_red_flag"

@@ -6,9 +6,11 @@ import '../../../core/i18n/loc.dart';
 import '../../../core/router/lng.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/api/dashboard_api.dart';
+import '../../../shared/format.dart';
 import '../../../shared/widgets/ui_kit.dart';
 import '../../auth/auth_notifier.dart';
 import '../research/charts.dart';
+import '../state/request_seq.dart';
 
 // 醫師儀表板（2026-08-22 依 design-taste-frontend 重排）。
 // 版面決策（對照重排前的截圖問題）：
@@ -33,9 +35,10 @@ class DashboardPage extends ConsumerStatefulWidget {
 class _DashboardPageState extends ConsumerState<DashboardPage> {
   MonthlySummary? _summary;
   bool _loading = true;
+  final _seq = RequestSeq();
   late DateTime _selected; // first-of-month anchor
 
-  String get _month => '${_selected.year.toString().padLeft(4, '0')}-${_selected.month.toString().padLeft(2, '0')}';
+  String get _month => monthKey(_selected);
 
   /// 月份標題：一律在前端依 URL 語系（currentLng）組出來，不用後端的 month_label——
   /// 那是硬寫中文，非中文語系的醫師會看到中英混雜的標題。
@@ -62,12 +65,19 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
+    final request = _seq.next();
     setState(() => _loading = true);
     try {
       final s = await DashboardApi().getMonthlySummary(_month);
-      if (mounted) setState(() { _summary = s; _loading = false; });
+      if (mounted && !_seq.isStale(request)) {
+        setState(() {
+          _summary = s;
+          _loading = false;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && !_seq.isStale(request)) setState(() => _loading = false);
     }
   }
 
@@ -98,12 +108,13 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
         padding: const EdgeInsets.all(20),
         children: [
           // ── 標題區：標題＋醫師名，一次講完，不再重複月份 ──
-          Text(t('common.doctor.dashboard.title'),
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            t('common.doctor.dashboard.title'),
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
           if (name.isNotEmpty) ...[
             const SizedBox(height: 2),
-            Text(name,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: tk.inkSecondary)),
+            Text(name, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: tk.inkSecondary)),
           ],
           const SizedBox(height: 16),
 
@@ -132,29 +143,26 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           const SizedBox(height: 16),
 
           // ── 快速前往：分組列表列（同寬、可掃讀），取代散排藥丸鈕 ──
-          _NavGroup(rows: [
-            _NavRowSpec(Icons.group_outlined, t('dashboard.sidebar.nav.patients'), '/patients'),
-            _NavRowSpec(Icons.description_outlined, t('dashboard.sidebar.nav.soapReports'), '/reports'),
-            _NavRowSpec(Icons.bar_chart, t('dashboard.sidebar.nav.research'), '/research'),
-          ]),
+          _NavGroup(
+            rows: [
+              _NavRowSpec(Icons.group_outlined, t('dashboard.sidebar.nav.patients'), '/patients'),
+              _NavRowSpec(Icons.description_outlined, t('dashboard.sidebar.nav.soapReports'), '/reports'),
+              _NavRowSpec(Icons.bar_chart, t('dashboard.sidebar.nav.research'), '/research'),
+            ],
+          ),
 
           // 醫師＝管理員（2026-08-22）：admin 工具列對醫師與管理員都顯示
           if ((user?.isAdmin ?? false) || (user?.isDoctor ?? false)) ...[
-            const SizedBox(height: 20),
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: 8),
-              child: Text(t('dashboard.sidebar.sections.admin'),
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelMedium
-                      ?.copyWith(color: tk.inkMuted, letterSpacing: 0.5)),
+            const SizedBox(height: 8),
+            GroupHeader(t('dashboard.sidebar.sections.admin')),
+            _NavGroup(
+              rows: [
+                _NavRowSpec(Icons.group_outlined, t('dashboard.sidebar.nav.userManagement'), '/admin/users'),
+                _NavRowSpec(Icons.list_alt, t('dashboard.sidebar.nav.complaintTemplates'), '/admin/complaints'),
+                _NavRowSpec(Icons.health_and_safety_outlined, t('dashboard.sidebar.nav.systemHealth'), '/admin/health'),
+                _NavRowSpec(Icons.receipt_long, t('dashboard.sidebar.nav.auditLogs'), '/admin/audit-logs'),
+              ],
             ),
-            _NavGroup(rows: [
-              _NavRowSpec(Icons.group_outlined, t('dashboard.sidebar.nav.userManagement'), '/admin/users'),
-              _NavRowSpec(Icons.list_alt, t('dashboard.sidebar.nav.complaintTemplates'), '/admin/complaints'),
-              _NavRowSpec(Icons.health_and_safety_outlined, t('dashboard.sidebar.nav.systemHealth'), '/admin/health'),
-              _NavRowSpec(Icons.receipt_long, t('dashboard.sidebar.nav.auditLogs'), '/admin/audit-logs'),
-            ]),
           ],
           const SizedBox(height: 20),
           if (s != null) ...[
@@ -169,7 +177,9 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
               title: t('common.doctor.dashboard.dailyTrend'),
               totalLabel: t('common.doctor.dashboard.totalSessions'),
               peakLabel: t('common.doctor.dashboard.peakDay'),
-              days: [for (final day in s.dailyTrend) (label: day.label, sessions: day.sessions, redFlags: day.redFlags)],
+              days: [
+                for (final day in s.dailyTrend) (label: day.label, sessions: day.sessions, redFlags: day.redFlags),
+              ],
             ),
           ],
         ],
@@ -207,13 +217,14 @@ class _NavGroup extends StatelessWidget {
     final tk = Theme.of(context).extension<AppTokens>()!;
     return Card(
       clipBehavior: Clip.antiAlias, // InkWell 水波不溢出圓角
-      child: Column(children: [
-        for (var i = 0; i < rows.length; i++) ...[
-          if (i > 0)
-            Divider(height: 1, thickness: 1, indent: 64, color: tk.edge),
-          _ActionRow(spec: rows[i]),
+      child: Column(
+        children: [
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) Divider(height: 1, thickness: 1, indent: 64, color: tk.edge),
+            _ActionRow(spec: rows[i]),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
@@ -230,18 +241,19 @@ class _ActionRow extends StatelessWidget {
       onTap: () => context.go(prefixLngToPath(spec.route, currentLng)),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(children: [
-          IconTile(spec.icon),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(spec.label,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyLarge
-                    ?.copyWith(color: tk.inkBody, fontWeight: FontWeight.w500)),
-          ),
-          Icon(Icons.chevron_right, size: 20, color: tk.inkMuted),
-        ]),
+        child: Row(
+          children: [
+            IconTile(spec.icon),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                spec.label,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: tk.inkBody, fontWeight: FontWeight.w500),
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 20, color: tk.inkMuted),
+          ],
+        ),
       ),
     );
   }

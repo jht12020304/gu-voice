@@ -95,6 +95,7 @@ class TtsPlaybackController {
 
   Future<void> dispose() async {
     clearQueue();
+    await stopActive(); // 進行中的 step 要先釋放，否則 chain 卡在已 dispose 的 player 上
     await _player.dispose();
   }
 }

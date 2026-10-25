@@ -6,7 +6,7 @@
 # ---------------------------------------------------------------------------
 # 階段一：建置階段 — 安裝 Python 套件
 # ---------------------------------------------------------------------------
-FROM python:3.11-slim AS builder
+FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir --prefix=/build/deps -r requirements.txt
 # ---------------------------------------------------------------------------
 # 階段二：生產階段 — 精簡映像檔
 # ---------------------------------------------------------------------------
-FROM python:3.11-slim AS production
+FROM python:3.12-slim AS production
 
 LABEL maintainer="GU Urology AI Team"
 LABEL description="泌尿科 AI 語音問診助手 — FastAPI 後端服務"

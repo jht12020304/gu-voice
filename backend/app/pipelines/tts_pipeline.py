@@ -1,14 +1,10 @@
 """
 文字轉語音管線 — OpenAI TTS API
 
-將 AI 回應文字合成為 MP3 語音，支援上傳至 Supabase Storage
-並產生簽章 URL 供前端播放。
+將 AI 回應文字合成為 MP3 語音，直接以 bytes 回給 WS 串流播放（不落地）。
 """
 
 import logging
-from typing import Any
-
-from supabase import create_client, Client as SupabaseClient
 
 from app.core.config import Settings
 from app.core.metrics import observe_tts_latency
@@ -16,16 +12,11 @@ from app.core.openai_client import call_with_retry, get_openai_client
 
 logger = logging.getLogger(__name__)
 
-_STORAGE_BUCKET = "tts-audio"
-_SIGNED_URL_EXPIRE_SECONDS = 3600  # 1 小時
-
-
 class TTSPipeline:
     """
     OpenAI TTS 管線
 
-    使用 tts-1 模型合成自然語音，輸出 MP3 格式，
-    並可選擇性地上傳至 Supabase Storage 供前端串流播放。
+    使用 tts-1 模型合成自然語音，輸出 MP3 格式。
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -36,19 +27,11 @@ class TTSPipeline:
         # LANGUAGE_MAP 規劃 ja/ko/vi 用 shimmer；這裡保留引用，synthesize 時依場次語言覆寫。
         self._language_map = settings.LANGUAGE_MAP
 
-        self._supabase: SupabaseClient | None = None
-        if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
-            self._supabase = create_client(
-                settings.SUPABASE_URL,
-                settings.SUPABASE_SERVICE_ROLE_KEY,
-            )
-
         logger.info(
-            "TTSPipeline 初始化 (OpenAI TTS) | model=%s, default_voice=%s, speed=%.1f, supabase=%s",
+            "TTSPipeline 初始化 (OpenAI TTS) | model=%s, default_voice=%s, speed=%.1f",
             self._model,
             self._voice,
             self._speed,
-            "connected" if self._supabase else "disabled",
         )
 
     def _voice_for_language(self, language: str | None) -> str:
@@ -104,71 +87,6 @@ class TTSPipeline:
             logger.error(
                 "TTS 合成失敗 | text_length=%d, error=%s",
                 len(text),
-                str(exc),
-                exc_info=True,
-            )
-            raise
-
-    async def synthesize_to_url(
-        self, text: str, session_id: str, message_id: str, language: str | None = None
-    ) -> str:
-        """
-        合成語音後上傳至 Supabase Storage，回傳簽章 URL。
-
-        Args:
-            text:       要合成語音的文字
-            session_id: 問診場次 ID
-            message_id: 訊息 ID（用於檔案命名）
-
-        Returns:
-            可播放的簽章 URL，失敗時回傳空字串
-        """
-        if self._supabase is None:
-            raise RuntimeError(
-                "Supabase 客戶端未設定，無法上傳音訊。"
-                "請確認 SUPABASE_URL 與 SUPABASE_SERVICE_ROLE_KEY 環境變數。"
-            )
-
-        audio_bytes = await self.synthesize(text, language=language)
-        if not audio_bytes:
-            return ""
-
-        # 存為 mp3
-        file_path = f"sessions/{session_id}/{message_id}.mp3"
-
-        try:
-            self._supabase.storage.from_(_STORAGE_BUCKET).upload(
-                path=file_path,
-                file=audio_bytes,
-                file_options={
-                    "content-type": "audio/mpeg",
-                    "upsert": "true",
-                },
-            )
-
-            signed_url_response = self._supabase.storage.from_(
-                _STORAGE_BUCKET
-            ).create_signed_url(
-                path=file_path,
-                expires_in=_SIGNED_URL_EXPIRE_SECONDS,
-            )
-
-            signed_url = signed_url_response.get("signedURL", "")
-
-            logger.info(
-                "TTS 音訊已上傳 | session=%s, message=%s, path=%s",
-                session_id,
-                message_id,
-                file_path,
-            )
-
-            return signed_url
-
-        except Exception as exc:
-            logger.error(
-                "TTS 音訊上傳失敗 | session=%s, message=%s, error=%s",
-                session_id,
-                message_id,
                 str(exc),
                 exc_info=True,
             )

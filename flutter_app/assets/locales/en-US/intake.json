@@ -90,17 +90,6 @@
       "conditionPlaceholder": "Condition (e.g. diabetes)",
       "add": "Add family history"
     },
-    "summary": {
-      "title": "Review before submitting",
-      "complaint": "Complaint",
-      "allergy": "Allergies",
-      "medication": "Medications",
-      "history": "History",
-      "noKnownAllergies": "No known allergies",
-      "noCurrentMedications": "No current medications",
-      "noPastHistory": "No significant history",
-      "filled": "Entered"
-    },
     "nav": {
       "back": "Back",
       "prev": "Previous",

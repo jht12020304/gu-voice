@@ -5,10 +5,10 @@
 
 1. Coverage — 比對各 locale / namespace 的 JSON key 覆蓋率,以 zh-TW 為
    reference(source of truth)。
-2. Mirror — 同一份 i18n JSON 在倉庫裡有多份拷貝(`frontend/public/locales`
-   是 vite build 鏡像、`flutter_app/assets/locales` 是 Flutter 的 asset),
-   這些鏡像沒有任何工具強制同步,靠人手維持。這裡比對「檔案集合」與
-   「每個檔的 key 集合」是否與 source of truth 一致。
+2. Mirror — `frontend/public/locales` 是 React 的 vite build 鏡像。
+   比對「檔案集合」與「每個檔的 key 集合」是否與 React source 一致。
+   iOS 與網頁持續並行維護，各端有自己的畫面與文案；Flutter assets 是
+   獨立來源，用 --locales-dir 檢查，不能當成 React 的鏡像。
 
 支援 human-readable、JSON 與 GitHub Actions Markdown summary 三種輸出,
 並以 exit code 反映檢查結果,供 CI 掛鉤。
@@ -24,6 +24,7 @@ Exit code 慣例(CI 依賴,勿改):
     python scripts/check_translations.py --github-summary
     python scripts/check_translations.py --threshold 90
     python scripts/check_translations.py --mirrors ""          # 只跑 coverage
+    python scripts/check_translations.py --locales-dir flutter_app/assets/locales
 
 設計備忘:
 - 盡量用 Python 3.12 標準庫(argparse / json / pathlib),不引入外部依賴。
@@ -33,8 +34,8 @@ Exit code 慣例(CI 依賴,勿改):
   的 skip 行為保持一致。
 - reference 的多餘 key 不會被當成 missing,但會在 extra_keys 欄位列出,
   方便 PR reviewer 發現 typo。mirror 檢查沿用同一個不對稱慣例:mirror
-  「缺」檔案或 key 才 fail,「多」出來的只 WARN — 因為 Flutter 有自己獨立
-  的畫面(例如 PNG 匯出、主訴顯示順序),那些 key 本來就只存在於 Flutter 側。
+  「缺」檔案或 key 才 fail,「多」出來的只 WARN。
+  平台專用文案由各端自己的 reference locale 管理。
 """
 
 from __future__ import annotations
@@ -53,12 +54,8 @@ DEFAULT_THRESHOLD = 95.0
 DEFAULT_BETA_LOCALES = "ja-JP,ko-KR,vi-VN"
 BETA_ALLOWED_NAMESPACES = {"common"}  # beta locale 只檢查這些 namespace
 
-# 必須與 DEFAULT_LOCALES_DIR 逐檔同步的拷貝。前者是 vite build 產出的鏡像,
-# 後者是 Flutter 的 asset;兩者都沒有工具強制同步,所以在這裡把它擋住。
-DEFAULT_MIRROR_DIRS = (
-    "frontend/public/locales",
-    "flutter_app/assets/locales",
-)
+# React build 鏡像。Flutter 是獨立客戶端，CI 另以 --locales-dir 檢查。
+DEFAULT_MIRROR_DIRS = ("frontend/public/locales",)
 
 
 # ---------------------------------------------------------------------------

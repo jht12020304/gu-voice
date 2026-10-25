@@ -7,6 +7,7 @@
 //
 // 檔名不以 _test.dart 結尾，`flutter test` 不會把它當測試檔收集。
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -14,7 +15,7 @@ import 'package:dio/dio.dart';
 import 'package:gu_voice/data/api/dio_client.dart';
 
 /// 依請求回傳 JSON（回 null＝該路徑沒設 stub，測試會直接失敗而不是靜默 404）。
-typedef StubRouter = Object? Function(RequestOptions options);
+typedef StubRouter = FutureOr<Object?> Function(RequestOptions options);
 
 bool _inited = false;
 
@@ -23,17 +24,17 @@ final sentRequests = <RequestOptions>[];
 
 /// 安裝 stub。`ApiClient.instance.dio` 是 `late final`，同一個 process 只能 init 一次，
 /// 所以這裡自己記狀態；每次呼叫都會清空 [sentRequests] 並換掉 router。
-void installApiStub(StubRouter router) {
+void installApiStub(StubRouter router, {Dio? refreshDio}) {
   if (!_inited) {
-    ApiClient.instance.init();
+    ApiClient.instance.init(refreshDio: refreshDio);
     _inited = true;
   }
   sentRequests.clear();
-  ApiClient.instance.dio.httpClientAdapter = _StubAdapter(router);
+  ApiClient.instance.dio.httpClientAdapter = StubAdapter(router);
 }
 
-class _StubAdapter implements HttpClientAdapter {
-  _StubAdapter(this.router);
+class StubAdapter implements HttpClientAdapter {
+  StubAdapter(this.router);
   final StubRouter router;
 
   @override
@@ -43,7 +44,8 @@ class _StubAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     sentRequests.add(options);
-    final body = router(options);
+    final body = await router(options);
+    if (body is ResponseBody) return body;
     if (body == null) {
       return ResponseBody.fromString('{"detail":"no stub"}', 404,
           headers: _jsonHeaders);
