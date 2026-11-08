@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../../core/config/env.dart';
 
 import '../../../core/i18n/loc.dart';
 import '../../../core/router/lng.dart';
@@ -25,6 +28,14 @@ enum _RedFlagState { redFlag, loadFailed, clear, unknown }
 /// `generating` 一律不可按——重複派 Celery 任務會讓兩份結果互相覆蓋，而且後端會先把現有
 /// 內容清空重置，中途再派一次等於把還沒寫回的那份也丟掉。UI 上是 disabled 而不是隱藏：
 /// 按鈕消失跟「沒反應」在醫師眼裡無法區分。
+/// 同一份報告在 React 網頁版的網址；[webBase] 為空（沒注入 WEB_BASE）時回 null＝不顯示按鈕。
+/// 網頁的報告路由以 sessionId 為鍵（`/:lng/reports/:sessionId`），與 App 一致。
+Uri? webReportUrl(String webBase, String lng, String sessionId) {
+  final base = webBase.trim().replaceAll(RegExp(r'/+$'), '');
+  if (base.isEmpty) return null;
+  return Uri.parse('$base/$lng/reports/${Uri.encodeComponent(sessionId)}');
+}
+
 bool canRegenerateSoapReport(String? reportStatus) =>
     reportStatus == 'generated' || reportStatus == 'failed';
 
@@ -144,6 +155,12 @@ class _SoapReportPageState extends State<SoapReportPage> {
 
   void _toast(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
+  Future<void> _openInWeb(Uri url) async {
+    // 外部 Safari：網頁需要自己的登入（App 的 token 不帶過去），登入後網頁會導回這份報告。
+    final ok = await launchUrl(url, mode: LaunchMode.externalApplication).catchError((_) => false);
+    if (!ok && mounted) _toast(t('soap.page.openInWebFailed'));
+  }
+
   Future<void> _regenerate() async {
     final r = _report;
     // 第二道防線：閘門在 UI 已判過一次，這裡再判一次（dialog 開著時狀態可能已變）。
@@ -223,6 +240,13 @@ class _SoapReportPageState extends State<SoapReportPage> {
           Tab(text: t('soap.tabs.transcript')),
         ]),
         actions: [
+          if (webReportUrl(Env.webBase, currentLng, widget.sessionId) case final url?)
+            IconButton(
+              key: const Key('open-report-in-web'),
+              icon: const Icon(Icons.open_in_browser),
+              tooltip: t('soap.page.openInWeb'),
+              onPressed: () => _openInWeb(url),
+            ),
           IconButton(
             icon: _exporting
                 ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))

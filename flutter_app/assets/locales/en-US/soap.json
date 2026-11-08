@@ -32,7 +32,9 @@
     "loadingReport": "Loading report...",
     "notGenerated": "Report has not been generated yet",
     "clinicalSummaryEyebrow": "Clinical Summary",
-    "noSummary": "No summary available yet."
+    "noSummary": "No summary available yet.",
+    "openInWeb": "Open in web",
+    "openInWebFailed": "Could not open the web page. Please try again."
   },
   "actions": {
     "viewSession": "View Session",

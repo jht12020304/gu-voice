@@ -43,6 +43,7 @@ team_id="K593X99M7G"
 # 注意：`api-` 開頭的域名是死的，不要用。
 readonly PROD_API_BASE="https://gu-voice-app-production.up.railway.app/api/v1"
 readonly PROD_WS_BASE="wss://gu-voice-app-production.up.railway.app/api/v1/ws"
+readonly PROD_WEB_BASE="https://gu-voice-chuns-projects-068de742.vercel.app"
 
 die() {
   printf '\n[錯誤] %s\n' "$1" >&2
@@ -661,6 +662,12 @@ assert_remote_url() {
 
 assert_remote_url "API_BASE" "${api_base}" "https"
 assert_remote_url "WS_BASE"  "${ws_base}"  "wss"
+if [[ -n "${WEB_BASE:-}" ]]; then web_base="${WEB_BASE}"
+elif [[ "${api_base}" == "${PROD_API_BASE}" ]]; then web_base="${PROD_WEB_BASE}"
+else die "自訂 API_BASE 時必須同時給 WEB_BASE。"; fi
+web_base="${web_base%/}"
+assert_remote_url "WEB_BASE" "${web_base}" "https"
+printf '    WEB_BASE = %s\n' "${web_base}"
 printf '    API_BASE = %s\n    WS_BASE  = %s\n' "${api_base}" "${ws_base}"
 
 # 測試期登入輔助（值與撤銷條件的權威：docs/ios_release_settings.md §8.6）。
@@ -715,6 +722,7 @@ rm -rf "${ipa_dir}"
   --export-options-plist="${export_options}" \
   --dart-define="API_BASE=${api_base}" \
   --dart-define="WS_BASE=${ws_base}" \
+  --dart-define="WEB_BASE=${web_base}" \
   ${extra_defines[@]+"${extra_defines[@]}"}
   # ↑ bash 3.2 + set -u 下空陣列的 "${arr[@]}" 會報 unbound variable，
   #   ${arr[@]+...} 是標準的安全展開寫法（正式版不帶任何 E2E define 時走空陣列）。

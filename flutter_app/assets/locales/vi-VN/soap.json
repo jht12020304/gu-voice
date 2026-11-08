@@ -32,7 +32,9 @@
     "loadingReport": "Đang tải báo cáo...",
     "notGenerated": "Báo cáo chưa được tạo",
     "clinicalSummaryEyebrow": "Tóm tắt lâm sàng",
-    "noSummary": "Hiện chưa có tóm tắt để hiển thị."
+    "noSummary": "Hiện chưa có tóm tắt để hiển thị.",
+    "openInWeb": "Mở trên web",
+    "openInWebFailed": "Không mở được trang web. Vui lòng thử lại sau."
   },
   "actions": {
     "viewSession": "Xem phiên khám",
