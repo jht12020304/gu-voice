@@ -11,7 +11,7 @@ set -euo pipefail
 #     tool/build_ios_testflight.sh --skip-checks          # 略過 analyze/test
 #     tool/build_ios_testflight.sh --build-number=202608211930
 #     BUILD_NUMBER=202608211930 tool/build_ios_testflight.sh
-#     API_BASE=... WS_BASE=... tool/build_ios_testflight.sh
+#     API_BASE=... WS_BASE=... WEB_BASE=... tool/build_ios_testflight.sh
 #
 #     # 只跑第 6 關的產物驗證，跳過簽章檢查與整個 build：
 #     tool/build_ios_testflight.sh --verify-only=build/ios/ipa/xxx.ipa
@@ -43,7 +43,7 @@ team_id="K593X99M7G"
 # 與 build_vercel_output.sh 共用；明確給的 API_BASE / WS_BASE 仍優先。
 # shellcheck source=env.production.sh
 source "${app_dir}/tool/env.production.sh"
-readonly PROD_API_BASE PROD_WS_BASE
+readonly PROD_API_BASE PROD_WS_BASE PROD_WEB_BASE
 
 die() {
   printf '\n[錯誤] %s\n' "$1" >&2
@@ -669,7 +669,21 @@ assert_remote_url() {
 
 assert_remote_url "API_BASE" "${api_base}" "https"
 assert_remote_url "WS_BASE"  "${ws_base}"  "wss"
-printf '    API_BASE = %s\n    WS_BASE  = %s\n' "${api_base}" "${ws_base}"
+
+# 醫師報告頁「在網頁開啟」的目標。連 production 後端時預設 production 網頁；
+# 自訂後端（例如 staging）必須明確給 WEB_BASE——否則 staging 包的醫師按下去會開到
+# production 網頁、看到另一套資料（或登不進去），在現場無從分辨。
+if [[ -n "${WEB_BASE:-}" ]]; then
+  web_base="${WEB_BASE}"
+elif [[ "${api_base}" == "${PROD_API_BASE}" ]]; then
+  web_base="${PROD_WEB_BASE}"
+else
+  die "自訂 API_BASE 時必須同時給 WEB_BASE（React 網頁版網址，醫師報告頁「在網頁開啟」用）。" \
+      "staging 範例：WEB_BASE=https://gu-voice-staging.vercel.app"
+fi
+web_base="${web_base%/}"
+assert_remote_url "WEB_BASE" "${web_base}" "https"
+printf '    API_BASE = %s\n    WS_BASE  = %s\n    WEB_BASE = %s\n' "${api_base}" "${ws_base}" "${web_base}"
 
 # 測試期登入輔助（值與撤銷條件的權威：docs/ios_release_settings.md §8.6）。
 # 由環境變數傳入、逐項可選；一項都沒設＝正式版行為（整段在編譯期是死碼）。
@@ -723,6 +737,7 @@ rm -rf "${ipa_dir}"
   --export-options-plist="${export_options}" \
   --dart-define="API_BASE=${api_base}" \
   --dart-define="WS_BASE=${ws_base}" \
+  --dart-define="WEB_BASE=${web_base}" \
   ${extra_defines[@]+"${extra_defines[@]}"}
   # ↑ bash 3.2 + set -u 下空陣列的 "${arr[@]}" 會報 unbound variable，
   #   ${arr[@]+...} 是標準的安全展開寫法（正式版不帶任何 E2E define 時走空陣列）。

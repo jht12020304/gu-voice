@@ -58,6 +58,7 @@ dependencies:
   # web build 完全不匯入 Firebase 程式碼。
   firebase_core: ^4.13.0
   firebase_messaging: ^16.5.0
+  url_launcher: ^6.3.3
 
 dev_dependencies:
   flutter_test:

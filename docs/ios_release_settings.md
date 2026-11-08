@@ -46,7 +46,7 @@
 | 測試帳號 | `~/.config/gu-voice/staging-acceptance.json`，只有 doctor／patient 合成帳號；檔案權限 `0600`，帳密不進 repo |
 | 證據與來源清單 | IPA 同目錄的 `artifact.json`、`build.log`、`acceptance/`；流程結果見 [效能驗收紀錄](perf_audit_2026-08-22.md) |
 
-- 兩支打包腳本（`tool/build_ios_testflight.sh`、`tool/build_vercel_output.sh`）的 production 預設 API／WS 位址只放在 `flutter_app/tool/env.production.sh`；建置時明確給 `API_BASE`／`WS_BASE` 仍優先。
+- 兩支打包腳本（`tool/build_ios_testflight.sh`、`tool/build_vercel_output.sh`）的 production 預設 API／WS（與 iOS 的 `WEB_BASE`）位址只放在 `flutter_app/tool/env.production.sh`；建置時明確給 `API_BASE`／`WS_BASE` 仍優先。
 - Kiosk 閒置自動登出只在 Flutter：dart-define `KIOSK_IDLE_TIMEOUT_SECONDS`（秒，預設 180，`0`＝停用）。React 的 `VITE_KIOSK_IDLE_TIMEOUT_MS` 已隨網頁病患端於 2026-11-08 移除。
 - DB、Redis 與 JWT 簽章金鑰獨立，未複製 production 病歷、使用者或裝置 token；AI／推播沿用既有供應商設定。驗收只建立合成資料。建立帳號用的暫時 DB TCP proxy 已移除。
 - 由 `tool/build_ios_testflight.sh` 明確指定上述 API／WS 建置，六關全過；Flutter analyze 無問題、317 tests 通過。候選包沒有內嵌 E2E／KIOSK 登入憑證，需用 staging 帳號登入。App bundle ID 沿用 §3，因此將來安裝此候選版會取代同 App 的舊版本。
@@ -132,6 +132,12 @@ WS_BASE=wss://gu-voice-app-production.up.railway.app/api/v1/ws
 
 ⚠️ `api-` 開頭的域名是死的。沒帶 dart-define 時預設是 `http://localhost:8000/api/v1`，
 裝到手機上永遠連不到後端而且被 ATS 擋，UI 只會轉圈不報原因。打包腳本第 3 關會擋。
+
+`WEB_BASE`（2026-11-08 起）＝React 網頁版網址，醫師報告頁右上「在網頁開啟」會用 Safari 開
+`<WEB_BASE>/<語言>/reports/<sessionId>`（網頁需自行登入，登入後回到該報告）。打包腳本在連
+production 後端時預設帶 `https://gu-voice-chuns-projects-068de742.vercel.app`（`tool/env.production.sh`
+的 `PROD_WEB_BASE`）；**自訂 `API_BASE`（如 staging）時必須明確給 `WEB_BASE`**（staging＝
+`https://gu-voice-staging.vercel.app`），否則第 3 關擋下。沒帶這個 define 時按鈕不顯示。
 
 ### Build number
 

@@ -32,7 +32,9 @@
     "loadingReport": "보고서를 불러오는 중...",
     "notGenerated": "보고서가 아직 생성되지 않았습니다",
     "clinicalSummaryEyebrow": "임상 요약",
-    "noSummary": "표시할 요약이 아직 없습니다."
+    "noSummary": "표시할 요약이 아직 없습니다.",
+    "openInWeb": "웹에서 열기",
+    "openInWebFailed": "웹 페이지를 열 수 없습니다. 잠시 후 다시 시도해 주세요."
   },
   "actions": {
     "viewSession": "세션 보기",

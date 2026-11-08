@@ -32,7 +32,9 @@
     "loadingReport": "載入報告...",
     "notGenerated": "報告尚未產生",
     "clinicalSummaryEyebrow": "臨床摘要",
-    "noSummary": "目前尚無可顯示的摘要。"
+    "noSummary": "目前尚無可顯示的摘要。",
+    "openInWeb": "在網頁開啟",
+    "openInWebFailed": "無法開啟網頁，請稍後再試。"
   },
   "actions": {
     "viewSession": "查看場次",

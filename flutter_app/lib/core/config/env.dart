@@ -13,6 +13,11 @@ class Env {
     defaultValue: 'ws://localhost:8000/api/v1/ws',
   );
 
+  /// React 網頁版（醫師看報告）的網址，不含結尾斜線。醫師報告頁的「在網頁開啟」
+  /// 會開 `<webBase>/<lng>/reports/<sessionId>`。沒帶這個 define（本機開發）時是空字串，
+  /// 按鈕不顯示。TestFlight 打包腳本預設帶 production 網址（tool/env.production.sh）。
+  static const webBase = String.fromEnvironment('WEB_BASE');
+
   /// Optional credentials for local/e2e login convenience.
   ///
   /// The login page only shows its fill button when both values are supplied
