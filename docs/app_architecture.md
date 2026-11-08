@@ -467,7 +467,7 @@ critical 紅旗中止、硬上限前遲到 critical、**遲到 critical 的 drai
 
 | 檢視 | 用途 | 資料來源 |
 |---|---|---|
-| 清單（預設） | 在最新 50 筆裡用狀態 tab 與關鍵字找 | `GET /sessions?limit=50` + dashboard WS 事件觸發重抓 |
+| 清單（預設） | **2026-11-08 起預設只列今天**：上方日期列 ‹ 前一天／點日期選日／後一天 ›／「全部」（＝最新 50 筆）；再用狀態 tab 與關鍵字找。每次登入回到今天；篩單日時副標顯示開始時間＋時長 | 單日：`GET /sessions?limit=100&date_from&date_to`（裝置時區位移，`sessions_list_controller.dart`）；全部：`GET /sessions?limit=50`；皆由 dashboard WS 事件觸發重抓 |
 | 日曆 | **以日期為索引**：點一天＝那天的問診，並疊一層時間管理（總時長／平均／第一場～最後一場／每場起訖與時長／兩場之間的空檔） | `GET /sessions?date_from&date_to`（游標翻完整月），前端依**裝置本地日期**分桶 |
 
 ⚠️ **日界線**：後端 `/dashboard/*` 的日／月區間是 **UTC 切日**（`dashboard_service._parse_day_range`
@@ -477,6 +477,12 @@ critical 紅旗中止、硬上限前遲到 critical、**遲到 critical 的 drai
 `sessionLocalDay` / `bucketByLocalDay`），分桶錨點是 `created_at`（與後端日期篩選比對的
 欄位一致），顯示時間用 `started_at ?? created_at`。同一個坑在其他頁面仍未修——
 見 `docs/TODO.md` §U15。
+
+**問診起訖與時長（2026-11-08，PR #124）：** iOS 報告頁標題下與逐字稿分頁頂部顯示
+`09:12:03–09:19:40 · 持續時間 7:37`，逐字稿每句標 `HH:mm:ss`；場次詳情的持續時間格同樣顯示起訖＋時長；
+網頁報告頁標題區也有同一行。來源優先序：`started_at`／`completed_at`／`duration_seconds`，缺值時用
+逐字稿第一句／最後一句的 `created_at` 補（Flutter `shared/format.dart` 的 `consultWindow`、
+React `utils/consultWindow.ts`，兩端邏輯相同）。
 
 **軟刪除問診（2026-08-23，admin 專屬）：** `DELETE /api/v1/sessions/{id}`（`require_role("admin")`，
 **刻意不套用「醫師＝管理員」**）標記 `sessions.is_deleted`，之後所有讀取路徑一律過濾掉；
