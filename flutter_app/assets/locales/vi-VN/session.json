@@ -63,7 +63,14 @@
       "emptyMessage": "Hiện không có phiên khám nào khớp với điều kiện",
       "redFlagBadge": "Cờ đỏ",
       "unknownPatient": "Bệnh nhân không rõ",
-      "chiefComplaintEmpty": "-"
+      "chiefComplaintEmpty": "-",
+      "today": "Hôm nay",
+      "yesterday": "Hôm qua",
+      "allDates": "50 phiên gần nhất",
+      "allDatesShort": "Tất cả",
+      "prevDay": "Ngày trước",
+      "nextDay": "Ngày sau",
+      "emptyDayMessage": "Dùng mũi tên hoặc chạm vào ngày để xem lại, hoặc chọn \"Tất cả\" để xem 50 phiên gần nhất."
     },
     "detail": {
       "loading": "Đang tải phiên khám...",

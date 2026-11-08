@@ -63,7 +63,14 @@
       "emptyMessage": "No consultation sessions match the current filters",
       "redFlagBadge": "Red flag",
       "unknownPatient": "Unknown patient",
-      "chiefComplaintEmpty": "-"
+      "chiefComplaintEmpty": "-",
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "allDates": "Latest 50",
+      "allDatesShort": "All",
+      "prevDay": "Previous day",
+      "nextDay": "Next day",
+      "emptyDayMessage": "Use the arrows or tap the date to look back, or switch to \"All\" for the latest 50."
     },
     "detail": {
       "loading": "Loading session...",
