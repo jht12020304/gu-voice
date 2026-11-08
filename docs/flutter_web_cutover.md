@@ -12,7 +12,7 @@ deep-link checks pass in a real browser.
 
 - Fixed staged URL: `https://gu-voice-flutter-preview.vercel.app`
 - React production URL: `https://gu-voice-chuns-projects-068de742.vercel.app`
-- React rollback deployment: `gu-voice-ktox9rgon-chuns-projects-068de742.vercel.app`
+- React rollback deployment: superseded — see CLAUDE.md「部署重點」 for the current production/rollback deployments (React became doctor report-only on 2026-11-08)
 - Verified: Flutter 3.41.3 release build, analyze, 78 tests, five locale deep links,
   security headers, Railway health/CORS, and dedicated patient test login
 - Pending blocker: real browser microphone, STT, TTS, VAD, transcript, and session completion

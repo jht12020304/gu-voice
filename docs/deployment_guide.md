@@ -8,7 +8,7 @@
 
 | 服務 | 網址 |
 |------|------|
-| **正式前端／React** (Vercel) | `https://gu-voice-chuns-projects-068de742.vercel.app` |
+| **正式前端／React** (Vercel) | `https://gu-voice-chuns-projects-068de742.vercel.app`（2026-11-08 起只給醫師看報告；iOS 醫師報告頁「在網頁開啟」也開這裡） |
 | **Flutter Web staged preview** | `https://gu-voice-flutter-preview.vercel.app`（未通過實體語音驗證前不得 promote） |
 | **後端 API** (Railway) | `https://gu-voice-app-production.up.railway.app` |
 | **健康檢查** | `https://gu-voice-app-production.up.railway.app/api/v1/health` |
@@ -60,6 +60,8 @@ cd frontend && npm run build && vercel --prod
 #    ⚠️ 正式網址 gu-voice-chuns-projects-068de742.vercel.app 的 alias 不會隨 --prod 自動移動
 #    （會釘在舊 deployment；gu-voice.vercel.app 才會自動跟上），要手動補：
 vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.app
+#    驗收：開 /zh-TW/reports/<任意id> 應被導到 /zh-TW/login（且登入後回到該報告）；
+#    rollback＝對上一個 deployment 重跑 alias set（現行與 rollback 名稱見 CLAUDE.md「部署重點」）。
 
 # 3b. Flutter Web staged build/deploy 見 docs/flutter_web_cutover.md
 
@@ -69,13 +71,13 @@ vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.a
 > **前端唯一活的網址＝`https://gu-voice-chuns-projects-068de742.vercel.app`**（2026-07-26 釐清＋切換）
 >
 > - Vercel 專案 `gu-voice`，個人 team `chuns-projects-068de742`。2026-07-26 建立並端到端驗證通過
->   （登入 → dashboard 解析出使用者 → /research 撈到真實生產資料）。
+>   （登入 → dashboard 解析出使用者 → /research 撈到真實生產資料）。2026-11-08 起網頁只剩 /reports，驗收改看報告清單。
 > - **舊網址已停用**：`project-9w0vq.vercel.app` 與 `gu-voice-jht12020304y-7696s-projects.vercel.app`
 >   （同一 deployment 的兩個 alias）在**已停用的舊 Vercel 帳號** scope 下，現帳號完全進不去
 >   （dashboard 404、`vercel inspect` 找不到），**無法再部署**；且 2026-07-26 已從
 >   Railway `CORS_ORIGINS` 移除 → **那兩個網址現在打不到 API，開了會登入失敗**。
 >   HTML 還是會載出來（Vercel 仍在服務靜態檔），所以症狀是「頁面正常但登入沒反應」。
-> - ⚠️ **kiosk 裝置的書籤／首頁必須改指新網址**，否則現場無法問診。
+> - 2026-11-08 起病患問診只在 iOS kiosk App，網頁不再提供問診（病患帳號登入網頁會被擋下），kiosk 不需要網頁書籤。
 > - ⚠️ `FRONTEND_BASE_URL` 仍指舊網址（影響重設密碼信的連結），待改。
 > - 移除舊 origin 前先確認沒有 `in_progress` 場次（`select status, count(*) from sessions group by status`），
 >   否則會把正在問診的病患打斷。回滾＝把舊 origin 加回 `CORS_ORIGINS`（env 改動約 1 分鐘 redeploy）。

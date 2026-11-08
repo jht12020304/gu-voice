@@ -189,6 +189,7 @@ xcrun altool --upload-app  -f build/ios/ipa/gu_voice.ipa -t ios \
 `IN_BETA_TESTING`、內部），**到期 2027-02-06**，Delivery UUID `735a5deb-2ff9-49da-873c-4346d4805617`。
 來源＝production 後端同版 `e41cc9e`＋PR #117 的 Flutter SOAP 頁修正＋main 的 Podfile iOS 15 下限
 ＋PR #119 的醫師報告頁「在網頁開啟」（`WEB_BASE`＝正式 React 網址，已在 .ipa 內實查）。
+確切原始碼保存在 remote 分支 **`release/ios-testflight-202611081217`**（e41cc9e 上兩個 commit；舊版打包腳本已手補 `WEB_BASE`）——下次 production 包在後端升級前都從這條分支往上疊，不要從 main 打。
 **刻意不從 main 打包**：main 的 App 會呼叫 production 尚未部署的 `GET /sessions/{id}/report`、
 `GET /dashboard/calendar`。同日稍早的 `202611081800`（`8a091a37-…`，不含網頁按鈕）已被取代；
 §0 的 staging 候選包 `202610031213` 從未上傳、已被取代。
