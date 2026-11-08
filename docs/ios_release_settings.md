@@ -185,12 +185,13 @@ xcrun altool --upload-app  -f build/ios/ipa/gu_voice.ipa -t ios \
 
 ## 7. 最近一次已確認的 TestFlight 狀態（2026-11-08）
 
-**2026-11-08 現況（ASC API 實查）**：ASC 必要協議已恢復（`/v1/builds` 回 200）。先行測試群組最新 build
-＝ **`202611081800`**（1.0.0，`VALID`、`IN_BETA_TESTING`、內部），**到期 2027-02-06**，
-Delivery UUID `8a091a37-6084-4085-9e1d-dc89469a1339`。來源＝production 後端同版 `e41cc9e`
-＋PR #117 的 Flutter SOAP 頁修正（長標籤換行、在地化標題）＋main 的 Podfile iOS 15 下限
-（Xcode 27.2 拒收 <15 的 pod）。**刻意不從 main 打包**：main 的 App 會呼叫 production 尚未部署的
-`GET /sessions/{id}/report`、`GET /dashboard/calendar`。§0 的 staging 候選包 `202610031213` 從未上傳、已被取代。
+**2026-11-08 現況（ASC API 實查）**：先行測試群組最新 build＝ **`202611081217`**（1.0.0，`VALID`、
+`IN_BETA_TESTING`、內部），**到期 2027-02-06**，Delivery UUID `735a5deb-2ff9-49da-873c-4346d4805617`。
+來源＝production 後端同版 `e41cc9e`＋PR #117 的 Flutter SOAP 頁修正＋main 的 Podfile iOS 15 下限
+＋PR #119 的醫師報告頁「在網頁開啟」（`WEB_BASE`＝正式 React 網址，已在 .ipa 內實查）。
+**刻意不從 main 打包**：main 的 App 會呼叫 production 尚未部署的 `GET /sessions/{id}/report`、
+`GET /dashboard/calendar`。同日稍早的 `202611081800`（`8a091a37-…`，不含網頁按鈕）已被取代；
+§0 的 staging 候選包 `202610031213` 從未上傳、已被取代。
 
 下表是 2026-09-09 的歷史快照。
 
