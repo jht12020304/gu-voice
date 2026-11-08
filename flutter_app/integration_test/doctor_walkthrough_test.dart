@@ -177,19 +177,6 @@ Future<void> _openTesticularRedFlagReport(
       '種子資料可能已經變動，這支測試假設的紅旗場次報告找不到了');
 }
 
-// 進了 session detail 之後，若還沒指派給自己就點「指派給我」，等成功。已指派過（重跑
-// 這支測試）就直接跳過，冪等。
-Future<void> _ensureAssignedToMe(WidgetTester tester) async {
-  final assignedLabel = t('session.doctor.detail.assignedToMe');
-  if (find.text(assignedLabel).evaluate().isNotEmpty) return;
-  final assignBtn = find.text(t('session.doctor.detail.assignToMe'));
-  expect(assignBtn, findsOneWidget, reason: 'session detail 找不到「指派給我」按鈕');
-  await tester.tap(assignBtn);
-  await _pumpFor(tester, const Duration(seconds: 10),
-      until: () => find.text(assignedLabel).evaluate().isNotEmpty);
-  await tester.pumpAndSettle();
-  expect(find.text(assignedLabel), findsOneWidget, reason: '指派給我後應該顯示「已指派給你」');
-}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -282,7 +269,6 @@ void main() {
     await _pumpFor(tester, const Duration(seconds: 10),
         until: () => find.byType(SessionDetailPage).evaluate().isNotEmpty);
     await tester.pumpAndSettle();
-    await _ensureAssignedToMe(tester);
     // 等 report status 查詢（非同步）跑完。
     await _pumpFor(tester, const Duration(seconds: 8),
         until: () => find.byType(CircularProgressIndicator).evaluate().isEmpty);
@@ -321,8 +307,6 @@ void main() {
         reason: 'StatusBadge 印出了原始 i18n key —— common. namespace 前綴又掉了');
     // 逐字稿也要有內容（不是空場次）。
     expect(find.textContaining('陰囊腫起來'), findsAtLeast(1), reason: '紅旗場次的逐字稿沒有載出病患描述');
-
-    await _ensureAssignedToMe(tester);
 
     // 迴歸背景（已修）：SessionDetailPage._load() 曾經只在 session.status=='completed' 時才
     // 去查 SOAP report 狀態，aborted_red_flag 場次即使 SOAP 已生成 _reportStatus 也永遠是 null，
