@@ -32,7 +32,8 @@
     "clinicalSummaryEyebrow": "Tóm tắt lâm sàng",
     "noSummary": "Hiện chưa có tóm tắt để hiển thị.",
     "aiConfidence": "Độ tin cậy AI {{percent}}%",
-    "backToList": "Quay lại danh sách báo cáo"
+    "backToList": "Quay lại danh sách báo cáo",
+    "consultDuration": "Thời gian khám"
   },
   "reportStatus": {
     "generated": "Đã tạo",

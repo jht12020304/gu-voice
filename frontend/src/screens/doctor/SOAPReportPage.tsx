@@ -19,7 +19,8 @@ import { useReportStore } from '../../stores/reportStore';
 import * as reportsApi from '../../services/api/reports';
 import * as sessionsApi from '../../services/api/sessions';
 import type { Session } from '../../types';
-import { formatDate } from '../../utils/format';
+import { formatDate, formatDuration } from '../../utils/format';
+import { consultWindow } from '../../utils/consultWindow';
 
 const IS_MOCK = import.meta.env.VITE_ENABLE_MOCK === 'true';
 
@@ -183,6 +184,8 @@ export default function SOAPReportPage() {
     session?.chiefComplaint?.name ||
     report.subjective?.chiefComplaint ||
     t('doctor.patient.noComplaint', '未填寫主訴');
+  const win = consultWindow(session, conversations.map((c) => c.createdAt));
+  const clock = (ms: number) => new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   return (
     <div className={`animate-fade-in space-y-6 ${!isReviewed ? 'pb-28' : ''}`}>
       <section className="card">
@@ -204,6 +207,13 @@ export default function SOAPReportPage() {
                 {complaint}
                 {report.generatedAt ? <span className="text-ink-muted"> · {formatDate(report.generatedAt)}</span> : null}
               </p>
+              {win.start != null || win.seconds != null ? (
+                <p data-testid="consult-window" className="mt-1 text-small text-ink-muted font-data">
+                  {win.start != null ? `${clock(win.start)}–${win.end != null ? clock(win.end) : ''}` : null}
+                  {win.start != null && win.seconds != null ? ' · ' : null}
+                  {win.seconds != null ? `${t('soap:page.consultDuration')} ${formatDuration(win.seconds)}` : null}
+                </p>
+              ) : null}
               <div className="mt-3 flex flex-wrap gap-2">
                 <span
                   className={`badge ${

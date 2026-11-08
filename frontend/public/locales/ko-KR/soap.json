@@ -32,7 +32,8 @@
     "clinicalSummaryEyebrow": "임상 요약",
     "noSummary": "표시할 요약이 아직 없습니다.",
     "aiConfidence": "AI 신뢰도 {{percent}}%",
-    "backToList": "보고서 목록으로"
+    "backToList": "보고서 목록으로",
+    "consultDuration": "문진 시간"
   },
   "reportStatus": {
     "generated": "생성됨",
