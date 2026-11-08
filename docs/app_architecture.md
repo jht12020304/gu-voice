@@ -478,6 +478,8 @@ critical 紅旗中止、硬上限前遲到 critical、**遲到 critical 的 drai
 欄位一致），顯示時間用 `started_at ?? created_at`。同一個坑在其他頁面仍未修——
 見 `docs/TODO.md` §U15。
 
+**場次詳情不提供「指派給我」（2026-11-08，PR #127 移除）：** 醫師本來就能操作未指派場次（後端 `_authorize_session_access`：`doctor_id` 為空或為自己），按鈕多餘；操作卡只剩完成／取消／產生報告。後端 `POST /sessions/{id}/assign` 仍在，App 不再呼叫。
+
 **問診起訖與時長（2026-11-08，PR #124）：** iOS 報告頁標題下與逐字稿分頁頂部顯示
 `09:12:03–09:19:40 · 持續時間 7:37`，逐字稿每句標 `HH:mm:ss`；場次詳情的持續時間格同樣顯示起訖＋時長；
 網頁報告頁標題區也有同一行。來源優先序：`started_at`／`completed_at`／`duration_seconds`，缺值時用
