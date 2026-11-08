@@ -34,12 +34,9 @@ const _bannedPatientWording = <String>[
   '救急外来', '応急室', '急诊', '응급실', 'cấp cứu',
 ];
 
-/// 同一份翻譯在倉庫裡的三份拷貝。`frontend/public/locales` 是 vite build 鏡像，
-/// 上一版只掃 flutter 那份 —— 病患實際看到的是 **public/ 那份**（前端執行期從
-/// public/locales 載入 namespace），漏掃它等於漏掉真正上線的那份文案。
+/// 紅旗橫幅文案的拷貝。React 網頁版的病患問診頁與 conversation 翻譯已於 2026-11-08
+/// 移除（網頁只給醫師看報告），病患實際看到的只剩 Flutter 這份。
 const _localeCopies = <String>[
-  'frontend/src/i18n/locales',
-  'frontend/public/locales',
   'flutter_app/assets/locales',
 ];
 
@@ -89,25 +86,6 @@ Map<String, dynamic>? _redFlagNs(String copy, String lng) {
 
 void main() {
   group('L2/L3：醫師向欄位不得進入病患端', () {
-    test('React 病患問診頁：red_flag_alert 不 ingest description / suggestedActions', () {
-      final code = _codeOnly(
-        _repoFile('frontend/src/screens/patient/ConversationPage.tsx').readAsStringSync(),
-        lineComment: '//',
-      );
-      // ingest 層（結構性防線）：payload 的醫師向欄位一個都不准讀進 store。
-      // 這比只掃 render 層的 `{alert.description}` 強 —— 就算日後有人在 JSX
-      // 裡寫回來，store 裡沒有值也印不出東西。
-      expect(RegExp(r'data\.description').hasMatch(code), isFalse,
-          reason: 'React 病患端把紅旗 description（醫師向臨床推理）寫進 store');
-      expect(RegExp(r'data\.suggestedActions').hasMatch(code), isFalse,
-          reason: 'React 病患端把紅旗 suggestedActions（醫囑處置）寫進 store');
-      // render 層（第二道）：不得把這兩個欄位印出來。
-      expect(RegExp(r'\{\s*alert\.(description|suggestedActions)').hasMatch(code), isFalse,
-          reason: 'React 病患端渲染了紅旗醫師向欄位，違反 kiosk 措辭鐵律');
-      expect(code.contains("t('conversation:redFlag.patientNotice')"), isTrue,
-          reason: 'React 紅旗橫幅少了病患面的 kiosk 指引 patientNotice');
-    });
-
     test('Flutter 病患問診頁：紅旗橫幅只渲染 title', () {
       final code = _codeOnly(
         _repoFile('flutter_app/lib/features/voice/screens/conversation_page.dart')
@@ -161,14 +139,6 @@ void main() {
       // reviewNotes = SOAP 報告的「審閱備註」，是醫師寫給自己/同事的內部註記。
       // 舊寫法在 patientEducation 為空時退回它 —— 後端這輪對 patientEducation
       // 加了出口過濾後，「為空」會變成常態，那個洩漏也會跟著變成常態。
-      final tsx = _codeOnly(
-        _repoFile('frontend/src/screens/patient/PatientSessionDetailPage.tsx')
-            .readAsStringSync(),
-        lineComment: '//',
-      );
-      expect(tsx.contains('reviewNotes'), isFalse,
-          reason: 'React 病患場次詳情頁引用了 reviewNotes（醫師向內部註記）');
-
       final dart = _codeOnly(
         _repoFile('flutter_app/lib/features/patient/patient_session_detail_page.dart')
             .readAsStringSync(),

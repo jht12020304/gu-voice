@@ -5,6 +5,8 @@ description: /research 研究分析頁與 /api/v1/research/analytics 的開發�
 
 # 研究分析頁開發守則
 
+> ⚠️ 2026-11-08 起 React 網頁版的 `/research` 頁已刪除，研究分析畫面只在 Flutter App（`flutter_app/lib/features/doctor/research/`）；後端 `/api/v1/research/analytics` 不變。
+
 ## Overview
 
 /research 頁是期刊級統計儀表板（箱形圖、Wilson 95% CI、森林圖、Table 1、SVG 匯出），指標對齊 DECIDE-AI / AMIE / triage / PDQI-9 / SAMPL 規範，由 WebSocket 驅動即時更新。完整規格在 [docs/research_analytics.md](../../../docs/research_analytics.md)，問診全流程對照 [docs/consultation_flow.md](../../../docs/consultation_flow.md)。

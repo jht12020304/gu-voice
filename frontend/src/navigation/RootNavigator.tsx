@@ -1,103 +1,54 @@
 // =============================================================================
 // 根路由設定 (React Router v6)
-// 支援醫師端、病患端、管理員端角色分流
-// 以 `/:lng/*` 為語言前綴；無 lng 的訪問會自動推算並 redirect。
+// 網頁版只給醫師看問診報告：登入 → 報告清單 → 報告（SOAP＋逐字稿＋快速開單）。
+// 病患問診只在 iOS kiosk App 進行。以 `/:lng/*` 為語言前綴；無 lng 的訪問會自動推算並 redirect。
 // =============================================================================
 
-import React, { type ReactNode } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
 import ErrorState from '../components/common/ErrorState';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import LanguageLayout from '../components/layout/LanguageLayout';
-import KioskIdleGuard from '../components/KioskIdleGuard';
 import { detectInitialLanguage, useCurrentLng } from '../i18n/paths';
 
 // ---- 頁面 lazy load ----
 const LoginPage = lazyWithRetry(() => import('../screens/auth/LoginPage'), 'LoginPage');
-const RegisterPage = lazyWithRetry(() => import('../screens/auth/RegisterPage'), 'RegisterPage');
 const ForgotPasswordPage = lazyWithRetry(() => import('../screens/auth/ForgotPasswordPage'), 'ForgotPasswordPage');
 const ResetPasswordPage = lazyWithRetry(() => import('../screens/auth/ResetPasswordPage'), 'ResetPasswordPage');
-const DashboardPage = lazyWithRetry(() => import('../screens/doctor/DashboardPage'), 'DashboardPage');
-const PatientListPage = lazyWithRetry(() => import('../screens/doctor/PatientListPage'), 'PatientListPage');
-const SessionDetailPage = lazyWithRetry(() => import('../screens/doctor/SessionDetailPage'), 'SessionDetailPage');
-const SOAPReportPage = lazyWithRetry(() => import('../screens/doctor/SOAPReportPage'), 'SOAPReportPage');
-const AlertListPage = lazyWithRetry(() => import('../screens/doctor/AlertListPage'), 'AlertListPage');
-const AlertDetailPage = lazyWithRetry(() => import('../screens/doctor/AlertDetailPage'), 'AlertDetailPage');
-const SessionListPage = lazyWithRetry(() => import('../screens/doctor/SessionListPage'), 'SessionListPage');
 const ReportListPage = lazyWithRetry(() => import('../screens/doctor/ReportListPage'), 'ReportListPage');
-const NotificationPage = lazyWithRetry(() => import('../screens/doctor/NotificationPage'), 'NotificationPage');
-const ResearchAnalyticsPage = lazyWithRetry(() => import('../screens/doctor/ResearchAnalyticsPage'), 'ResearchAnalyticsPage');
-const PatientDetailPage = lazyWithRetry(() => import('../screens/doctor/PatientDetailPage'), 'PatientDetailPage');
-const ConversationPage = lazyWithRetry(() => import('../screens/patient/ConversationPage'), 'ConversationPage');
-const SettingsPage = lazyWithRetry(() => import('../screens/doctor/SettingsPage'), 'SettingsPage');
-const UserManagementPage = lazyWithRetry(() => import('../screens/admin/UserManagementPage'), 'UserManagementPage');
-const ComplaintManagementPage = lazyWithRetry(() => import('../screens/admin/ComplaintManagementPage'), 'ComplaintManagementPage');
-const SystemHealthPage = lazyWithRetry(() => import('../screens/admin/SystemHealthPage'), 'SystemHealthPage');
-const AuditLogsPage = lazyWithRetry(() => import('../screens/admin/AuditLogsPage'), 'AuditLogsPage');
-
-// ---- 病患端頁面 ----
-const PatientHomePage = lazyWithRetry(() => import('../screens/patient/PatientHomePage'), 'PatientHomePage');
-const SelectComplaintPage = lazyWithRetry(() => import('../screens/patient/SelectComplaintPage'), 'SelectComplaintPage');
-const MedicalInfoPage = lazyWithRetry(() => import('../screens/patient/MedicalInfoPage'), 'MedicalInfoPage');
-const SessionCompletePage = lazyWithRetry(() => import('../screens/patient/SessionCompletePage'), 'SessionCompletePage');
-const SessionThankYouPage = lazyWithRetry(() => import('../screens/patient/SessionThankYouPage'), 'SessionThankYouPage');
-const PatientHistoryPage = lazyWithRetry(() => import('../screens/patient/PatientHistoryPage'), 'PatientHistoryPage');
-const PatientSessionDetailPage = lazyWithRetry(() => import('../screens/patient/PatientSessionDetailPage'), 'PatientSessionDetailPage');
-const PatientSettingsPage = lazyWithRetry(() => import('../screens/patient/PatientSettingsPage'), 'PatientSettingsPage');
-
-// ---- Layout ----
+const SOAPReportPage = lazyWithRetry(() => import('../screens/doctor/SOAPReportPage'), 'SOAPReportPage');
 const MainLayout = lazyWithRetry(() => import('../components/layout/MainLayout'), 'MainLayout');
-const PatientLayout = lazyWithRetry(() => import('../components/layout/PatientLayout'), 'PatientLayout');
 
-// ---- 受保護路由 ----
-function ProtectedRoute({ children }: { children?: ReactNode }) {
+function Spinner() {
+  return (
+    <div className="flex h-screen items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
+    </div>
+  );
+}
+
+// ---- 受保護路由：僅醫師／管理員 ----
+function DoctorRoute() {
   const { t } = useTranslation('common');
   const recoveryRequired = useAuthStore((s) => s.recoveryRequired);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const user = useAuthStore((s) => s.user);
   const lng = useCurrentLng();
 
-  if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
-      </div>
-    );
-  }
-
+  if (isLoading) return <Spinner />;
   if (recoveryRequired) {
     return <ErrorState message={t('common.errorTitle')} onRetry={() => void useAuthStore.getState().hydrateFromStorage()} />;
   }
-  if (!isAuthenticated) {
+  if (!isAuthenticated) return <Navigate to={`/${lng}/login`} replace />;
+  if (user && user.role === 'patient') {
+    // 病患帳號在網頁版沒有任何頁面可看；登出讓登入頁接手（避免卡在無路可走的畫面）。
+    void useAuthStore.getState().logout();
     return <Navigate to={`/${lng}/login`} replace />;
   }
-
-  return children ? <>{children}</> : <Outlet />;
-}
-
-// ---- 角色路由守衛 ----
-function RoleGuard({ allowedRoles, children }: { allowedRoles: string[]; children?: ReactNode }) {
-  const user = useAuthStore((s) => s.user);
-  const lng = useCurrentLng();
-
-  if (!user || !allowedRoles.includes(user.role)) {
-    const home = user?.role === 'patient' ? `/${lng}/patient` : `/${lng}/dashboard`;
-    return <Navigate to={home} replace />;
-  }
-
-  return children ? <>{children}</> : <Outlet />;
-}
-
-// ---- 根據角色重導首頁（已帶 lng 前綴） ----
-function RoleRedirect() {
-  const user = useAuthStore((s) => s.user);
-  const lng = useCurrentLng();
-  if (user?.role === 'patient') {
-    return <Navigate to={`/${lng}/patient`} replace />;
-  }
-  return <Navigate to={`/${lng}/dashboard`} replace />;
+  return <Outlet />;
 }
 
 // ---- 根路徑重導（`/` → `/<lng>/...`） ----
@@ -110,94 +61,36 @@ function RootRedirect() {
   );
 }
 
-// ---- Suspense 包裝 ----
-function SuspenseWrapper({ children }: { children: ReactNode }) {
-  return (
-    <React.Suspense
-      fallback={
-        <div className="flex h-screen items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
-        </div>
-      }
-    >
-      {children}
-    </React.Suspense>
-  );
+function ReportsRedirect() {
+  const lng = useCurrentLng();
+  return <Navigate to={`/${lng}/reports`} replace />;
 }
 
 export default function RootNavigator() {
   return (
     <BrowserRouter>
-      {/* Kiosk 閒置自動登出（env 開關 VITE_KIOSK_IDLE_TIMEOUT_MS，預設停用） */}
-      <KioskIdleGuard />
-      <SuspenseWrapper>
+      <React.Suspense fallback={<Spinner />}>
         <Routes>
-          {/* 根路徑 → 依偵測結果 redirect 到 `/:lng` */}
           <Route path="/" element={<RootRedirect />} />
 
-          {/* 帶 lng 前綴的主路由 */}
           <Route path="/:lng" element={<LanguageLayout />}>
-            {/* 公開路由（相對 path） */}
             <Route path="login" element={<LoginPage />} />
-            <Route path="register" element={<RegisterPage />} />
             <Route path="forgot-password" element={<ForgotPasswordPage />} />
             <Route path="reset-password" element={<ResetPasswordPage />} />
 
-            {/* 受保護路由 */}
-            <Route element={<ProtectedRoute />}>
-              {/* ── 病患端路由（PatientLayout：無 Sidebar） ── */}
-              <Route element={<RoleGuard allowedRoles={['patient', 'doctor', 'admin']} />}>
-                <Route element={<PatientLayout />}>
-                  <Route path="patient" element={<PatientHomePage />} />
-                  <Route path="patient/start" element={<SelectComplaintPage />} />
-                  <Route path="patient/medical-info" element={<MedicalInfoPage />} />
-                  <Route path="patient/history" element={<PatientHistoryPage />} />
-                  <Route path="patient/history/:sessionId" element={<PatientSessionDetailPage />} />
-                  <Route path="patient/settings" element={<PatientSettingsPage />} />
-                  <Route path="patient/session/:sessionId/complete" element={<SessionCompletePage />} />
-                  <Route path="patient/session/:sessionId/thank-you" element={<SessionThankYouPage />} />
-                </Route>
+            <Route element={<DoctorRoute />}>
+              <Route element={<MainLayout />}>
+                <Route path="reports" element={<ReportListPage />} />
+                <Route path="reports/:sessionId" element={<SOAPReportPage />} />
               </Route>
-
-              {/* 病患對話頁（全螢幕） */}
-              <Route path="conversation/:sessionId" element={<ConversationPage />} />
-
-              {/* ── 醫師端路由（MainLayout：含 Sidebar） ── */}
-              <Route element={<RoleGuard allowedRoles={['doctor', 'admin']} />}>
-                <Route element={<MainLayout />}>
-                  <Route path="dashboard" element={<DashboardPage />} />
-                  <Route path="research" element={<ResearchAnalyticsPage />} />
-                  <Route path="patients" element={<PatientListPage />} />
-                  <Route path="patients/:patientId" element={<PatientDetailPage />} />
-                  <Route path="sessions" element={<SessionListPage />} />
-                  <Route path="sessions/:sessionId" element={<SessionDetailPage />} />
-                  <Route path="reports" element={<ReportListPage />} />
-                  <Route path="reports/:sessionId" element={<SOAPReportPage />} />
-                  <Route path="alerts" element={<AlertListPage />} />
-                  <Route path="alerts/:alertId" element={<AlertDetailPage />} />
-                  <Route path="notifications" element={<NotificationPage />} />
-                  <Route path="settings" element={<SettingsPage />} />
-
-                  {/* 管理員路由 */}
-                  <Route element={<RoleGuard allowedRoles={['admin']} />}>
-                    <Route path="admin/users" element={<UserManagementPage />} />
-                    <Route path="admin/complaints" element={<ComplaintManagementPage />} />
-                    <Route path="admin/health" element={<SystemHealthPage />} />
-                    <Route path="admin/audit-logs" element={<AuditLogsPage />} />
-                  </Route>
-                </Route>
-              </Route>
+              <Route index element={<ReportsRedirect />} />
+              <Route path="*" element={<ReportsRedirect />} />
             </Route>
-
-            {/* 根據角色重導首頁：lng index 與 lng 底下的 catch-all */}
-            <Route index element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
-            <Route path="*" element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
           </Route>
 
-          {/* 未知頂層路徑（不是以合法 lng 開頭）→ 讓 LanguageLayout 接手 redirect */}
           <Route path="*" element={<RootRedirect />} />
         </Routes>
-      </SuspenseWrapper>
+      </React.Suspense>
     </BrowserRouter>
   );
 }

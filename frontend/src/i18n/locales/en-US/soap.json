@@ -27,16 +27,12 @@
     "processing": "Processing..."
   },
   "page": {
-    "reviewEyebrow": "Report Review",
-    "title": "SOAP Report",
     "loadingReport": "Loading report...",
     "notGenerated": "Report has not been generated yet",
     "clinicalSummaryEyebrow": "Clinical Summary",
-    "noSummary": "No summary available yet."
-  },
-  "actions": {
-    "viewSession": "View Session",
-    "viewPatient": "Patient Info"
+    "noSummary": "No summary available yet.",
+    "aiConfidence": "AI confidence {{percent}}%",
+    "backToList": "Back to reports"
   },
   "reportStatus": {
     "generated": "Generated",
@@ -52,27 +48,7 @@
     "redFlagSession": "Red-Flag Session",
     "redFlagLoadFailedBadge": "⚠ Failed to load red-flag status"
   },
-  "metaCard": {
-    "patient": "Patient",
-    "complaint": "Chief Complaint",
-    "sessionStatus": "Session Status",
-    "report": "Report",
-    "createdHelper": "Session created {{date}}",
-    "completedAt": "Completed at {{date}}",
-    "startedAt": "Started at {{date}}",
-    "noTimeInfo": "Time information not available yet",
-    "notGeneratedTime": "Not generated yet",
-    "reviewStatusHelper": "Review status: {{status}}",
-    "awaitingReview": "Awaiting physician review"
-  },
-  "highlights": {
-    "positive": { "title": "Key Positive Findings", "empty": "No clear positive findings identified yet." },
-    "negative": { "title": "Key Negative Findings", "empty": "No clear negative findings identified yet." },
-    "riskFactors": { "title": "Risk Factors", "empty": "No significant risk factors identified." },
-    "impression": { "title": "Preliminary Impression", "empty": "No clear impression identified yet." }
-  },
   "diagnosis": {
-    "title": "Diagnosis Codes",
     "empty": "No ICD-10 codes yet.",
     "unverified": "ICD-10 not verified — physician review required"
   },
@@ -227,15 +203,22 @@
     "success": "PDF download started",
     "error": "Failed to export PDF. Please try again later."
   },
-  "regenerate": {
-    "button": "Regenerate",
-    "loading": "Regenerating...",
-    "title": "Regenerate Report",
-    "description": "Regenerating will re-run the AI analysis on the latest transcript and overwrite the existing SOAP report. This action cannot be undone. Are you sure you want to continue?",
-    "cancel": "Cancel",
-    "confirm": "Confirm Regenerate",
-    "success": "Report regenerated",
-    "error": "Failed to regenerate report. Please try again later.",
-    "disabledGenerating": "Report is being generated — please wait until it finishes before regenerating"
+  "quickOrders": {
+    "title": "Quick orders",
+    "testsTitle": "AI-suggested tests",
+    "noTests": "The AI suggested no tests this time. You can still submit — that records \"reviewed, no tests ordered\".",
+    "selectAll": "Select all",
+    "clearAll": "Clear all",
+    "noteTitle": "Note (optional)",
+    "noteHint": "Anything you want on record for yourself or the next clinician…",
+    "submit": "Confirm and submit",
+    "submitting": "Submitting…",
+    "submitted": "Orders submitted.",
+    "submitError": "Submission failed. Please try again.",
+    "emptySelectionHint": "Nothing is selected; submitting records that no tests were ordered.",
+    "previouslyOrdered": "Previously ordered",
+    "lastOrdered": "Last submitted at {{time}}. You can reselect and submit again — the latest one counts.",
+    "reportGenerating": "Report is still generating; suggested tests will appear later",
+    "loadError": "Could not load. Check your connection and try again."
   }
 }

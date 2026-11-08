@@ -1,6 +1,6 @@
 # GU_0410 — GU Voice 泌尿科語音問診系統
 
-院內候診 Kiosk 的語音 AI 問診系統：病患已在現場、問診完成後等看診。FastAPI + Celery 共用後端、Flutter iOS App、React + Vite 網頁版、5 語言（zh-TW / en-US / ja-JP / ko-KR / vi-VN）。
+院內候診 Kiosk 的語音 AI 問診系統：病患已在現場、問診完成後等看診。FastAPI + Celery 共用後端、Flutter iOS App（病患 kiosk＋醫師＋管理員）、React + Vite 網頁版（**只給醫師看報告**）、5 語言（zh-TW / en-US / ja-JP / ko-KR / vi-VN）。
 
 ## 專案結構
 
@@ -13,7 +13,9 @@ backend/            → FastAPI + Celery。app/pipelines/ 問診管線（llm_con
                       `_after_status_transition` 呼叫入口，另兩格認的是「寫終態」本身）。
                       必須留在 tests/unit/ **根**：檔內用 `parents[2]` 硬推 `backend/`，
                       移進子目錄會讓路徑推導掉一層
-frontend/           → 持續維護的 React + Vite + TS 網頁版。
+frontend/           → 持續維護的 React + Vite + TS 網頁版。2026-11-08 起 React 網頁版只剩醫師看報告（登入 → 報告清單 → 報告頁：患者名稱、紅旗、SOAP、逐字稿、確認／退回、匯出 PDF、快速開單），病患問診與其餘醫師／管理頁只在 iOS App。
+                      路由只有 /:lng/{login,forgot-password,reset-password,reports,reports/:sessionId}，
+                      其餘路徑一律導回 /reports；病患帳號在網頁登入會被擋下並登出。
                       src/i18n/locales/ 是網頁翻譯來源；public/locales/ 是 build 鏡像。
 flutter_app/        → 持續維護的 Flutter iOS App，與 React 共用 backend/ API。
                       kiosk iPad 跑病患問診，醫師／管理員使用同一 App，依角色分流。
@@ -60,11 +62,11 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 
 | Skill | 何時載入 |
 |---|---|
-| `voice-pipeline-invariants` | 動到問診對話流程（前端 conversationStore / ConversationPage、後端 app/pipelines/）之前 |
+| `voice-pipeline-invariants` | 動到問診對話流程（Flutter `features/voice/`、後端 app/pipelines/）之前；React 的問診前端已於 2026-11-08 移除 |
 | `e2e-real-openai` | 需要用真 OpenAI 驗證問診行為改動時（管線/prompt 改動的合併前置條件） |
 | `i18n-language-consistency` | 動到語言切換、翻譯檔、或顯示在地化資料的頁面時（React 與 Flutter 各自執行 `check_translations.py`，Flutter 指定 `--locales-dir flutter_app/assets/locales`） |
 | `deploy-production` | 部署、改部署設定、生產環境除錯（DB timeout、連線問題）時 |
-| `research-analytics` | 動到 /research 分析頁或 /api/v1/research/analytics 時 |
+| `research-analytics` | 動到 Flutter 研究分析頁或 /api/v1/research/analytics 時（React /research 頁已於 2026-11-08 移除） |
 | `ios-testflight` | 打 iOS TestFlight 包、處理簽章／上傳／內部測試群組，或動到 `flutter_app/ios/` 與打包腳本時 |
 | `design-taste-frontend` | 改任何前端視覺（頁面、按鈕、配色、版面）之前——taste-skill 的反樣板規則（2026-08-22 引入；登入頁重設計與全頁面統一皆依它）。**共用元件一律用 `flutter_app/lib/shared/widgets/ui_kit.dart`**（IconTile/PillTag/GroupHeader/Empty/Error/Skeleton/StatCell/MonthStatsCard，檔頭載明兩形系統等規則），別在頁面裡手刻樣式 |
 
@@ -74,7 +76,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 - Always：改 `backend/scripts/start.sh` 後保留 executable bit（`git update-index --chmod=+x`），否則 Railway 部署失敗
 - Always：動語音管線或 SOAP prompt 前先讀 `voice-pipeline-invariants`；改完跑 `e2e-real-openai` 驗證
 - Always：病患面措辭用「請稍候等看診」「請告知現場醫護」——部署情境是院內 kiosk，病患已在現場，禁用含糊的「盡速就醫」
-- Always：iOS 與 React 都持續維護；共用功能修改需檢查兩端行為與五語文案，各端翻譯以自己的來源檔為準。平台專用 key 不必跨端複製
+- Always：iOS 與 React 都持續維護；共用功能（目前只剩醫師報告頁：SOAP、逐字稿、審閱、PDF、快速開單）修改需檢查兩端行為與五語文案，各端翻譯以自己的來源檔為準。平台專用 key 不必跨端複製。網頁版刻意不提供病患問診與其他頁面，別把刪掉的頁面加回來
 - Always：`flutter_app` 新增路由要用 `_lngKeyed()` 包住，否則只切語言時頁面文字不會變（`t()` 讀全域 `currentLng`，非 reactive）
 - Always：`flutter_app` 的指令一律用 **`fvm flutter`**（`.fvmrc` 釘 3.41.3），不要用 PATH 上的裸 `flutter`（homebrew 3.47.0）——3.47 的 SPM 預設開，會把 `.flutter-plugins-dependencies` 翻成 `swift_package_manager_enabled=true` 並動到 `ios/Podfile.lock`。2026-08-21 為此誤判成「SPM／CocoaPods 半切換要做架構決策」，實際只是跑錯 SDK；改用 fvm 後 `pod install` 對 `Podfile.lock` 零變動
 - Always：`patient_info` 一律走 `app/pipelines/patient_context.build_patient_info`——WS 與 Celery SOAP 兩條路徑共用。曾經各組一份，Celery 那份不讀 `sessions.intake_data`，SOAP 對家族史寫「未提供」而 intake 明載父親膀胱癌（TODO R1）

@@ -15,8 +15,10 @@
 | 產品／服務 | 程式碼 | 開發與驗證 |
 |---|---|---|
 | iOS App（病患 kiosk、醫師、管理員） | `flutter_app/` | 在該目錄用 `fvm flutter run`；`fvm flutter analyze`、`fvm flutter test` |
-| 網頁版（React + Vite） | `frontend/` | Node ≥ 22.17；`npm ci`、`npm run dev`；`npm run lint`、`npm run type-check`、`npm test`、`npm run test:e2e`、`npm run build` |
+| 網頁版（React + Vite）——**只給醫師看問診報告**（2026-11-08 起） | `frontend/` | Node ≥ 22.17；`npm ci`、`npm run dev`；`npm run lint`、`npm run type-check`、`npm test`、`npm run test:e2e`、`npm run build` |
 | 共用 REST／WebSocket／背景工作 | `backend/` | FastAPI + Celery；`venv/bin/pytest tests/unit -q`，整合測試依各測試所需的本機服務執行 |
+
+**網頁版範圍（2026-11-08）**：2026-11-08 起 React 網頁版只剩醫師看報告（登入 → 報告清單 → 報告頁：患者名稱、紅旗、SOAP、逐字稿、確認／退回、匯出 PDF、快速開單），病患問診與其餘醫師／管理頁只在 iOS App。網頁版只用到 `/reports`、`/reports/{id}`（審閱、PDF）、`/sessions/{id}`、`/sessions/{id}/conversations`、`/sessions/{id}/exam-orders` 與 dashboard WS（報告清單即時刷新）。
 
 Flutter Web 保留為預覽用途；既有切換文件不代表要替換 React。iOS 發佈仍依 [TestFlight 設定](ios_release_settings.md)；網頁與後端依 [部署指南](deployment_guide.md) 手動部署。
 
@@ -37,7 +39,7 @@ python scripts/check_translations.py --locales-dir flutter_app/assets/locales
 | 紅旗偵測（規則層設計＋偏誤報政策） | [app_architecture.md §2.3.2](app_architecture.md)；**改關鍵字或抑制守衛前必讀** [TODO.md](TODO.md) §R-lessons |
 | 問診端到端流程 | [consultation_flow.md](consultation_flow.md) |
 | 一場問診的資料落地（含 **admin 軟刪除**的欄位與覆蓋範圍） | [session_data_inventory.md](session_data_inventory.md) |
-| /research 研究分析 | [research_analytics.md](research_analytics.md) |
+| 研究分析（iOS App；React /research 頁已移除） | [research_analytics.md](research_analytics.md) |
 | 部署方法（手動兩步） | [deployment_guide.md](deployment_guide.md) 一、＋ `.claude/skills/deploy-production`；env/dashboard 操作細節見 [AGENTS.md](AGENTS.md) |
 | env 變數 / dashboard 操作 | [deployment_guide.md](deployment_guide.md) |
 | **iOS／TestFlight 設定值（唯一權威來源）** | [ios_release_settings.md](ios_release_settings.md)——Team ID、bundle ID、SKU、ExportOptions、憑證與金鑰位置、上傳指令、目前上線的 build。**值只留這一份**；操作流程見 [deployment_guide.md](deployment_guide.md) 二、，決策與踩過的坑見 `.claude/skills/ios-testflight`，現況與 PHI 風險見 [TODO.md](TODO.md) §V8 |

@@ -27,16 +27,12 @@
     "processing": "處理中..."
   },
   "page": {
-    "reviewEyebrow": "報告審閱",
-    "title": "SOAP 報告",
     "loadingReport": "載入報告...",
     "notGenerated": "報告尚未產生",
     "clinicalSummaryEyebrow": "臨床摘要",
-    "noSummary": "目前尚無可顯示的摘要。"
-  },
-  "actions": {
-    "viewSession": "查看場次",
-    "viewPatient": "病患資料"
+    "noSummary": "目前尚無可顯示的摘要。",
+    "aiConfidence": "AI 信心 {{percent}}%",
+    "backToList": "返回報告列表"
   },
   "reportStatus": {
     "generated": "已產生",
@@ -52,27 +48,7 @@
     "redFlagSession": "紅旗場次",
     "redFlagLoadFailedBadge": "⚠ 紅旗狀態載入失敗"
   },
-  "metaCard": {
-    "patient": "病患",
-    "complaint": "主訴",
-    "sessionStatus": "場次狀態",
-    "report": "報告",
-    "createdHelper": "場次建立 {{date}}",
-    "completedAt": "完成於 {{date}}",
-    "startedAt": "開始於 {{date}}",
-    "noTimeInfo": "尚未取得時間資訊",
-    "notGeneratedTime": "尚未產生時間",
-    "reviewStatusHelper": "審閱狀態：{{status}}",
-    "awaitingReview": "等待醫師審閱"
-  },
-  "highlights": {
-    "positive": { "title": "重要陽性", "empty": "目前沒有整理出明確的陽性症狀。" },
-    "negative": { "title": "重要陰性", "empty": "目前沒有整理出明確的陰性症狀。" },
-    "riskFactors": { "title": "風險因子", "empty": "目前沒有明顯風險因子。" },
-    "impression": { "title": "初步判斷", "empty": "目前沒有整理出明確判斷。" }
-  },
   "diagnosis": {
-    "title": "診斷索引",
     "empty": "目前沒有 ICD-10 編碼。",
     "unverified": "ICD-10 未驗證，請醫師確認"
   },
@@ -227,15 +203,22 @@
     "success": "PDF 已開始下載",
     "error": "PDF 匯出失敗，請稍後再試"
   },
-  "regenerate": {
-    "button": "重新產生",
-    "loading": "重新產生中...",
-    "title": "重新產生報告",
-    "description": "重新產生會以最新逐字稿重新執行 AI 分析，並覆蓋現有 SOAP 報告內容，此動作無法復原。確定要繼續嗎？",
-    "cancel": "取消",
-    "confirm": "確認重新產生",
-    "success": "報告已重新產生",
-    "error": "報告重新產生失敗，請稍後再試",
-    "disabledGenerating": "報告產生中，請待完成後再重新產生"
+  "quickOrders": {
+    "title": "快速開單",
+    "testsTitle": "AI 建議檢查",
+    "noTests": "AI 這次沒有建議任何檢查項目。仍可直接送出，代表「已看過、這次不開檢查」。",
+    "selectAll": "全選",
+    "clearAll": "全部取消",
+    "noteTitle": "備註（選填）",
+    "noteHint": "給自己或後續人員的補充說明…",
+    "submit": "確認送出",
+    "submitting": "送出中…",
+    "submitted": "檢查單已送出。",
+    "submitError": "送出失敗，請稍後再試。",
+    "emptySelectionHint": "目前未勾選任何項目；送出代表這次不開檢查。",
+    "previouslyOrdered": "先前開立",
+    "lastOrdered": "上次於 {{time}} 送出，可重新勾選再送，以最新一次為準。",
+    "reportGenerating": "報告生成中，建議檢查稍後才會出現",
+    "loadError": "載入失敗，請確認網路後重試。"
   }
 }

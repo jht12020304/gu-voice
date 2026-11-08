@@ -1,30 +1,21 @@
 // =============================================================================
-// 使用者選單（Header / PatientLayout 共用）— 頭像按鈕 + 下拉（姓名/email、自訂項目、登出）
+// 使用者選單 — 頭像按鈕 + 下拉（姓名/email、登出）
 // =============================================================================
 
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
 import { useLocalizedNavigate } from '../../i18n/paths';
 import { useClickOutside } from '../../hooks/useClickOutside';
-
-export interface UserMenuItem {
-  label: string;
-  to: string;
-  icon: ReactNode;
-  /** 強調樣式（例如「返回管理後台」） */
-  emphasized?: boolean;
-}
 
 interface UserMenuProps {
   /** user.name 缺省時的顯示文字 */
   fallbackLabel: string;
   /** user.name 缺省時的頭像字母 */
   fallbackInitial: string;
-  items: UserMenuItem[];
 }
 
-export default function UserMenu({ fallbackLabel, fallbackInitial, items }: UserMenuProps) {
+export default function UserMenu({ fallbackLabel, fallbackInitial }: UserMenuProps) {
   const navigate = useLocalizedNavigate();
   const { t } = useTranslation('common');
   const user = useAuthStore((s) => s.user);
@@ -64,20 +55,6 @@ export default function UserMenu({ fallbackLabel, fallbackInitial, items }: User
             <p className="text-body font-medium text-ink-heading dark:text-white">{user?.name}</p>
             <p className="text-tiny text-ink-muted">{user?.email}</p>
           </div>
-          {items.map((item) => (
-            <button
-              key={item.to}
-              className={
-                item.emphasized
-                  ? 'flex w-full items-center gap-2 border-b border-edge px-4 py-2.5 text-body font-medium text-primary-600 hover:bg-surface-tertiary dark:border-dark-border dark:text-primary-400 dark:hover:bg-dark-hover'
-                  : 'flex w-full items-center gap-2 px-4 py-2.5 text-body text-ink-body hover:bg-surface-tertiary dark:text-dark-text-secondary dark:hover:bg-dark-hover'
-              }
-              onClick={() => { navigate(item.to); setMenuOpen(false); }}
-            >
-              {item.icon}
-              {item.label}
-            </button>
-          ))}
           <button
             className="flex w-full items-center gap-2 px-4 py-2.5 text-body text-alert-critical hover:bg-alert-critical-bg"
             onClick={handleLogout}

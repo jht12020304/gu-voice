@@ -1,8 +1,6 @@
 // =============================================================================
 // LanguageSwitcher — UI 語言切換按鈕（下拉式）
 // 點擊只改 URL `/:lng` 前綴（URL 是語言唯一權威）；i18next / <html lang> 由 LanguageLayout 依 URL 同步。
-// M16：偵測 active session（waiting/in_progress）時先出 modal 要求確認，
-// 確認後呼叫 end-for-language-switch 結束場次再切。
 // =============================================================================
 
 import { useEffect, useRef, useState } from 'react';
@@ -14,9 +12,7 @@ import i18n, { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../../i18n';
 import { buildSwitchedPath, useCurrentLng } from '../../i18n/paths';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { useAuthStore } from '../../stores/authStore';
-import { useConversationStore } from '../../stores/conversationStore';
 import * as authApi from '../../services/api/auth';
-import * as sessionsApi from '../../services/api/sessions';
 
 interface LanguageSwitcherProps {
   /** 緊湊模式（只顯示 icon + 兩字縮寫），預設 true — 適合 Header */
@@ -31,19 +27,11 @@ const SHORT_LABELS: Record<SupportedLanguage, string> = {
   'vi-VN': 'VI',
 };
 
-type ActiveStatus = 'waiting' | 'in_progress';
-
-function isActiveSessionStatus(status: string | undefined): status is ActiveStatus {
-  return status === 'waiting' || status === 'in_progress';
-}
-
 export default function LanguageSwitcher({ compact = true }: LanguageSwitcherProps) {
   const { t } = useTranslation('common');
   const language = useCurrentLng();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
-  const currentSession = useConversationStore((s) => s.currentSession);
-  const resetSession = useConversationStore((s) => s.resetSession);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -55,22 +43,17 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
   };
 
   const [open, setOpen] = useState(false);
-  const [pendingLng, setPendingLng] = useState<SupportedLanguage | null>(null);
-  const [switching, setSwitching] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useClickOutside(rootRef, () => setOpen(false));
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        setOpen(false);
-        if (!switching) setPendingLng(null);
-      }
+      if (e.key === 'Escape') setOpen(false);
     }
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [switching]);
+  }, []);
 
   const persistPreference = (lng: SupportedLanguage) => {
     if (!(isAuthenticated && user && user.preferredLanguage !== lng)) return;
@@ -102,52 +85,8 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
       return;
     }
 
-    // M16：進行中場次需先 end session
-    if (currentSession && isActiveSessionStatus(currentSession.status)) {
-      setPendingLng(lng);
-      return;
-    }
 
     applyLanguageLocally(lng);
-  };
-
-  const handleCancelModal = () => {
-    if (switching) return;
-    setPendingLng(null);
-  };
-
-  const handleConfirmEndAndSwitch = async () => {
-    if (!pendingLng || !currentSession) return;
-    setSwitching(true);
-    try {
-      await sessionsApi.endSessionForLanguageSwitch(currentSession.id, pendingLng);
-      resetSession();
-      // 刻意**不**用 syncUrlLng：`currentSession` 只在 ConversationPage 存在，所以走到這裡
-      // 目前 URL 必定是 `/:lng/conversation/:id`，而那場次剛剛已被後端轉成 cancelled。
-      // 換上新 lng 的同一條路徑等於把病患留在一個已死場次的問診頁（React 不會因為只換
-      // `:lng` 就重掛元件 → currentSession 已被 resetSession 清空 → 畫面卡在 LoadingSpinner，
-      // 且 WS 還連著一場 cancelled 的場次）。導回該語言的病患首頁，病患可直接用新語言
-      // 重新開始問診——這也是確認框文案（switchModal.description）承諾的下一步。
-      navigate(`/${pendingLng}/patient`, { replace: true });
-      persistPreference(pendingLng);
-      // 導頁後畫面已是新語言，提示也要用新語言 —— 與 Flutter `switchLanguage` 對齊。
-      // `i18n.changeLanguage` 是非同步的（新 locale 的 JSON 還在載），
-      // 直接 toast 會拿到舊語言的字串，在英文首頁上跳出一句中文（Playwright 實測到）；
-      // 光傳 `{ lng }` 也不夠，資源沒載完一樣 fallback。故先等資源到位再提示。
-      // 失敗不擋流程：語言已切、場次已收，提示退回目前語言仍是正確資訊。
-      await i18n.changeLanguage(pendingLng).catch(() => undefined);
-      toast.success(
-        t('language.switchModal.switchedEnded', {
-          lng: pendingLng,
-          name: t(`language.names.${pendingLng}`, { lng: pendingLng }),
-        }),
-      );
-      setPendingLng(null);
-    } catch {
-      toast.error(t('language.switchModal.switchFailed'));
-    } finally {
-      setSwitching(false);
-    }
   };
 
   const currentName = t(`language.names.${language}`);
@@ -230,52 +169,6 @@ export default function LanguageSwitcher({ compact = true }: LanguageSwitcherPro
         </div>
       )}
 
-      {pendingLng && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="language-switch-modal-title"
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
-          data-testid="language-switch-modal"
-        >
-          <div className="w-full max-w-md rounded-panel bg-surface-primary p-5 shadow-elevated dark:bg-dark-card">
-            <h2
-              id="language-switch-modal-title"
-              className="text-heading font-semibold text-ink-primary dark:text-dark-text-primary"
-            >
-              {t('language.switchModal.title')}
-            </h2>
-            <p className="mt-3 text-body text-ink-body dark:text-dark-text-secondary">
-              {t('language.switchModal.description', {
-                from: t(`language.names.${language}`),
-                to: t(`language.names.${pendingLng}`),
-              })}
-            </p>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                className="btn-ghost px-4 py-2"
-                onClick={handleCancelModal}
-                disabled={switching}
-                data-testid="language-switch-modal-cancel"
-              >
-                {t('language.switchModal.cancel')}
-              </button>
-              <button
-                type="button"
-                className="btn-primary px-4 py-2"
-                onClick={handleConfirmEndAndSwitch}
-                disabled={switching}
-                data-testid="language-switch-modal-confirm"
-              >
-                {switching
-                  ? t('language.switchModal.switching')
-                  : t('language.switchModal.confirm')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

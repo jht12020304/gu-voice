@@ -30,15 +30,9 @@ export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 //   2) 加進下方 ALL_NAMESPACES 陣列
 export const ALL_NAMESPACES = [
   'common',
-  'conversation',
-  'ws',
-  'intake',
   'soap',
   'dashboard',
-  'session',
-  'admin',
   'auth',
-  'research',
 ] as const;
 
 // URL 是語言的唯一權威（CLAUDE.md）。開機時直接從路徑取 lng，避免 LanguageDetector

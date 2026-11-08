@@ -47,7 +47,7 @@
 | 證據與來源清單 | IPA 同目錄的 `artifact.json`、`build.log`、`acceptance/`；流程結果見 [效能驗收紀錄](perf_audit_2026-08-22.md) |
 
 - 兩支打包腳本（`tool/build_ios_testflight.sh`、`tool/build_vercel_output.sh`）的 production 預設 API／WS 位址只放在 `flutter_app/tool/env.production.sh`；建置時明確給 `API_BASE`／`WS_BASE` 仍優先。
-- Kiosk 閒置自動登出兩端各自設定：React `VITE_KIOSK_IDLE_TIMEOUT_MS`（毫秒，預設 0＝停用）；Flutter dart-define `KIOSK_IDLE_TIMEOUT_SECONDS`（秒，預設 180，`0`＝停用）。
+- Kiosk 閒置自動登出只在 Flutter：dart-define `KIOSK_IDLE_TIMEOUT_SECONDS`（秒，預設 180，`0`＝停用）。React 的 `VITE_KIOSK_IDLE_TIMEOUT_MS` 已隨網頁病患端於 2026-11-08 移除。
 - DB、Redis 與 JWT 簽章金鑰獨立，未複製 production 病歷、使用者或裝置 token；AI／推播沿用既有供應商設定。驗收只建立合成資料。建立帳號用的暫時 DB TCP proxy 已移除。
 - 由 `tool/build_ios_testflight.sh` 明確指定上述 API／WS 建置，六關全過；Flutter analyze 無問題、317 tests 通過。候選包沒有內嵌 E2E／KIOSK 登入憑證，需用 staging 帳號登入。App bundle ID 沿用 §3，因此將來安裝此候選版會取代同 App 的舊版本。
 - 2026-10-03 ASC `/v1/apps` 與 `/v1/builds` 回 **403 `FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`**。使用者決定稍後處理協議；未執行 Apple validate、upload 或群組分發。帳號持有人可至 [App Store Connect Business](https://appstoreconnect.apple.com/business) 處理，完成後才能重新查最新 build 號。

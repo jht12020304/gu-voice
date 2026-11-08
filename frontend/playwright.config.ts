@@ -1,26 +1,19 @@
 // =============================================================================
 // Playwright 設定 — e2e 測試
-// 啟動三個 vite dev server（mock 模式、角色不同）：
-//   5175 VITE_MOCK_ROLE=patient → project `chromium`（病患端 / i18n spec）
-//   5176 VITE_MOCK_ROLE=doctor  → project `chromium-doctor`（tests/e2e/doctor_*.spec.ts）
-//   5177 VITE_MOCK_ROLE=admin   → project `chromium-admin`（tests/e2e/admin_*.spec.ts）
-// 以 chromium 為唯一 browser。預設語系 en-US，i18n spec 會各自切換語系驗證。
+// 網頁版只剩醫師看報告：啟動一個 mock 模式 vite dev server（VITE_MOCK_ROLE=doctor）。
+// 以 chromium 為唯一 browser。預設語系 en-US。
 // =============================================================================
 
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = Number(process.env.PW_PORT || 5175);
-const DOCTOR_PORT = Number(process.env.PW_DOCTOR_PORT || 5176);
-const ADMIN_PORT = Number(process.env.PW_ADMIN_PORT || 5177);
+const PORT = Number(process.env.PW_DOCTOR_PORT || 5176);
 const BASE_URL = `http://localhost:${PORT}`;
-const DOCTOR_BASE_URL = `http://localhost:${DOCTOR_PORT}`;
-const ADMIN_BASE_URL = `http://localhost:${ADMIN_PORT}`;
 
 // 強制 mock 模式 + 提供必要 VITE_ 變數，避免測試依賴後端 / Supabase
-function devServer(role: 'patient' | 'doctor' | 'admin', port: number) {
+function devServer(port: number) {
   return {
     command:
-      `VITE_ENABLE_MOCK=true VITE_MOCK_ROLE=${role} ` +
+      `VITE_ENABLE_MOCK=true VITE_MOCK_ROLE=doctor ` +
       'VITE_API_BASE_URL=http://localhost:8000/api/v1 ' +
       'VITE_WS_BASE_URL=ws://localhost:8000/api/v1/ws ' +
       'VITE_SUPABASE_URL=http://localhost:54321 ' +
@@ -57,22 +50,6 @@ export default defineConfig({
     video: 'retain-on-failure',
     viewport: { width: 1280, height: 800 },
   },
-  projects: [
-    {
-      name: 'chromium',
-      testIgnore: [/doctor_.*\.spec\.ts/, /admin_.*\.spec\.ts/],
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'chromium-doctor',
-      testMatch: /doctor_.*\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'], baseURL: DOCTOR_BASE_URL },
-    },
-    {
-      name: 'chromium-admin',
-      testMatch: /admin_.*\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'], baseURL: ADMIN_BASE_URL },
-    },
-  ],
-  webServer: [devServer('patient', PORT), devServer('doctor', DOCTOR_PORT), devServer('admin', ADMIN_PORT)],
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  webServer: [devServer(PORT)],
 });
