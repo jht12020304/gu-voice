@@ -63,7 +63,14 @@
       "emptyMessage": "目前沒有符合條件的問診場次",
       "redFlagBadge": "紅旗",
       "unknownPatient": "未知病患",
-      "chiefComplaintEmpty": "-"
+      "chiefComplaintEmpty": "-",
+      "today": "今天",
+      "yesterday": "昨天",
+      "allDates": "最新 50 筆",
+      "allDatesShort": "全部",
+      "prevDay": "前一天",
+      "nextDay": "後一天",
+      "emptyDayMessage": "按左右箭頭或點日期往前查，或切到「全部」看最新 50 筆。"
     },
     "detail": {
       "loading": "載入場次...",
