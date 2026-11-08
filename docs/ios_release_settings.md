@@ -7,7 +7,7 @@
 > - 決策、陷阱、被推翻過的錯誤修法 → [`.claude/skills/ios-testflight/SKILL.md`](../.claude/skills/ios-testflight/SKILL.md)
 > - 現況、未解的資料風險、加第 2 個測試人員的前置條件 → [`TODO.md`](TODO.md) §V8
 >
-> 最後更新：2026-10-03（staging 候選包已備妥；Apple 必要協議阻擋 ASC，尚未上傳）
+> 最後更新：2026-11-08（ASC 協議已恢復；production build `202611081800` 已上傳並掛先行測試群組）
 >
 > ⚠️ **build 號的權威是 App Store Connect，不是這份文件。** 2026-09-03～09-09 之間本檔
 > 自相矛盾過：這一行與下方 §7 表格寫 `202609030302`，而 §4 與其他段落寫 `202609030649`，
@@ -177,9 +177,16 @@ xcrun altool --upload-app  -f build/ios/ipa/gu_voice.ipa -t ios \
 
 `notarytool` 是 macOS 公證用的，與 iOS 上架無關，不要拿來傳 .ipa。
 
-## 7. 最近一次已確認的 TestFlight 狀態（2026-09-09）
+## 7. 最近一次已確認的 TestFlight 狀態（2026-11-08）
 
-以下是最後成功查得的歷史狀態。2026-10-03 ASC 受協議阻擋，無法確認目前最新 build 與群組狀態；§0 的 staging 候選包尚未上傳。
+**2026-11-08 現況（ASC API 實查）**：ASC 必要協議已恢復（`/v1/builds` 回 200）。先行測試群組最新 build
+＝ **`202611081800`**（1.0.0，`VALID`、`IN_BETA_TESTING`、內部），**到期 2027-02-06**，
+Delivery UUID `8a091a37-6084-4085-9e1d-dc89469a1339`。來源＝production 後端同版 `e41cc9e`
+＋PR #117 的 Flutter SOAP 頁修正（長標籤換行、在地化標題）＋main 的 Podfile iOS 15 下限
+（Xcode 27.2 拒收 <15 的 pod）。**刻意不從 main 打包**：main 的 App 會呼叫 production 尚未部署的
+`GET /sessions/{id}/report`、`GET /dashboard/calendar`。§0 的 staging 候選包 `202610031213` 從未上傳、已被取代。
+
+下表是 2026-09-09 的歷史快照。
 
 | 項目 | 4 人全群組 | 先行測試群組 |
 |---|---|---|
