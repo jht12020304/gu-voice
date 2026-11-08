@@ -59,14 +59,14 @@
 | Flutter | `fvm flutter analyze --no-pub` 無問題；`fvm flutter test --no-pub` **317 通過**；[smoothness_regression_test.dart](../flutter_app/test/smoothness_regression_test.dart)、[conversation_page_ux_test.dart](../flutter_app/test/conversation_page_ux_test.dart)。使用釘定 Flutter 3.41.3。 |
 | iOS 編譯／啟動 | Xcode 27、arm64 iOS 27 模擬器編譯成功；全新 `GU Smoothness Acceptance` 模擬器啟動到登入頁。此為 debug smoke，不當作 profile 效能成績。 |
 | React | `npm run lint`、`npm test`（14 個測試檔）、production build 成功；[狀態回歸](../frontend/scripts/verify/smoothness-state.test.mjs)。 |
-| 瀏覽器流程 | [smoothness-browser.mjs](../frontend/scripts/verify/smoothness-browser.mjs)：Chrome 154、Playwright WebKit 26.4 各 9 情境通過（包含後續補上的手機導覽）；WebKit 引擎測試不等於實體 iPhone Safari。 |
-| 長列表／語音 UI | [smoothness-performance.mjs](../frontend/scripts/verify/smoothness-performance.mjs)：40／200 則逐字稿，100／1,000 列報告和通知，6 組量測與門檻通過。 |
+| 瀏覽器流程 | `smoothness-browser.mjs`（2026-11-08 隨網頁改為只看報告而刪除）：Chrome 154、Playwright WebKit 26.4 各 9 情境通過（包含後續補上的手機導覽）；WebKit 引擎測試不等於實體 iPhone Safari。 |
+| 長列表／語音 UI | `smoothness-performance.mjs`（2026-11-08 刪除）：40／200 則逐字稿，100／1,000 列報告和通知，6 組量測與門檻通過。 |
 | 後端 | `venv/bin/pytest tests/unit -q` **4,879 通過、2 skipped**；環境須提供純測試 RS256 金鑰（下方歷史紀錄有產生方式）。包含逐句串流與中途失敗的 12 項檢查。 |
 | 真 PostgreSQL | [test_smoothness_queries_pg.py](../backend/tests/integration/test_smoothness_queries_pg.py) ＋既有 doctor authz 測試 **10 通過**；local migration 已成功執行。非 SQLite／mock SQL。 |
 | 真 OpenAI | `dontknow_zh`、`torsion_critical_zh`、`torsion_critical_en`：PASS、SOAP generated、受測工作區 provenance verified；緊急情境為 rule_hit 並阻止繼續問診。採文字 WS 輸入，**沒有驗到真 STT／麥克風**。 |
 | 翻譯／驗收工具 | `backend/venv/bin/pytest scripts/tests -q` **20 通過**；`scripts/check_translations.py --mirrors frontend/public/locales,flutter_app/assets/locales` 通過。 |
 
-瀏覽器流程跑法（frontend 目錄；build 未開 mock mode，腳本攔截全部後端 HTTP／WS，使用合成資料）：
+瀏覽器流程跑法（**歷史紀錄：兩支腳本已於 2026-11-08 隨網頁改為只看報告而刪除，下列指令不可再跑**；現行網頁驗收是 `npm run test:e2e`）：
 
 ```bash
 npm run build -- --outDir /tmp/gu-smoothness-dist

@@ -1,10 +1,10 @@
 // =============================================================================
 // 醫師端主要流程 e2e（mock 模式、VITE_MOCK_ROLE=doctor、純前端）
-//   1. 登入頁 → 已認證醫師自動導向儀表板（標題可見）
-//   2. SOAP 報告列表 → 有報告列 → 點進報告詳情（標題 + 摘要可見）
-//   3. 紅旗警示列表 → 有警示列 → 確認（acknowledge）後徽章轉為已處理
-// mock 模式下列表資料來自 store / 頁面內建 mock；acknowledge 仍打 API，故以
-// page.route 回傳已確認的警示。
+// 網頁版只剩醫師看報告：
+//   1. 登入頁 / 已移除的舊頁 → 已認證醫師自動導向報告列表
+//   2. 報告列表 → 點進報告（患者名稱、摘要、SOAP、逐字稿、快速開單）
+//   3. 快速開單：勾 AI 建議檢查 → 送出的 payload 正確
+// mock 模式下列表資料來自 store / 頁面內建 mock；開單仍打 API，故以 page.route 攔截。
 // =============================================================================
 
 import { test, expect, type Page } from '@playwright/test';
@@ -19,7 +19,7 @@ async function bootstrap(page: Page, path: string): Promise<void> {
       /* ignore */
     }
   });
-  // mock 模式仍會對 sessions / alerts 的輔助端點發請求（session meta、unacknowledged count）；
+  // mock 模式仍會對 sessions / exam-orders 等輔助端點發請求；
   // 一律擋下，避免等待 localhost:8000 逾時。
   await page.route(/\/api\/v1\/.*/, (route) =>
     route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { message: 'mocked' } }) }),
@@ -28,54 +28,46 @@ async function bootstrap(page: Page, path: string): Promise<void> {
 }
 
 test.describe('醫師端流程', () => {
-  test('登入頁 → 儀表板', async ({ page }) => {
+  test('登入頁與舊頁 → 報告列表', async ({ page }) => {
     await bootstrap(page, '/en-US/login');
-    await expect(page).toHaveURL(/\/en-US\/dashboard$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'Monthly consultation overview' })).toBeVisible();
-    // 月份摘要卡（mock createMockMonthlySummary）
-    await expect(page.locator('main')).toContainText(/\d/);
+    await expect(page).toHaveURL(/\/en-US\/reports$/);
+    await page.goto('/en-US/dashboard');
+    await expect(page).toHaveURL(/\/en-US\/reports$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'SOAP reports' })).toBeVisible();
   });
 
   test('報告列表 → 報告詳情', async ({ page }) => {
     await bootstrap(page, '/en-US/reports');
-    await expect(page.getByRole('heading', { level: 1, name: 'SOAP reports' })).toBeVisible();
     const rows = page.locator('main button.list-card');
     await expect(rows.first()).toBeVisible();
     expect(await rows.count()).toBeGreaterThanOrEqual(3);
     await rows.first().click();
     await expect(page).toHaveURL(/\/en-US\/reports\/[\w-]+$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'SOAP Report' })).toBeVisible();
-    // reportStore mock 的英文摘要
+    // 標題是患者名稱（mock session）
+    await expect(page.getByRole('heading', { level: 1 })).not.toBeEmpty();
     await expect(page.locator('main')).toContainText(/hematuria|Hematuria/);
+    await expect(page.getByRole('heading', { name: 'Quick orders' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Export PDF/ })).toBeVisible();
   });
 
-  test('警示列表 → acknowledge', async ({ page }) => {
-    await bootstrap(page, '/en-US/alerts');
-    await expect(page.getByRole('heading', { level: 1, name: 'Red-flag alerts' })).toBeVisible();
-
-    // acknowledge 端點回傳已確認的警示（snake_case，client 會轉 camelCase）
-    await page.route(/\/api\/v1\/alerts\/[\w-]+\/acknowledge$/, (route) => {
-      const id = route.request().url().split('/').at(-2);
+  test('快速開單送出勾選項目', async ({ page }) => {
+    await bootstrap(page, '/en-US/reports/s1');
+    let posted: unknown = null;
+    await page.route(/\/api\/v1\/sessions\/[\w-]+\/exam-orders$/, async (route) => {
+      posted = route.request().postDataJSON();
       return route.fulfill({
-        status: 200,
+        status: 201,
         contentType: 'application/json',
-        body: JSON.stringify({ id, acknowledged_by: 'mock-doctor-001', acknowledged_at: '2026-10-24T00:00:00Z' }),
+        body: JSON.stringify({ id: 'o1', session_id: 's1', ordered_by: 'd1', items: [], note: null, created_at: '2026-11-08T00:00:00Z' }),
       });
     });
-    page.on('dialog', (dialog) => dialog.accept());
-
-    const cards = page.locator('main .alert-card');
-    await expect(cards.first()).toBeVisible();
-    const pendingBefore = await page.getByText('Pending', { exact: true }).count();
-    expect(pendingBefore).toBeGreaterThan(0);
-
-    const firstPendingCard = cards.filter({ hasText: 'Pending' }).first();
-    await expect(firstPendingCard).toBeVisible();
-    const title = await firstPendingCard.locator('p.font-semibold').first().textContent();
-    await firstPendingCard.getByRole('button', { name: 'Acknowledge' }).click();
-
-    // 該卡片徽章轉為 Acknowledged、待處理數減一
-    await expect(cards.filter({ hasText: title ?? '' }).first()).toContainText('Acknowledged');
-    await expect(page.getByText('Pending', { exact: true })).toHaveCount(pendingBefore - 1);
+    const boxes = page.locator('#quick-orders-title').locator('..').locator('..').getByRole('checkbox');
+    await expect(boxes.first()).toBeVisible();
+    await boxes.first().check();
+    await page.getByRole('button', { name: 'Confirm and submit' }).click();
+    await expect.poll(() => posted).not.toBeNull();
+    const body = posted as { items: Array<{ test_name: string }> };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].test_name).toBeTruthy();
   });
 });

@@ -1,11 +1,13 @@
 ---
 name: voice-pipeline-invariants
-description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§3b 風險因子/STT/終態收尾/病患面文字）的不變式與修改流程，防止改動時破壞已修復的行為。Use when modifying frontend/src/stores/conversationStore.ts、frontend/src/screens/patient/ConversationPage.tsx、**flutter_app/lib/features/voice/ 下任何檔案**（conversation_controller、vad_logic、tts_playback_controller、audio_stream_service、ws_manager）、backend/app/pipelines/ 下任何檔案（llm_conversation、red_flag_detector、supervisor、soap_generator、prompts/）、場次終態路徑（backend/app/websocket/conversation_handler.py、backend/app/services/session_service.py、backend/app/services/report_service.py）、兩份前端的 intake payload 組裝與病患面顯示頁、或任何影響問診對話行為的改動。**這條管線有兩份前端實作，改動要同時顧 React 與 Flutter。**
+description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§3b 風險因子/STT/終態收尾/病患面文字）的不變式與修改流程，防止改動時破壞已修復的行為。Use when modifying **flutter_app/lib/features/voice/ 下任何檔案**（conversation_controller、vad_logic、tts_playback_controller、audio_stream_service、ws_manager）、backend/app/pipelines/ 下任何檔案（llm_conversation、red_flag_detector、supervisor、soap_generator、prompts/）、場次終態路徑（backend/app/websocket/conversation_handler.py、backend/app/services/session_service.py、backend/app/services/report_service.py）、兩份前端的 intake payload 組裝與病患面顯示頁、或任何影響問診對話行為的改動。**2026-11-08 起 React 網頁版已移除問診前端，這條管線只剩 Flutter 一份前端實作；下文提到 React 的條目是歷史證據。**
 ---
 
 # 語音問診管線不變式
 
 ## Overview
+
+> ⚠️ **2026-11-08**：React 網頁版改成只給醫師看報告，`conversationStore.ts`、`ConversationPage.tsx`、`screens/patient/*`、`websocket.ts` 的對話實例與其 `__tests__` 都已刪除。本檔中引用這些檔案的段落只當「當時怎麼修的」歷史紀錄讀；「兩端同步」類規則現在只需顧 Flutter。後端不變式全部照舊。
 
 這條管線的每一條不變式都對應一個修過的生產 bug 或 e2e 驗收（詳見 docs/archive/e2e_realopenai_audit_2026-06-28.md、docs/archive/product_audit_2026-07-06.md、2026-08-20 稽核修復戰役 commit 索引 `8e30bd3 931b9b7 116282d 6fc51e3 7e28d11 2daa82c c6938c8 24d3083 fb403d6`）。改動前先核對清單，改動後用 `e2e-real-openai` skill 驗證，否則回歸風險極高。
 
@@ -26,7 +28,6 @@ PR #57（`3eacd50`）修復合併，並在 2026-08-22 於 HEAD 逐條複核**：
 
 ## When to Use
 
-- 動到 `frontend/src/stores/conversationStore.ts` 或 `frontend/src/screens/patient/ConversationPage.tsx`
 - 動到 `flutter_app/lib/features/voice/` 下任何檔案（同一條管線的第二份實作，2026-07-26 起）
 - 動到 `backend/app/pipelines/` 任何檔案（含 prompts/）
 - 改 WebSocket 對話協議（`backend/app/websocket/conversation_handler.py`）

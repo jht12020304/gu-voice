@@ -29,10 +29,8 @@ export default function LoginPage() {
   const [localError, setLocalError] = useState('');
 
   // 已認證則重導
-  if (isAuthenticated && user) {
-    const target =
-      user.role === 'patient' ? '/patient' : user.role === 'admin' ? '/admin/users' : '/dashboard';
-    return <Navigate to={`/${lng}${target}`} replace />;
+  if (isAuthenticated && user && user.role !== 'patient') {
+    return <Navigate to={`/${lng}/reports`} replace />;
   }
 
   const handleSubmit = async (e: FormEvent) => {
@@ -51,6 +49,11 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
+      // 網頁版只給醫師看報告；病患問診在 iOS kiosk App。
+      if (useAuthStore.getState().user?.role === 'patient') {
+        await useAuthStore.getState().logout();
+        setLocalError(t('login.doctorOnly'));
+      }
     } catch {
       // error 由 store 管理
     }

@@ -434,8 +434,5 @@ export class WebSocketManager {
 
 // ---- 預設實例 ----
 
-/** 語音對話 WebSocket */
-export const conversationWS = new WebSocketManager();
-
 /** 醫師儀表板 WebSocket */
 export const dashboardWS = new WebSocketManager();

@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
+import { URGENCY_CLASS } from './urgency';
 import type {
   SOAPSubjective,
   SOAPObjective,
@@ -490,12 +491,6 @@ function AssessmentContent({ data, t }: { data: SOAPAssessment; t: SoapT }) {
 // ── P 計畫 ────────────────────────────────────────────────
 
 // 對齊後端 Urgency enum：er_now / 24h / this_week / routine
-const urgConfig: Record<string, { cls: string }> = {
-  er_now:    { cls: 'bg-red-50 text-red-600 ring-1 ring-red-500/15 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-400/20' },
-  '24h':     { cls: 'bg-orange-50 text-orange-600 ring-1 ring-orange-500/15 dark:bg-orange-500/10 dark:text-orange-400 dark:ring-orange-400/20' },
-  this_week: { cls: 'bg-amber-50 text-amber-700 ring-1 ring-amber-500/15 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-400/20' },
-  routine:   { cls: 'bg-surface-tertiary text-ink-muted ring-1 ring-edge dark:bg-dark-border dark:text-white/50 dark:ring-dark-border' },
-};
 
 function PlanContent({ data, t }: { data: SOAPPlan; t: SoapT }) {
   const { recommendedTests, treatments, followUp, referrals, patientEducation, diagnosticReasoning } = data;
@@ -524,7 +519,7 @@ function PlanContent({ data, t }: { data: SOAPPlan; t: SoapT }) {
           <SectionLabel>{t('plan.recommendedTests.title')}</SectionLabel>
           <div className="space-y-1.5">
             {(recommendedTests as RecommendedTest[]).map((test, i) => {
-              const u = urgConfig[test.urgency] || urgConfig.routine;
+              const u = URGENCY_CLASS[test.urgency] || URGENCY_CLASS.routine;
               const urgencyLabel = t(`plan.urgency.${test.urgency}`, { defaultValue: test.urgency });
               const isExpanded = expandedTests[i];
               const hasReasoning = !!test.clinicalReasoning;
@@ -540,7 +535,7 @@ function PlanContent({ data, t }: { data: SOAPPlan; t: SoapT }) {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <p className="text-body-lg font-semibold text-ink-heading dark:text-white">{test.testName}</p>
-                        <span className={`rounded-pill px-2 py-0.5 text-small font-semibold ${u.cls}`}>{urgencyLabel}</span>
+                        <span className={`rounded-pill px-2 py-0.5 text-small font-semibold ${u}`}>{urgencyLabel}</span>
                       </div>
                       {test.rationale && (
                         <p className="text-body text-ink-secondary dark:text-white/60">{test.rationale}</p>

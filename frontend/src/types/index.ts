@@ -306,52 +306,6 @@ export interface Treatment {
   note?: string;
 }
 
-/** 紅旗警示 */
-export interface RedFlagAlert {
-  id: string;
-  sessionId: string;
-  conversationId: string;
-  alertType: 'rule_based' | 'semantic' | 'combined';
-  severity: 'critical' | 'high' | 'medium';
-  title: string;
-  description?: string;
-  triggerReason: string;
-  triggerKeywords?: string[];
-  matchedRuleId?: string;
-  llmAnalysis?: Record<string, unknown>;
-  suggestedActions?: string[];
-  acknowledgedBy?: string;
-  acknowledgedAt?: string;
-  acknowledgeNotes?: string;
-  createdAt: string;
-}
-
-/** 通知 */
-export interface Notification {
-  id: string;
-  userId: string;
-  type: 'red_flag' | 'session_complete' | 'report_ready' | 'system';
-  title: string;
-  body?: string;
-  data?: Record<string, unknown>;
-  isRead: boolean;
-  readAt?: string;
-  createdAt: string;
-}
-
-/** 稽核日誌 */
-export interface AuditLog {
-  id: number;
-  userId?: string;
-  action: string;
-  resourceType: string;
-  resourceId?: string;
-  details?: Record<string, unknown>;
-  ipAddress?: string;
-  userAgent?: string;
-  createdAt: string;
-}
-
 /** 分頁回應 */
 export interface PaginatedResponse<T> {
   data: T[];

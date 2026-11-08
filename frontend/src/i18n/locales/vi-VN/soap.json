@@ -27,16 +27,12 @@
     "processing": "Đang xử lý..."
   },
   "page": {
-    "reviewEyebrow": "Xem xét báo cáo",
-    "title": "Báo cáo SOAP",
     "loadingReport": "Đang tải báo cáo...",
     "notGenerated": "Báo cáo chưa được tạo",
     "clinicalSummaryEyebrow": "Tóm tắt lâm sàng",
-    "noSummary": "Hiện chưa có tóm tắt để hiển thị."
-  },
-  "actions": {
-    "viewSession": "Xem phiên khám",
-    "viewPatient": "Thông tin bệnh nhân"
+    "noSummary": "Hiện chưa có tóm tắt để hiển thị.",
+    "aiConfidence": "Độ tin cậy AI {{percent}}%",
+    "backToList": "Quay lại danh sách báo cáo"
   },
   "reportStatus": {
     "generated": "Đã tạo",
@@ -52,27 +48,7 @@
     "redFlagSession": "Phiên có cờ đỏ",
     "redFlagLoadFailedBadge": "⚠ Tải trạng thái cờ đỏ thất bại"
   },
-  "metaCard": {
-    "patient": "Bệnh nhân",
-    "complaint": "Lý do khám",
-    "sessionStatus": "Trạng thái phiên",
-    "report": "Báo cáo",
-    "createdHelper": "Phiên được tạo {{date}}",
-    "completedAt": "Hoàn tất lúc {{date}}",
-    "startedAt": "Bắt đầu lúc {{date}}",
-    "noTimeInfo": "Chưa có thông tin thời gian",
-    "notGeneratedTime": "Chưa có thời gian tạo",
-    "reviewStatusHelper": "Trạng thái xem xét: {{status}}",
-    "awaitingReview": "Đang chờ bác sĩ xem xét"
-  },
-  "highlights": {
-    "positive": { "title": "Dấu hiệu dương tính quan trọng", "empty": "Chưa xác định được triệu chứng dương tính rõ ràng." },
-    "negative": { "title": "Dấu hiệu âm tính quan trọng", "empty": "Chưa xác định được triệu chứng âm tính rõ ràng." },
-    "riskFactors": { "title": "Yếu tố nguy cơ", "empty": "Không có yếu tố nguy cơ rõ ràng." },
-    "impression": { "title": "Nhận định sơ bộ", "empty": "Chưa có nhận định rõ ràng." }
-  },
   "diagnosis": {
-    "title": "Mã chẩn đoán",
     "empty": "Chưa có mã ICD-10.",
     "unverified": "ICD-10 chưa được xác minh — cần bác sĩ xác nhận"
   },
@@ -227,15 +203,22 @@
     "success": "Đã bắt đầu tải PDF",
     "error": "Xuất PDF thất bại. Vui lòng thử lại sau."
   },
-  "regenerate": {
-    "button": "Tạo lại",
-    "loading": "Đang tạo lại...",
-    "title": "Tạo lại báo cáo",
-    "description": "Tạo lại sẽ chạy lại phân tích AI trên bản ghi mới nhất và ghi đè báo cáo SOAP hiện có. Hành động này không thể hoàn tác. Bạn có chắc muốn tiếp tục?",
-    "cancel": "Hủy",
-    "confirm": "Xác nhận tạo lại",
-    "success": "Đã tạo lại báo cáo",
-    "error": "Tạo lại báo cáo thất bại. Vui lòng thử lại sau.",
-    "disabledGenerating": "Đang tạo báo cáo, vui lòng đợi hoàn tất rồi mới tạo lại"
+  "quickOrders": {
+    "title": "Chỉ định nhanh",
+    "testsTitle": "Xét nghiệm AI đề xuất",
+    "noTests": "Lần này AI không đề xuất xét nghiệm nào. Bạn vẫn có thể gửi — điều đó ghi nhận \"đã xem, không chỉ định\".",
+    "selectAll": "Chọn tất cả",
+    "clearAll": "Bỏ chọn tất cả",
+    "noteTitle": "Ghi chú (tùy chọn)",
+    "noteHint": "Ghi chú cho bản thân hoặc người tiếp nhận sau…",
+    "submit": "Xác nhận và gửi",
+    "submitting": "Đang gửi…",
+    "submitted": "Đã gửi chỉ định.",
+    "submitError": "Gửi thất bại. Vui lòng thử lại sau.",
+    "emptySelectionHint": "Chưa chọn mục nào; gửi đi sẽ ghi nhận là không chỉ định xét nghiệm.",
+    "previouslyOrdered": "Đã chỉ định trước đó",
+    "lastOrdered": "Lần gửi gần nhất lúc {{time}}. Bạn có thể chọn lại và gửi tiếp — lần mới nhất được tính.",
+    "reportGenerating": "Báo cáo đang được tạo; xét nghiệm đề xuất sẽ xuất hiện sau",
+    "loadError": "Không tải được. Kiểm tra kết nối rồi thử lại."
   }
 }

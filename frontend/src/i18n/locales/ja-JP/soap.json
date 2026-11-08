@@ -27,16 +27,12 @@
     "processing": "処理中..."
   },
   "page": {
-    "reviewEyebrow": "レポート審査",
-    "title": "SOAPレポート",
     "loadingReport": "レポートを読み込み中...",
     "notGenerated": "レポートはまだ生成されていません",
     "clinicalSummaryEyebrow": "臨床サマリー",
-    "noSummary": "表示できる要約はまだありません。"
-  },
-  "actions": {
-    "viewSession": "セッションを表示",
-    "viewPatient": "患者情報"
+    "noSummary": "表示できる要約はまだありません。",
+    "aiConfidence": "AI 信頼度 {{percent}}%",
+    "backToList": "レポート一覧に戻る"
   },
   "reportStatus": {
     "generated": "生成済み",
@@ -52,27 +48,7 @@
     "redFlagSession": "レッドフラグ・セッション",
     "redFlagLoadFailedBadge": "⚠ レッドフラグ状態の読み込みに失敗"
   },
-  "metaCard": {
-    "patient": "患者",
-    "complaint": "主訴",
-    "sessionStatus": "セッション状態",
-    "report": "レポート",
-    "createdHelper": "セッション作成日 {{date}}",
-    "completedAt": "{{date}} に完了",
-    "startedAt": "{{date}} に開始",
-    "noTimeInfo": "時間情報はまだありません",
-    "notGeneratedTime": "生成時刻未定",
-    "reviewStatusHelper": "審査状態：{{status}}",
-    "awaitingReview": "医師の審査待ち"
-  },
-  "highlights": {
-    "positive": { "title": "重要な陽性所見", "empty": "明確な陽性症状は整理されていません。" },
-    "negative": { "title": "重要な陰性所見", "empty": "明確な陰性症状は整理されていません。" },
-    "riskFactors": { "title": "リスク因子", "empty": "明らかなリスク因子はありません。" },
-    "impression": { "title": "初期所見", "empty": "明確な所見は整理されていません。" }
-  },
   "diagnosis": {
-    "title": "診断コード",
     "empty": "ICD-10コードはまだありません。",
     "unverified": "ICD-10未検証：医師による確認が必要です"
   },
@@ -227,15 +203,22 @@
     "success": "PDFのダウンロードを開始しました",
     "error": "PDFの書き出しに失敗しました。後でもう一度お試しください。"
   },
-  "regenerate": {
-    "button": "再生成",
-    "loading": "再生成中...",
-    "title": "レポートを再生成",
-    "description": "再生成すると、最新の文字起こしでAI分析を再実行し、既存のSOAPレポートを上書きします。この操作は取り消せません。続行しますか？",
-    "cancel": "キャンセル",
-    "confirm": "再生成を確認",
-    "success": "レポートを再生成しました",
-    "error": "レポートの再生成に失敗しました。後でもう一度お試しください。",
-    "disabledGenerating": "レポートを生成中です。完了してから再生成してください"
+  "quickOrders": {
+    "title": "クイックオーダー",
+    "testsTitle": "AI の推奨検査",
+    "noTests": "今回 AI からの推奨検査はありません。そのまま送信すると「確認済み・検査なし」として記録されます。",
+    "selectAll": "すべて選択",
+    "clearAll": "すべて解除",
+    "noteTitle": "備考（任意）",
+    "noteHint": "自分や次の担当者への補足…",
+    "submit": "確認して送信",
+    "submitting": "送信中…",
+    "submitted": "オーダーを送信しました。",
+    "submitError": "送信に失敗しました。時間をおいて再試行してください。",
+    "emptySelectionHint": "何も選択されていません。送信すると検査なしとして記録されます。",
+    "previouslyOrdered": "前回オーダー済み",
+    "lastOrdered": "前回の送信は {{time}}。選び直して再送信でき、最新のものが有効です。",
+    "reportGenerating": "レポート生成中です。推奨検査は後ほど表示されます",
+    "loadError": "読み込みに失敗しました。通信状況を確認して再試行してください。"
   }
 }

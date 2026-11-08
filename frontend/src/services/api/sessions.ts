@@ -1,41 +1,15 @@
 // =============================================================================
-// 場次 API 服務
+// 場次 API 服務（網頁版只讀：報告頁取場次資訊與逐字稿）
 // =============================================================================
 
 import apiClient from './client';
 import type { Session, PaginatedResponse, Conversation } from '../../types';
-import type { SessionCreateRequest, SessionStatusUpdateRequest, SessionListParams } from '../../types/api';
 
 const BASE = '/sessions';
-
-/** 取得場次列表 */
-export async function getSessions(params?: SessionListParams): Promise<PaginatedResponse<Session>> {
-  const { data } = await apiClient.get<PaginatedResponse<Session>>(BASE, { params });
-  return data;
-}
 
 /** 取得單一場次 */
 export async function getSession(id: string): Promise<Session> {
   const { data } = await apiClient.get<Session>(`${BASE}/${id}`);
-  return data;
-}
-
-/** 建立場次 */
-export async function createSession(payload: SessionCreateRequest): Promise<Session> {
-  const { data } = await apiClient.post<Session>(BASE, payload);
-  return data;
-}
-
-/** 更新場次狀態 */
-export async function updateSessionStatus(
-  id: string,
-  status: string,
-  reason?: string,
-): Promise<Session> {
-  const { data } = await apiClient.put<Session>(`${BASE}/${id}/status`, {
-    status,
-    reason,
-  } satisfies SessionStatusUpdateRequest);
   return data;
 }
 
@@ -51,48 +25,36 @@ export async function getSessionConversations(
   return data;
 }
 
-/** 指派醫師 */
-export async function assignDoctor(id: string, doctorId: string): Promise<Session> {
-  const { data } = await apiClient.post<Session>(`${BASE}/${id}/assign`, { doctorId });
-  return data;
+// ---- 檢查醫囑（快速開單）：`/sessions/{id}/exam-orders`，與 Flutter ExamOrdersApi 同一組端點 ----
+
+/** 一筆檢查項目，形狀對齊 SOAP `plan.recommendedTests` 的元素（快照，不是參照）。 */
+export interface ExamOrderItem {
+  testName: string;
+  urgency?: string;
+  rationale?: string;
 }
 
-/** 場次重連恢復回應（對應後端 POST /sessions/{id}/reconnect） */
-export interface SessionReconnectResponse {
+export interface ExamOrder {
+  id: string;
   sessionId: string;
-  status: string;
-  /** Redis 內的對話歷史（role + content 等原始 entry） */
-  conversationHistory: Array<{ role: string; content: string; [key: string]: unknown }>;
-  /** 歷史最後一則的索引；無歷史為 -1 */
-  lastMessageIndex: number;
-  /** 歷史的 sha256 checksum（== resumeToken），供 WebSocket 重連比對連續性 */
-  checksum: string;
-  resumeToken: string;
+  reportId?: string | null;
+  orderedBy: string;
+  items: ExamOrderItem[];
+  note?: string | null;
+  createdAt: string;
 }
 
-/**
- * 場次重連：重新整理／斷線後呼叫，取回 Redis 內的對話歷史與 checksum，
- * 供前端帶著 resumeToken 重建 WebSocket 連線時比對連續性。
- */
-export async function reconnectSession(sessionId: string): Promise<SessionReconnectResponse> {
-  const { data } = await apiClient.post<SessionReconnectResponse>(`${BASE}/${sessionId}/reconnect`);
-  return data;
+/** 這場次最新一張檢查單；還沒開過時後端回 200 + null。 */
+export async function getLatestExamOrder(sessionId: string): Promise<ExamOrder | null> {
+  const { data } = await apiClient.get<ExamOrder | null>(`${BASE}/${sessionId}/exam-orders/latest`);
+  return data && typeof data === 'object' ? data : null;
 }
 
-/**
- * M16：對話中切語言 → 結束當前 session，同時把使用者偏好語言更新為 toLanguage。
- * 後端會寫 audit_log (action=language_switch_end_session)。
- * 2026-07-27 起後端改為冪等：場次已在終態時回 200（不重複轉移），
- * 只有「非終態但轉移表不允許 → cancelled」才回 409。理由：切語言守衛可能被
- * 重試或連點，回 409 會讓使用者切不掉語言，而此時「沒有孤兒 in_progress 場次」
- * 的目的已經達成。
- */
-export async function endSessionForLanguageSwitch(
-  id: string,
-  toLanguage: string,
-): Promise<{ id: string; status: string; previousStatus?: string; updatedAt: string }> {
-  const { data } = await apiClient.post(`${BASE}/${id}/end-for-language-switch`, {
-    toLanguage,
-  });
+/** 送出檢查單（append-only，以最新一張為準）。空 items 合法＝「看過了，這次不開檢查」。 */
+export async function submitExamOrder(
+  sessionId: string,
+  payload: { items: ExamOrderItem[]; note?: string; reportId?: string },
+): Promise<ExamOrder> {
+  const { data } = await apiClient.post<ExamOrder>(`${BASE}/${sessionId}/exam-orders`, payload);
   return data;
 }

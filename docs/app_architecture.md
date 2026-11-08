@@ -1,5 +1,7 @@
 # 泌尿科 AI 語音問診助手 — 系統架構設計
 
+> ⚠️ **2026-11-08**：React 網頁版已改成只給醫師看報告，下文提到的 React 病患／問診頁（`ConversationPage`、`MedicalInfoPage`、`screens/patient/*`）、`/research`、儀表板等頁面都已刪除，相關描述只當歷史參考；現行病患流程與研究分析畫面只在 Flutter App。
+
 > **iOS App（`flutter_app/`）與 React 網頁版（`frontend/`）都持續維護，共用後端。**
 > 維護與驗證入口見 [README.md](README.md)。本文件描述兩端與共用問診管線；
 > 前端不變式（尤其 §2.2.1 的語音管線）兩端都適用，功能差異仍需逐端驗證。
