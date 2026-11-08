@@ -32,7 +32,8 @@
     "clinicalSummaryEyebrow": "臨床摘要",
     "noSummary": "目前尚無可顯示的摘要。",
     "aiConfidence": "AI 信心 {{percent}}%",
-    "backToList": "返回報告列表"
+    "backToList": "返回報告列表",
+    "consultDuration": "問診時間"
   },
   "reportStatus": {
     "generated": "已產生",

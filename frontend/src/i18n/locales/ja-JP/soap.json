@@ -32,7 +32,8 @@
     "clinicalSummaryEyebrow": "臨床サマリー",
     "noSummary": "表示できる要約はまだありません。",
     "aiConfidence": "AI 信頼度 {{percent}}%",
-    "backToList": "レポート一覧に戻る"
+    "backToList": "レポート一覧に戻る",
+    "consultDuration": "問診時間"
   },
   "reportStatus": {
     "generated": "生成済み",
