@@ -12,6 +12,7 @@ import '../../../data/api/sessions_api.dart';
 import '../../../data/models/session.dart';
 import '../../../data/models/soap_report.dart';
 import '../../../shared/pdf_share.dart';
+import '../../../shared/format.dart';
 import '../../../shared/widgets/ui_kit.dart';
 
 // `unknown` is the window before the Session has come back. It must be its own case:
@@ -303,8 +304,14 @@ class _SoapReportPageState extends State<SoapReportPage> {
     }
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _turns.length,
-      itemBuilder: (context, i) => _bubble(context, _turns[i]),
+      itemCount: _turns.length + 1,
+      // 第 0 列＝問診起訖與時長；每個泡泡下面標該句的時間
+      itemBuilder: (context, i) => i == 0
+          ? Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(_windowLabel ?? '', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall),
+            )
+          : _bubble(context, _turns[i - 1]),
     );
   }
 
@@ -327,12 +334,29 @@ class _SoapReportPageState extends State<SoapReportPage> {
               : (isPatient ? scheme.primaryContainer : scheme.secondaryContainer),
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Text(c.contentText),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(c.contentText),
+          if (formatClockSeconds(c.createdAt) case final time when time.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(time, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ),
+        ]),
       ),
     );
   }
 
   // Patient/session context + cross-navigation for the reviewing doctor.
+  /// `09:12:03–09:19:40 · 持續時間 7:37`；場次與逐字稿都還沒回來時 null。
+  String? get _windowLabel {
+    final s = _session;
+    if (s == null && _turns.isEmpty) return null;
+    return consultWindowLabel(
+      consultWindow(s?.startedAt, s?.completedAt, s?.durationSeconds, _turns.map((c) => c.createdAt)),
+      t('session.doctor.detail.infoDuration'),
+    );
+  }
+
   Widget _metaHeader(BuildContext context) {
     final s = _session;
     if (s == null) return const SizedBox.shrink();
@@ -342,6 +366,11 @@ class _SoapReportPageState extends State<SoapReportPage> {
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('$patient · $complaint', style: Theme.of(context).textTheme.titleSmall),
+        if (_windowLabel case final w? when w.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(w, key: const Key('consult-window'), style: Theme.of(context).textTheme.bodySmall),
+          ),
         const SizedBox(height: 4),
         Wrap(spacing: 8, children: [
           OutlinedButton.icon(

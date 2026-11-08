@@ -344,6 +344,7 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
   }
 
   Widget _infoGrid(BuildContext context, Session s) {
+    final w = consultWindow(s.startedAt, s.completedAt, s.durationSeconds, _turns.map((c) => c.createdAt));
     Widget cell(String label, String value) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label, style: Theme.of(context).textTheme.bodySmall),
           Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
@@ -354,8 +355,12 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
         child: Wrap(spacing: 24, runSpacing: 12, children: [
           cell(t('session.doctor.detail.infoChiefComplaint'), s.chiefComplaintText ?? t('session.doctor.detail.infoChiefComplaintEmpty')),
           cell(t('session.doctor.detail.infoLanguage'), s.language),
-          cell(t('session.doctor.detail.infoStartedAt'), s.startedAt != null ? formatDateTime(s.startedAt) : '-'),
-          cell(t('session.doctor.detail.infoDuration'), s.durationSeconds != null ? '${durationMinutes(s.durationSeconds)} min' : '-'),
+          cell(t('session.doctor.detail.infoStartedAt'), w.start != null ? formatDateTime(w.start!.toIso8601String()) : '-'),
+          // 起訖到秒＋時長；場次沒記到時用逐字稿頭尾補（consultWindow）
+          cell(t('session.doctor.detail.infoDuration'), [
+            consultWindowLabel((start: w.start, end: w.end, seconds: null), ''),
+            if (w.seconds != null) formatElapsed(w.seconds!),
+          ].where((x) => x.isNotEmpty).join(' · ')),
         ]),
       ),
     );
@@ -376,7 +381,10 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
         decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(16)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(roleLabel, style: Theme.of(context).textTheme.labelSmall),
+          Text(
+            [roleLabel, formatClockSeconds(c.createdAt)].where((x) => x.isNotEmpty).join(' · '),
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
           const SizedBox(height: 2),
           Text(c.contentText),
         ]),
