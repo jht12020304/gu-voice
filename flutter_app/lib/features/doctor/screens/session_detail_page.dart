@@ -15,7 +15,7 @@ import '../../../shared/widgets/ui_kit.dart';
 import '../../auth/auth_notifier.dart';
 import '../../../shared/toast.dart';
 
-// Port of SessionDetailPage.tsx — status-gated actions (assign / complete / cancel /
+// Port of SessionDetailPage.tsx — status-gated actions (complete / cancel /
 // generate report) + read-only transcript ordered by sequenceNumber.
 /// Whether the "generate report" action should be offered.
 ///
@@ -49,7 +49,6 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
   String? _reportStatus;
   bool _loading = true;
   String? _error;
-  bool _assigning = false;
   bool _generating = false;
   bool _deleting = false;
 
@@ -95,21 +94,6 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
     }
   }
 
-  Future<void> _assignToMe() async {
-    final user = ref.read(authProvider).user;
-    if (_session == null || user == null) return;
-    setState(() => _assigning = true);
-    try {
-      final updated = await _api.assignDoctor(_session!.id, user.id);
-      if (!mounted) return;
-      setState(() { _session = updated; _assigning = false; });
-      showToast(context, t('session.doctor.detail.assignSuccess'));
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _assigning = false);
-      showToast(context, t('session.doctor.detail.assignError'));
-    }
-  }
 
   Future<void> _changeStatus(String status) async {
     if (_session == null) return;
@@ -226,7 +210,6 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
     final s = _session!;
     final user = ref.watch(authProvider).user;
     final tk = Theme.of(context).extension<AppTokens>()!;
-    final isAssignedToMe = user != null && s.doctorId == user.id;
     final canCompleteOrCancel = s.status == 'waiting' || s.status == 'in_progress';
     final canGenerate = canGenerateSoapReport(
       sessionStatus: s.status,
@@ -263,16 +246,9 @@ class _SessionDetailPageState extends ConsumerState<SessionDetailPage> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(t('session.doctor.detail.actionsTitle'), style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: 4),
-                Text(isAssignedToMe
-                    ? t('session.doctor.detail.assignedToMe')
-                    : t('session.doctor.detail.actionsHint')),
+                Text(t('session.doctor.detail.actionsHint')),
                 const SizedBox(height: 12),
                 Wrap(spacing: 8, runSpacing: 8, children: [
-                  if (!isAssignedToMe)
-                    FilledButton(
-                      onPressed: (_assigning || user == null) ? null : _assignToMe,
-                      child: Text(t(_assigning ? 'session.doctor.detail.assigning' : 'session.doctor.detail.assignToMe')),
-                    ),
                   if (canCompleteOrCancel)
                     FilledButton(
                       onPressed: () => _confirmStatus('completed'),

@@ -117,10 +117,6 @@ class SessionsApi {
     await _dio.delete('/sessions/$sessionId');
   }
 
-  Future<Session> assignDoctor(String sessionId, String doctorId) async {
-    final res = await _dio.post('/sessions/$sessionId/assign', data: {'doctorId': doctorId});
-    return Session.fromJson(res.data as Map);
-  }
 
   Future<Session> updateStatus(String sessionId, String status, {String? reason}) async {
     final res = await _dio.put('/sessions/$sessionId/status', data: {'status': status, 'reason': ?reason});
