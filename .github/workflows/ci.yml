@@ -198,7 +198,8 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────
   e2e-playwright:
     name: e2e-playwright
-    runs-on: ubuntu-latest
+    # ubuntu-latest 已是 26.04，Playwright 尚未支援其 chromium-headless-shell（2026-11-08）
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend

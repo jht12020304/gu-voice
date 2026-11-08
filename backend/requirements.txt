@@ -47,6 +47,8 @@ redis[hiredis]==5.2.1
 
 # --- Celery 非同步任務佇列 ---
 celery[redis]==5.4.0
+# kombu 未釘時重建會拉到 ≥5.6 新版，要求 redis-py ≥6.1 → worker 啟動即 VersionMismatch（2026-11-08 staging 實測）
+kombu==5.4.2
 
 # --- Sentry 錯誤追蹤 ---
 sentry-sdk[fastapi]==2.19.2

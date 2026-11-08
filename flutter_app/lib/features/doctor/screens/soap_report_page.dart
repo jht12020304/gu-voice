@@ -645,7 +645,7 @@ class _SoapReportPageState extends State<SoapReportPage> {
       if (referrals.isNotEmpty) ...[
         const SizedBox(height: 6),
         Text(t('soap.plan.referrals.title'), style: const TextStyle(fontWeight: FontWeight.w600)),
-        Wrap(spacing: 6, children: [for (final r in referrals) Chip(label: Text(r), visualDensity: VisualDensity.compact)]),
+        Wrap(spacing: 6, runSpacing: 6, children: [for (final r in referrals) _wrapTag(context, r)]),
       ],
     ]));
   }
@@ -686,13 +686,27 @@ class _SoapReportPageState extends State<SoapReportPage> {
         ),
       );
 
+  // AI 寫的是整句（「否認排尿疼痛、灼熱感、下腹痛…」），Chip 只排一行、超出就截掉。
+  // 改成可換行的容器（容器圓角 8，ui_kit 兩形系統）；ICD-10 短碼仍用 Chip。
+  Widget _wrapTag(BuildContext context, String text) {
+    final tk = Theme.of(context).extension<AppTokens>()!;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        border: Border.all(color: tk.edge),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(text, softWrap: true),
+    );
+  }
+
   Widget _tagRow(BuildContext context, String label, List<String> items) {
     if (items.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-        Wrap(spacing: 6, runSpacing: 6, children: [for (final i in items) Chip(label: Text(i), visualDensity: VisualDensity.compact)]),
+        Wrap(spacing: 6, runSpacing: 6, children: [for (final i in items) _wrapTag(context, i)]),
       ]),
     );
   }

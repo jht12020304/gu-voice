@@ -77,7 +77,8 @@ def test_large_calendar_reports_notifications_and_broadcast(monkeypatch, tmp_pat
             assert len(statements) == 2
             handler.manager.broadcast_queue_updated.assert_awaited_once()
             assert handler.manager.broadcast_queue_updated.call_args.kwargs['queue'] == []
-            summary = await DashboardService.get_monthly_summary(db, current_user=_doctor(a.user.id), month='2026-10')
+            summary = await DashboardService.get_monthly_summary(db, current_user=_doctor(a.user.id), month=datetime.now(timezone.utc).strftime('%Y-%m'))
+            # 原本寫死 '2026-10'，跨月後必紅；fixture 場次建在「現在」，月統計是 UTC 切月。
             assert summary.total_sessions >= 1  # original tenant fixture in this month
             assert all('intake_data' not in sql for sql in statements)
         finally:

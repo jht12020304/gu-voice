@@ -103,9 +103,9 @@
     "submitError": "審閱送出失敗，請稍後再試。"
   },
   "subjective": {
-    "chiefComplaint": "主訴 Chief Complaint",
+    "chiefComplaint": "主訴",
     "hpi": {
-      "title": "現病史 HPI",
+      "title": "現病史",
       "onset": "發病時間",
       "location": "部位",
       "duration": "持續時間",

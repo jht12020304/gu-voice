@@ -84,9 +84,9 @@
     "submitError": "Gửi kết quả xem xét thất bại. Vui lòng thử lại sau."
   },
   "subjective": {
-    "chiefComplaint": "Lý do khám Chief Complaint",
+    "chiefComplaint": "Lý do khám",
     "hpi": {
-      "title": "Bệnh sử hiện tại HPI",
+      "title": "Bệnh sử",
       "onset": "Thời điểm khởi phát",
       "location": "Vị trí",
       "duration": "Thời gian kéo dài",

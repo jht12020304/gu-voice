@@ -96,6 +96,7 @@ _SOAP_SYSTEM_PROMPT = """你是資深泌尿科門診臨床文件助理，任務�
 - chief_complaint：簡潔一句話的主訴。
 - hpi 必須為物件（dict），包含 10 個子欄位（onset / location / duration / characteristics / severity / aggravating_factors / relieving_factors / associated_symptoms / timing / context）；每個子欄位為字串或 null。
 - past_medical_history / medications / allergies / family_history / social_history / review_of_systems **必須為單一字串或 null**，不要使用 list；可用逗點或短句整理多筆資訊。
+- medications 必須保留病患提到的**具體藥名原文**（例如 amlodipine），可在後面以括號補充藥理類別；**不得**只寫類別（例如「降血壓藥物」）而丟掉藥名，也不要自行翻成中文譯名（譯錯藥名比不翻更危險）。對話中 AI 助手若把藥名說錯，以病患原話為準。
 
 ### Objective（客觀）
 - 問診助手通常無法取得客觀資料。若對話中完全沒有，請把 vital_signs / physical_exam / lab_results / imaging_results **全部填 null**。
