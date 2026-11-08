@@ -7,7 +7,7 @@
 > - 決策、陷阱、被推翻過的錯誤修法 → [`.claude/skills/ios-testflight/SKILL.md`](../.claude/skills/ios-testflight/SKILL.md)
 > - 現況、未解的資料風險、加第 2 個測試人員的前置條件 → [`TODO.md`](TODO.md) §V8
 >
-> 最後更新：2026-11-08（ASC 協議已恢復；production build `202611081800` 已上傳並掛先行測試群組）
+> 最後更新：2026-11-08（ASC 協議已恢復；最新 production build `202611081352`）
 >
 > ⚠️ **build 號的權威是 App Store Connect，不是這份文件。** 2026-09-03～09-09 之間本檔
 > 自相矛盾過：這一行與下方 §7 表格寫 `202609030302`，而 §4 與其他段落寫 `202609030649`，
@@ -185,13 +185,14 @@ xcrun altool --upload-app  -f build/ios/ipa/gu_voice.ipa -t ios \
 
 ## 7. 最近一次已確認的 TestFlight 狀態（2026-11-08）
 
-**2026-11-08 現況（ASC API 實查）**：先行測試群組最新 build＝ **`202611081217`**（1.0.0，`VALID`、
-`IN_BETA_TESTING`、內部），**到期 2027-02-06**，Delivery UUID `735a5deb-2ff9-49da-873c-4346d4805617`。
+**2026-11-08 現況（ASC API 實查）**：先行測試群組最新 build＝ **`202611081352`**（1.0.0，`VALID`、內部），Delivery UUID
+`64f6d72a-af5e-423f-806c-51de9362c7b8`：在 `202611081217`（`735a5deb-…`）之上加 PR #122 的問診場次清單日期篩選。
 來源＝production 後端同版 `e41cc9e`＋PR #117 的 Flutter SOAP 頁修正＋main 的 Podfile iOS 15 下限
 ＋PR #119 的醫師報告頁「在網頁開啟」（`WEB_BASE`＝正式 React 網址，已在 .ipa 內實查）。
-確切原始碼保存在 remote 分支 **`release/ios-testflight-202611081217`**（e41cc9e 上兩個 commit；舊版打包腳本已手補 `WEB_BASE`）——下次 production 包在後端升級前都從這條分支往上疊，不要從 main 打。
+確切原始碼保存在 remote 分支 **`release/ios-testflight-202611081217`**（e41cc9e 上三個 commit；舊版打包腳本已手補 `WEB_BASE`）——下次 production 包在後端升級前都從這條分支往上疊，不要從 main 打。
 **刻意不從 main 打包**：main 的 App 會呼叫 production 尚未部署的 `GET /sessions/{id}/report`、
-`GET /dashboard/calendar`。同日稍早的 `202611081800`（`8a091a37-…`，不含網頁按鈕）已被取代；
+`GET /dashboard/calendar`。同日稍早的 `202611081800`（`8a091a37-…`，不含網頁按鈕，build 號誤用本地時間而大於後續 UTC 編號，
+TestFlight 會一直把它當最新）已於 2026-11-08 經 ASC API **設為 expired**——build 號一律用 UTC；
 §0 的 staging 候選包 `202610031213` 從未上傳、已被取代。
 
 下表是 2026-09-09 的歷史快照。
