@@ -70,4 +70,5 @@ test.describe('醫師端流程', () => {
     expect(body.items).toHaveLength(1);
     expect(body.items[0].test_name).toBeTruthy();
   });
+
 });

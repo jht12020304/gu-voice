@@ -37,12 +37,14 @@ function DoctorRoute() {
   const isLoading = useAuthStore((s) => s.isLoading);
   const user = useAuthStore((s) => s.user);
   const lng = useCurrentLng();
+  const location = useLocation();
 
   if (isLoading) return <Spinner />;
   if (recoveryRequired) {
     return <ErrorState message={t('common.errorTitle')} onRetry={() => void useAuthStore.getState().hydrateFromStorage()} />;
   }
-  if (!isAuthenticated) return <Navigate to={`/${lng}/login`} replace />;
+  // 帶著原網址去登入：iOS App「在網頁開啟」直接開 /reports/:id，登入後要回到那份報告。
+  if (!isAuthenticated) return <Navigate to={`/${lng}/login`} state={{ from: location.pathname }} replace />;
   if (user && user.role === 'patient') {
     // 病患帳號在網頁版沒有任何頁面可看；登出讓登入頁接手（避免卡在無路可走的畫面）。
     void useAuthStore.getState().logout();

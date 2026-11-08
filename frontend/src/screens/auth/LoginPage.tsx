@@ -3,10 +3,11 @@
 // =============================================================================
 
 import { useState, type FormEvent } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from '../../stores/authStore';
+import { safeReturnTo } from '../../utils/returnTo';
 import { useCurrentLng } from '../../i18n/paths';
 import LanguageSwitcher from '../../components/common/LanguageSwitcher';
 
@@ -23,6 +24,7 @@ export default function LoginPage() {
     })),
   );
   const lng = useCurrentLng();
+  const returnTo = safeReturnTo((useLocation().state as { from?: unknown } | null)?.from, lng);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -30,7 +32,7 @@ export default function LoginPage() {
 
   // 已認證則重導
   if (isAuthenticated && user && user.role !== 'patient') {
-    return <Navigate to={`/${lng}/reports`} replace />;
+    return <Navigate to={returnTo} replace />;
   }
 
   const handleSubmit = async (e: FormEvent) => {
