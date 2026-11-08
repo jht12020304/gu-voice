@@ -115,9 +115,9 @@
     "submitError": "검토 제출에 실패했습니다. 잠시 후 다시 시도해 주세요."
   },
   "subjective": {
-    "chiefComplaint": "주호소 Chief Complaint",
+    "chiefComplaint": "주호소",
     "hpi": {
-      "title": "현병력 HPI",
+      "title": "현병력",
       "onset": "발병 시점",
       "location": "부위",
       "duration": "지속 기간",

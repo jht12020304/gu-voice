@@ -115,9 +115,9 @@
     "submitError": "審査の送信に失敗しました。しばらくしてから再度お試しください。"
   },
   "subjective": {
-    "chiefComplaint": "主訴 Chief Complaint",
+    "chiefComplaint": "主訴",
     "hpi": {
-      "title": "現病歴 HPI",
+      "title": "現病歴",
       "onset": "発症時期",
       "location": "部位",
       "duration": "持続時間",
