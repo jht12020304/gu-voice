@@ -56,7 +56,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
   全體在職醫護 fallback。production 測試員只能是獲授權院內人員，未授權工程／PM 用 staging。
   `testFlightInternalTestingOnly=true` 已證實有效，但只擋散佈、不擋資料；Organizer 仍會繞過整份 ExportOptions。
 
-活後端域名 = `gu-voice-app-production.up.railway.app`（`api-` 是死域名）。正式 React 網址仍為 `gu-voice-chuns-projects-068de742.vercel.app`；Flutter Web 固定驗證網址為 `gu-voice-flutter-preview.vercel.app`（2026-08-17 已驗 build、78 tests、五語 deep link、CORS、病患測試登入，**實體麥克風/STT/TTS/VAD 尚待人工驗證，未通過前不得 promote**）。React rollback deployment 是 `gu-voice-ktox9rgon-chuns-projects-068de742.vercel.app`。測試登入按鈕只可使用無真實資料的 patient 帳號，禁止內嵌 doctor/admin 憑證。生產 DB = Supabase `gu-voice-prod`（ref `xobxnlvtilezridrekdm`，ap-southeast-1）；環境變數真相 = Railway。細節見 `docs/flutter_web_cutover.md`、`deploy-production` skill 與 [docs/AGENTS.md](docs/AGENTS.md)。
+活後端域名 = `gu-voice-app-production.up.railway.app`（`api-` 是死域名）。正式 React 網址仍為 `gu-voice-chuns-projects-068de742.vercel.app`；Flutter Web 固定驗證網址為 `gu-voice-flutter-preview.vercel.app`（2026-08-17 已驗 build、78 tests、五語 deep link、CORS、病患測試登入，**實體麥克風/STT/TTS/VAD 尚待人工驗證，未通過前不得 promote**）。React 現行 production deployment＝`gu-voice-98z3fj01j`（2026-11-08，醫師報告專用版＋登入後回原報告）；上一版 rollback＝`gu-voice-7jv43doe2`（同日報告專用版，無登入導回）；改版前的完整舊版＝`gu-voice-gzug99u9e`（2026-08-20）。皆為 `<名稱>-chuns-projects-068de742.vercel.app`。測試登入按鈕只可使用無真實資料的 patient 帳號，禁止內嵌 doctor/admin 憑證。生產 DB = Supabase `gu-voice-prod`（ref `xobxnlvtilezridrekdm`，ap-southeast-1）；環境變數真相 = Railway。細節見 `docs/flutter_web_cutover.md`、`deploy-production` skill 與 [docs/AGENTS.md](docs/AGENTS.md)。
 
 ## 專案技能（.claude/skills/）
 
