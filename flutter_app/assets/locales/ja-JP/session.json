@@ -63,7 +63,14 @@
       "emptyMessage": "条件に一致する問診セッションはありません",
       "redFlagBadge": "レッドフラグ",
       "unknownPatient": "不明な患者",
-      "chiefComplaintEmpty": "-"
+      "chiefComplaintEmpty": "-",
+      "today": "今日",
+      "yesterday": "昨日",
+      "allDates": "最新 50 件",
+      "allDatesShort": "すべて",
+      "prevDay": "前の日",
+      "nextDay": "次の日",
+      "emptyDayMessage": "矢印または日付をタップして過去を確認するか、「すべて」で最新 50 件を表示します。"
     },
     "detail": {
       "loading": "セッションを読み込み中...",

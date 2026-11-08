@@ -56,14 +56,15 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
           ),
         ],
       ),
-      // 日曆模式自己管資料（依日期抓整個月），不吃上面的搜尋/狀態篩選——
-      // 那兩個是「在最新 50 筆裡找」的工具，與「跳到某一天」是不同的動作。
+      // 日曆模式自己管資料（依日期抓整個月），不吃清單的日期列／搜尋／狀態篩選——
+      // 清單是「某一天（預設今天）或最新 50 筆」裡找，日曆是看整個月的分布。
       body: _calendarMode
           ? const SessionCalendarView()
           : Column(
               children: [
+                _dayBar(context, st.day),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
                   child: TextField(
                     decoration: InputDecoration(
                       prefixIcon: const Icon(Icons.search),
@@ -76,6 +77,68 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
                 Expanded(child: _body(context, st, visible)),
               ],
             ),
+    );
+  }
+
+  /// 日期列：‹ 前一天 ｜ 今天 · 11 月 8 日（日）（點了開日期選擇器）｜ 後一天 › ｜ 全部
+  Widget _dayBar(BuildContext context, DateTime? day) {
+    final ctrl = ref.read(sessionsListProvider.notifier);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    String label;
+    if (day == null) {
+      label = t('session.doctor.list.allDates');
+    } else {
+      label = t('session.doctor.calendar.dayTitle', args: {
+        'month': day.month,
+        'day': day.day,
+        'weekday': t('session.doctor.calendar.weekday.${const ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][day.weekday - 1]}'),
+      });
+      final diff = today.difference(day).inDays;
+      if (diff == 0) label = '${t('session.doctor.list.today')} · $label';
+      if (diff == 1) label = '${t('session.doctor.list.yesterday')} · $label';
+    }
+    Future<void> pick() async {
+      final picked = await showDatePicker(
+        context: context,
+        initialDate: day ?? today,
+        firstDate: DateTime(2024),
+        lastDate: today,
+      );
+      if (picked != null) ctrl.setDay(DateTime(picked.year, picked.month, picked.day));
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 12, 0),
+      child: Row(children: [
+        IconButton(
+          key: const Key('session-day-prev'),
+          icon: const Icon(Icons.chevron_left),
+          tooltip: t('session.doctor.list.prevDay'),
+          onPressed: day == null ? null : () => ctrl.setDay(DateTime(day.year, day.month, day.day - 1)),
+        ),
+        Expanded(
+          child: TextButton.icon(
+            key: const Key('session-day-pick'),
+            icon: const Icon(Icons.event_outlined, size: 18),
+            label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            onPressed: pick,
+          ),
+        ),
+        IconButton(
+          key: const Key('session-day-next'),
+          icon: const Icon(Icons.chevron_right),
+          tooltip: t('session.doctor.list.nextDay'),
+          onPressed: day == null || !day.isBefore(today) ? null : () => ctrl.setDay(DateTime(day.year, day.month, day.day + 1)),
+        ),
+        ChoiceChip(
+          key: const Key('session-day-all'),
+          label: Text(t('session.doctor.list.allDatesShort')),
+          showCheckmark: false,
+          selected: day == null,
+          onSelected: (_) => ctrl.setDay(day == null ? today : null),
+        ),
+      ]),
     );
   }
 
@@ -114,6 +177,13 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
         onRetry: () => ref.read(sessionsListProvider.notifier).reload(),
       );
     }
+    if (visible.isEmpty && st.day != null && _statusFilter.isEmpty && _search.trim().isEmpty) {
+      return EmptyState(
+        icon: Icons.event_available_outlined,
+        title: t('session.doctor.calendar.emptyDayTitle'),
+        message: t('session.doctor.list.emptyDayMessage'),
+      );
+    }
     if (visible.isEmpty) {
       return EmptyState(
         icon: Icons.forum_outlined,
@@ -125,6 +195,15 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
       padding: const EdgeInsets.all(16),
       children: [for (final s in visible) _card(context, s)],
     );
+  }
+
+  /// 篩單日時：開始時間 + 時長；不限日期時維持原本（時長或日期時間）。
+  String _when(Session s) {
+    final minutes = s.durationSeconds != null ? '${durationMinutes(s.durationSeconds)} min' : null;
+    if (ref.read(sessionsListProvider).day == null) return minutes ?? formatDateTime(s.createdAt);
+    final start = sessionLocalStart(s);
+    final clock = start == null ? '—' : '${start.hour.toString().padLeft(2, '0')}:${start.minute.toString().padLeft(2, '0')}';
+    return minutes == null ? clock : '$clock · $minutes';
   }
 
   Widget _card(BuildContext context, Session s) {
@@ -145,7 +224,7 @@ class _SessionListPageState extends ConsumerState<SessionListPage> {
             PillTag(t('session.doctor.list.redFlagBadge'), color: tk.alertCritical),
           ],
         ]),
-        subtitle: Text('$name · ${s.durationSeconds != null ? '${durationMinutes(s.durationSeconds)} min' : formatDateTime(s.createdAt)}'),
+        subtitle: Text('$name · ${_when(s)}'),
         trailing: StatusBadge(s.status),
       ),
     );
