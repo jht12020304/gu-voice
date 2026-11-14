@@ -1,5 +1,7 @@
 # GU-Voice AI 泌尿科問診系統：完整開發與環境設定指南
 
+> ⚠️ 2026-11-15 起正式環境自架（見 [deployment_guide.md](deployment_guide.md)），本文中 Supabase／Railway 的連線設定只適用舊雲端環境；本機開發照常用 `docker compose up -d` 或 `backend/.env` 指向本機 DB。
+
 本文件提供開發人員快速理解專案路徑、環境變數配置以及如何啟動各項服務。
 
 ---

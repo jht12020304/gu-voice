@@ -33,10 +33,10 @@ App 取得 APNs/FCM token
 ### 1. 後端環境變數有沒有設
 
 ```bash
-railway variables --json | python3 -c "
-import json,sys; d=json.load(sys.stdin)
+docker compose -f ~/Services/gu-voice/compose.yml exec -T backend python -c "
+import os
 for k in ['FCM_CREDENTIALS_JSON','APNS_AUTH_KEY_BASE64','APNS_KEY_ID','APNS_TEAM_ID','APNS_TOPIC']:
-    print(k, 'PRESENT' if d.get(k) else 'MISSING')"
+    print(k, 'PRESENT' if os.environ.get(k) else 'MISSING')"
 ```
 
 ⚠️ **「有設」不等於「值是對的」**（2026-08-22 生產 OPENAI_API_KEY 是死 key 的同一類教訓）。
@@ -47,7 +47,7 @@ for k in ['FCM_CREDENTIALS_JSON','APNS_AUTH_KEY_BASE64','APNS_KEY_ID','APNS_TEAM
 推播是 `send_push_notification_task.delay()`，worker 沒跑 = 任務永遠在佇列裡。
 
 ```bash
-railway logs -d | grep -i celery | tail
+docker compose -f ~/Services/gu-voice/compose.yml logs backend | grep -i celery | tail
 ```
 
 看得到 `check-session-timeouts ... succeeded` 就表示 worker 活著。
@@ -58,7 +58,7 @@ railway logs -d | grep -i celery | tail
 **最常見的斷點。** `_async_send` 只取 `is_active=True`，撈不到就直接 `{"skipped": true}` 返回。
 
 ```bash
-railway run --service gu-voice-app -- ./venv/bin/python - <<'PY'
+docker compose -f ~/Services/gu-voice/compose.yml exec -T backend python - <<'PY'
 import asyncio, os, re, asyncpg
 url = re.sub(r'^postgresql\+asyncpg','postgresql',os.environ["DATABASE_URL"])
 async def main():
@@ -85,7 +85,7 @@ PY
 ### 4. 通知有沒有被建立、推播任務有沒有跑
 
 ```bash
-railway logs -d | grep -E "send_push_notification_task|無已註冊裝置|推播"
+docker compose -f ~/Services/gu-voice/compose.yml logs backend | grep -E "send_push_notification_task|無已註冊裝置|推播"
 ```
 
 成功長這樣（`apns_sent` 等於 `sent` 表示全走直送、沒退到 FCM）：
@@ -103,7 +103,7 @@ send_push_notification_task[...] succeeded: {'user_id': '...', 'sent': 2, 'apns_
 後端這一側完全沒有嫌疑，斷點在裝置上。
 
 ```bash
-railway run --service gu-voice-app -- ./venv/bin/python - <<'PY'
+docker compose -f ~/Services/gu-voice/compose.yml exec -T backend python - <<'PY'
 import asyncio, base64, os, re, time, asyncpg, httpx, jwt
 url = re.sub(r'^postgresql\+asyncpg','postgresql',os.environ["DATABASE_URL"])
 async def main():

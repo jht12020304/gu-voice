@@ -1,7 +1,7 @@
 # Flutter Web staged production runbook
 
 > **2026-10-03: iOS and the React web app both remain maintained.** See
-> [README.md](README.md). Flutter Web is a preview; the promotion steps below
+> [README.md](../../README.md). Flutter Web is a preview; the promotion steps below
 > are retained for a future, separately requested migration, not the current plan.
 
 Flutter Web is deployed as a staged production deployment first. The existing React

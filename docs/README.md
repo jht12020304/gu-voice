@@ -1,9 +1,9 @@
 # docs/ 導覽 — 先讀這裡
 
 > 三件最常被舊文件誤導的事，先釘死：
-> **部署是手動的**——merge 到 main 不會上線，要自己跑 `railway up`（後端）與 `vercel --prod`（前端），
-> 詳見 [deployment_guide.md](deployment_guide.md) 一、（2026-07-26 更正，先前文件寫「全自動」是錯的）・
-> **生產 DB = Supabase `gu-voice-prod`，ref `xobxnlvtilezridrekdm`（ap-southeast-1）**・
+> **2026-11-15 起自架在一台常開的 Mac**（`https://gu.zymomed.com`，Cloudflare Tunnel），Railway／Vercel 已刪除。
+> 部署是手動的：merge 到 main 不會上線，要在那台 Mac 跑 `~/Services/gu-voice/deploy.sh`，詳見 [deployment_guide.md](deployment_guide.md) 一、・
+> **生產 DB = 該 Mac 上 compose 專案 `gu-voice-host` 的 Postgres 17**（已不是 Supabase）・
 > **前端 dev port = 5175**。
 
 ## 現行文件（單一真相來源）
@@ -40,27 +40,23 @@ python scripts/check_translations.py --locales-dir flutter_app/assets/locales
 | 問診端到端流程 | [consultation_flow.md](consultation_flow.md) |
 | 一場問診的資料落地（含 **admin 軟刪除**的欄位與覆蓋範圍） | [session_data_inventory.md](session_data_inventory.md) |
 | 研究分析（iOS App；React /research 頁已移除） | [research_analytics.md](research_analytics.md) |
-| 部署方法（手動兩步） | [deployment_guide.md](deployment_guide.md) 一、＋ `.claude/skills/deploy-production`；env/dashboard 操作細節見 [AGENTS.md](AGENTS.md) |
-| env 變數 / dashboard 操作 | [deployment_guide.md](deployment_guide.md) |
+| 部署方法（自架 Mac，`deploy.sh`） | [deployment_guide.md](deployment_guide.md) 一、＋ `.claude/skills/deploy-production`；英文摘要 [AGENTS.md](AGENTS.md) |
+| env 變數、log、DB、備份還原 | [deployment_guide.md](deployment_guide.md) 三、 |
 | **iOS／TestFlight 設定值（唯一權威來源）** | [ios_release_settings.md](ios_release_settings.md)——Team ID、bundle ID、SKU、ExportOptions、憑證與金鑰位置、上傳指令、目前上線的 build。**值只留這一份**；操作流程見 [deployment_guide.md](deployment_guide.md) 二、，決策與踩過的坑見 `.claude/skills/ios-testflight`，現況與 PHI 風險見 [TODO.md](TODO.md) §V8 |
 | **推播不通的診斷 runbook** | [push_troubleshooting.md](push_troubleshooting.md)——六個斷點的查法。⚠️「App 內有跳、鎖定畫面沒有」**不代表推播壞了**：站內走 WebSocket，與推播完全獨立 |
-| DB 連線與事故 runbook | [supabase_connection_guide.md](supabase_connection_guide.md) |
-| Celery worker/beat 建置 | [railway_celery_runbook.md](railway_celery_runbook.md) |
 | 本機開發環境 | [full_setup_guide.md](full_setup_guide.md) |
 | Codex 程式知識圖譜 / Graphify MCP | [graphify_codex.md](graphify_codex.md) |
 | 新增語言 / i18n 上線 | [runbook/](runbook/) |
 | 監控告警 | [observability/](observability/) |
 | UI 設計系統 | [DESIGN.md](DESIGN.md)（Linear 風格參考，原 `design_references/linear_app_design.md` 為同一份、已合併）；其他參考分析見 [design_references/](design_references/)；前端實際元件規則以 `.claude/skills/design-taste-frontend` 為準 |
 | **2026-10 全面稽核／清理／效能**（稽核前後數據、未提交修改清單、待拍板事項） | [audit_2026-10/CODEBASE_AUDIT.md](audit_2026-10/CODEBASE_AUDIT.md)、[REFACTORING_REPORT](audit_2026-10/REFACTORING_REPORT.md)、[PERFORMANCE_REPORT](audit_2026-10/PERFORMANCE_REPORT.md)、[TEST_REPORT](audit_2026-10/TEST_REPORT.md)、[PROJECT_STRUCTURE](audit_2026-10/PROJECT_STRUCTURE.md)、**[REFACTORING_TRACKER](audit_2026-10/REFACTORING_TRACKER.md)（逐項狀態）**、**[FINAL_REFACTORING_REPORT](audit_2026-10/FINAL_REFACTORING_REPORT.md)（結算）**；原始證據與 patch 在 `audit_2026-10/evidence/` |
-| Supabase RLS 政策（是否已套用到 gu-voice-prod 無文件記載，待確認） | [supabase_rls_policies.sql](supabase_rls_policies.sql) |
 | 網頁版實際元件設計系統（Stripe/Intercom/Sentry 比例稿；與 `docs/DESIGN.md` 的 Linear 參考不同；`design-taste-frontend` skill 為現行規則） | [../frontend/DESIGN.md](../frontend/DESIGN.md) |
 | 活的 backlog | [TODO.md](TODO.md)；2026-07-27 真跑修復與六條測試設計教訓見 §R／§R-lessons；2026-08-23 三項使用者需求（登入頁精簡／admin 刪除問診／場次日曆）與其留下的坑見 §W |
-| **運維端點曝光控制** | [ops_endpoint_exposure.md](ops_endpoint_exposure.md)——`/metrics`／`/docs`／`/redoc`／`/openapi.json` 的鎖法與理由、`METRICS_TOKEN` 設定、以及 `/metrics` 在多 worker 下會低估約 4 倍這個限制 |
-| **後端搬區域（新加坡）** | [railway_region_move.md](railway_region_move.md)——為什麼要搬（實測 827 倍差距）、app 與 Redis 的先後順序、Redis volume 弄丟會失去什麼、驗收與回退。設定值本身在 `backend/railway.toml` 與 [supabase_connection_guide.md](supabase_connection_guide.md) |
+| 運維端點曝光控制 | 自架後 nginx 只轉發 `/api/`，`/metrics`／`/docs`／`/openapi.json` 對外打不到（見 [deployment_guide.md](deployment_guide.md) 一、）；token 鎖法與多 worker 低估限制的背景見 [archive](archive/cloud_2026-11/ops_endpoint_exposure.md) |
 | **效能／體感流暢度（唯一權威來源）** | [perf_audit_2026-08-22.md](perf_audit_2026-08-22.md)——最新 **2026-10-03 iOS＋React 整體流暢度稽核**：12 項修復結果、可重跑驗收與真機待驗範圍；2026-08-22 紀錄保留在下半部。**結論只留這一份**，別的檔連結過來就好 |
 | **產品介紹影片（自動產生）** | [../flutter_app/README.md](../flutter_app/README.md) §介紹影片——`tool/record_demo.sh` 一行產出 60 秒 MP4（模擬器錄影＋walkthrough 驅動＋ffmpeg 字卡）。⚠️ 只准打本機後端；模擬器要先 shutdown 再 boot；本機 ffmpeg 沒有 `drawtext` |
-| Flutter Web 預覽／歷史切換流程 | [flutter_web_cutover.md](flutter_web_cutover.md)；App 開發見 [../flutter_app/README.md](../flutter_app/README.md)，缺口見 [TODO.md](TODO.md) §G／§V |
+| Flutter Web 預覽（只剩本機 `fvm flutter run -d chrome`；歷史切換流程在 [archive](archive/cloud_2026-11/flutter_web_cutover.md)）| App 開發見 [../flutter_app/README.md](../flutter_app/README.md)，缺口見 [TODO.md](TODO.md) §G／§V |
 
 ## 歷史文件
 
-[archive/](archive/) 內為已完成的 audit、一次性計畫與 2026-04 舊規格書——**勿當現行文件讀**，詳見其 README。
+[archive/](archive/) 內為已完成的 audit、一次性計畫、2026-04 舊規格書，以及 `cloud_2026-11/`（Railway／Vercel／Supabase 時期的部署文件）——**勿當現行文件讀**，詳見其 README。

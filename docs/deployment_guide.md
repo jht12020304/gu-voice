@@ -1,118 +1,55 @@
 # GU-Voice 部署與設定操作手冊
 
-本文件說明如何修改 Railway、Vercel、Supabase 的設定，並成功部署到正式環境。
+2026-11-15 起正式環境**自架在一台常開的 Mac**，Railway、Vercel 已刪除，資料從 Supabase 搬回本機 Postgres。
+舊的雲端版手冊在 [archive/cloud_2026-11/deployment_guide_cloud.md](archive/cloud_2026-11/deployment_guide_cloud.md)，只當歷史參考。
 
 ---
 
-## 目前正式環境網址
+## 目前正式環境
 
-| 服務 | 網址 |
-|------|------|
-| **正式前端／React** (Vercel) | `https://gu-voice-chuns-projects-068de742.vercel.app`（2026-11-08 起只給醫師看報告；iOS 醫師報告頁「在網頁開啟」也開這裡） |
-| **Flutter Web staged preview** | `https://gu-voice-flutter-preview.vercel.app`（未通過實體語音驗證前不得 promote） |
-| **後端 API** (Railway) | `https://gu-voice-app-production.up.railway.app` |
-| **健康檢查** | `https://gu-voice-app-production.up.railway.app/api/v1/health` |
-| **Supabase 資料庫** | 專案 `gu-voice-prod`，ref `xobxnlvtilezridrekdm`（region ap-southeast-1）；DB 連線 host `aws-1-ap-southeast-1.pooler.supabase.com`、**port 5432 session-mode**。⚠️ 舊 ref `udydlelmkusyjmegtviq`／`nydhmqtogqlwhuuolzos` 已過期，真相以 Railway `DATABASE_URL` 為準，故障排除見 `supabase_connection_guide.md` §5 |
+| 項目 | 值 |
+|------|----|
+| **對外網址（唯一）** | `https://gu.zymomed.com`：React 報告網頁＋`/api/v1`＋`wss://…/api/v1/ws`（同源，沒有跨網域 cookie／CORS 問題） |
+| **健康檢查** | `https://gu.zymomed.com/api/v1/healthz/deep`（同時驗 DB 與 Redis） |
+| **入口** | Cloudflare Tunnel `gu-voice`（`~/.cloudflared/gu.yml`，launchd `com.gu-voice.tunnel`）→ `127.0.0.1:8005` |
+| **主機設定** | `~/Services/gu-voice/`（repo 外：repo 是公開的，金鑰不能進來）：`compose.yml`、`.env`、`nginx.conf`、`deploy.sh`、`backup.sh`、`README.md` |
+| **容器** | compose 專案 `gu-voice-host`：`db`（Postgres 17）、`redis`、`backend`（uvicorn＋Celery worker＋beat，`start.sh` 同容器起）、`web`（nginx） |
+| **資料庫** | volume `gu-voice-host_db_data`；每日 03:40 備份到 `~/Services/gu-voice/backups/`（launchd `com.gu-voice.backup`，留 60 天） |
+| **外部依賴** | OpenAI（STT／LLM／TTS）、Firebase FCM＋APNs（推播）、SMTP（重設密碼信），都是主機主動往外連 |
+
+⚠️ repo 根的 `docker-compose.yml` 是**本機開發用**，compose 專案名是 `gu-voice`，跟正式環境 `gu-voice-host` 無關。不要在 repo 裡對正式環境下 compose 指令。
 
 ---
 
-## 一、部署流程（最重要）
+## 一、部署流程
 
-> ⚠️ **2026-07-26 更正：部署是手動的。merge 到 `main` 不會讓任何東西上線。**
-> Railway 與 Vercel 的 GitHub App 裝在 repo 上，但它們的 check suite 在**每一次** main merge 都永遠停在 `queued`（對 #29／#30／#31／#32 逐一查證），從不收斂成部署；Railway 每一筆歷史部署的 `meta.cliCaller` 都是手動 CLI。
-> 過去文件寫的「已接上自動部署」是錯的判斷——那些「已部署生產」之所以成立，是因為當天有人手動補跑 `railway up`。
-> 自己查證：`gh api repos/jht12020304/gu-voice/commits/<sha>/check-suites`
-
-**程式碼上線 = merge 到 main，然後手動部署兩邊。**
+**merge 到 `main` 不會上線**，要在那台 Mac 上手動跑：
 
 ```bash
-# 1. 程式碼進 main（PR merge 或 push）
-git push origin main
-
-# 2. 後端 → Railway
-#    ⚠️ 不可以直接在 repo 裡跑 railway up：CLI 5.41.2 起會上傳整個 git root（在 backend/ 裡跑也一樣），
-#    Railpack 看到 monorepo 就 FAILED（2026-08-20 實測；帶路徑參數 `railway up <path>` 也會 `prefix not found`）。
-#    正確做法＝把 backend/ 的「已 commit 內容」匯出到非 git 目錄再 up：
-DEPLOY_DIR=$(mktemp -d)
-git archive HEAD:backend | tar -x -C "$DEPLOY_DIR"
-cd "$DEPLOY_DIR"
-railway link -p gu-voice-api -s gu-voice-app -e production
-railway up --detach
-curl https://gu-voice-app-production.up.railway.app/api/v1/healthz/deep   # 期待 {"status":"ok",...}
-#    ⚠️ healthz 綠**不代表新碼上線**（舊容器還活著時它照樣綠）。要證明流量已切到新版，
-#    打 openapi 找這次新增的欄位／端點：
-#    ⚠️ 2026-08-22 起 `/openapi.json` 在正式環境**要帶 token**（`/docs`、`/redoc` 直接關掉）。
-#    先取出 Railway 上的 METRICS_TOKEN，再帶 `Authorization: Bearer`：
-#      TOKEN=$(railway variables --service gu-voice-app --kv | sed -n 's/^METRICS_TOKEN=//p')
-#    沒帶或帶錯一律回 **404**（刻意不回 401，避免對掃描者確認端點存在）。
-#    ⚠️ 這代表 **METRICS_TOKEN 必須在部署這版之前就設好**，否則第一次部署完就沒有工具驗它。
-curl -s -H "Authorization: Bearer $TOKEN" \
-  https://gu-voice-app-production.up.railway.app/openapi.json | python3 -c \
-  "import json,sys; d=json.load(sys.stdin); print('<本次新增的欄位名>' in json.dumps(d))"
-#    ⚠️ 自動化時**不要**用 `... | grep -c 欄位 || echo 0` 判斷：grep 沒命中會「印 0 **且** 回傳非零」，
-#    `|| echo 0` 於是再追加一個 0，變數變成 "0\n0" ≠ "0" → 判成「有命中」。2026-08-20 用這種寫法
-#    的監看誤報「新碼已上線」，實際上生產仍跑舊碼。判定一律交給 python（解析失敗要當 unknown，不是 true）。
-#    部署卡在 DEPLOYING 時：先看新容器 log 有沒有「Application startup complete」（有＝碼沒問題），
-#    再查 status.railway.com 是否有平台事故——事故期間不要重送 railway up。
-
-# 3a. 現行 React 前端 → Vercel（專案 gu-voice，個人 team chuns-projects-068de742）
-cd frontend && npm run build && vercel --prod
-#    ⚠️ 正式網址 gu-voice-chuns-projects-068de742.vercel.app 的 alias 不會隨 --prod 自動移動
-#    （會釘在舊 deployment；gu-voice.vercel.app 才會自動跟上），要手動補：
-vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.app
-#    驗收：開 /zh-TW/reports/<任意id> 應被導到 /zh-TW/login（且登入後回到該報告）；
-#    rollback＝對上一個 deployment 重跑 alias set（現行與 rollback 名稱見 CLAUDE.md「部署重點」）。
-
-# 3b. Flutter Web staged build/deploy 見 docs/flutter_web_cutover.md
-
-# 3c. iOS TestFlight（Flutter 醫師端）→ 見下方「二、iOS TestFlight 發佈」
+~/Services/gu-voice/deploy.sh
 ```
 
-> **前端唯一活的網址＝`https://gu-voice-chuns-projects-068de742.vercel.app`**（2026-07-26 釐清＋切換）
->
-> - Vercel 專案 `gu-voice`，個人 team `chuns-projects-068de742`。2026-07-26 建立並端到端驗證通過
->   （登入 → dashboard 解析出使用者 → /research 撈到真實生產資料）。2026-11-08 起網頁只剩 /reports，驗收改看報告清單。
-> - **舊網址已停用**：`project-9w0vq.vercel.app` 與 `gu-voice-jht12020304y-7696s-projects.vercel.app`
->   （同一 deployment 的兩個 alias）在**已停用的舊 Vercel 帳號** scope 下，現帳號完全進不去
->   （dashboard 404、`vercel inspect` 找不到），**無法再部署**；且 2026-07-26 已從
->   Railway `CORS_ORIGINS` 移除 → **那兩個網址現在打不到 API，開了會登入失敗**。
->   HTML 還是會載出來（Vercel 仍在服務靜態檔），所以症狀是「頁面正常但登入沒反應」。
-> - 2026-11-08 起病患問診只在 iOS kiosk App，網頁不再提供問診（病患帳號登入網頁會被擋下），kiosk 不需要網頁書籤。
-> - ⚠️ `FRONTEND_BASE_URL` 仍指舊網址（影響重設密碼信的連結），待改。
-> - 移除舊 origin 前先確認沒有 `in_progress` 場次（`select status, count(*) from sessions group by status`），
->   否則會把正在問診的病患打斷。回滾＝把舊 origin 加回 `CORS_ORIGINS`（env 改動約 1 分鐘 redeploy）。
->
-> 新 clone 第一次要先 link（`.vercel/` 不入庫）：
-> ```bash
-> cd frontend && vercel link --yes --project gu-voice
-> ```
+這支腳本會依序做：
+1. 確認 repo 沒有未提交的改動，切到 `main` 並 fast-forward 到 `origin/main`
+2. 先跑 `backup.sh` 備份 DB
+3. `docker compose up -d --build backend web`（`start.sh` 會先跑 `alembic upgrade head`）
+4. 輪詢 `/api/v1/healthz/deep`，通過才印出上線的 commit
 
-> ⚠️ **Deployment Protection 會讓新專案回 302 到 `vercel.com/sso-api`**（不是 401）。
-> dashboard 是 Settings → Deployment Protection → Vercel Authentication → Disabled；
-> 無法開 dashboard 時用 API（token 讀 CLI 自己的 auth 檔，勿印出來）：
-> ```bash
-> python3 -c "
-> import json,os,urllib.request
-> tok=json.load(open(os.path.expanduser('~/Library/Application Support/com.vercel.cli/auth.json')))['token']
-> pj=json.load(open('.vercel/project.json'))
-> r=urllib.request.Request(f\"https://api.vercel.com/v9/projects/{pj['projectId']}?teamId={pj['orgId']}\",
->   data=json.dumps({'ssoProtection':None}).encode(), method='PATCH',
->   headers={'Authorization':f'Bearer {tok}','Content-Type':'application/json'})
-> print(json.load(urllib.request.urlopen(r))['ssoProtection'])"
-> ```
+- 只改環境變數：編輯 `~/Services/gu-voice/.env`，再跑 `docker compose up -d backend`（不必重 build）。
+- React 網頁的 API／WS 網址在 build 時寫死（`compose.yml` 的 `web.build.args`），改網域要重 build `web`。
+- 回滾：`git -C <repo> checkout <舊 commit>` 之後在 `~/Services/gu-voice` 跑 `docker compose up -d --build backend web`。如果牽涉 migration，要用 `backup.sh` 開頭寫的指令還原 DB。
+- **healthz 綠不代表新碼上線**。要確認的話，看 `docker compose logs backend` 裡有沒有「Application startup complete」，時間要對得上；或從容器內找這次新增的欄位：`docker compose exec backend sh -c 'curl -s -H "Authorization: Bearer $METRICS_TOKEN" localhost:8000/openapi.json'`。⚠️ 自動化判斷時不要用 `grep -c … || echo 0`：沒命中時會變成 `"0\n0"`，被誤判成命中。
+- `/metrics`、`/docs`、`/openapi.json` 不在 nginx 的 `/api/` 轉發範圍內，對外一律拿到 SPA 的 index.html，不會曝光（2026-11-15 實測）。要看就從容器內打 `localhost:8000`。
 
-- **Railway** 用 Docker build（`RAILWAY_DOCKERFILE_PATH=Dockerfile`，Dockerfile 在 `backend/`）。⚠️ **CLI 5.41.2 起 `railway up` 一律上傳 git root，cwd 與 link 位置都救不了**（舊版文件寫「從 backend/ 跑」「link 綁目錄」皆已失效）——只能用上面的 `git archive` 匯出法。失敗徵兆：build log 出現 `Railpack could not determine how to build the app`，且舊容器仍 Active——**healthz 綠不代表新碼上線**，要看 dashboard 最新 deployment 是否 Active 且時間吻合。
-- **Vercel** 正確 team 是個人 team **`chuns-projects-068de742`**；舊 `jht12020304y-7696s-projects` 已停用，勿再切換過去。
-- 只改環境變數（不改程式碼）時**不需重新 build**：Railway 會用既有 image 觸發 redeploy（約 1 分鐘）。
-- 事故復原時用 `railway up` 而非 `railway redeploy`——後者實測不會真的換容器（見 `supabase_connection_guide.md` §5a）。
+> ⚠️ 改 `backend/scripts/start.sh` 後要保留執行位（`git update-index --chmod=+x backend/scripts/start.sh`），否則容器起不來。
 
-> ⚠️ 特別注意：如果修改了 `backend/scripts/start.sh`，每次編輯後都必須重新設定執行權限，否則 Railway 部署會失敗：
-> ```bash
-> git update-index --chmod=+x backend/scripts/start.sh
-> git add backend/scripts/start.sh
-> git commit -m "restore executable bit on start.sh"
-> git push origin main
-> ```
+### client IP（登入限流／稽核）
+
+nginx 只把 `CF-Connecting-IP` 寫進 `X-Forwarded-For`。後端 `TRUST_PROXY_HEADERS=true`，取 XFF 的最後一段當 client IP。只有本機的 cloudflared 連得到 `127.0.0.1:8005`，所以這個 header 可信。**不要改回 `$proxy_add_x_forwarded_for`**：改回去的話最後一段會變成 docker gateway IP，全院共用同一個 IP，登入限流會把所有人一起鎖住。
+
+### iOS 打包連哪裡
+
+`flutter_app/tool/env.production.sh` 是 App 的 `API_BASE`、`WS_BASE`、`WEB_BASE` 的唯一來源，目前都指向 `gu.zymomed.com`。`build_ios_testflight.sh` 預設就讀這份。2026-11-15 之前的所有 TestFlight build 連的是已刪除的 Railway，**都已經不能用**。
 
 ---
 
@@ -231,9 +168,9 @@ regulated medical device 申報＝**否**（2026-08-21 使用者拍板：本 App
 **C. 業務端要拍板的（打包時生不出來，要先有人決定並提供）**
 
 8. **隱私政策 URL**——App Store Connect 的 App Information **明文必填**，沒有就送不出去。
-   ⚠️ **本 repo 目前沒有任何隱私政策頁面**。要在 Vercel 站上加一頁 `/privacy`，至少涵蓋：
+   ⚠️ **本 repo 目前沒有任何隱私政策頁面**。要在 `gu.zymomed.com` 加一頁 `/privacy`，至少涵蓋：
    語音錄音的蒐集與**保存期限**、病患姓名與主訴的處理、**推播內容含哪些個資**、
-   以及資料流向（Firebase／Railway／Supabase）。這是一件要寫、要有人核可的事，不是填個網址。
+   以及資料流向（Firebase、OpenAI、院方自架主機）。這是一件要寫、要有人核可的事，不是填個網址。
 9. **Regulated medical device 申報**（2026-03-26 起的新規）。
    觸發條件：主要或次要類別選 **Medical** 或 **Health & Fitness**，**或**年齡分級問卷的
    「Medical or Treatment Information」勾到 frequent／intense ⇒ 就必須在 App Store Connect 完成申報。
@@ -361,18 +298,18 @@ Apple 已標為 VALID 且掛入先行測試群組，待醫師手機更新並登�
 「裝上去打得開」仍不等於新裝置一定能收到推播；這條線上有四個獨立斷點，任何一個沒過，
 症狀都是**手機一片安靜、後端 log 一切正常**：
 
-1. **生產 Railway 的 `FCM_CREDENTIALS_JSON` 要有值。**
+1. **生產 `~/Services/gu-voice/.env` 的 `FCM_CREDENTIALS_JSON` 要有值。**
    沒設時 `backend/app/core/firebase.py:39` 只 `logger.warning`、**API 照常起**，
-   推播全部靜默。查法：`railway variables list` 看有沒有這個變數（**不要把值印出來**）。
+   推播全部靜默。查法：`grep -c ^FCM_CREDENTIALS_JSON= ~/Services/gu-voice/.env` 看有沒有這個變數（**不要把值印出來**）。
    直接 APNs 備援另需 `APNS_AUTH_KEY_BASE64`、`APNS_KEY_ID`、`APNS_TEAM_ID`、`APNS_TOPIC`；
-   `.p8` 只可透過 Railway secret 設定，不得寫進 repo 或 log。
+   `.p8` 只可放在 `~/Services/gu-voice/.env`（chmod 600），不得寫進 repo 或 log。
 2. **`RUN_CELERY_IN_API` 要是 `true`。**
    推播是丟給 Celery 的（`notification_service.py:712` 的 `send_push_notification_task.delay()`），
    **worker 沒跑＝任務沒人消費，而錯誤會被吞掉**。啟動 log 裡要看得到 celery banner。
 3. **生產 DB 要有一個能登入的 doctor／admin 帳號。**
    公開註冊一律降級成 `PATIENT`（`auth_service.py:234` 的 AUTH-3），而**病患帳號在 iOS 上會被導到
    `/patient-unsupported`**——拿病患帳號裝上去，整個 App 只看得到一頁「不支援」。
-   沒有醫師帳號就照「五、Supabase」用 SQL 改一個既有帳號的 `role`。
+   沒有醫師帳號就照「三、維運」的 psql 用 SQL 改一個既有帳號的 `role`。
 4. **怎麼觸發驗證推播**：在病患基本資料頁選定要驗證的醫師，跑完一場問診並產出 SOAP；
    已指派場次的通知只送該醫師，光登入 App 不會產生推播。
    ✅ **建議用一個名字明顯是假的病患跑這一場**（例如「測試 勿用」）——這樣第一則推播的鎖定畫面上
@@ -401,218 +338,56 @@ FROM fcm_devices ORDER BY updated_at DESC LIMIT 5;
 
 ---
 
-## 三、Railway — 後端設定
+## 三、維運
 
-### 修改環境變數（最常用）
-
-**方法一：Raiway Dashboard（推薦）**
-
-1. 登入 [railway.app](https://railway.app)
-2. 選擇專案 `gu-voice-api`
-3. 點擊服務 `gu-voice-app`
-4. 上方 tab 選 **Variables**
-5. 找到要改的變數，直接點擊修改
-6. 儲存後 Railway 會用**既有 image 觸發 redeploy**（約 1 分鐘，免重新 build）
-
-**方法二：Railway CLI（Terminal）**
+所有指令都在 `~/Services/gu-voice/` 底下跑。
 
 ```bash
-# 先確認連結到正確的專案（第一次使用才需要）
-railway link --project gu-voice-api
-railway service gu-voice-app
-
-# 查看所有環境變數
-railway variables list
-
-# 修改單一變數
-railway variables set 變數名稱='新的值'
-
-# 例如更新 CORS
-railway variable set CORS_ORIGINS='["https://gu-voice-chuns-projects-068de742.vercel.app","https://gu-voice-flutter-preview.vercel.app","http://localhost:5175"]'
+docker compose ps                                   # 四個容器都要 Up（backend 要 healthy）
+docker compose logs backend --tail 200 -f           # 後端＋Celery log
+docker compose exec db psql -U gu -d gu_voice       # 直接操作生產 DB
+./backup.sh                                         # 手動備份（每日 03:40 也會自動跑）
+tail ~/Services/gu-voice/logs/cloudflared-error.log # tunnel 連線狀態
+launchctl kickstart -k gui/$(id -u)/com.gu-voice.tunnel   # 重啟 tunnel
 ```
 
-### 重要環境變數說明
+- **環境變數真相＝`~/Services/gu-voice/.env`**（chmod 600）。值一律用單引號包起來，compose 才不會展開 `$`。PEM 的換行寫成字面 `\n`，`config.py` 會自己還原。
+- 常用資料表：`users`、`patients`、`sessions`、`conversations`（月分區）、`soap_reports`、`red_flag_alerts`、`audit_logs`（月分區）。分區由 `partition_manager` 在啟動時和排程中自動補建。
+- 改使用者角色：`docker compose exec db psql -U gu -d gu_voice -c "update users set role='doctor' where email='…'"`。
+- 還原備份：`docker compose exec -T db pg_restore -U gu -d gu_voice --clean --no-owner < backups/<檔>.dump`
+- 主機停電或重開機：Docker Desktop 由 `com.drugpilot.mac-mini.docker` 開機啟動，容器設了 `restart: unless-stopped`，tunnel 由 launchd 的 KeepAlive 維持。開機後跑一次 healthz 確認即可。
 
-| 變數 | 用途 | 注意事項 |
-|------|------|----------|
-| `CORS_ORIGINS` | 允許的前端網域（JSON 陣列） | **必須包含 Vercel 的完整網址**，否則瀏覽器會擋住 |
-| `DB_HOST` | Supabase 資料庫主機 | 不要改，改了會連不到 DB |
-| `OPENAI_API_KEY` | OpenAI API 金鑰 | 若過期或額度不足，問診功能會失效 |
-| `JWT_SECRET_KEY` | JWT 簽名密鑰 | 改了會讓所有人的 token 失效（需重新登入） |
-| `REDIS_URL` | Redis 連線（快取/BlackList） | 改了 logout/token 黑名單會失效 |
-| `LOG_LEVEL` | 日誌等級 | 設定為 `INFO`（大寫）即可，腳本會自動轉小寫 |
-| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | DB 連線池大小 | 用 session-mode pooler 時連線數有限，設 `5` / `5` |
+### 常見問題
 
-> ⚠️ **Gotcha 1：`CORS_ORIGINS` 的格式**
-> pydantic-settings v2 對 `list[str]` 欄位會在 source 層先 `json.loads()`。目前 code（`app/core/config.py`）已對 `CORS_ORIGINS` 與 `MULTILANG_DISABLED_LANGUAGES` 加上 `Annotated[list[str], NoDecode]`，讓 `field_validator` 接到原始字串、**「逗號分隔字串」與「JSON 陣列」兩種格式都能接受**。
-> 但若部署的是**舊 code**，把 `CORS_ORIGINS` 注入逗號分隔字串（如 `https://a.com,https://b.com`）會 `SettingsError` → 容器一啟動就 crash → healthcheck 永遠失敗 → Railway 顯示 offline。保險起見統一用合法 **JSON 陣列**。
+| 症狀 | 查法 |
+|------|------|
+| App／網頁連不上 | 先打 `curl https://gu.zymomed.com/api/v1/healthz/deep`。打不到就看 tunnel log 和 `launchctl list \| grep gu-voice`；回 502 就看 `docker compose ps` |
+| SOAP 一直卡在 GENERATING | Celery worker 掛了。看 `docker compose logs backend \| grep -i celery`，再 `docker compose restart backend` |
+| 收不到推播 | 見 [push_troubleshooting.md](push_troubleshooting.md) |
+| 全院同時被登入限流鎖住 | nginx 的 XFF 設定被改壞了（見上面「client IP」） |
 
-> ⚠️ **Gotcha 2：Supabase pooler 模式（務必用 session-mode，port 5432）**
-> 常駐的 Railway 容器要用 **session-mode pooler（port `5432`）**，不要用 transaction-mode（`6543`）。6543 的 PgBouncer 會讓 asyncpg 的 JSONB codec 型別 introspection 用的 prepared statement 跨 backend 失效，造成特定端點 500（錯誤訊息：`prepared statement "__asyncpg_stmt_*__" does not exist`）。session-mode 每個 client 連線對應專屬 backend，prepared statement 才會持久。
-> code（`app/core/database.py`）已修：`_is_supabase` 改從 `ASYNC_DATABASE_URL` 解析 host 來偵測；先前只看 `settings.DB_HOST`，但以完整 `DATABASE_URL` 注入時 `DB_HOST` 仍是預設 `localhost` → mitigation 全失效。
+### 已知限制
 
-### 查看後端 Log
-
-```bash
-railway logs
-```
-
-或在 Railway Dashboard → 服務 → **Logs** tab。
+- 單機、單點：Mac、Docker 或網路任一個掛掉，Kiosk 就不能問診。
+- 備份只存在本機硬碟。病歷資料應該再加一份異地複本，例如加密外接碟。
 
 ---
 
-## 四、Vercel — 前端設定
-
-### 修改環境變數
-
-1. 登入 [vercel.com](https://vercel.com)
-2. team 選 `chuns-projects-068de742`（chun's projects）
-   > 舊文件寫的 `jht12020304y-7696s-projects` 是**已停用帳號**下的 scope，現帳號進不去（404）。
-   > kiosk 現在還是開那份舊部署，但無法再對它部署——見「一、部署流程」的說明。
-3. 選擇專案 `gu-voice`
-4. 左側選 **Settings** → **Environment Variables**
-5. 修改後點 **Save**
-6. 回到 **Deployments**，點選最新的部署 → **Redeploy**（環境變數不會自動重新部署）
-
-### 重要環境變數說明
-
-| 變數 | 目前值 | 用途 |
-|------|--------|------|
-| `VITE_API_BASE_URL` | `https://gu-voice-app-production.up.railway.app/api/v1` | 前端呼叫後端 API 的網址 |
-| `VITE_WS_BASE_URL` | `wss://gu-voice-app-production.up.railway.app/api/v1/ws` | WebSocket 連線網址 |
-| `VITE_SUPABASE_URL` | `https://xobxnlvtilezridrekdm.supabase.co` | Supabase 連線（舊 ref `udydlelmkusyjmegtviq` 已過期） |
-| `VITE_SUPABASE_ANON_KEY` | `eyJhbGci...` | Supabase 公開金鑰 |
-
-> ⚠️ 如果 Railway 的 API 網址改了，記得同步更新 `VITE_API_BASE_URL` 和 `VITE_WS_BASE_URL`。
->
-> ℹ️ `VITE_API_BASE_URL` / `VITE_WS_BASE_URL` 以 **Vercel dashboard 的環境變數**為準，會**覆寫 repo 內的 `frontend/.env.production`**；要改正式環境請在 Vercel dashboard 改，並 Redeploy。
-
-### Deployment Protection（重要）
-
-Vercel 預設會開啟 Deployment Protection，讓網站只有登入 Vercel 的人才能訪問。若不小心開啟，網站會變成 401：
-
-1. Vercel Dashboard → `gu-voice` 專案 → **Settings**
-2. 找到 **Deployment Protection**
-3. 確認 **Vercel Authentication** 是 **Disabled**
-
----
-
-## 五、Supabase — 資料庫
-
-### 查看資料
-
-1. 登入 [supabase.com](https://supabase.com)
-2. 選擇專案 `gu-voice-prod`（ref `xobxnlvtilezridrekdm`）
-3. 左側 **Table Editor** → 選擇資料表（如 `users`、`sessions`）
-
-### 常用資料表
-
-| 資料表 | 說明 |
-|--------|------|
-| `users` | 所有使用者（病患、醫師、管理員） |
-| `sessions` | 問診場次紀錄 |
-| `messages` | 問診對話內容 |
-| `soap_reports` | SOAP 病歷報告 |
-
-### 新增/修改使用者（直接操作 DB）
-
-在 Supabase **SQL Editor** 執行：
-
-```sql
--- 查詢所有 admin 帳號
-SELECT id, email, name, role, is_active, created_at FROM users WHERE role = 'ADMIN';
-
--- 停用某個帳號
-UPDATE users SET is_active = false WHERE email = 'someone@example.com';
-
--- 刪除測試帳號
-DELETE FROM users WHERE email = 'test_probe_delete@gu-voice.com';
-```
-
-> ⚠️ 直接操作資料庫要謹慎，建議先備份或在 SQL Editor 用 `SELECT` 確認再執行 `UPDATE`/`DELETE`。
-
----
-
-## 六、常見問題排查
-
-### 問題：前端顯示「登入失敗」或網路錯誤
-
-**原因最可能是 CORS 設定錯誤。**
-
-確認步驟：
-1. 打開瀏覽器開發者工具（F12）→ **Network** tab
-2. 點登入，找到失敗的請求
-3. 如果看到 `CORS error` 或 `Access-Control-Allow-Origin` 缺少，就是 CORS 問題
-
-修復：
-```bash
-railway variable set 'CORS_ORIGINS=["https://gu-voice-chuns-projects-068de742.vercel.app","https://gu-voice-flutter-preview.vercel.app","http://localhost:5175"]'
-```
-
----
-
-### 問題：Railway 部署失敗 — "We don't have permission to execute your start command"
-
-`start.sh` 缺少執行權限（每次用編輯器修改這個檔案後就會發生）：
-
-```bash
-git update-index --chmod=+x backend/scripts/start.sh
-git add backend/scripts/start.sh
-git commit -m "fix: restore executable bit on start.sh"
-git push origin main
-```
-
----
-
-### 問題：Railway 部署失敗 — uvicorn log-level 錯誤
-
-已修復（`start.sh` 會自動把 LOG_LEVEL 轉小寫）。若再次出現，確認 `start.sh` 第 43 行是：
-```bash
-LOG_LEVEL="$(echo "${LOG_LEVEL:-info}" | tr '[:upper:]' '[:lower:]')"
-```
-
----
-
-### 問題：Vercel build 失敗 — TypeScript 錯誤
-
-查看 Vercel Dashboard → Deployments → 失敗的部署 → **Build Logs**，找到錯誤行數，修復後 push 即可。
-
----
-
-### 問題：後端健康檢查失敗
-
-```bash
-# 直接查看 Railway log
-railway logs | tail -50
-```
-
-常見原因：
-- 資料庫連線失敗（Supabase 暫時不可用）
-- 環境變數缺少或錯誤
-- Python 套件安裝失敗（查看 build log）
-
----
-
-## 七、本地開發啟動
+## 四、本地開發啟動
 
 ```bash
 # 後端
-cd backend
-source venv/bin/activate
+cd backend && source venv/bin/activate
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 # 前端（另開一個 terminal）
-cd frontend
-npm run dev -- --host 127.0.0.1 --port 3000
+cd frontend && npm run dev -- --host 127.0.0.1 --port 3000
 ```
 
-本地前端會使用 `frontend/.env`（指向 `localhost:8000`），不影響正式環境。
+本地前端會讀 `frontend/.env`（指向 `localhost:8000`），不影響正式環境。全端可用 repo 根的 `docker compose up -d`（開發用，見上面的 ⚠️）。
 
 ---
 
-## 八、GitHub Repo
+## 五、GitHub Repo
 
-所有程式碼：`https://github.com/jht12020304/gu-voice`
-
-- `main` branch → 直接部署到正式環境
-- 建議：重大修改先開新 branch 測試，確認沒問題再 merge 到 main
+`https://github.com/jht12020304/gu-voice`（**公開**：任何主機設定、金鑰、Key ID 都不得入庫）。`main` 不會自動部署，上線一律跑 `deploy.sh`。

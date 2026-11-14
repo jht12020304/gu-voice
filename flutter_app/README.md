@@ -2,7 +2,7 @@
 
 Flutter 實作的 iOS App，供病患 kiosk、醫師與管理員使用。與 `frontend/`（React + Vite 網頁版）**持續並行維護**，共用 `backend/` 的 REST / WebSocket API。現行分工以 [維護範圍](../docs/README.md#維護範圍2026-10-03) 為準。
 
-Flutter Web 保留預覽建置與驗證網址 `https://gu-voice-flutter-preview.vercel.app`；不自動替換 React 網頁版。Android 專案仍保留，但不在目前兩端維護與發佈範圍內。
+Flutter Web 只保留本機預覽（`fvm flutter run -d chrome`）；原本的 Vercel 預覽網址已隨 2026-11-15 改自架刪除，不替換 React 網頁版。Android 專案仍保留，但不在目前兩端維護與發佈範圍內。
 
 ## iOS App 的角色分工（含語音問診）
 
@@ -105,8 +105,8 @@ homebrew 那支是 3.47.0）。3.47 的 Swift Package Manager 預設是開的，
 ```bash
 # 打生產後端（碰 iOS 一律 fvm flutter，見下方 iOS TestFlight 段的地雷）
 fvm flutter run \
-  --dart-define=API_BASE=https://gu-voice-app-production.up.railway.app/api/v1 \
-  --dart-define=WS_BASE=wss://gu-voice-app-production.up.railway.app/api/v1/ws
+  --dart-define=API_BASE=https://gu.zymomed.com/api/v1 \
+  --dart-define=WS_BASE=wss://gu.zymomed.com/api/v1/ws
 ```
 
 iOS Simulator（首次會跑 `pod install`，較久）：
@@ -120,12 +120,11 @@ xcrun simctl launch booted com.guvoice.guVoice
 
 ⚠️ Android emulator 上 `localhost` 是模擬器自己，要用 `10.0.2.2` 才連得到宿主機。
 
-## Web 預覽與正式切換
+## Web 預覽
 
-Flutter SDK 由 [`.fvmrc`](.fvmrc) 固定版本。`./tool/build_vercel_output.sh` 會執行
-analyze、test、release build，並產生 Vercel Build Output；公開版若偵測到 E2E
-帳密會直接拒絕建置。暫存正式部署、實機語音驗證、promotion 與 rollback 步驟見
-[`docs/flutter_web_cutover.md`](../docs/flutter_web_cutover.md)。
+Flutter SDK 由 [`.fvmrc`](.fvmrc) 固定版本。`./tool/build_vercel_output.sh` 是 Vercel 時期的建置腳本
+（analyze、test、release build、產生 Vercel Build Output），2026-11-15 起沒有對外的 Flutter Web 部署；
+歷史切換流程見 [`docs/archive/cloud_2026-11/flutter_web_cutover.md`](../docs/archive/cloud_2026-11/flutter_web_cutover.md)。
 
 ## iOS TestFlight（醫師端內部測試）
 
@@ -219,7 +218,7 @@ cd flutter_app && ./tool/record_demo.sh --output ~/Desktop/UroSense_demo.mp4
   之前，測試碼裡救不了，只能由 `record_demo.sh` 負責。
 - ⚠️ **不要用 ffmpeg 的 `drawtext` / `subtitles` / `ass`。** 本機 Homebrew 的 ffmpeg 9.0.1
   沒編 libfreetype／libass，這三個濾鏡直接失敗。中文字卡走 Pillow 渲染 PNG ＋ `overlay`。
-- ⚠️ **只准打本機後端。** 腳本硬性拒絕 `https://` 與 railway 位址：這支會被重複執行，打正式
+- ⚠️ **只准打本機後端。** 腳本硬性拒絕 `https://` 與正式環境位址：這支會被重複執行，打正式
   環境等於每跑一次就建真場次、對四支真醫師手機發推播。
 - ⚠️ **字卡目前綁固定秒數，而 walkthrough 每次長度會變**（LLM 回應快慢不同，實測 2:14 與
   2:21），成品固定壓成 60 秒 → 變速倍率跟著變 → **同一組字卡在不同次錄影會對到不同畫面**。

@@ -49,13 +49,13 @@ GU-Voice 是一套**以語音對話為核心**的醫療遠端問診系統，協�
            │ HTTPS / WSS                 │ HTTPS / WSS
            ▼                             ▼
 ┌─────────────────────────────────────────────────────────────────-┐
-│         前端：React 18 + TypeScript + Vite（Vercel）              │
+│   前端：React 18 + TS + Vite（自架 nginx，gu.zymomed.com）        │
 │   Zustand  ·  React Router  ·  Tailwind  ·  Axios  ·  i18n        │
 └──────────┬──────────────────────────────────────────────────────-─┘
            │ REST (/api/v1/*)  +  WebSocket (/api/v1/ws/*)
            ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│         後端：FastAPI + Uvicorn（Railway，多 worker）              │
+│   後端：FastAPI + Uvicorn（自架 Mac docker，2 workers）           │
 │   SQLAlchemy async  ·  JWT  ·  Middleware：CORS / RequestId /     │
 │   AuditLogging  ·  WebSocket（conversation / dashboard）          │
 └──────┬───────────────┬──────────────────┬──────────────┬─────────┘
@@ -63,8 +63,8 @@ GU-Voice 是一套**以語音對話為核心**的醫療遠端問診系統，協�
        ▼               ▼                  ▼              ▼
 ┌────────────┐ ┌───────────────┐ ┌─────────────┐ ┌────────────────┐
 │ PostgreSQL │ │    Redis      │ │   OpenAI    │ │   Firebase     │
-│ (Supabase) │ │ (cache / pub  │ │ STT / LLM / │ │  FCM (推播)    │
-│  +Storage  │ │  sub / Celery)│ │ TTS / SOAP  │ │                │
+│ (自架 17)  │ │ (cache / pub  │ │ STT / LLM / │ │  FCM (推播)    │
+│            │ │  sub / Celery)│ │ TTS / SOAP  │ │                │
 └────────────┘ └───────┬───────┘ └─────────────┘ └────────────────┘
                        │
                        ▼
@@ -75,7 +75,7 @@ GU-Voice 是一套**以語音對話為核心**的醫療遠端問診系統，協�
                 └──────────────┘
 ```
 
-監控層：Sentry（前後端錯誤追蹤）、Railway / Vercel 各自的 Logs。
+監控層：Sentry（前後端錯誤追蹤）、`docker compose logs`（主機 `~/Services/gu-voice`）。2026-11-15 起入口是 Cloudflare Tunnel → nginx（同源提供網頁、`/api`、WS）。
 
 ---
 
@@ -98,27 +98,27 @@ GU-Voice 是一套**以語音對話為核心**的醫療遠端問診系統，協�
 
 | 類別 | 選擇 |
 |------|------|
-| 框架 | FastAPI + Uvicorn（4 workers） |
+| 框架 | FastAPI + Uvicorn（正式環境 `WORKERS=2`） |
 | 語言 | Python 3.11 |
 | ORM | SQLAlchemy 2.0 async + asyncpg |
-| 資料庫 | PostgreSQL 15+（Supabase 託管） |
+| 資料庫 | PostgreSQL 17（自架 docker；2026-11-15 前為 Supabase） |
 | 認證 | JWT（RS256 / HS256）+ Passlib bcrypt |
 | 快取 / Broker | Redis 7 |
 | 背景任務 | Celery（Redis broker，Asia/Taipei 時區） |
-| 檔案 | WeasyPrint（SOAP PDF）、Supabase Storage（音檔簽名 URL） |
+| 檔案 | WeasyPrint（SOAP PDF）；音檔不落地（`AudioService.upload_audio` 沒有呼叫端） |
 | 外部 API | OpenAI、Firebase Admin、Sentry |
 
 ### 4.3 基礎設施
 
 | 層級 | 服務 |
 |------|------|
-| 網頁版 | React `frontend/`，**Vercel** 手動部署；與 iOS 並行維護，分工見 [README.md](README.md) |
+| 網頁版 | React `frontend/`，由自架 nginx 提供（`https://gu.zymomed.com`）；與 iOS 並行維護，分工見 [README.md](README.md) |
 | iOS App | Flutter `flutter_app/`，TestFlight 內部測試；設定見 [ios_release_settings.md](ios_release_settings.md) |
-| 後端 | **Railway**（Docker 多階段建置，`backend/scripts/start.sh` 啟動） |
-| 資料庫 | **Supabase**（PostgreSQL + RLS + Storage） |
-| 快取 / 佇列 | Redis（Railway 或 Upstash），同時做 Celery broker / result backend |
+| 後端 | **自架 Mac**（docker compose 專案 `gu-voice-host`，Cloudflare Tunnel 對外；`backend/scripts/start.sh` 同容器起 uvicorn＋Celery） |
+| 資料庫 | **自架 PostgreSQL 17**（同 compose，每日 pg_dump 備份） |
+| 快取 / 佇列 | Redis 7（同 compose），同時做 Celery broker / result backend |
 | 監控 | Sentry（10% 取樣率） |
-| CI/CD | GitHub Actions 4 個 job（`backend-tests`／`frontend-checks`／`flutter-checks`／`e2e-playwright`）；**部署是手動的**（`railway up` / `vercel --prod`，見 [deployment_guide.md](deployment_guide.md)） |
+| CI/CD | GitHub Actions 4 個 job（`backend-tests`／`frontend-checks`／`flutter-checks`／`e2e-playwright`）；**部署是手動的**（主機上跑 `~/Services/gu-voice/deploy.sh`，見 [deployment_guide.md](deployment_guide.md)） |
 
 ---
 
@@ -199,7 +199,7 @@ red_flag_rules ─── red_flag_alerts (1:N)
 
 - 工具：**Alembic 1.14**
 - 位置：`backend/alembic/versions/`
-- Railway 啟動時由 `start.sh` 自動跑 migration（含 5 次重試）
+- 容器啟動時由 `start.sh` 自動跑 migration（含 5 次重試）
 - `conversations`、`audit_logs` 採 **monthly range partition**，由 Celery Beat 每月 25 日 03:00 自動建立下月分區
 
 ---
@@ -278,7 +278,6 @@ PostgreSQL (soap_reports) + Dashboard 推播
 | 服務 | 用途 | 環境變數前綴 |
 |------|------|---------------|
 | **OpenAI** | STT / LLM 對話 / Supervisor / SOAP / 紅旗偵測 / TTS | `OPENAI_*` |
-| **Supabase** | PostgreSQL + Auth + Storage（音檔）+ Realtime | `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、DB 連線變數 |
 | **Firebase (FCM)** | 行動裝置推播（`firebase_admin.messaging`） | `GOOGLE_APPLICATION_CREDENTIALS_JSON` |
 | **Sentry** | 錯誤追蹤（前後端） | `SENTRY_DSN`、`VITE_SENTRY_DSN` |
 | **Redis** | 快取、JWT 黑名單、Celery broker / result backend | `REDIS_URL`（Celery 共用） |
@@ -293,7 +292,7 @@ PostgreSQL (soap_reports) + Dashboard 推播
 
 **後端必備**
 - 應用：`APP_ENV`、`APP_SECRET_KEY`、`LOG_LEVEL`（uvicorn）、`CORS_ORIGINS`
-- 資料庫：`DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USER`、`DB_PASSWORD`（由 config 組成 asyncpg URL）、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`
+- 資料庫：`DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USER`、`DB_PASSWORD`（由 config 組成 asyncpg URL）；正式環境直接給 `DATABASE_URL`
 - 認證：`JWT_ALGORITHM`、`JWT_SECRET_KEY`（HS256）、`JWT_PRIVATE_KEY_PATH`/`JWT_PUBLIC_KEY_PATH`（RS256）、`ACCESS_TOKEN_EXPIRE_MINUTES`、`REFRESH_TOKEN_EXPIRE_DAYS`
 - 外部 API：`OPENAI_API_KEY`、`OPENAI_MODEL_*`、`OPENAI_TEMPERATURE_*`、`OPENAI_MAX_TOKENS_*`、`OPENAI_REASONING_EFFORT_*`、`OPENAI_STT_MODEL`、`OPENAI_TTS_MODEL`、`GOOGLE_APPLICATION_CREDENTIALS_JSON`、`SENTRY_DSN`
 - Redis：`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`REDIS_DB`、`REDIS_KEY_PREFIX`（Celery broker 直接用組出的 `REDIS_URL`，不需額外變數）
@@ -302,7 +301,6 @@ PostgreSQL (soap_reports) + Dashboard 推播
 
 **前端必備**（皆為 `VITE_*`）
 - `VITE_API_BASE_URL`、`VITE_WS_BASE_URL`
-- `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`
 - `VITE_SENTRY_DSN`、`VITE_ENABLE_MOCK`
 
 ---
@@ -362,7 +360,7 @@ npm run dev -- --host 127.0.0.1 --port 3000
 - 病患端問診歷史
 - JWT 認證、RBAC、稽核日誌
 - FCM 推播、WebSocket 即時通訊
-- Vercel + Railway + Supabase 正式部署
+- 正式部署（2026-11-15 起自架 Mac＋Cloudflare Tunnel；先前為 Vercel＋Railway＋Supabase）
 
 **進行中**
 - Alert Triage / Report Review 工作區 UI 重新設計
@@ -382,5 +380,5 @@ npm run dev -- --host 127.0.0.1 --port 3000
 ## 十五、GitHub 與部署
 
 - Repo：`https://github.com/jht12020304/gu-voice`
-- **部署是手動的**：merge 到 `main` 不會上線，要自己跑 `railway up`／`vercel --prod`（見 [deployment_guide.md](deployment_guide.md)）
+- **部署是手動的**：merge 到 `main` 不會上線，要在主機上跑 `~/Services/gu-voice/deploy.sh`（見 [deployment_guide.md](deployment_guide.md)）
 - 重大修改建議先開 feature branch，確認後再 merge 到 main

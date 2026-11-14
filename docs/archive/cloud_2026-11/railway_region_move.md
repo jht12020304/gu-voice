@@ -1,7 +1,7 @@
 # Railway 區域搬遷 Runbook — 後端搬到新加坡
 
 > 2026-08-22。對應 `backend/railway.toml` 的 `[deploy.multiRegionConfig]` 修正。
-> 效能稽核脈絡見 [`perf_audit_2026-08-22.md`](perf_audit_2026-08-22.md)；
+> 效能稽核脈絡見 [`perf_audit_2026-08-22.md`](../../perf_audit_2026-08-22.md)；
 > 連線設定的唯一權威來源是 [`supabase_connection_guide.md`](supabase_connection_guide.md)。
 
 ## 0. 為什麼
@@ -223,7 +223,7 @@ Postgres 完全不受影響——`DATABASE_URL` 指的是 Supabase，不是 Rail
 
 ## 7. 這一步**不會**修好的事
 
-搬完之後，剩下的瓶頸依序是（細節見 [`perf_audit_2026-08-22.md`](perf_audit_2026-08-22.md)）：
+搬完之後，剩下的瓶頸依序是（細節見 [`perf_audit_2026-08-22.md`](../../perf_audit_2026-08-22.md)）：
 
 - `DB_POOL_SIZE=2` / `DB_MAX_OVERFLOW=1`（4 個 worker × 3 ＝ 全站 12 條）。
   實測 14 個並發請求會排成六階梯、最慢 6.7 s。

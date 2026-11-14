@@ -743,3 +743,4 @@ AI 建議的檢查項目是 LLM 生成的**自由字串**，院內沒有代碼�
   （原 `.env` 變數名不符被 pydantic `extra="ignore"` 靜默吞掉、實際效期 15 分鐘）。
   **部署注意**：alias 生效後 Railway 上原被忽略的 `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` 會
   開始生效，建議統一設 canonical `ACCESS_TOKEN_EXPIRE_MINUTES=30`。
+  （2026-11-15 起網頁與 API 同源於 `gu.zymomed.com`，cookie 路徑不再有跨站問題；兩條路徑仍保留，App 走 body 路徑。）
