@@ -288,14 +288,14 @@ main()
 > 不碰 DB 的端點 1.88 ms，跑一句 `SELECT 1` 的端點 1.55 s，而且過半會撞上 2 秒逾時回 500。
 > `railway.toml` 原本就想指定新加坡，但用了 Railway 不存在的 `region` 鍵，安靜失效。
 > 已修正成 `[deploy.multiRegionConfig."asia-southeast1-eqsg3a"]`，
-> **搬遷步驟見 [`railway_region_move.md`](railway_region_move.md)**。
+> **搬遷步驟見 [`railway_region_move.md`](archive/cloud_2026-11/railway_region_move.md)**。
 > 下面那些前端的等待時間，在這一條修好之前都是次要項。
 >
 > ✅ **2026-08-22 已部署**（main `175e704`、Railway deployment `fd780d67`）：
 > 服務已在 Southeast Asia。`healthz/deep` 從 **1.85 s／20-38 回 500** 變成
 > **0.413 s／10-10 全 200**，扣掉網路後的伺服器端工作 1.55 s → **0.19 s**。
 > 剩下那 0.19 s 幾乎全是 **Redis 仍在加州**（volume 1077 MB，搬遷要排維護窗口，
-> 見 [`railway_region_move.md`](railway_region_move.md) §4）。
+> 見 [`railway_region_move.md`](archive/cloud_2026-11/railway_region_move.md) §4）。
 
 #### 4a. 需要你拍板（臨床或部署決策，不該由我單方面改）
 

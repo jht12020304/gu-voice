@@ -7,7 +7,7 @@
 > - 決策、陷阱、被推翻過的錯誤修法 → [`.claude/skills/ios-testflight/SKILL.md`](../.claude/skills/ios-testflight/SKILL.md)
 > - 現況、未解的資料風險、加第 2 個測試人員的前置條件 → [`TODO.md`](TODO.md) §V8
 >
-> 最後更新：2026-11-08（ASC 協議已恢復；最新 production build `202611081428`）
+> 最後更新：2026-11-15（後端改自架 `https://gu.zymomed.com`，Railway／Vercel 已刪；最新 production build `202611141854`，Delivery `c030ee9d-29a7-4f26-b02d-d4a3903daeaa`，此前所有 build 連的 Railway 後端已失效）
 >
 > ⚠️ **build 號的權威是 App Store Connect，不是這份文件。** 2026-09-03～09-09 之間本檔
 > 自相矛盾過：這一行與下方 §7 表格寫 `202609030302`，而 §4 與其他段落寫 `202609030649`，
@@ -29,6 +29,8 @@
 ---
 
 ## 0. 2026-10-03 staging 候選包與測試環境
+
+> ⚠️ **2026-11-15 起沒有 staging**：下表的 Railway staging（`gu-voice-api`／`staging`）與 `gu-voice-staging.vercel.app` 已隨 Railway／Vercel 專案一起刪除，本節只當歷史紀錄。要測試環境時在自架主機另起一個 compose 專案（不同 port、不同 tunnel 子網域），不要讓未授權人員碰 production。
 
 本輪未修改 production。後端與 React preview 已部署至獨立測試環境；iOS 是本機已簽章候選包，**尚未送進 TestFlight**。原有 TestFlight build 的最後已知狀態保留在 §7。
 
@@ -75,7 +77,7 @@
 | 付費 App 協議 | 未簽（本 App 免費，不需要） |
 | regulated medical device 申報 | **否** — 2026-08-21 使用者拍板：本 App 未以醫療器材身分向 FDA／EU 註冊 |
 | 年齡分級問卷 | ⬜ 未填。ASC 另有「社群媒體功能」新問題待確認。**不擋內部測試**，擋上架與外部測試 |
-| 隱私政策 URL | ⬜ **不存在**——整個 repo 沒有任何隱私政策頁，要在 Vercel 站上加一頁 `/privacy` |
+| 隱私政策 URL | ⬜ **不存在**——整個 repo 沒有任何隱私政策頁，要在 `gu.zymomed.com` 加一頁 `/privacy` |
 | 歐盟 DSA 貿易商狀態 | ⬜ 未填。只影響歐盟發佈，內部測試不需要 |
 
 > 上表是 2026-08-21 的歷史查核，當時的更新提示並未阻擋操作。**2026-10-03 已實際遇到必要協議 403**，以 §0 為準，不能沿用當時的有效狀態。
@@ -126,18 +128,17 @@
 變數名是 `API_BASE` / `WS_BASE`（**不是** `*_BASE_URL`），值含 path 後綴：
 
 ```
-API_BASE=https://gu-voice-app-production.up.railway.app/api/v1
-WS_BASE=wss://gu-voice-app-production.up.railway.app/api/v1/ws
+API_BASE=https://gu.zymomed.com/api/v1
+WS_BASE=wss://gu.zymomed.com/api/v1/ws
 ```
 
-⚠️ `api-` 開頭的域名是死的。沒帶 dart-define 時預設是 `http://localhost:8000/api/v1`，
+（2026-11-15 起自架；之前的 `gu-voice-app-production.up.railway.app` 已刪除。）沒帶 dart-define 時預設是 `http://localhost:8000/api/v1`，
 裝到手機上永遠連不到後端而且被 ATS 擋，UI 只會轉圈不報原因。打包腳本第 3 關會擋。
 
 `WEB_BASE`（2026-11-08 起）＝React 網頁版網址，醫師報告頁右上「在網頁開啟」會用 Safari 開
 `<WEB_BASE>/<語言>/reports/<sessionId>`（網頁需自行登入，登入後回到該報告）。打包腳本在連
-production 後端時預設帶 `https://gu-voice-chuns-projects-068de742.vercel.app`（`tool/env.production.sh`
-的 `PROD_WEB_BASE`）；**自訂 `API_BASE`（如 staging）時必須明確給 `WEB_BASE`**（staging＝
-`https://gu-voice-staging.vercel.app`），否則第 3 關擋下。沒帶這個 define 時按鈕不顯示。
+production 後端時預設帶 `https://gu.zymomed.com`（`tool/env.production.sh`
+的 `PROD_WEB_BASE`）；**自訂 `API_BASE` 時必須明確給 `WEB_BASE`**，否則第 3 關擋下。沒帶這個 define 時按鈕不顯示。
 
 ### Build number
 

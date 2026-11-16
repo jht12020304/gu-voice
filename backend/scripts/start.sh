@@ -94,9 +94,10 @@ fi
 # worker/beat service，所以跑在這個容器裡。
 #
 # ponytail: 單容器共存，理由是（a）不必跨 service 複製 20+ 個環境變數、
-# （b）每多一個常駐 service 就多一組 Supabase session-pooler 連線，那正是
-# 2026-07-04 pooler idle 佔滿事故的成因。要獨立擴縮時再依
-# docs/railway_celery_runbook.md 拆成獨立 service，並把 RUN_CELERY_IN_API 設 false。
+# （b）2026-07-04 Supabase pooler idle 佔滿事故就是常駐 service 太多造成的（2026-11-15 起改自架
+# Postgres，這點已不構成限制）。要獨立擴縮時在 ~/Services/gu-voice/compose.yml 另起 worker／beat
+# service（指令見 scripts/start_worker.sh、start_beat.sh），並把 RUN_CELERY_IN_API 設 false；
+# beat 全系統只能有一個。舊 Railway 版拆法見 docs/archive/cloud_2026-11/railway_celery_runbook.md。
 #
 # ⚠️ beat 全系統只能有一個副本。railway.toml 是 numReplicas=1，成立；
 #    要調大 replicas 前必須先把 beat 拆出去，否則排程會重複觸發。

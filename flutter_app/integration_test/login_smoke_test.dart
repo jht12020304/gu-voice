@@ -8,8 +8,8 @@
 //
 //   flutter test integration_test/login_smoke_test.dart \
 //     -d <simulator-udid> \
-//     --dart-define=API_BASE=https://gu-voice-app-production.up.railway.app/api/v1 \
-//     --dart-define=WS_BASE=wss://gu-voice-app-production.up.railway.app/api/v1/ws \
+//     --dart-define=API_BASE=https://gu.zymomed.com/api/v1 \
+//     --dart-define=WS_BASE=wss://gu.zymomed.com/api/v1/ws \
 //     --dart-define=E2E_EMAIL=doctor@example.com \
 //     --dart-define=E2E_PASSWORD=...
 //

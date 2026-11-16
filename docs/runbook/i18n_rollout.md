@@ -42,7 +42,7 @@ kill switch 一律改這兩個變數，不改 code、不改 migration。
   MULTILANG_DISABLED_LANGUAGES=         # 空
   DEFAULT_LANGUAGE=zh-TW
   ```
-  並在 Railway 對 10 位內部 user 的 `preferred_language=en-US` hard-code（DB 直改）
+  並在生產 DB 對 10 位內部 user 的 `preferred_language=en-US` hard-code（DB 直改）
 
 ### 監控指標（每天人工看一次）
 
@@ -64,8 +64,8 @@ kill switch 一律改這兩個變數，不改 code、不改 migration。
 
 ```bash
 # 立即關掉所有非預設語言（en-US 會退回 zh-TW）
-railway variables set MULTILANG_DISABLED_LANGUAGES="en-US"
-railway redeploy
+# 編輯 ~/Services/gu-voice/.env：MULTILANG_DISABLED_LANGUAGES='en-US'
+docker compose -f ~/Services/gu-voice/compose.yml up -d backend   # 重讀 .env，約 30 秒
 # 確認 /metrics 看 urovoice_forced_fallback_total{from="en-US",to="zh-TW"} 開始累積
 ```
 
@@ -114,8 +114,8 @@ railway redeploy
 ```bash
 # 選項 A：只關 Beta 診所 en-US（改診所 user 的 preferred_language 回 zh-TW）
 # 選項 B：全域 kill（適用於 red flag precision 崩盤時）
-railway variables set MULTILANG_DISABLED_LANGUAGES="en-US"
-railway redeploy
+# 編輯 ~/Services/gu-voice/.env：MULTILANG_DISABLED_LANGUAGES='en-US'
+docker compose -f ~/Services/gu-voice/compose.yml up -d backend   # 重讀 .env，約 30 秒
 ```
 
 ### Oncall 聯絡
@@ -181,8 +181,8 @@ and
 
 ```bash
 # 降回 0%，但保留 Stage 1/2 allowlist（不影響內部 & Beta 診所）
-railway variables set MULTILANG_ROLLOUT_PERCENT=0
-railway redeploy
+# 編輯 ~/Services/gu-voice/.env：MULTILANG_ROLLOUT_PERCENT='0'
+docker compose -f ~/Services/gu-voice/compose.yml up -d backend   # 重讀 .env，約 30 秒
 ```
 
 ### Oncall 聯絡
@@ -225,11 +225,11 @@ railway redeploy
 
 ```bash
 # 最後防線 — 全域 kill，所有語言退回 zh-TW（0.5s 生效）
-railway variables set MULTILANG_GLOBAL_ENABLED=False
-railway redeploy
+# 編輯 ~/Services/gu-voice/.env：MULTILANG_GLOBAL_ENABLED='False'
+docker compose -f ~/Services/gu-voice/compose.yml up -d backend   # 重讀 .env，約 30 秒
 # 或針對單一語言
-railway variables set MULTILANG_DISABLED_LANGUAGES="en-US,ja-JP"
-railway redeploy
+# 編輯 ~/Services/gu-voice/.env：MULTILANG_DISABLED_LANGUAGES='en-US,ja-JP'
+docker compose -f ~/Services/gu-voice/compose.yml up -d backend   # 重讀 .env，約 30 秒
 ```
 
 ### Oncall 聯絡
@@ -243,9 +243,9 @@ railway redeploy
 
 | 緊急程度 | 指令 | 生效範圍 |
 | --- | --- | --- |
-| 最高（全停） | `railway variables set MULTILANG_GLOBAL_ENABLED=False` | 所有非 zh-TW 請求退回 zh-TW |
-| 高（單語言） | `railway variables set MULTILANG_DISABLED_LANGUAGES="en-US"` | 只關 en-US |
-| 中（降 rollout） | `railway variables set MULTILANG_ROLLOUT_PERCENT=0` | 新使用者不進，既有 allowlist 不受影響 |
+| 最高（全停） | `.env` 設 `MULTILANG_GLOBAL_ENABLED=False` 後重啟 backend | 所有非 zh-TW 請求退回 zh-TW |
+| 高（單語言） | `.env` 設 `MULTILANG_DISABLED_LANGUAGES="en-US"` 後重啟 backend | 只關 en-US |
+| 中（降 rollout） | `.env` 設 `MULTILANG_ROLLOUT_PERCENT=0` 後重啟 backend | 新使用者不進，既有 allowlist 不受影響 |
 | 低（特定診所） | DB UPDATE `users.preferred_language='zh-TW' where clinic_id=X` | 針對性回退 |
 
 所有 kill switch 操作都須同步在 `#urovoice-i18n-rollout` 發 pre/post 兩則訊息，

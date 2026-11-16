@@ -3,7 +3,7 @@
 > ⚠️ **2026-11-08**：React 網頁版已改成只給醫師看報告，下文提到的 React 病患／問診頁（`ConversationPage`、`MedicalInfoPage`、`screens/patient/*`）、`/research`、儀表板等頁面都已刪除，相關描述只當歷史參考；現行病患流程與研究分析畫面只在 Flutter App。
 
 > 建立日期：2026-07-06｜對應 PR #16（基礎頁）、#17（期刊級重構）、#18（Wilson CI hotfix）
-> 狀態：已上線生產（Vercel 前端 + Railway 後端）
+> 狀態：已上線生產（2026-11-15 起自架 `gu.zymomed.com`；之前為 Vercel 前端 + Railway 後端）
 
 問診數據的**去識別化聚合分析**，供醫師端做學術研究與國際期刊投稿準備。頁面 `/research`（醫師/管理員可見），端點 `GET /api/v1/research/analytics`。每場問診結束後圖表自動更新。
 
@@ -134,7 +134,7 @@ DB 只做 6 個單純取數查詢（Q1 sessions、Q2 病患對話輪、Q3 紅旗
 
 ## 7. 部署與驗證
 
-- **後端**：merge 到 main 後**手動** `cd backend && railway up --detach --service gu-voice-app`（部署非自動，見 [deployment_guide.md](deployment_guide.md) 一、）。啟動腳本自動跑 migration。
-- **前端**：手動 `cd frontend && npm run build && vercel --prod`；research locale 隨 build 同步到 `public/locales`。
+- **後端＋網頁**：merge 到 main 後在主機上**手動**跑 `~/Services/gu-voice/deploy.sh`（部署非自動，見 [deployment_guide.md](deployment_guide.md)）。
+- **前端**：`deploy.sh` 會一起重建 React（research locale 隨 build 同步到 `public/locales`）。研究分析頁現行只在 iOS App。
 - **本地 E2E 驗證**：docker 起 PG16+Redis → `alembic upgrade head` → seed（一次性腳本，未入庫；注意 conversations 按月分區，seed 日期須落在既有分區月份）→ uvicorn 帶 `CORS_ORIGINS` 含 vite dev port → Playwright 逐 Figure 目檢 → Redis publish `gu:dashboard:events` 模擬跨行程 `report_generated` 驗即時更新。
 - **測試**：後端 `tests/unit/services/test_research_service.py`（Wilson CI 教科書值、箱形 whisker、age band、demographics 去重、非終態紅旗回歸）。

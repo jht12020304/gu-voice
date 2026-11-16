@@ -221,7 +221,7 @@ F01–F12 已完成程式修正與本機回歸；獨立 staging 後端與 React 
 > 就永遠卡 GENERATING（已實際發生一次，見 PR #34）。
 >
 > 現行做法：`backend/scripts/start.sh` 在同一個容器內起 worker + beat，由 `RUN_CELERY_IN_API`
-> （預設 true）控制。要拆回獨立 service 時設 false 並照 `railway_celery_runbook.md` 建。
+> （預設 true）控制。要拆回獨立 service 時設 false 並照 `archive/cloud_2026-11/railway_celery_runbook.md` 的思路拆（該文件是 Railway 版，自架時改成 compose 多加 worker／beat service）。
 > **調大 `numReplicas` 前必須先把 beat 拆出去**，否則排程重複觸發。
 
 - **檔案**：Railway Dashboard（不在 repo 內），可能需新增 `backend/scripts/start_worker.sh`、`backend/scripts/start_beat.sh`
@@ -390,7 +390,7 @@ F01–F12 已完成程式修正與本機回歸；獨立 staging 後端與 React 
 
 ### [x] 16. Supabase RLS policy (2026-04-18)
 
-- **檔案**：`docs/supabase_rls_policies.sql`（新增，約 260 行）
+- **檔案**：`docs/archive/cloud_2026-11/supabase_rls_policies.sql`（新增，約 260 行；2026-11-15 改自架後 Supabase 不再使用，已封存）
 - **要做**：
   - [x] 4 個 helper function：`gu_current_user_role()`、`gu_is_admin()`、`gu_is_doctor_or_admin()`、`gu_current_patient_id()`（STABLE + SECURITY DEFINER，讀 `public.users` / `public.patients` 表判斷）
   - [x] `sessions`：病患經 patients.user_id = auth.uid() 推回 patient_id；醫師 `doctor_id = auth.uid() OR doctor_id IS NULL`（可接候補）；admin 全開；INSERT 限自己名下、UPDATE 限自己負責或 admin
@@ -752,7 +752,7 @@ flutter test integration_test/patient_text_flow_test.dart -d <udid> \
 
 2026-08-17 已部署固定預覽 `https://gu-voice-flutter-preview.vercel.app`，並驗過 release build、
 78 tests、五語 deep link、Railway CORS 與測試病患登入。**尚未用真人麥克風驗 STT/TTS/VAD**，
-所以只能說非語音頁與登入可用；未完成 `docs/flutter_web_cutover.md` 的 voice checklist 前不得 promote。
+所以只能說非語音頁與登入可用；未完成 `docs/archive/cloud_2026-11/flutter_web_cutover.md` 的 voice checklist 前不得 promote。（2026-11-15 該預覽網址已隨 Vercel 刪除。）
 
 ⚠️ **2026-08-20 更新**：稽核找到的 IN-1（intake `no_*` 由空清單推斷＝捏造病歷）被列為
 Flutter Web promote blocker，已於 `931b9b7` 修掉（見 §S）。**但 promote 前提完全不變**——

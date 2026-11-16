@@ -41,22 +41,22 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 
 ## 部署重點
 
-**部署是手動的——merge 到 main 不會上線。** Railway 與 Vercel 的 GitHub App 雖裝在 repo 上，但 check suite 在每一次 main merge 都永遠卡在 `queued`（2026-07-26 對 #29/#30/#31/#32 逐一查證），從未真的觸發部署；歷史上所有生產部署的 `cliCaller` 都是手動 CLI。要上線必須自己跑：
+**2026-11-15 起自架在使用者那台常開的 Mac，Railway／Vercel 已刪除。** 對外網址只有一個：`https://gu.zymomed.com`（Cloudflare Tunnel `gu-voice` → `127.0.0.1:8005` → nginx：React 報告網頁＋`/api/`、`/api/v1/ws/` 轉給 backend）。部署設定與金鑰都在 repo 外的 `~/Services/gu-voice/`（`compose.yml`、`.env`、`nginx.conf`、`deploy.sh`、`backup.sh`、`README.md`），因為 repo 是公開的。merge 到 main 不會上線：
 
-- 後端：⚠️ CLI 5.41.2 起 `railway up` 一律上傳 git root（在 `backend/` 裡跑也一樣→FAILED），必須先 `git archive HEAD:backend | tar -x -C <非git臨時目錄>`，在該目錄 `railway link -p gu-voice-api -s gu-voice-app -e production && railway up --detach` → 驗 `curl <host>/api/v1/healthz/deep`（完整流程見 `docs/deployment_guide.md` 一、）
-- React 前端：`cd frontend && npm run build && vercel --prod`，然後 **手動** `vercel alias set <新deployment網址> gu-voice-chuns-projects-068de742.vercel.app`（正式 alias 不會隨 --prod 自動移動）
-- Flutter Web 預覽（維持 React 網頁版）：`cd flutter_app && ./tool/build_vercel_output.sh && vercel deploy --prebuilt --prod --skip-domain --scope chuns-projects-068de742`；歷史切換程序見 `docs/flutter_web_cutover.md`，現行維護決定不包含切換
+- 後端＋React 網頁：`~/Services/gu-voice/deploy.sh`（拉 main → 先備份 → `docker compose up -d --build backend web`，`start.sh` 自跑 alembic → 驗 `/api/v1/healthz/deep`）
+- 生產 DB＝該 Mac 上 compose 專案 `gu-voice-host` 的 Postgres 17（volume `gu-voice-host_db_data`），不再是 Supabase；每日 03:40 `backup.sh`（launchd `com.gu-voice.backup`）。⚠️ repo 根的 `docker-compose.yml` 是**本機開發用**、專案名 `gu-voice`，別拿它碰正式環境
+- client IP：nginx 只把 `CF-Connecting-IP` 寫進 `X-Forwarded-For`，後端 `TRUST_PROXY_HEADERS=true` 取最後一段；改 nginx 時別換回 `$proxy_add_x_forwarded_for`（會讓全院共用 docker gateway IP、登入限流一起鎖）
 - iOS TestFlight（Flutter 單一 App，只做內部測試）：`cd flutter_app && ./tool/build_ios_testflight.sh` →
   產出已簽章 .ipa → 由人看過六關驗證結果後手動上傳（ASC API key ＋ `xcrun altool`，
   先 `--validate-app` 再 `--upload-app`；腳本刻意不代勞）。所有設定值與目前 build 只留在
   `docs/ios_release_settings.md`；操作與到期門檻見 `docs/deployment_guide.md` 二、。第一次跑第 5 關
   會被 macOS 鑰匙圈授權對話框擋一次；`flutter build ipa` export 失敗仍可能回 exit 0，唯一判準是
-  `.ipa` 存在。腳本預設連 production；獨立 staging 與候選包見設定總表 §0，建置時須明確指定 API／WS。⚠️ production 現行問診必選醫師，doctor／臨床 admin
+  `.ipa` 存在。腳本預設連 production（`gu.zymomed.com`）。⚠️ **staging 已隨 Railway 一起刪除，目前沒有測試環境**；要的話在自架主機另起 compose 專案，建置時明確指定 API／WS／WEB_BASE。⚠️ production 現行問診必選醫師，doctor／臨床 admin
   只讀與接收自己被指派的病患資料，system admin 保留全院稽核；未指派 legacy 報告通知仍有
-  全體在職醫護 fallback。production 測試員只能是獲授權院內人員，未授權工程／PM 用 staging。
+  全體在職醫護 fallback。production 測試員只能是獲授權院內人員，未授權工程／PM 不得進 production 群組。
   `testFlightInternalTestingOnly=true` 已證實有效，但只擋散佈、不擋資料；Organizer 仍會繞過整份 ExportOptions。
 
-活後端域名 = `gu-voice-app-production.up.railway.app`（`api-` 是死域名）。正式 React 網址仍為 `gu-voice-chuns-projects-068de742.vercel.app`；Flutter Web 固定驗證網址為 `gu-voice-flutter-preview.vercel.app`（2026-08-17 已驗 build、78 tests、五語 deep link、CORS、病患測試登入，**實體麥克風/STT/TTS/VAD 尚待人工驗證，未通過前不得 promote**）。React 現行 production deployment＝`gu-voice-ojwkxdfjj`（2026-11-08，報告頁加問診起訖與時長，PR #124）；上一版 rollback＝`gu-voice-98z3fj01j`（同日報告專用版＋登入後回原報告）；更早＝`gu-voice-7jv43doe2`（無登入導回）；改版前的完整舊版＝`gu-voice-gzug99u9e`（2026-08-20）。皆為 `<名稱>-chuns-projects-068de742.vercel.app`。測試登入按鈕只可使用無真實資料的 patient 帳號，禁止內嵌 doctor/admin 憑證。生產 DB = Supabase `gu-voice-prod`（ref `xobxnlvtilezridrekdm`，ap-southeast-1）；環境變數真相 = Railway。細節見 `docs/flutter_web_cutover.md`、`deploy-production` skill 與 [docs/AGENTS.md](docs/AGENTS.md)。
+生產網址集中在 `flutter_app/tool/env.production.sh`（App 的 API／WS／WEB_BASE）與 `frontend/.env.production`。Flutter Web 預覽網址已隨 Vercel 移除（`fvm flutter run -d chrome` 本機預覽仍可用）。現行操作手冊＝`docs/deployment_guide.md`（自架維運＋iOS 發佈）；2026-11-15 前的 Railway／Vercel／Supabase 文件全移到 `docs/archive/cloud_2026-11/`，只當歷史。`backend/railway*.toml`、`frontend/vercel.json`、`flutter_app/tool/build_vercel_output.sh` 是殘留的雲端設定，已不使用。
 
 ## 專案技能（.claude/skills/）
 
@@ -73,7 +73,7 @@ graphify-out/       → graphify 知識圖譜（untracked，可重建；graph.ht
 ## 鐵律（Boundaries）
 
 - Always：改 `frontend/src/i18n/locales/` 後執行 `npm run build` 重生 `public/locales/`，兩者一起 commit
-- Always：改 `backend/scripts/start.sh` 後保留 executable bit（`git update-index --chmod=+x`），否則 Railway 部署失敗
+- Always：改 `backend/scripts/start.sh` 後保留 executable bit（`git update-index --chmod=+x`），否則 backend 容器起不來
 - Always：動語音管線或 SOAP prompt 前先讀 `voice-pipeline-invariants`；改完跑 `e2e-real-openai` 驗證
 - Always：病患面措辭用「請稍候等看診」「請告知現場醫護」——部署情境是院內 kiosk，病患已在現場，禁用含糊的「盡速就醫」
 - Always：iOS 與 React 都持續維護；共用功能（目前只剩醫師報告頁：SOAP、逐字稿、審閱、PDF、快速開單）修改需檢查兩端行為與五語文案，各端翻譯以自己的來源檔為準。平台專用 key 不必跨端複製。網頁版刻意不提供病患問診與其他頁面，別把刪掉的頁面加回來

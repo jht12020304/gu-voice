@@ -98,5 +98,5 @@ middleware，路由自己掛才擋得住。`test_ops_endpoint_exposure.py::TestW
 ## 相關
 
 - 搬區域的完整流程（含這個 token 必須先設好）：[`railway_region_move.md`](railway_region_move.md)
-- 為什麼會去看 `/metrics`：[`perf_audit_2026-08-22.md`](perf_audit_2026-08-22.md)
-- 部署驗證怎麼帶 token：[`deployment_guide.md`](deployment_guide.md) 一、
+- 為什麼會去看 `/metrics`：[`perf_audit_2026-08-22.md`](../../perf_audit_2026-08-22.md)
+- 部署驗證怎麼帶 token：[`deployment_guide.md`](../../deployment_guide.md) 一、
