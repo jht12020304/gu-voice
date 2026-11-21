@@ -63,9 +63,11 @@ iOS App 供病患 kiosk、醫師與管理員使用。測試裝置需有 iOS 17 �
 4. 確認 build 顯示「內部」。先於授權群組按 [實機驗收清單](../ios_native/README.md#發佈前的實機驗收) 檢查（推播排錯見 [診斷手冊](push_troubleshooting.md)），再由發佈人決定指派至「先行測試」。
 5. 回裝、到期與重建見 [iOS 回滾手冊](runbook/ios_rollback.md)。
 
-### 歷史紀錄
+### 舊版發佈紀錄
 
-### ✅ 2026-08-21 首次上傳完成——Apple 側現況
+舊版簽章、上傳與 2026-09-02 推播實測步驟保留在 [當時的操作手冊](https://github.com/jht12020304/gu-voice/blob/27c10238e4aebc62920bdd83fd00f46cd6a4557f/docs/deployment_guide.md#推播上機驗證2026-09-02-已通過換裝置時照這個順序重驗)。
+
+#### ✅ 2026-08-21 首次上傳完成——Apple 側現況
 
 第一顆 build 已上傳、通過 ASC 自動處理，狀態是**「準備測試」**，而且在 TestFlight 的
 建置版本清單上標著「**內部**」。上傳前 `xcrun altool --validate-app` 先回

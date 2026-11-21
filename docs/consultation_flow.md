@@ -109,7 +109,11 @@ chief_complaint = session_obj.chief_complaint_text
 
 ---
 
-## 3. 問答（前端）
+## 3. 問答（原生 iOS）
+
+`KioskConversationScreen.swift` 顯示對話。`KioskConversation.swift` 接收即時事件、恢復斷線的場次，並在伺服器確認終態後顯示完成或紅旗中止。`KioskAudio.swift` 負責錄音與 TTS。TTS 期間停收音，使用者手動暫停後要由本人恢復。離場時停止錄放音、連線與計時器。文字備援與語音使用相同的後端紅旗和問答管線。
+
+### 舊版 React 稽核證據
 
 **畫面**：`frontend/src/screens/patient/ConversationPage.tsx`
 
