@@ -56,3 +56,11 @@ Debug 允許 loopback HTTP。需要開啟本機 React 報告頁時，執行 `doc
 | C · 醫師與管理員 | 報告確認／退回、PDF、快速開單、醫師其餘頁、帳號管理與推播。臨床 admin 與 system admin 的資料範圍沿用後端及 Flutter 規則。 |
 | D · 病患 kiosk | 原生語音問診、閒置登出和 kiosk 流程。語音使用 AVAudioEngine，問診連線使用 URLSession WebSocket。 |
 | E · 切換 | 驗證簽章與原地升級，完成追平後切換並退役 Flutter。 |
+
+## 本機驗收截圖
+
+截圖來自專用 iPhone 17 Pro simulator，畫面中的資料皆為合成資料。
+
+- [Flutter 已登入](Screenshots/01-flutter-signed-in.png) · [SwiftUI 覆裝後直接進入報告](Screenshots/02-native-after-upgrade.png)
+- [報告與紅旗](Screenshots/03-native-report.png) · [SOAP 四段](Screenshots/04-native-soap.png) · [逐字稿](Screenshots/05-native-transcript.png)
+- [換第二位醫師](Screenshots/06-native-second-doctor.png) · [管理員占位頁](Screenshots/07-native-admin.png) · [病患 kiosk 占位頁](Screenshots/08-native-kiosk.png)
