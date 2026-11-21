@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		09E17336811ACE9620DDD564 /* KioskAudioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D34A43555EB8A169147F0FD /* KioskAudioTests.swift */; };
 		0DDF4CC343951D589F73337C /* AdministrationDetails.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9CB48C8DEEEECCFCB0CDE61 /* AdministrationDetails.swift */; };
 		15C0937BE84C7D91351C85D4 /* Reports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A43765FFB0E20377743D0BE /* Reports.swift */; };
 		16EBD9BC3EC1F2F507C0E0C9 /* AdminScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0627E9D9AC271F95422DCFBC /* AdminScreens.swift */; };
@@ -15,19 +16,37 @@
 		3048E6EF617F6342B775338F /* ReportActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4579CBA4672037A7767E1D67 /* ReportActions.swift */; };
 		34622CB83CAB679C2A09F0C6 /* SessionScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED87FE842905F66EE81E8E2 /* SessionScreens.swift */; };
 		3CDDED0A1813C715A7F565A9 /* FoundationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A328FA972D45CB3A27984ABB /* FoundationTests.swift */; };
+		3DC9C32525F8086EC4891E40 /* KioskAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129991C7593644130F80D56F /* KioskAudio.swift */; };
+		4293860AA1630912898127D1 /* KioskPatientSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24154F75C11A6FC8AC470A19 /* KioskPatientSettings.swift */; };
+		43D143A60AFAB373859F240A /* KioskIntakeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3271B09A9072694A2380D9D /* KioskIntakeTests.swift */; };
+		45F9E9BA691A944C4BF6705E /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 7A211E9B2F11B577BC931F35 /* InfoPlist.strings */; };
 		47172C5BBDD782C10C37669C /* PushNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = E948EE6D9E8792ECA1FD0784 /* PushNotifications.swift */; };
 		47D5B353CEA41C5096724B93 /* Credentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB29489469A1F289B3C20787 /* Credentials.swift */; };
 		49DF0DF19E9BD8D7B2B4943D /* PatientAndAlertScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 495B8DB75384E7F98CA622C0 /* PatientAndAlertScreens.swift */; };
 		4BACB7A80287B92A5AD8B50C /* ClinicalRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98ED3FCDBC220B7DD8DA2EA /* ClinicalRows.swift */; };
+		529475FED0AAAC7ED0F34838 /* KioskHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FF64649C012CBC51E1286E /* KioskHome.swift */; };
+		53FC77BE44E5DAF85A93F045 /* KioskIdleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A374AD75AFC810880295E13 /* KioskIdleTests.swift */; };
 		5641AABD3692FDDDD353FED5 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 01E4CBE49E32F91C188F21BC /* FirebaseMessaging */; };
+		6C2E88E06B706D27A99C1554 /* KioskConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43FE9555BC72668D1666427D /* KioskConversation.swift */; };
+		7C606EADB021BE14459A6827 /* KioskPatientRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE56EF7E30607FD74C4BA72 /* KioskPatientRecord.swift */; };
+		7D76ABD5AD9BEF132FAD5321 /* KioskVisit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6755F390F2269D94E7A44AA9 /* KioskVisit.swift */; };
 		832C3A7AA16F38C713F2BE63 /* ReportScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FB897F22C5181F7134F9CAB /* ReportScreens.swift */; };
+		9146A3E99F254AB8EDE11229 /* KioskFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5895C3F973A74B69BBE85661 /* KioskFlowTests.swift */; };
 		94510359BE7DECC695CE147F /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 187D47C3DD34A2EACA817730 /* Configuration.swift */; };
+		948795A87831CA7F60499E62 /* KioskIntake.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC9E3EB966033CD718B17D73 /* KioskIntake.swift */; };
 		977933CFA73B9E58D53E589A /* ClinicalNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37498A4666E11D16EA08F70D /* ClinicalNavigation.swift */; };
 		9EE10E3EA577F40B8DDC98C7 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 8220DF3D62BA5FFBDCA6A2A2 /* GoogleService-Info.plist */; };
+		A843A241A9CC97C8D5920151 /* KioskPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6630EC29818D8B98E87CBAFE /* KioskPresentationTests.swift */; };
+		AA4EDB2601AF5245ADC93E52 /* KioskConversationScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1674E7D617361B2502B922 /* KioskConversationScreen.swift */; };
+		AA5F35B3DA9C88D14158E3C1 /* KioskPatientRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2D9B83DDB030F29C183CF82 /* KioskPatientRecordTests.swift */; };
+		B9EF214FDCC072AB4B385C8F /* Kiosk.strings in Resources */ = {isa = PBXBuildFile; fileRef = A079153F8DECDF6693DCC2D2 /* Kiosk.strings */; };
 		BDA2251C4C6B30515B359EBE /* NotificationScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38322977F8CFCFB97D89BF6B /* NotificationScreens.swift */; };
+		C7F611B5062A596354736E1B /* KioskIntakeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43FEACB2B0B0DA80F1FA95EE /* KioskIntakeScreen.swift */; };
 		E0A185B057740A51875A47AA /* ResearchScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E20942D7DF6C5995E2A1D7C /* ResearchScreen.swift */; };
 		E2C8880031F2083661666232 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = E7D4627FC953F34C714C889A /* Localizable.xcstrings */; };
+		EB524D8F2DE6FCA2E9BD1206 /* KioskConversationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42CBF71342D754CBF2DBDB78 /* KioskConversationTests.swift */; };
 		F208FC7FC1F35040C4CA1877 /* GUVoiceApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9E5B659D126B75119C5920 /* GUVoiceApp.swift */; };
+		FC82EBE3613458CCD05BC687 /* KioskIdle.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F1B08E4CAD22B5BBFD13C9 /* KioskIdle.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -38,30 +57,65 @@
 			remoteGlobalIDString = 555423846927CC56CDA2373B;
 			remoteInfo = GUVoice;
 		};
+		1C1B9DB3C512FB030B81BC13 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E051B71454D192558DBAC9A1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 555423846927CC56CDA2373B;
+			remoteInfo = GUVoice;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		0627E9D9AC271F95422DCFBC /* AdminScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminScreens.swift; sourceTree = "<group>"; };
+		0A1674E7D617361B2502B922 /* KioskConversationScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskConversationScreen.swift; sourceTree = "<group>"; };
+		0D34A43555EB8A169147F0FD /* KioskAudioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskAudioTests.swift; sourceTree = "<group>"; };
 		0FB897F22C5181F7134F9CAB /* ReportScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportScreens.swift; sourceTree = "<group>"; };
+		129991C7593644130F80D56F /* KioskAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskAudio.swift; sourceTree = "<group>"; };
 		187D47C3DD34A2EACA817730 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
+		24154F75C11A6FC8AC470A19 /* KioskPatientSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskPatientSettings.swift; sourceTree = "<group>"; };
+		2E31DEE816BC71F1D990B574 /* en-US */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "en-US"; path = "en-US.lproj/Kiosk.strings"; sourceTree = "<group>"; };
 		35DE2415D93DC6AB377DEA6A /* GUVoiceTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = GUVoiceTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		371496722B4E6B092CFE850A /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		37498A4666E11D16EA08F70D /* ClinicalNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClinicalNavigation.swift; sourceTree = "<group>"; };
 		38322977F8CFCFB97D89BF6B /* NotificationScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScreens.swift; sourceTree = "<group>"; };
+		3993A7ABFFB10E1960181180 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Kiosk.strings"; sourceTree = "<group>"; };
 		3E20942D7DF6C5995E2A1D7C /* ResearchScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchScreen.swift; sourceTree = "<group>"; };
+		3FB88CD4F48C9A1C0B485A2F /* GUVoiceUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = GUVoiceUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		429DB4EAC3022A5048E0F536 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		42CBF71342D754CBF2DBDB78 /* KioskConversationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskConversationTests.swift; sourceTree = "<group>"; };
+		43FE9555BC72668D1666427D /* KioskConversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskConversation.swift; sourceTree = "<group>"; };
+		43FEACB2B0B0DA80F1FA95EE /* KioskIntakeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskIntakeScreen.swift; sourceTree = "<group>"; };
 		4579CBA4672037A7767E1D67 /* ReportActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportActions.swift; sourceTree = "<group>"; };
 		495B8DB75384E7F98CA622C0 /* PatientAndAlertScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatientAndAlertScreens.swift; sourceTree = "<group>"; };
+		4A374AD75AFC810880295E13 /* KioskIdleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskIdleTests.swift; sourceTree = "<group>"; };
+		5895C3F973A74B69BBE85661 /* KioskFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskFlowTests.swift; sourceTree = "<group>"; };
+		6630EC29818D8B98E87CBAFE /* KioskPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskPresentationTests.swift; sourceTree = "<group>"; };
+		66FF64649C012CBC51E1286E /* KioskHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskHome.swift; sourceTree = "<group>"; };
+		6755F390F2269D94E7A44AA9 /* KioskVisit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskVisit.swift; sourceTree = "<group>"; };
 		6A43765FFB0E20377743D0BE /* Reports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Reports.swift; sourceTree = "<group>"; };
 		8220DF3D62BA5FFBDCA6A2A2 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		88B40803CE202CD420971C69 /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = vi; path = vi.lproj/Kiosk.strings; sourceTree = "<group>"; };
 		8D0DC6BB25823DF1550A433D /* Production.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Production.xcconfig; sourceTree = "<group>"; };
+		9C021501D6F68B05DCCB96D0 /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = vi; path = vi.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		9CC8FCA24BDC6C8E13FB6594 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
 		A328FA972D45CB3A27984ABB /* FoundationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationTests.swift; sourceTree = "<group>"; };
+		AC9E3EB966033CD718B17D73 /* KioskIntake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskIntake.swift; sourceTree = "<group>"; };
+		AD54A90217AB0CF9AB5D5EDE /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Kiosk.strings; sourceTree = "<group>"; };
 		AE08B35C31FEEAA0A12A8A31 /* GUVoice.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GUVoice.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B25156C608109757DAD9F098 /* en-US */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "en-US"; path = "en-US.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		B8B13F9186F7A3ED66C7B465 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/Kiosk.strings; sourceTree = "<group>"; };
+		BED8AAE897E1D86E7ED906DA /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		C9CB48C8DEEEECCFCB0CDE61 /* AdministrationDetails.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdministrationDetails.swift; sourceTree = "<group>"; };
+		D3271B09A9072694A2380D9D /* KioskIntakeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskIntakeTests.swift; sourceTree = "<group>"; };
 		DC8FFCA5EBB5357F1A18B658 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		DDE56EF7E30607FD74C4BA72 /* KioskPatientRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskPatientRecord.swift; sourceTree = "<group>"; };
 		DED87FE842905F66EE81E8E2 /* SessionScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionScreens.swift; sourceTree = "<group>"; };
+		E2D9B83DDB030F29C183CF82 /* KioskPatientRecordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskPatientRecordTests.swift; sourceTree = "<group>"; };
 		E7D4627FC953F34C714C889A /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		E874150F893019A48D2E0324 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E948EE6D9E8792ECA1FD0784 /* PushNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotifications.swift; sourceTree = "<group>"; };
+		F7F1B08E4CAD22B5BBFD13C9 /* KioskIdle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskIdle.swift; sourceTree = "<group>"; };
 		F98ED3FCDBC220B7DD8DA2EA /* ClinicalRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClinicalRows.swift; sourceTree = "<group>"; };
 		FB29489469A1F289B3C20787 /* Credentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Credentials.swift; sourceTree = "<group>"; };
 		FD9E5B659D126B75119C5920 /* GUVoiceApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GUVoiceApp.swift; sourceTree = "<group>"; };
@@ -83,6 +137,12 @@
 			isa = PBXGroup;
 			children = (
 				A328FA972D45CB3A27984ABB /* FoundationTests.swift */,
+				0D34A43555EB8A169147F0FD /* KioskAudioTests.swift */,
+				42CBF71342D754CBF2DBDB78 /* KioskConversationTests.swift */,
+				4A374AD75AFC810880295E13 /* KioskIdleTests.swift */,
+				D3271B09A9072694A2380D9D /* KioskIntakeTests.swift */,
+				E2D9B83DDB030F29C183CF82 /* KioskPatientRecordTests.swift */,
+				6630EC29818D8B98E87CBAFE /* KioskPresentationTests.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -99,6 +159,16 @@
 				187D47C3DD34A2EACA817730 /* Configuration.swift */,
 				FB29489469A1F289B3C20787 /* Credentials.swift */,
 				FD9E5B659D126B75119C5920 /* GUVoiceApp.swift */,
+				129991C7593644130F80D56F /* KioskAudio.swift */,
+				43FE9555BC72668D1666427D /* KioskConversation.swift */,
+				0A1674E7D617361B2502B922 /* KioskConversationScreen.swift */,
+				66FF64649C012CBC51E1286E /* KioskHome.swift */,
+				F7F1B08E4CAD22B5BBFD13C9 /* KioskIdle.swift */,
+				AC9E3EB966033CD718B17D73 /* KioskIntake.swift */,
+				43FEACB2B0B0DA80F1FA95EE /* KioskIntakeScreen.swift */,
+				DDE56EF7E30607FD74C4BA72 /* KioskPatientRecord.swift */,
+				24154F75C11A6FC8AC470A19 /* KioskPatientSettings.swift */,
+				6755F390F2269D94E7A44AA9 /* KioskVisit.swift */,
 				E7D4627FC953F34C714C889A /* Localizable.xcstrings */,
 				38322977F8CFCFB97D89BF6B /* NotificationScreens.swift */,
 				495B8DB75384E7F98CA622C0 /* PatientAndAlertScreens.swift */,
@@ -108,6 +178,8 @@
 				0FB897F22C5181F7134F9CAB /* ReportScreens.swift */,
 				3E20942D7DF6C5995E2A1D7C /* ResearchScreen.swift */,
 				DED87FE842905F66EE81E8E2 /* SessionScreens.swift */,
+				7A211E9B2F11B577BC931F35 /* InfoPlist.strings */,
+				A079153F8DECDF6693DCC2D2 /* Kiosk.strings */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -126,8 +198,17 @@
 			children = (
 				AE08B35C31FEEAA0A12A8A31 /* GUVoice.app */,
 				35DE2415D93DC6AB377DEA6A /* GUVoiceTests.xctest */,
+				3FB88CD4F48C9A1C0B485A2F /* GUVoiceUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		62CAD90792DA090820CD6A8F /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				5895C3F973A74B69BBE85661 /* KioskFlowTests.swift */,
+			);
+			path = UITests;
 			sourceTree = "<group>";
 		};
 		7989C6DB5651C8B8ABA147F7 /* Runner */ = {
@@ -146,6 +227,7 @@
 				2EE373FA37C3F762BCEDBE8E /* Config */,
 				7989C6DB5651C8B8ABA147F7 /* Runner */,
 				02C39737CD5F763A3AB33ECA /* Tests */,
+				62CAD90792DA090820CD6A8F /* UITests */,
 				555BD54A16B6C0AB4F812886 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -153,6 +235,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		38BE811237AF9118E8EA8646 /* GUVoiceUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9B9ED750E3A8759BD17FC390 /* Build configuration list for PBXNativeTarget "GUVoiceUITests" */;
+			buildPhases = (
+				1E5015F47B8C6A9F8B827B8E /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BA3AD62140ABD0342FB926BE /* PBXTargetDependency */,
+			);
+			name = GUVoiceUITests;
+			packageProductDependencies = (
+			);
+			productName = GUVoiceUITests;
+			productReference = 3FB88CD4F48C9A1C0B485A2F /* GUVoiceUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		555423846927CC56CDA2373B /* GUVoice */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E87F7543D3186E33ADC4FE96 /* Build configuration list for PBXNativeTarget "GUVoice" */;
@@ -200,6 +300,11 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					38BE811237AF9118E8EA8646 = {
+						DevelopmentTeam = K593X99M7G;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 555423846927CC56CDA2373B;
+					};
 					555423846927CC56CDA2373B = {
 						DevelopmentTeam = K593X99M7G;
 						ProvisioningStyle = Automatic;
@@ -233,6 +338,7 @@
 			targets = (
 				555423846927CC56CDA2373B /* GUVoice */,
 				A941A532F77A357F11C16704 /* GUVoiceTests */,
+				38BE811237AF9118E8EA8646 /* GUVoiceUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -244,6 +350,8 @@
 			files = (
 				271956E5F92AE4E931FCC1F3 /* Assets.xcassets in Resources */,
 				9EE10E3EA577F40B8DDC98C7 /* GoogleService-Info.plist in Resources */,
+				45F9E9BA691A944C4BF6705E /* InfoPlist.strings in Resources */,
+				B9EF214FDCC072AB4B385C8F /* Kiosk.strings in Resources */,
 				E2C8880031F2083661666232 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -251,6 +359,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		1E5015F47B8C6A9F8B827B8E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9146A3E99F254AB8EDE11229 /* KioskFlowTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		8ED5C5D3823452CC45BCB476 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -263,6 +379,16 @@
 				94510359BE7DECC695CE147F /* Configuration.swift in Sources */,
 				47D5B353CEA41C5096724B93 /* Credentials.swift in Sources */,
 				F208FC7FC1F35040C4CA1877 /* GUVoiceApp.swift in Sources */,
+				3DC9C32525F8086EC4891E40 /* KioskAudio.swift in Sources */,
+				6C2E88E06B706D27A99C1554 /* KioskConversation.swift in Sources */,
+				AA4EDB2601AF5245ADC93E52 /* KioskConversationScreen.swift in Sources */,
+				529475FED0AAAC7ED0F34838 /* KioskHome.swift in Sources */,
+				FC82EBE3613458CCD05BC687 /* KioskIdle.swift in Sources */,
+				948795A87831CA7F60499E62 /* KioskIntake.swift in Sources */,
+				C7F611B5062A596354736E1B /* KioskIntakeScreen.swift in Sources */,
+				7C606EADB021BE14459A6827 /* KioskPatientRecord.swift in Sources */,
+				4293860AA1630912898127D1 /* KioskPatientSettings.swift in Sources */,
+				7D76ABD5AD9BEF132FAD5321 /* KioskVisit.swift in Sources */,
 				BDA2251C4C6B30515B359EBE /* NotificationScreens.swift in Sources */,
 				49DF0DF19E9BD8D7B2B4943D /* PatientAndAlertScreens.swift in Sources */,
 				47172C5BBDD782C10C37669C /* PushNotifications.swift in Sources */,
@@ -279,12 +405,23 @@
 			buildActionMask = 2147483647;
 			files = (
 				3CDDED0A1813C715A7F565A9 /* FoundationTests.swift in Sources */,
+				09E17336811ACE9620DDD564 /* KioskAudioTests.swift in Sources */,
+				EB524D8F2DE6FCA2E9BD1206 /* KioskConversationTests.swift in Sources */,
+				53FC77BE44E5DAF85A93F045 /* KioskIdleTests.swift in Sources */,
+				43D143A60AFAB373859F240A /* KioskIntakeTests.swift in Sources */,
+				AA5F35B3DA9C88D14158E3C1 /* KioskPatientRecordTests.swift in Sources */,
+				A843A241A9CC97C8D5920151 /* KioskPresentationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		BA3AD62140ABD0342FB926BE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 555423846927CC56CDA2373B /* GUVoice */;
+			targetProxy = 1C1B9DB3C512FB030B81BC13 /* PBXContainerItemProxy */;
+		};
 		BC26389081CDABDC31949E3F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 555423846927CC56CDA2373B /* GUVoice */;
@@ -292,7 +429,51 @@
 		};
 /* End PBXTargetDependency section */
 
+/* Begin PBXVariantGroup section */
+		7A211E9B2F11B577BC931F35 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				B25156C608109757DAD9F098 /* en-US */,
+				371496722B4E6B092CFE850A /* ja */,
+				BED8AAE897E1D86E7ED906DA /* ko */,
+				9C021501D6F68B05DCCB96D0 /* vi */,
+				429DB4EAC3022A5048E0F536 /* zh-Hant */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+		A079153F8DECDF6693DCC2D2 /* Kiosk.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				2E31DEE816BC71F1D990B574 /* en-US */,
+				AD54A90217AB0CF9AB5D5EDE /* ja */,
+				B8B13F9186F7A3ED66C7B465 /* ko */,
+				88B40803CE202CD420971C69 /* vi */,
+				3993A7ABFFB10E1960181180 /* zh-Hant */,
+			);
+			name = Kiosk.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
 /* Begin XCBuildConfiguration section */
+		4B77B635152512D1F067EB83 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.guvoice.guVoice.KioskUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = GUVoice;
+			};
+			name = Release;
+		};
 		4F3722D3774D4D8109DE39F1 /* Release */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 8D0DC6BB25823DF1550A433D /* Production.xcconfig */;
@@ -303,6 +484,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_PREPROCESS = YES;
+				KIOSK_IDLE_TIMEOUT_SECONDS = 180;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -390,6 +572,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_PREPROCESS = YES;
+				KIOSK_IDLE_TIMEOUT_SECONDS = 180;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -494,6 +677,23 @@
 			};
 			name = Debug;
 		};
+		B994736EC19ADCE0708B4A19 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.guvoice.guVoice.KioskUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = GUVoice;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -511,6 +711,15 @@
 			buildConfigurations = (
 				AA922ACFBCF7455855965BB8 /* Debug */,
 				A5753616AF15481DDB9B641E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9B9ED750E3A8759BD17FC390 /* Build configuration list for PBXNativeTarget "GUVoiceUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B994736EC19ADCE0708B4A19 /* Debug */,
+				4B77B635152512D1F067EB83 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

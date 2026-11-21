@@ -1,6 +1,6 @@
 # UroSense 原生 iOS
 
-這個 Xcode 專案是 GU Voice 的原生 SwiftUI 版，最低支援 iOS 17。現有功能包含醫師與管理員的報告、快速開單、場次與日曆、病患、紅旗、通知及管理工具。臨床人員可查本人操作的稽核與本人指派場次的研究統計。System admin 可管理帳號並查看全院稽核與研究。病患 kiosk 仍顯示占位頁。
+這個 Xcode 專案是 GU Voice 的原生 SwiftUI 版，最低支援 iOS 17。現有功能包含醫師與管理員的報告、快速開單、場次與日曆、病患、紅旗、通知及管理工具。臨床人員可查本人操作的稽核與本人指派場次的研究統計。System admin 可管理帳號並查看全院稽核與研究。病患登入後可選主訴與醫師、填寫病史，以語音或文字完成問診，再查看自己的問診紀錄。
 
 ## 在本機建置與測試
 
@@ -41,11 +41,51 @@
 
 Debug 允許 loopback HTTP。需要開啟本機 React 報告頁時，執行 `docker compose up -d frontend`。Web 連結帶 App 目前的語言與場次 ID。App 可切換繁體中文、英文、日文、韓文與越南文。首次啟動比照 Flutter，依裝置的主要語言比對，沒有相符項目時使用繁體中文。之後以 App 內選擇為準。
 
+## 病患 kiosk
+
+病患首頁提供最近五筆場次與完整歷史入口。進行中的場次可續問，已完成或因紅旗中止的場次可查看病患摘要。一般完成畫面八秒後回首頁。紅旗畫面請病患告知現場醫護，保留到按下返回或閒置登出。麥克風無法使用時仍可打字，音訊不寫入本機檔案。
+
+病患在對話頁以外閒置 180 秒會登出，回到登入畫面。可在 Xcode build settings 覆寫 `KIOSK_IDLE_TIMEOUT_SECONDS`，`0` 停用。語音對話期間由後端判斷逾時。
+
+### 模擬器雙路徑驗收
+
+在 repo 根目錄執行以下命令，將 UDID 換成專用模擬器。測試 Compose 使用獨立資料庫與固定回答的本機模型替身，後端、紅旗偵測規則、WebSocket 和資料庫都參與驗證。測試建立合成帳號，使用文字代替真人講話。
+
+```sh
+docker compose -f ios_native/TestsSupport/kiosk-compose.yml up --build --wait -d
+python3 ios_native/TestsSupport/seed-kiosk.py
+
+xcrun simctl bootstatus <UDID> -b
+xcrun simctl privacy <UDID> grant microphone com.guvoice.guVoice
+TEST_RUNNER_KIOSK_UI_TEST=1 xcodebuild -project ios_native/GUVoice.xcodeproj -scheme GUVoice \
+  -destination 'platform=iOS Simulator,id=<UDID>' -parallel-testing-enabled NO \
+  API_BASE=http://127.0.0.1:18083/api/v1 WS_BASE=ws://127.0.0.1:18083/api/v1/ws build test
+
+docker compose -f ios_native/TestsSupport/kiosk-compose.yml exec -T postgres \
+  psql -U postgres -d kiosk -c 'select status, count(*) from sessions group by status'
+docker compose -f ios_native/TestsSupport/kiosk-compose.yml stop
+```
+
+兩個 UI 案例各自從病患首頁開始，經過選主訴、生日、性別與指派醫師。一般案例等到 AI 回覆，再按結束並確認，預期 `completed`。紅旗案例輸入合成症狀，等伺服器中止，預期 `aborted_red_flag`。資料庫筆數隨重跑累加。
+
+### 真 iPad 手動清單
+
+使用授權的測試帳號與合成病患資料，記錄 iPad 型號、iPadOS、App build 與音訊輸出裝置。
+
+- [ ] 第一次允許麥克風，以自然音量講話。確認開頭與停頓後的結尾都進逐字稿。播放 AI 語音或重播時靠近喇叭，確認逐字稿不出現喇叭回音，播完可回答下一題。
+- [ ] 錄音中按暫停、手動結束一句、恢復收音。切換 TTS 靜音和語速。手動暫停期間播放或中斷 TTS，確認不會自行開麥。
+- [ ] 在 iPad 設定拒絕麥克風後重新問診，確認畫面有提示，可用文字完成。在同一場次拔插耳機、切換藍牙、呼叫並關閉 Siri，核對恢復後的播放與收音。手動暫停時重做一次，確認麥克風維持暫停。
+- [ ] 在問診中短暫關閉 Wi-Fi 再開啟，確認回到同一場次、逐字稿無重複。持續斷線時有可操作的返回入口。送出文字時斷網，確認重連後能核對或重送原句。說完最後一句、尚未自動停錄時按結束，先取消一次，再確認並核對最後一筆逐字稿與後端終態。
+- [ ] 用合成紅旗案例確認中止畫面請病患告知現場醫護。等八秒後仍可看見提醒，醫師端同一場次顯示紅旗終態。
+- [ ] 用兩個病患帳號交替登入，檢查姓名、主訴、病史、對話、紅旗和錄音狀態。四欄 intake 分別試未填、明確勾無、填入項目。核對場次紀錄及醫師端。
+- [ ] 在首頁、基本資料與個人設定閒置至期限，確認返回登入畫面。問診中只講話不觸控，確認不被 kiosk 計時器登出。
+- [ ] 切換繁中、英、日、韓、越語，核對主訴、對話、紅旗與歷史摘要。對話中切換語言需先確認結束。以橫向、放大字級與 VoiceOver 操作完一輪。
+
 ## 覆裝驗收與回滾
 
 本專案使用 Flutter 版相同的 Team `K593X99M7G`、Bundle ID `com.guvoice.guVoice` 和 Automatic Signing。同 ID 安裝會取代裝置上的舊版。只在專用 simulator 做覆裝驗收，使用獨立本機 Compose 的合成資料。應在另一台 simulator 跑單元測試。禁止覆裝服役中的 kiosk、使用 production 資料測試、加入 `-allowProvisioningUpdates` 或上傳 TestFlight／App Store Connect。
 
-以 `fvm flutter` 建置連線至同一個本機後端的 Flutter 版，登入測試醫師帳號。保留舊 App 的安裝，直接在同一台 simulator 安裝 SwiftUI 版。啟動後應進入醫師報告清單。開啟有紅旗的合成場次，核對病患姓名、紅旗、SOAP 和逐字稿。登出後重開 App，再換另一個測試醫師，確認只讀得到後端授權的資料。管理員應進入診間首頁，病患帳號應進入 kiosk 占位頁。
+以 `fvm flutter` 建置連線至同一個本機後端的 Flutter 版，登入測試醫師帳號。保留舊 App 的安裝，直接在同一台 simulator 安裝 SwiftUI 版。啟動後應進入醫師報告清單。開啟有紅旗的合成場次，核對病患姓名、紅旗、SOAP 和逐字稿。登出後重開 App，再換另一個測試醫師，確認只讀得到後端授權的資料。管理員應進入診間首頁，病患帳號應進入問診首頁。
 
 原生 App 從同一個 Keychain access group 讀取 Flutter 的 `flutter_secure_storage_service`。遷移成功後，原生格式以單筆紀錄保存 access 和 refresh token，並刪除 Flutter 項目。遷移寫入失敗會保留 Flutter 項目並顯示登入頁。暫時無法讀取 Keychain 時會回到登入頁，可在裝置解鎖後重試。登出時先遮住帳號畫面，透過後端解除裝置綁定，然後清除憑證。斷網時重啟仍保留待解除狀態。舊憑證過期時，原帳號重新驗證只會完成解除綁定，接著回到登入頁。若裝回 Flutter，請重新登入。
 
@@ -75,7 +115,7 @@ Debug 允許 loopback HTTP。需要開啟本機 React 報告頁時，執行 `doc
 | 階段 | 工作 |
 | --- | --- |
 | C · 醫師與管理員 | 已接上診間與系統管理功能。全院帳號目錄和特權操作限 system admin。Doctor 與臨床 admin 可讀指派給本人的場次及後端允許的舊未指派場次。臨床研究母體只含本人指派的場次。 |
-| D · 語音與病患 kiosk | 兩處醫師端的語音入口、原生語音問診、閒置登出和 kiosk 流程。 |
+| D · 語音與病患 kiosk | 已接上病患 kiosk、原生錄放音、閒置登出，以及醫師代病患開場與續問。 |
 | E · 切換 | 驗證既有 Flutter 裝置綁定、換人後的鎖定畫面、簽章與實機覆裝。依 [iOS 發布設定](../docs/ios_release_settings.md) 的時間戳規則遞增 build 號，完成追平後切換並退役 Flutter。 |
 
 ## 本機驗收截圖

@@ -50,6 +50,17 @@
                ReferencedContainer = "container:GUVoice.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "38BE811237AF9118E8EA8646"
+               BuildableName = "GUVoiceUITests.xctest"
+               BlueprintName = "GUVoiceUITests"
+               ReferencedContainer = "container:GUVoice.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>

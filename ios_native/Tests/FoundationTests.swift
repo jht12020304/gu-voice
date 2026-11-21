@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Security
 import XCTest
 @testable import GUVoice
@@ -64,6 +65,75 @@ final class FoundationTests: XCTestCase {
         XCTAssertTrue(account.credentialsUnavailable)
         XCTAssertEqual(HTTPStub.routes.count("me"), 0)
         XCTAssertEqual(try credentials.load(), Tokens(access: "old-access", refresh: "old-refresh"))
+    }
+
+    func testRestoringAnIdlePatientRevokesLoginBeforeShowingTheirRecords() async throws {
+        let patient = UUID()
+        let profile = #"{"id":"\#(patient)","name":"Fixture","role":"patient"}"#
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(profile)
+            case "logout": .status(204)
+            default: .status(500)
+            }
+        }
+        let account = Account(api: api)
+        account.kioskIdle.start(patient: patient, restoring: false, at: Date(timeIntervalSince1970: 0))
+        defer { account.kioskIdle.clear() }
+        await account.restore(.english)
+        guard case .signedOut = account.state else { return XCTFail("Expired kiosk restored patient access") }
+        XCTAssertNil(try credentials.load())
+        XCTAssertEqual(HTTPStub.routes.count("logout"), 1)
+    }
+
+    func testIdleDeadlinePostsLogoutEvenWhenClearingThePatientCancelsTheViewTask() async throws {
+        let patient = UUID()
+        let profile = #"{"id":"\#(patient)","name":"Fixture","role":"patient"}"#
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(profile)
+            case "refresh": .json(Self.rotatedTokens)
+            case "logout":
+                request.value(forHTTPHeaderField: "Authorization") == "Bearer new-access" ? .status(204) : .status(401)
+            default: .status(500)
+            }
+        }
+        let account = Account(api: api)
+        await account.restore(.english)
+        XCTAssertEqual(account.currentUser?.id, patient)
+        account.kioskIdle.start(patient: patient, restoring: false, at: .distantPast)
+        defer { account.kioskIdle.clear() }
+        let modifier = KioskIdleLogout(account: account, language: .english, enabled: true)
+        let viewTask = Task { await modifier.waitForIdleLogout() }
+        withObservationTracking { _ = account.currentUser } onChange: { viewTask.cancel() }
+        await viewTask.value
+
+        XCTAssertTrue(viewTask.isCancelled)
+        let calls = HTTPStub.routes.requests("logout")
+        XCTAssertEqual(calls.map(\.httpMethod), ["POST", "POST"])
+        XCTAssertEqual(HTTPStub.routes.count("refresh"), 1)
+        XCTAssertEqual(calls.last?.value(forHTTPHeaderField: "Authorization"), "Bearer new-access")
+        XCTAssertEqual(calls.first?.url?.path, "/api/v1/auth/logout")
+        XCTAssertNil(try credentials.load())
+        guard case .signedOut = account.state else { return XCTFail("Kiosk kept its patient login") }
+    }
+
+    func testWrongCurrentPasswordPreservesPatientLoginWithoutRefreshing() async throws {
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "change-password": .status(401, body: #"{"error":{"code":"INVALID_CREDENTIALS"}}"#)
+            default: .status(500)
+            }
+        }
+        _ = try await api.restore(language: .english)
+        do {
+            _ = try await api.request("auth/change-password", language: .english, method: "POST", body: Data("{}".utf8))
+            XCTFail("Expected a rejected current password")
+        } catch APIError.incorrectCurrentPassword {}
+        XCTAssertEqual(HTTPStub.routes.count("refresh"), 0)
+        let signedIn = await api.hasSession
+        XCTAssertTrue(signedIn)
     }
 
     func testLocalDayQueryPreservesDSTOffsetsAndPositiveOffsetEncoding() async throws {
@@ -625,7 +695,7 @@ private final class FailureOnce: @unchecked Sendable {
 private final class HTTPStub: URLProtocol, @unchecked Sendable {
     enum Reply {
         case json(String)
-        case status(Int)
+        case status(Int, body: String = "")
     }
 
     typealias Handler = @Sendable (URLRequest) -> Reply
@@ -671,9 +741,9 @@ private final class HTTPStub: URLProtocol, @unchecked Sendable {
         case let .json(body):
             status = 200
             data = Data(body.utf8)
-        case let .status(code):
+        case let .status(code, body):
             status = code
-            data = Data()
+            data = Data(body.utf8)
         }
         guard let response = HTTPURLResponse(
             url: url, statusCode: status, httpVersion: "HTTP/1.1",
