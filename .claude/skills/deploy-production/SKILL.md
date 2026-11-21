@@ -9,5 +9,5 @@ description: GU Voice 生產部署（2026-11-15 起自架在 Mac：~/Services/gu
 - 看狀態／log：`cd ~/Services/gu-voice && docker compose ps`、`docker compose logs backend --tail 200`；tunnel log 在 `~/Services/gu-voice/logs/cloudflared*.log`（launchd `com.gu-voice.tunnel`）。
 - 環境變數真相＝`~/Services/gu-voice/.env`（chmod 600，不入庫）。改完 `docker compose up -d backend`。
 - DB：`docker compose exec db psql -U gu -d gu_voice`；備份在 `~/Services/gu-voice/backups/`，還原指令寫在 `backup.sh` 開頭。
-- iOS：`flutter_app/tool/build_ios_testflight.sh` 預設就連 gu.zymomed.com（`tool/env.production.sh`）。
+- iOS：`ios_native/tool/build_ios_testflight.sh` 預設就連 gu.zymomed.com（`ios_native/Config/Production.xcconfig`）。
 - 舊的 Railway／Vercel／Supabase 流程已廢止；`docs/deployment_guide.md` 等只當歷史。

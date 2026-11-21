@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="${0:A:h:h}"
 cd "$repo_root"
 
-for component in backend flutter_app frontend; do
+for component in backend ios_native frontend; do
   graphify update "$component"
 done
 
@@ -15,7 +15,7 @@ fi
 
 graphify merge-graphs \
   backend/graphify-out/graph.json \
-  flutter_app/graphify-out/graph.json \
+  ios_native/graphify-out/graph.json \
   frontend/graphify-out/graph.json \
   docs/graphify-out/graph.json \
   --out graphify-out/graph.json

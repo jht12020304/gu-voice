@@ -1,4 +1,4 @@
-/* Patient kiosk copy from flutter_app/assets/locales. */
+/* Patient kiosk copy. */
 "common.acknowledge" = "확인했습니다";
 "common.appTitle" = "UroSense";
 "common.back" = "뒤로";

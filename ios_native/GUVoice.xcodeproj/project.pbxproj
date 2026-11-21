@@ -220,13 +220,12 @@
 			path = UITests;
 			sourceTree = "<group>";
 		};
-		7989C6DB5651C8B8ABA147F7 /* Runner */ = {
+		7989C6DB5651C8B8ABA147F7 /* Config */ = {
 			isa = PBXGroup;
 			children = (
 				8220DF3D62BA5FFBDCA6A2A2 /* GoogleService-Info.plist */,
 			);
-			name = Runner;
-			path = ../flutter_app/ios/Runner;
+			path = Config;
 			sourceTree = "<group>";
 		};
 		DBA95739E92980B84AB60B5D /* fixtures */ = {
@@ -242,7 +241,7 @@
 			children = (
 				0FF6F4A2DEA9CEF2F4001405 /* App */,
 				2EE373FA37C3F762BCEDBE8E /* Config */,
-				7989C6DB5651C8B8ABA147F7 /* Runner */,
+				7989C6DB5651C8B8ABA147F7 /* Config */,
 				02C39737CD5F763A3AB33ECA /* Tests */,
 				62CAD90792DA090820CD6A8F /* UITests */,
 				555BD54A16B6C0AB4F812886 /* Products */,

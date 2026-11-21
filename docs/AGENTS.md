@@ -4,7 +4,7 @@ This project's Baseline target is Baseline Newly available. The frontend uses Ch
 
 ## Maintained clients
 
-iOS (`flutter_app/`) and React web (`frontend/`) both remain maintained and share
+iOS (`ios_native/`) and React web (`frontend/`) both remain maintained and share
 `backend/`. Use [README.md](README.md) for the current scope and verification commands.
 Since 2026-11-08 React web is doctor report viewing only; patient consultations run in the iOS app.
 
@@ -53,7 +53,7 @@ the docker gateway and every user would share one IP for login rate limiting.
 - Backend startup entrypoint: [backend/scripts/start.sh](../backend/scripts/start.sh) (runs alembic,
   uvicorn, Celery worker + beat in one container; keep a single backend replica)
 - Frontend container build: [frontend/Dockerfile](../frontend/Dockerfile)
-- iOS production URLs: [flutter_app/tool/env.production.sh](../flutter_app/tool/env.production.sh)
+- iOS production URLs: [ios_native/Config/Production.xcconfig](../ios_native/Config/Production.xcconfig)
 - Local full-stack orchestration: [docker-compose.yml](../docker-compose.yml)
 
 ## Local Run

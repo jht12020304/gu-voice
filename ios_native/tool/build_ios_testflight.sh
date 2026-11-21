@@ -2,29 +2,30 @@
 set -euo pipefail
 
 native_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-flutter_dir="$native_dir/../flutter_app"
 build_root="$native_dir/build/testflight"
 team_id=K593X99M7G
 version=1.0.0
+production_notice='Release 使用生產後端。PHI 僅限授權人員存取，驗收使用合成資料。'
 
 die() { printf '錯誤：%s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'HELP'
 用法：
-  build_ios_testflight.sh [最後一版 Flutter IPA]
-  build_ios_testflight.sh --verify-only <原生 IPA> <預期 build 號> [最後一版 Flutter IPA]
+  build_ios_testflight.sh [參考 IPA]
+  build_ios_testflight.sh --verify-only <原生 IPA> <預期 build 號> [參考 IPA]
 
 建置前使用 ~/.appstoreconnect/asc_api.py 唯讀查詢 ASC。
 可用 ASC_PYTHON 指定裝有 PyJWT 與 cryptography 的 Python。
 輸出放在 ios_native/build/testflight/，由人驗收後手動上傳。
 HELP
+  printf '%s\n' "$production_notice"
 }
 
 verify() {
-  local ipa="$1" expected_build="$2" legacy="${3:-}"
+  local ipa="$1" expected_build="$2" reference="${3:-}"
   python3 -u "$native_dir/tool/verify_ios_testflight.py" \
-    "$ipa" "$expected_build" "$version" "$team_id" "$legacy"
+    "$ipa" "$expected_build" "$version" "$team_id" "$reference"
   shasum -a 256 "$ipa"
   printf '原生 IPA 本機驗證通過。\n'
 }
@@ -35,25 +36,24 @@ case "${1:-}" in
     shift
     [[ $# -eq 2 || $# -eq 3 ]] || die "$(usage)"
     [[ -f "$1" && "$2" =~ ^[0-9]{12}$ ]] || die "需要已存在的 IPA 與 12 位預期 build 號。"
-    [[ $# -eq 2 || -f "$3" ]] || die "找不到 Flutter IPA：$3"
+    [[ $# -eq 2 || -f "$3" ]] || die "找不到參考 IPA：$3"
     verify "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")" "$2" "${3:-}"
     exit
     ;;
 esac
 [[ $# -le 1 && "${1:-}" != -* ]] || die "$(usage)"
-[[ $# -eq 0 || -f "$1" ]] || die "找不到 Flutter IPA：$1"
+[[ $# -eq 0 || -f "$1" ]] || die "找不到參考 IPA：$1"
 repo_dir="$native_dir/.."
 source_sha="$(git -C "$repo_dir" rev-parse origin/main)"
 git -C "$repo_dir" merge-base --is-ancestor 6e1bf55 "$source_sha" ||
   die "請先更新 origin/main 至含 #134（6e1bf55）的版本。"
-app_inputs=(ios_native/App ios_native/Config ios_native/GUVoice.xcodeproj ios_native/project.yml
-  flutter_app/ios/Runner/GoogleService-Info.plist flutter_app/ios/ExportOptions.plist
-  flutter_app/tool/env.production.sh flutter_app/tool/build_ios_testflight.sh)
+app_inputs=(ios_native/App ios_native/Config ios_native/GUVoice.xcodeproj ios_native/project.yml)
 git -C "$repo_dir" diff --quiet "$source_sha" HEAD -- "${app_inputs[@]}" ||
   die "App 原始碼或共用發佈設定與 origin/main 不同。"
 [[ -z "$(git -C "$repo_dir" status --porcelain --untracked-files=all -- "${app_inputs[@]}" ios_native/tool)" ]] ||
   die "App 原始碼或發佈腳本有未提交變更。"
 
+printf '%s\n' "$production_notice"
 asc_max="$("${ASC_PYTHON:-python3}" -BI - "$HOME/.appstoreconnect/asc_api.py" <<'PY'
 import re
 import runpy
@@ -86,7 +86,7 @@ run_dir="$build_root/$build"
 mkdir -p "$build_root"
 mkdir "$run_dir" || die "已有此 build 的輸出目錄：$run_dir"
 export_options="$run_dir/ExportOptions.plist"
-cp "$flutter_dir/ios/ExportOptions.plist" "$export_options"
+cp "$native_dir/Config/ExportOptions.plist" "$export_options"
 [[ "$(plutil -extract destination raw -o - "$export_options")" == export &&
    "$(plutil -extract method raw -o - "$export_options")" == app-store-connect &&
    "$(plutil -extract signingStyle raw -o - "$export_options")" == automatic &&

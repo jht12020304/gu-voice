@@ -8,28 +8,28 @@
 
 ## 現行文件（單一真相來源）
 
-### 維護範圍（2026-10-03）
+### 維護範圍
 
-**iOS App 與 React 網頁版都繼續維護，共用同一套後端。** 這項決定取代舊文件中的「網頁除役／Flutter 取代 React」規劃。2026-10-03 已部署獨立 staging 後端與 React preview，iOS 候選包已簽章、尚未上傳 TestFlight；production 未變更。環境入口見 [發佈設定 §0](ios_release_settings.md#0-2026-10-03-staging-候選包與測試環境)。
+**原生 iOS App 與 React 報告網頁共用同一套後端。**
 
 | 產品／服務 | 程式碼 | 開發與驗證 |
 |---|---|---|
-| iOS App（病患 kiosk、醫師、管理員） | `flutter_app/` | 在該目錄用 `fvm flutter run`；`fvm flutter analyze`、`fvm flutter test` |
+| iOS App（病患 kiosk、醫師、管理員） | `ios_native/` | [Xcode 建置、單元測試、kiosk UI](../ios_native/README.md) |
 | 網頁版（React + Vite）——**只給醫師看問診報告**（2026-11-08 起） | `frontend/` | Node ≥ 22.17；`npm ci`、`npm run dev`；`npm run lint`、`npm run type-check`、`npm test`、`npm run test:e2e`、`npm run build` |
 | 共用 REST／WebSocket／背景工作 | `backend/` | FastAPI + Celery；`venv/bin/pytest tests/unit -q`，整合測試依各測試所需的本機服務執行 |
 
 **網頁版範圍（2026-11-08）**：2026-11-08 起 React 網頁版只剩醫師看報告（登入 → 報告清單 → 報告頁：患者名稱、紅旗、SOAP、逐字稿、確認／退回、匯出 PDF、快速開單），病患問診與其餘醫師／管理頁只在 iOS App。網頁版只用到 `/reports`、`/reports/{id}`（審閱、PDF）、`/sessions/{id}`、`/sessions/{id}/conversations`、`/sessions/{id}/exam-orders` 與 dashboard WS（報告清單即時刷新）。
 
-Flutter Web 保留為預覽用途；既有切換文件不代表要替換 React。iOS 發佈仍依 [TestFlight 設定](ios_release_settings.md)；網頁與後端依 [部署指南](deployment_guide.md) 手動部署。
+iOS 依 [TestFlight 設定](ios_release_settings.md) 發佈。網頁與後端依 [部署指南](deployment_guide.md) 手動部署。
 
-翻譯由各端維護：React 的 `frontend/src/i18n/locales/` 是網頁來源，`frontend/public/locales/` 是建置鏡像；`flutter_app/assets/locales/` 是 App 來源。共用功能修改要檢查兩端，平台專用功能不必複製未使用的 key。從 repo 根目錄分別執行：
+React 文案在 `frontend/src/i18n/locales/`，建置鏡像在 `frontend/public/locales/`。原生 App 使用 `ios_native/App/Localizable.xcstrings` 與五份 `*.lproj/Kiosk.strings`。共用功能修改時核對兩端文案。從 repo 根目錄執行：
 
 ```bash
 python scripts/check_translations.py
-python scripts/check_translations.py --locales-dir flutter_app/assets/locales
+python scripts/check_translations.py --ios-app-dir ios_native/App
 ```
 
-兩端各自以自己的 zh-TW 為基準，依 `scripts/check_translations.py` 檢查 key 覆蓋率（預設門檻 95%）；目前 beta 語系的阻擋範圍仍為 `common`。網頁改翻譯後先跑 `npm run build` 更新鏡像，再檢查翻譯。
+iOS 必須達到五語 100% 覆蓋率。網頁門檻仍為 95%，beta 語言只檢查 `common`，改文案後先用 `npm run build` 更新鏡像。
 
 ### 文件索引
 
@@ -43,6 +43,7 @@ python scripts/check_translations.py --locales-dir flutter_app/assets/locales
 | 部署方法（自架 Mac，`deploy.sh`） | [deployment_guide.md](deployment_guide.md) 一、＋ `.claude/skills/deploy-production`；英文摘要 [AGENTS.md](AGENTS.md) |
 | env 變數、log、DB、備份還原 | [deployment_guide.md](deployment_guide.md) 三、 |
 | **iOS／TestFlight 設定值（唯一權威來源）** | [ios_release_settings.md](ios_release_settings.md)——Team ID、bundle ID、SKU、ExportOptions、憑證與金鑰位置、上傳指令、目前上線的 build。**值只留這一份**；操作流程見 [deployment_guide.md](deployment_guide.md) 二、，決策與踩過的坑見 `.claude/skills/ios-testflight`，現況與 PHI 風險見 [TODO.md](TODO.md) §V8 |
+| iOS 回滾手冊 | [runbook/ios_rollback.md](runbook/ios_rollback.md) |
 | **推播不通的診斷 runbook** | [push_troubleshooting.md](push_troubleshooting.md)——六個斷點的查法。⚠️「App 內有跳、鎖定畫面沒有」**不代表推播壞了**：站內走 WebSocket，與推播完全獨立 |
 | 本機開發環境 | [full_setup_guide.md](full_setup_guide.md) |
 | Codex 程式知識圖譜 / Graphify MCP | [graphify_codex.md](graphify_codex.md) |
@@ -54,8 +55,6 @@ python scripts/check_translations.py --locales-dir flutter_app/assets/locales
 | 活的 backlog | [TODO.md](TODO.md)；2026-07-27 真跑修復與六條測試設計教訓見 §R／§R-lessons；2026-08-23 三項使用者需求（登入頁精簡／admin 刪除問診／場次日曆）與其留下的坑見 §W |
 | 運維端點曝光控制 | 自架後 nginx 只轉發 `/api/`，`/metrics`／`/docs`／`/openapi.json` 對外打不到（見 [deployment_guide.md](deployment_guide.md) 一、）；token 鎖法與多 worker 低估限制的背景見 [archive](archive/cloud_2026-11/ops_endpoint_exposure.md) |
 | **效能／體感流暢度（唯一權威來源）** | [perf_audit_2026-08-22.md](perf_audit_2026-08-22.md)——最新 **2026-10-03 iOS＋React 整體流暢度稽核**：12 項修復結果、可重跑驗收與真機待驗範圍；2026-08-22 紀錄保留在下半部。**結論只留這一份**，別的檔連結過來就好 |
-| **產品介紹影片（自動產生）** | [../flutter_app/README.md](../flutter_app/README.md) §介紹影片——`tool/record_demo.sh` 一行產出 60 秒 MP4（模擬器錄影＋walkthrough 驅動＋ffmpeg 字卡）。⚠️ 只准打本機後端；模擬器要先 shutdown 再 boot；本機 ffmpeg 沒有 `drawtext` |
-| Flutter Web 預覽（只剩本機 `fvm flutter run -d chrome`；歷史切換流程在 [archive](archive/cloud_2026-11/flutter_web_cutover.md)）| App 開發見 [../flutter_app/README.md](../flutter_app/README.md)，缺口見 [TODO.md](TODO.md) §G／§V |
 
 ## 歷史文件
 

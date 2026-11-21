@@ -1,5 +1,7 @@
 # GU-Voice TODO 清單
 
+> 目前 iOS 維護與驗證以 [原生 iOS 指南](../ios_native/README.md) 為準。下列有日期的 Flutter／React 問診稽核保留當時的結果與檔案路徑。
+
 ## 2026-10-10 程式品質修正（backend 18 項／frontend 17 項，本機未提交）
 
 > 這一輪先前**沒有任何文件記載**，只留在程式註解；2026-10-23 稽核時從 diff 反推（詳見

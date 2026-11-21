@@ -1,6 +1,6 @@
 # 研究分析（Research Analytics）功能文件
 
-> ⚠️ **2026-11-08**：React 網頁版已改成只給醫師看報告，下文提到的 React 病患／問診頁（`ConversationPage`、`MedicalInfoPage`、`screens/patient/*`）、`/research`、儀表板等頁面都已刪除，相關描述只當歷史參考；現行病患流程與研究分析畫面只在 Flutter App。
+> ⚠️ **2026-11-08**：React 網頁版已改成只給醫師看報告，下文提到的 React 病患／問診頁（`ConversationPage`、`MedicalInfoPage`、`screens/patient/*`）、`/research`、儀表板等頁面都已刪除，相關描述只當歷史參考；現行病患流程與研究分析畫面只在原生 iOS（`ios_native/App/ResearchScreen.swift`）。
 
 > 建立日期：2026-07-06｜對應 PR #16（基礎頁）、#17（期刊級重構）、#18（Wilson CI hotfix）
 > 狀態：已上線生產（2026-11-15 起自架 `gu.zymomed.com`；之前為 Vercel 前端 + Railway 後端）

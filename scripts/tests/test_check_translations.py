@@ -333,29 +333,43 @@ def test_missing_target_namespace_file_counts_all_missing(locales_root: Path):
     assert soap_ns.missing_keys == ["b", "c"]
 
 
-@pytest.mark.parametrize("client", ["web", "ios"])
-def test_each_client_checks_its_own_translations(tmp_path, monkeypatch, capsys, client):
-    """兩端可有專用 key；任一端漏翻自己的 key 都必須失敗。"""
+def test_web_checks_its_own_translations(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    roots = {
-        "web": Path("frontend/src/i18n/locales"),
-        "ios": Path("flutter_app/assets/locales"),
-    }
+    root = Path("frontend/src/i18n/locales")
     mirror = Path("frontend/public/locales")
-    for name, root in roots.items():
-        for locale in ("zh-TW", "en-US"):
-            _write_locale(root, locale, {"common": {name: "translated"}})
     for locale in ("zh-TW", "en-US"):
-        _write_locale(mirror, locale, {"common": {"web": "translated"}})
+        for target in (root, mirror):
+            _write_locale(target, locale, {"common": {"web": "translated"}})
+    assert ct.main(["--json"]) == 0
+    assert len(json.loads(capsys.readouterr().out)["mirrors"]) == 1
 
-    args = ["--json"]
-    if client == "ios":
-        args += ["--locales-dir", str(roots[client])]
+    _write_locale(root, "zh-TW", {"common": {"web": "translated", "new": "新增"}})
+    assert ct.main(["--json"]) == 1
+    assert "en-US" in json.loads(capsys.readouterr().out)["failed_locales"]
+
+
+@pytest.mark.parametrize("missing_resource", ["catalog", "kiosk"])
+def test_ios_fails_without_a_supported_language(tmp_path, capsys, missing_resource):
+    translations = {}
+    for locale in ct.IOS_LOCALES.values():
+        translations[locale] = {"stringUnit": {"state": "translated", "value": "App copy"}}
+        kiosk = tmp_path / f"{locale}.lproj"
+        kiosk.mkdir()
+        (kiosk / "Kiosk.strings").write_text('/* Test copy */\n"kiosk.only" = "Kiosk copy";\n')
+
+    catalog = tmp_path / "Localizable.xcstrings"
+    data = {"sourceLanguage": "zh-Hant", "strings": {"app.only": {"localizations": translations}}}
+    catalog.write_text(json.dumps(data))
+    args = ["--ios-app-dir", str(tmp_path), "--json"]
     assert ct.main(args) == 0
     report = json.loads(capsys.readouterr().out)
-    assert len(report["mirrors"]) == (1 if client == "web" else 0)
+    assert {entry["locale"] for entry in report["locales"]} == set(ct.IOS_LOCALES)
+    assert report["mirrors"] == []
 
-    _write_locale(roots[client], "zh-TW", {"common": {client: "translated", "new": "新增"}})
+    if missing_resource == "catalog":
+        del translations["vi"]
+        catalog.write_text(json.dumps(data))
+    else:
+        (tmp_path / "vi.lproj/Kiosk.strings").unlink()
     assert ct.main(args) == 1
-    report = json.loads(capsys.readouterr().out)
-    assert "en-US" in report["failed_locales"]
+    assert json.loads(capsys.readouterr().out)["failed_locales"] == ["vi-VN"]

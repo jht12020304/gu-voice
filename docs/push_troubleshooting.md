@@ -79,7 +79,7 @@ PY
   `register_fcm_token` 設回 True 並更新 `updated_at`；`updated_at` 沒動 = 那支 App 根本沒重新註冊。
 - `device_name='localhost'` = 真 iPhone；`*.local`（如 `chundeMac-mini.local`）= 模擬器。
   **模擬器拿不到 APNs token，推播在架構上就不可能送達。**
-- 完全沒有列 = App 端註冊失敗，回頭看 `push_service.dart` 的 debugPrint 或後端 access log
+- 完全沒有列 = App 端註冊失敗，回頭看 原生 App 的 Console 記錄 或後端 access log
   有沒有 `POST /api/v1/notifications/fcm-token`。
 
 ### 4. 通知有沒有被建立、推播任務有沒有跑
@@ -170,7 +170,7 @@ unzip -q build/ios/ipa/gu_voice.ipa -d /tmp/ipa && codesign -d --entitlements :-
 `com\.apple\.developer\.…`，否則 plutil 把點當 key path 分隔符、永遠讀到空。
 
 **修法**（兩邊都要）：
-1. `flutter_app/ios/Runner/Runner.entitlements` 宣告該 key（已於 2026-09-09 加入）。
+1. `ios_native/Config/GUVoice.entitlements` 宣告該 key。
 2. App ID `com.guvoice.guVoice` 要有 **Time Sensitive Notifications** capability。專案是自動簽章且
    `flutter build ipa` 帶 `-allowProvisioningUpdates`，Xcode 通常會在打包時自動把它加到 App ID；
    若簽章報 provisioning profile 缺該 entitlement，就到 developer.apple.com → Identifiers 手動勾。
