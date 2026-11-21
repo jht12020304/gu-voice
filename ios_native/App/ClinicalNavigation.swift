@@ -4,14 +4,19 @@ import SwiftUI
 struct SecondaryActionsMenu<Content: View>: View {
     let language: AppLanguage
     @ViewBuilder let content: () -> Content
+    @State private var isPresented = false
 
     var body: some View {
-        Menu {
-            content()
+        Button {
+            isPresented = true
         } label: {
             Label(language.text("common.header.more"), systemImage: "ellipsis.circle")
         }
         .accessibilityIdentifier("secondary-actions-menu")
+        .confirmationDialog(language.text("common.header.more"), isPresented: $isPresented,
+                            titleVisibility: .hidden) {
+            content()
+        }
     }
 }
 

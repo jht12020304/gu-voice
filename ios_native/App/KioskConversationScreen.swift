@@ -76,9 +76,11 @@ private struct ConversationContent: View {
                     Button(action: model.toggleTTSMute) {
                         Label(language.text(model.ttsMuted ? "conversation.tts.unmuteLabel" : "conversation.tts.muteLabel"), systemImage: model.ttsMuted ? "speaker.slash" : "speaker.wave.2")
                     }
+                    .accessibilityIdentifier("kiosk-tts-mute")
                     Button(action: model.cycleTTSSpeed) {
                         Label("\(model.speed.formatted())×", systemImage: "speedometer")
                     }
+                    .accessibilityIdentifier("kiosk-tts-speed")
                 }
                 .disabled(!model.canInput)
             }

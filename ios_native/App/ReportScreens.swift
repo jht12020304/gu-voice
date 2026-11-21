@@ -278,12 +278,15 @@ struct ReportDetailScreen: View {
                                 Label(language.text("soap.export.button"), systemImage: "doc")
                             }
                             .disabled(exporting)
+                            .accessibilityIdentifier("report-export")
                             NavigationLink {
                                 QuickOrdersScreen(sessionID: sessionID, report: report, account: account, language: language)
                             } label: {
                                 Label(language.text("soap.quickOrders.title"), systemImage: "checklist")
                             }
+                            .accessibilityIdentifier("report-quick-orders")
                             Button(language.text("soap.review.rejectButton"), role: .destructive) { startReview(.revisionNeeded) }
+                                .accessibilityIdentifier("report-reject")
                         }
                     } else {
                         SecondaryActionsMenu(language: language) {
@@ -291,11 +294,13 @@ struct ReportDetailScreen: View {
                                 Label(language.text("soap.export.button"), systemImage: "doc")
                             }
                             .disabled(exporting)
+                            .accessibilityIdentifier("report-export")
                             NavigationLink {
                                 QuickOrdersScreen(sessionID: sessionID, report: report, account: account, language: language)
                             } label: {
                                 Label(language.text("soap.quickOrders.title"), systemImage: "checklist")
                             }
+                            .accessibilityIdentifier("report-quick-orders")
                         }
                     }
                 }

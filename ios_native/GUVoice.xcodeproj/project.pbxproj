@@ -31,11 +31,14 @@
 		7C606EADB021BE14459A6827 /* KioskPatientRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE56EF7E30607FD74C4BA72 /* KioskPatientRecord.swift */; };
 		7D76ABD5AD9BEF132FAD5321 /* KioskVisit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6755F390F2269D94E7A44AA9 /* KioskVisit.swift */; };
 		832C3A7AA16F38C713F2BE63 /* ReportScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FB897F22C5181F7134F9CAB /* ReportScreens.swift */; };
+		875D67B7CCEC98E9A3B03F5C /* seed-clinical.py in Resources */ = {isa = PBXBuildFile; fileRef = 342DA807E5DA395BC2F5C5C1 /* seed-clinical.py */; };
 		9146A3E99F254AB8EDE11229 /* KioskFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5895C3F973A74B69BBE85661 /* KioskFlowTests.swift */; };
 		94510359BE7DECC695CE147F /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 187D47C3DD34A2EACA817730 /* Configuration.swift */; };
 		948795A87831CA7F60499E62 /* KioskIntake.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC9E3EB966033CD718B17D73 /* KioskIntake.swift */; };
 		977933CFA73B9E58D53E589A /* ClinicalNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37498A4666E11D16EA08F70D /* ClinicalNavigation.swift */; };
+		9C07D3707F2F88A4AAECAA1B /* LocalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2530E2950F6A12BDA31CFF8B /* LocalizationTests.swift */; };
 		9EE10E3EA577F40B8DDC98C7 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 8220DF3D62BA5FFBDCA6A2A2 /* GoogleService-Info.plist */; };
+		A3864C2AEB8B8C3E5C4F622A /* ClinicalFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAFF2D859D049A4F6DBBAB6 /* ClinicalFlowTests.swift */; };
 		A843A241A9CC97C8D5920151 /* KioskPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6630EC29818D8B98E87CBAFE /* KioskPresentationTests.swift */; };
 		AA4EDB2601AF5245ADC93E52 /* KioskConversationScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1674E7D617361B2502B922 /* KioskConversationScreen.swift */; };
 		AA5F35B3DA9C88D14158E3C1 /* KioskPatientRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2D9B83DDB030F29C183CF82 /* KioskPatientRecordTests.swift */; };
@@ -74,7 +77,9 @@
 		129991C7593644130F80D56F /* KioskAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskAudio.swift; sourceTree = "<group>"; };
 		187D47C3DD34A2EACA817730 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
 		24154F75C11A6FC8AC470A19 /* KioskPatientSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskPatientSettings.swift; sourceTree = "<group>"; };
+		2530E2950F6A12BDA31CFF8B /* LocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationTests.swift; sourceTree = "<group>"; };
 		2E31DEE816BC71F1D990B574 /* en-US */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "en-US"; path = "en-US.lproj/Kiosk.strings"; sourceTree = "<group>"; };
+		342DA807E5DA395BC2F5C5C1 /* seed-clinical.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "seed-clinical.py"; sourceTree = "<group>"; };
 		35DE2415D93DC6AB377DEA6A /* GUVoiceTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = GUVoiceTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		371496722B4E6B092CFE850A /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		37498A4666E11D16EA08F70D /* ClinicalNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClinicalNavigation.swift; sourceTree = "<group>"; };
@@ -110,6 +115,7 @@
 		D3271B09A9072694A2380D9D /* KioskIntakeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskIntakeTests.swift; sourceTree = "<group>"; };
 		DC8FFCA5EBB5357F1A18B658 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		DDE56EF7E30607FD74C4BA72 /* KioskPatientRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskPatientRecord.swift; sourceTree = "<group>"; };
+		DEAFF2D859D049A4F6DBBAB6 /* ClinicalFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClinicalFlowTests.swift; sourceTree = "<group>"; };
 		DED87FE842905F66EE81E8E2 /* SessionScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionScreens.swift; sourceTree = "<group>"; };
 		E2D9B83DDB030F29C183CF82 /* KioskPatientRecordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskPatientRecordTests.swift; sourceTree = "<group>"; };
 		E7D4627FC953F34C714C889A /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -143,6 +149,7 @@
 				D3271B09A9072694A2380D9D /* KioskIntakeTests.swift */,
 				E2D9B83DDB030F29C183CF82 /* KioskPatientRecordTests.swift */,
 				6630EC29818D8B98E87CBAFE /* KioskPresentationTests.swift */,
+				2530E2950F6A12BDA31CFF8B /* LocalizationTests.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -206,7 +213,9 @@
 		62CAD90792DA090820CD6A8F /* UITests */ = {
 			isa = PBXGroup;
 			children = (
+				DEAFF2D859D049A4F6DBBAB6 /* ClinicalFlowTests.swift */,
 				5895C3F973A74B69BBE85661 /* KioskFlowTests.swift */,
+				DBA95739E92980B84AB60B5D /* fixtures */,
 			);
 			path = UITests;
 			sourceTree = "<group>";
@@ -218,6 +227,14 @@
 			);
 			name = Runner;
 			path = ../flutter_app/ios/Runner;
+			sourceTree = "<group>";
+		};
+		DBA95739E92980B84AB60B5D /* fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				342DA807E5DA395BC2F5C5C1 /* seed-clinical.py */,
+			);
+			path = fixtures;
 			sourceTree = "<group>";
 		};
 		DDC55B05B8D89AF301205044 = {
@@ -240,6 +257,7 @@
 			buildConfigurationList = 9B9ED750E3A8759BD17FC390 /* Build configuration list for PBXNativeTarget "GUVoiceUITests" */;
 			buildPhases = (
 				1E5015F47B8C6A9F8B827B8E /* Sources */,
+				BC9402984890A831A7DA0F48 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -344,6 +362,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		BC9402984890A831A7DA0F48 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				875D67B7CCEC98E9A3B03F5C /* seed-clinical.py in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DC2336AE1F85C95329AE7C88 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -363,6 +389,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A3864C2AEB8B8C3E5C4F622A /* ClinicalFlowTests.swift in Sources */,
 				9146A3E99F254AB8EDE11229 /* KioskFlowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -411,6 +438,7 @@
 				43D143A60AFAB373859F240A /* KioskIntakeTests.swift in Sources */,
 				AA5F35B3DA9C88D14158E3C1 /* KioskPatientRecordTests.swift in Sources */,
 				A843A241A9CC97C8D5920151 /* KioskPresentationTests.swift in Sources */,
+				9C07D3707F2F88A4AAECAA1B /* LocalizationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
