@@ -1,7 +1,7 @@
 """通知相關 Pydantic Schema"""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -92,6 +92,20 @@ class FCMTokenCreate(BaseModel):
     apns_token: Optional[str] = Field(None, max_length=200)
     platform: DevicePlatform
     device_name: Optional[str] = Field(None, max_length=200)
+    binding_id: UUID | None = None
+
+
+class DeviceUnbindRequest(BaseModel):
+    device_tokens: list[Annotated[str, Field(min_length=1, max_length=500)]] = Field(default_factory=list, max_length=50)
+    apns_token: Optional[str] = Field(None, min_length=1, max_length=200)
+    binding_id: UUID | None = None
+    recovery_id: UUID | None = None
+
+
+class DeviceRecoveryRequest(BaseModel):
+    recovery_id: UUID
+    registration_id: UUID
+    user_id: UUID
 
 
 class FCMTokenResponse(BaseModel):

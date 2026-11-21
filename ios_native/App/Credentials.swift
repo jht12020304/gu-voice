@@ -11,7 +11,38 @@ struct Tokens: Codable, Equatable, Sendable {
     }
 
     var isComplete: Bool { !access.isEmpty && !refresh.isEmpty }
+
+    var previousClinicianID: UUID? {
+        let pieces = access.split(separator: ".")
+        guard pieces.count == 3 else { return nil }
+        var payload = pieces[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.utf8.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload),
+              let identity = try? JSONDecoder().decode(PreviousIdentity.self, from: data),
+              identity.role == "doctor" || identity.role == "admin" else { return nil }
+        return identity.sub
+    }
+
+    private struct PreviousIdentity: Decodable {
+        let sub: UUID
+        let role: String
+    }
 }
+
+struct PushBinding: Codable, Sendable {
+    let userID: UUID
+    var id = UUID()
+    var tokens: Set<String> = []
+    var isSigningOut = false
+    var requiresLegacyLookup: Bool?
+    var apnsToken: String?
+    var serverUnbound = false
+}
+
+struct PushCleanupPending: Error {}
+struct PushCleanupReauthentication: Error {}
+struct PushDeviceRecoveryRequired: Error { let id: UUID }
+struct PushBackendUpgradeRequired: Error {}
 
 protocol CredentialStore: Sendable {
     func load() throws -> Tokens?
@@ -19,6 +50,10 @@ protocol CredentialStore: Sendable {
     func markUnpersistedRotation()
     func clear() throws
     func removeLegacy() throws
+    func loadPushBinding() throws -> PushBinding?
+    func savePushBinding(_ binding: PushBinding?) throws
+    var migratedFromFlutter: Bool { get }
+    func finishFlutterPushMigration()
 }
 
 struct Credentials: CredentialStore {
@@ -27,6 +62,11 @@ struct Credentials: CredentialStore {
     private let legacyService: String
     private let account = "tokens"
     private var clearingKey: String { "\(service).clearing" }
+    private var flutterMigrationKey: String { "\(service).flutterPushMigration" }
+    var migratedFromFlutter: Bool { UserDefaults.standard.bool(forKey: flutterMigrationKey) }
+
+    func finishFlutterPushMigration() { UserDefaults.standard.removeObject(forKey: flutterMigrationKey) }
+
     private var rotationKey: String { "\(service).rotationPending" }
 
     init(service: String, legacyService: String = Self.flutterService) {
@@ -45,6 +85,7 @@ struct Credentials: CredentialStore {
            let refresh = try readLegacy("refresh_token") {
             let tokens = Tokens(access: access, refresh: refresh)
             if tokens.isComplete {
+                UserDefaults.standard.set(true, forKey: flutterMigrationKey)
                 do { try save(tokens) }
                 catch { return nil }
                 try removeLegacy()
@@ -62,8 +103,12 @@ struct Credentials: CredentialStore {
     }
 
     func save(_ tokens: Tokens) throws {
+        try saveData(JSONEncoder().encode(tokens), account: account)
+        UserDefaults.standard.removeObject(forKey: rotationKey)
+    }
+
+    private func saveData(_ data: Data, account: String) throws {
         let key = query(service: service, account: account, legacy: false)
-        let data = try JSONEncoder().encode(tokens)
         let status = SecItemUpdate(key as CFDictionary, [kSecValueData: data] as CFDictionary)
         if status == errSecItemNotFound {
             var item = key
@@ -73,7 +118,19 @@ struct Credentials: CredentialStore {
         } else {
             try requireSuccess(status)
         }
-        UserDefaults.standard.removeObject(forKey: rotationKey)
+    }
+
+    func loadPushBinding() throws -> PushBinding? {
+        guard let data = try read(service: service, account: "push-binding") else { return nil }
+        return try JSONDecoder().decode(PushBinding.self, from: data)
+    }
+
+    func savePushBinding(_ binding: PushBinding?) throws {
+        guard let binding else {
+            try remove(service: service, account: "push-binding")
+            return
+        }
+        try saveData(JSONEncoder().encode(binding), account: "push-binding")
     }
 
     func markUnpersistedRotation() {

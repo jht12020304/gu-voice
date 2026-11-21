@@ -11,7 +11,11 @@ final class FoundationTests: XCTestCase {
     private var credentials: Credentials { Credentials(service: native, legacyService: legacy) }
 
     override func tearDown() async throws {
-        try await MainActor.run { try credentials.clear() }
+        try await MainActor.run {
+            try credentials.clear()
+            try credentials.savePushBinding(nil)
+            credentials.finishFlutterPushMigration()
+        }
     }
 
     func testKeychainMigratesFlutterItemsAndLogoutDoesNotRestoreThem() throws {
@@ -60,6 +64,174 @@ final class FoundationTests: XCTestCase {
         XCTAssertTrue(account.credentialsUnavailable)
         XCTAssertEqual(HTTPStub.routes.count("me"), 0)
         XCTAssertEqual(try credentials.load(), Tokens(access: "old-access", refresh: "old-refresh"))
+    }
+
+    func testLocalDayQueryPreservesDSTOffsetsAndPositiveOffsetEncoding() async throws {
+        let api = try makeClient { request in
+            request.url?.lastPathComponent == "me" ? .json(Self.user) : .json("42")
+        }
+        _ = try await api.restore(language: .english)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 8)))
+        let end = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: start))
+        let range = LocalDateRange(start: start, end: end, calendar: calendar)
+        XCTAssertEqual(range.query[0].value, "2026-03-08T00:00:00.000000-05:00")
+        XCTAssertEqual(range.query[1].value, "2026-03-08T23:59:59.999999-04:00")
+
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Taipei"))
+        let taipeiStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1)))
+        let taipeiEnd = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: taipeiStart))
+        let taipei = LocalDateRange(start: taipeiStart, end: taipeiEnd, calendar: calendar)
+        let _: Int = try await api.get("sessions", language: .english, query: taipei.query)
+        let url = try XCTUnwrap(HTTPStub.routes.requests("sessions").first?.url?.absoluteString)
+        XCTAssertTrue(url.contains("2026-08-01T00:00:00.000000%2B08:00"), url)
+        XCTAssertTrue(url.contains("2026-08-01T23:59:59.999999%2B08:00"), url)
+    }
+
+    func testOfflinePushCleanupSurvivesRestartAndDoesNotRestoreDoctor() async throws {
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "fcm-token": .json("{}")
+            case "unbind": HTTPStub.routes.count("unbind") == 1 ? .json("{}") : .status(503)
+            default: .status(500)
+            }
+        }
+        _ = try await api.restore(language: .english)
+        try await api.registerPush(user: sessionID, token: "old-fcm", apnsToken: "abcd", language: .english)
+        do {
+            try await api.signOut(language: .english)
+            XCTFail("Expected cleanup to remain pending")
+        } catch is PushCleanupPending {}
+        XCTAssertTrue(try XCTUnwrap(credentials.loadPushBinding()).isSigningOut)
+        XCTAssertNotNil(try credentials.load())
+        XCTAssertEqual(HTTPStub.routes.count("logout"), 0)
+
+        let restarted = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "unbind", "logout": .json("{}")
+            default: .status(500)
+            }
+        }
+        let account = Account(api: restarted)
+        await account.restore(.english)
+        guard case .signedOut = account.state else { return XCTFail("Expected ordinary login after cleanup") }
+        XCTAssertEqual(HTTPStub.routes.count("unbind"), 1)
+        XCTAssertEqual(HTTPStub.routes.count("logout"), 1)
+        XCTAssertNil(try credentials.loadPushBinding())
+        XCTAssertNil(try credentials.load())
+    }
+
+    func testLegacyDeviceWithoutAPNsUsesRecoveryCodeOrCachedFCM() async throws {
+        let pending = PushBinding(userID: sessionID, isSigningOut: true, requiresLegacyLookup: true)
+        try credentials.savePushBinding(pending)
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "unbind": .status(409)
+            default: .status(500)
+            }
+        }
+        let account = Account(api: api)
+        await account.restore(.english)
+        guard case let .deviceRecovery(id) = account.state else { return XCTFail("Expected device recovery") }
+        XCTAssertEqual(id, pending.id)
+        XCTAssertEqual(try credentials.loadPushBinding()?.id, pending.id)
+        XCTAssertEqual(HTTPStub.routes.count("logout"), 0)
+
+        try await api.captureLegacyDevice(apnsToken: nil, fcmToken: "flutter-cached-fcm")
+        XCTAssertEqual(try credentials.loadPushBinding()?.tokens, ["flutter-cached-fcm"])
+        HTTPStub.routes.configure { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "unbind", "logout": .json("{}")
+            default: .status(500)
+            }
+        }
+        await account.signOut(.english)
+        guard case .signedOut = account.state else { return XCTFail("Expected login after device cleanup") }
+        XCTAssertNil(try credentials.loadPushBinding())
+    }
+
+    func testOlderBackendCannotCreateNativePushBinding() async throws {
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "unbind": .status(404)
+            case "logout": .json("{}")
+            default: .status(500)
+            }
+        }
+        _ = try await api.restore(language: .english)
+        do {
+            try await api.registerPush(user: sessionID, token: "token", apnsToken: "abcd", language: .english)
+            XCTFail("Expected push registration to wait for the backend upgrade")
+        } catch is PushBackendUpgradeRequired {}
+        XCTAssertEqual(HTTPStub.routes.count("fcm-token"), 0)
+        XCTAssertNil(try credentials.loadPushBinding())
+        try await api.signOut(language: .english)
+        XCTAssertEqual(HTTPStub.routes.count("logout"), 1)
+    }
+
+    func testExpiredPendingPushCleanupRequiresOriginalAccount() async throws {
+        try credentials.savePushBinding(PushBinding(userID: sessionID, tokens: ["token"], isSigningOut: true))
+        let old = try makeClient { _ in .status(401) }
+        let account = Account(api: old)
+        await account.restore(.english)
+        guard case .reauthenticate = account.state else { return XCTFail("Expected the recovery login") }
+
+        HTTPStub.routes.configure { request in
+            switch request.url?.lastPathComponent {
+            case "login":
+                .json(#"{"access_token":"another-access","refresh_token":"another-refresh","user":{"id":"0C42BF15-71CE-4B2B-9640-631D74F233B8","name":"Other","role":"doctor"}}"#)
+            case "logout": .json("{}")
+            default: .status(500)
+            }
+        }
+        do {
+            try await account.signIn(email: "b@example.com", password: "test", language: .english)
+            XCTFail("A different account must not clear the binding")
+        } catch is PushCleanupReauthentication {}
+        XCTAssertEqual(HTTPStub.routes.count("unbind"), 0)
+        XCTAssertTrue(try XCTUnwrap(credentials.loadPushBinding()).isSigningOut)
+
+        HTTPStub.routes.configure { request in
+            switch request.url?.lastPathComponent {
+            case "login": .json(#"{"access_token":"new-access","refresh_token":"new-refresh","user":"# + Self.user + "}")
+            case "me": .json(Self.user)
+            case "unbind", "logout": .json("{}")
+            default: .status(500)
+            }
+        }
+        try await account.signIn(email: "a@example.com", password: "test", language: .english)
+        guard case .signedOut = account.state else { return XCTFail("Recovery sign-in must finish on the ordinary login") }
+        XCTAssertNil(try credentials.loadPushBinding())
+    }
+
+    func testClinicalAnalyticsRequiresBackendCapability() throws {
+        func user(role: User.Role, license: String?, allowed: Bool?) throws -> User {
+            let profile: [String: Any] = [
+                "id": sessionID.uuidString, "name": "Fixture", "role": role.rawValue,
+                "license_number": license.map { $0 as Any } ?? NSNull(),
+                "can_read_audit_and_research": allowed.map { $0 as Any } ?? NSNull(),
+            ]
+            return try JSONDecoder().decode(User.self, from: JSONSerialization.data(withJSONObject: profile))
+        }
+
+        XCTAssertFalse(try user(role: .doctor, license: "QA", allowed: nil).canOpenAuditAndResearch)
+        XCTAssertTrue(try user(role: .doctor, license: "QA", allowed: true).canOpenAuditAndResearch)
+        XCTAssertTrue(try user(role: .admin, license: "QA", allowed: true).canOpenAuditAndResearch)
+        XCTAssertFalse(try user(role: .admin, license: "", allowed: false).isSystemAdmin)
+        XCTAssertTrue(try user(role: .admin, license: nil, allowed: true).isSystemAdmin)
+    }
+
+    func testReportReadyPayloadOpensOrdersAndAlertTakesPriority() {
+        let id = sessionID.uuidString
+        XCTAssertEqual(NotificationRoute(type: nil, sessionID: id, alertID: nil, reportID: id), .order(sessionID))
+        XCTAssertEqual(NotificationRoute(type: "red_flag", sessionID: id, alertID: id, reportID: nil), .alert(sessionID))
+        XCTAssertNil(NotificationRoute(type: "report_ready", sessionID: "invalid", alertID: nil, reportID: id))
     }
 
     func testConcurrentUnauthorizedRequestsRotateOnceAndPersistPair() async throws {
@@ -247,6 +419,51 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(clear.redFlagStatus, .clear)
     }
 
+    func testClinicalMessagesInterpolateInEveryLanguage() {
+        for language in AppLanguage.allCases {
+            for (key, argument) in [
+                ("common.patientList.newPatientsInMonth", "month"),
+                ("common.doctor.patient.deleteConfirm", "name"),
+                ("dashboard.alert.triggerLabel", "value"),
+                ("soap.quickOrders.lastOrdered", "time"),
+            ] {
+                let message = language.text(key, args: [argument: "fixture"])
+                XCTAssertTrue(message.contains("fixture"), "\(language.rawValue) \(key)")
+                XCTAssertFalse(message.contains("{{"), "\(language.rawValue) \(key)")
+            }
+            XCTAssertNotEqual(language.text("native.researchGender"), "native.researchGender")
+            XCTAssertNotEqual(language.text("native.pushDeviceRecovery"), "native.pushDeviceRecovery")
+        }
+    }
+
+    func testRevisionRequiresNonblankReasonAndSendsOneWrite() async throws {
+        let record = """
+        {"id":"\(sessionID)","session_id":"\(sessionID)","created_at":"2026-08-01T00:00:00Z",
+        "status":"generated","review_status":"pending"}
+        """
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "review":
+                .json(record.replacingOccurrences(of: #""pending""#, with: #""revision_needed","review_notes":"Reason""#))
+            default: .json(record)
+            }
+        }
+        _ = try await api.restore(language: .english)
+        let report: Report = try await api.get("reports/\(sessionID)", language: .english)
+        let reports = Reports(api: api, language: .english)
+        do {
+            _ = try await reports.review(report, decision: .revisionNeeded, notes: "   \n")
+            XCTFail("Whitespace is not a revision reason")
+        } catch APIError.invalidResponse {}
+        XCTAssertEqual(HTTPStub.routes.count("review"), 0)
+
+        let reviewed = try await reports.review(report, decision: .revisionNeeded, notes: "  Reason  ")
+        XCTAssertEqual(reviewed.reviewStatus, .revisionNeeded)
+        XCTAssertEqual(reviewed.reviewNotes, "Reason")
+        XCTAssertEqual(HTTPStub.routes.requests("review").map(\.httpMethod), ["PUT"])
+    }
+
     func testReportDecodesDatesDecimalsAndPreservesClinicalKeys() async throws {
         let dates = ["2026-08-01T00:00:00.123456Z", "2026-08-01T08:00:00.123456+08:00",
                      "2026-08-01T00:00:00Z", "2026-08-01T00:00:00+00:00"]
@@ -385,6 +602,10 @@ private struct FailingCredentials: CredentialStore {
         try base.clear()
     }
     func removeLegacy() throws { try base.removeLegacy() }
+    func loadPushBinding() throws -> PushBinding? { try base.loadPushBinding() }
+    func savePushBinding(_ binding: PushBinding?) throws { try base.savePushBinding(binding) }
+    var migratedFromFlutter: Bool { base.migratedFromFlutter }
+    func finishFlutterPushMigration() { base.finishFlutterPushMigration() }
 }
 
 private final class FailureOnce: @unchecked Sendable {

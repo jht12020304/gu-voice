@@ -147,7 +147,7 @@ def test_remove_fcm_token_requires_user_id_param():
 
 def test_remove_fcm_token_scopes_query_by_user_id():
     """查詢語句須同時帶 device_token 與 user_id 條件，防越權。"""
-    db = _RecordingDB(results=[_FakeResult(scalar=None)])  # 查無屬於該 user 的裝置
+    db = _RecordingDB(results=[_FakeResult(), _FakeResult(scalar=None)])  # 查無屬於該 user 的裝置
     _run(
         NotificationService.remove_fcm_token(
             db,  # type: ignore[arg-type]
@@ -155,6 +155,6 @@ def test_remove_fcm_token_scopes_query_by_user_id():
             token="abc",
         )
     )
-    select_sql = db.statements[0]
+    select_sql = db.statements[1]
     assert "device_token" in select_sql
     assert "user_id" in select_sql

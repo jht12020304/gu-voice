@@ -74,4 +74,11 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
         let bundle = Bundle.main.url(forResource: localization, withExtension: "lproj").flatMap(Bundle.init(url:))
         return (bundle ?? .main).localizedString(forKey: key, value: nil, table: nil)
     }
+
+    func text(_ key: String, args: [String: String]) -> String {
+        args.reduce(text(key)) { message, entry in
+            message.replacingOccurrences(of: "{{\(entry.key)}}", with: entry.value)
+        }
+    }
+
 }
