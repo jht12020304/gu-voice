@@ -476,6 +476,13 @@
    "request": "#/components/schemas/ComplaintCreate",
    "response": "{\"$ref\": \"#/components/schemas/ComplaintResponse\"}"
   },
+  "POST /api/v1/notifications/devices/unbind": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/DeviceUnbindRequest",
+   "response": "{\"title\": \"Response Unbind Device Api V1 Notifications Devices Unbind Post\", \"type\": \"null\"}"
+  },
   "POST /api/v1/notifications/fcm-token": {
    "params": [
     "header:Authorization*"
@@ -975,6 +982,13 @@
   },
   "DevicePlatform": {
    "properties": [],
+   "required": []
+  },
+  "DeviceUnbindRequest": {
+   "properties": [
+    "apns_token",
+    "device_tokens"
+   ],
    "required": []
   },
   "DistributionBucket": {

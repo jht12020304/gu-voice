@@ -13,6 +13,7 @@ import redis.asyncio as aioredis
 
 from app.core.dependencies import get_current_user, get_db, get_redis
 from app.schemas.notification import (
+    DeviceUnbindRequest,
     FCMTokenCreate,
     FCMTokenResponse,
     MarkAllReadResponse,
@@ -164,6 +165,21 @@ async def remove_fcm_token(
         db,
         user_id=current_user.id,
         token=token,
+    )
+
+
+@router.post(
+    "/devices/unbind",
+    status_code=status.HTTP_200_OK,
+    summary="移除此帳號在指定 Apple 裝置上的推播註冊",
+)
+async def unbind_device(
+    payload: DeviceUnbindRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> None:
+    await notification_service.unbind_device(
+        db, user_id=current_user.id, tokens=payload.device_tokens, apns_token=payload.apns_token
     )
 
 

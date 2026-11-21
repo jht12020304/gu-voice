@@ -10,7 +10,7 @@ import logging
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils.pagination import keyset_after, page_slice, parse_cursor
@@ -617,23 +617,31 @@ class NotificationService:
         若 token 已存在則更新，否則新建
         """
         now = utc_now()
-
-        # 檢查 token 是否已存在
-        result = await db.execute(
-            select(FCMDevice).where(FCMDevice.device_token == token)
-        )
+        # Serialize the FCM/APNs identity update with logout, including first registration.
+        await db.execute(select(func.pg_advisory_xact_lock(0x4755564F494345)))
+        result = await db.execute(select(FCMDevice).where(FCMDevice.device_token == token))
         device = result.scalar_one_or_none()
+        apns_token = (apns_token or (device.apns_token if device else None) or "").lower() or None
+        if platform == DevicePlatform.IOS and apns_token:
+            await db.execute(
+                update(FCMDevice)
+                .where(
+                    FCMDevice.platform == DevicePlatform.IOS,
+                    func.lower(FCMDevice.apns_token) == apns_token,
+                    FCMDevice.device_token != token,
+                    FCMDevice.is_active.is_(True),
+                )
+                .values(is_active=False, updated_at=now)
+            )
 
         if device:
-            # 更新現有裝置
             device.user_id = user_id
-            device.apns_token = apns_token or device.apns_token
+            device.apns_token = apns_token
             device.platform = platform
             device.device_name = device_name or device.device_name
             device.is_active = True
             device.updated_at = now
         else:
-            # 建立新裝置
             device = FCMDevice(
                 user_id=user_id,
                 device_token=token,
@@ -651,22 +659,32 @@ class NotificationService:
 
     @staticmethod
     async def remove_fcm_token(db: AsyncSession, user_id: UUID, token: str) -> None:
-        """
-        移除 FCM token（標記為非活躍）
+        await NotificationService.unbind_device(db, user_id, [token], None)
 
-        僅可移除屬於請求使用者自己的裝置 token；scope 加上
-        ``FCMDevice.user_id == user_id``，避免越權停用他人裝置。
-        """
-        result = await db.execute(
-            select(FCMDevice)
-            .where(FCMDevice.device_token == token)
-            .where(FCMDevice.user_id == user_id)
+    @staticmethod
+    async def unbind_device(
+        db: AsyncSession, user_id: UUID, tokens: list[str], apns_token: Optional[str]
+    ) -> None:
+        await db.execute(select(func.pg_advisory_xact_lock(0x4755564F494345)))
+        owned_ios_tokens = select(func.lower(FCMDevice.apns_token)).where(
+            FCMDevice.user_id == user_id,
+            FCMDevice.platform == DevicePlatform.IOS,
+            FCMDevice.device_token.in_(tokens),
+            FCMDevice.apns_token.is_not(None),
         )
-        device = result.scalar_one_or_none()
-        if device:
-            device.is_active = False
-            device.updated_at = utc_now()
-            await db.flush()
+        aliases = [func.lower(FCMDevice.apns_token).in_(owned_ios_tokens)]
+        if apns_token:
+            aliases.append(func.lower(FCMDevice.apns_token) == apns_token.lower())
+
+        await db.execute(
+            update(FCMDevice)
+            .where(
+                FCMDevice.user_id == user_id,
+                FCMDevice.is_active.is_(True),
+                or_(FCMDevice.device_token.in_(tokens), (FCMDevice.platform == DevicePlatform.IOS) & or_(*aliases)),
+            )
+            .values(is_active=False, updated_at=utc_now())
+        )
 
     @staticmethod
     async def send_push_notification(
