@@ -5,6 +5,7 @@ enum APIError: Error, Equatable {
     case invalidResponse
     case signedOut
     case credentialsUnavailable
+    case incorrectCurrentPassword
 }
 
 struct User: Decodable, Sendable {
@@ -141,9 +142,19 @@ actor APIClient {
     }
 
     func dashboardConnection() async throws -> URLSessionWebSocketTask {
+        try await authenticatedSocket(configuration.webSocket.appendingPathComponent("dashboard"))
+    }
+
+    func kioskSocket(for id: UUID, resume: String?) async throws -> any KioskSocket {
+        var url = configuration.webSocket.appendingPathComponent("sessions/\(id.uuidString.lowercased())/stream")
+        if let resume { url.append(queryItems: [URLQueryItem(name: "resumeFrom", value: resume)]) }
+        return try await authenticatedSocket(url)
+    }
+
+    private func authenticatedSocket(_ url: URL) async throws -> URLSessionWebSocketTask {
         guard hasSession, let pair = tokens else { throw APIError.signedOut }
         let expected = revision
-        let socket = session.webSocketTask(with: configuration.webSocket.appendingPathComponent("dashboard"))
+        let socket = session.webSocketTask(with: url)
         let data = try JSONEncoder().encode(["type": "auth", "token": pair.access])
         socket.resume()
         do {
@@ -483,6 +494,11 @@ actor APIClient {
         }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        if path == "auth/change-password", http.statusCode == 401,
+           let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let detail = envelope["error"] as? [String: Any], detail["code"] as? String == "INVALID_CREDENTIALS" {
+            throw APIError.incorrectCurrentPassword
+        }
         guard (200..<300).contains(http.statusCode) else { throw APIError.status(http.statusCode) }
         return data
     }

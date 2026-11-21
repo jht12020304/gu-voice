@@ -16,6 +16,14 @@ struct GUVoiceApp: App {
         #endif
         if let settings = Bundle.main.infoDictionary,
            let configuration = try? Configuration(settings: settings) {
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["GUVOICE_KIOSK_TEST_FIXTURE"] == "1",
+               ![configuration.api, configuration.webSocket].allSatisfy({
+                   ["127.0.0.1", "localhost"].contains($0.host ?? "") && $0.port == 18083
+               }) {
+                return
+            }
+            #endif
             let credentials = Credentials(service: "com.guvoice.guVoice.native.\(configuration.api.absoluteString)")
             _account = State(initialValue: Account(api: APIClient(configuration: configuration, credentials: credentials)))
         }
@@ -55,6 +63,7 @@ final class Account {
     }
 
     let api: APIClient
+    let kioskIdle = KioskIdleTimer(defaults: .standard)
     private(set) var state: State = .starting
     private(set) var dashboardRevision = 0
     private(set) var isWorking = false
@@ -75,7 +84,18 @@ final class Account {
         defer { isWorking = false }
         credentialsUnavailable = false
         do {
-            if let user = try await api.restore(language: language) { state = .signedIn(user) }
+            if let user = try await api.restore(language: language) {
+                if user.role == .patient {
+                    kioskIdle.start(patient: user.id, restoring: true)
+                    if kioskIdle.remaining() == 0 {
+                        try await api.signOut(language: language)
+                        kioskIdle.clear()
+                        state = .signedOut
+                        return
+                    }
+                }
+                state = .signedIn(user)
+            }
             else { state = .signedOut }
         } catch is PushCleanupPending {
             do {
@@ -112,7 +132,11 @@ final class Account {
                 state = .backendUpgrade
             }
         } else {
-            do { state = .signedIn(try await api.signIn(email: email, password: password, language: language)) }
+            do {
+                let user = try await api.signIn(email: email, password: password, language: language)
+                if user.role == .patient { kioskIdle.start(patient: user.id, restoring: false) }
+                state = .signedIn(user)
+            }
             catch is PushCleanupPending { state = .clearanceFailed }
         }
     }
@@ -125,6 +149,7 @@ final class Account {
         defer { isWorking = false }
         do {
             try await api.signOut(language: language)
+            kioskIdle.clear()
             state = .signedOut
         } catch {
             showCleanupError(error)
@@ -214,6 +239,7 @@ private struct RootScreen: View {
     @Binding var savedLanguage: String
     let language: AppLanguage
     @State private var path = NavigationPath()
+    @State private var visit = KioskVisit()
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -292,7 +318,19 @@ private struct RootScreen: View {
                 }
             }
         }
+        .environment(visit)
+        .fullScreenCover(isPresented: Binding(get: { visit.step != nil }, set: { if !$0 { visit.close() } })) {
+            if let user = account.currentUser {
+                KioskVisitScreen(visit: visit, account: account, language: language)
+                    .id(user.id)
+            }
+        }
+        .modifier(KioskIdleLogout(
+            account: account, language: language,
+            enabled: account.currentUser?.role == .patient && !visit.isConversing
+        ))
         .onChange(of: activeUserID) {
+            visit.close()
             path = NavigationPath()
             if activeUserID == nil { push.deactivate() }
             openPush()
@@ -355,11 +393,7 @@ private struct RootScreen: View {
         case .doctor, .admin:
             ClinicalHome(user: user, account: account, language: language)
         case .patient:
-            ContentUnavailableView(
-                language.text("native.patientKiosk"), systemImage: "ipad",
-                description: Text(language.text("native.kioskPlaceholder"))
-            )
-            .navigationTitle(user.name)
+            KioskHome(user: user, account: account, language: language, path: $path)
         }
     }
 }

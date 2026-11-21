@@ -66,6 +66,43 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(try credentials.load(), Tokens(access: "old-access", refresh: "old-refresh"))
     }
 
+    func testRestoringAnIdlePatientRevokesLoginBeforeShowingTheirRecords() async throws {
+        let patient = UUID()
+        let profile = #"{"id":"\#(patient)","name":"Fixture","role":"patient"}"#
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(profile)
+            case "logout": .status(204)
+            default: .status(500)
+            }
+        }
+        let account = Account(api: api)
+        account.kioskIdle.start(patient: patient, restoring: false, at: Date(timeIntervalSince1970: 0))
+        defer { account.kioskIdle.clear() }
+        await account.restore(.english)
+        guard case .signedOut = account.state else { return XCTFail("Expired kiosk restored patient access") }
+        XCTAssertNil(try credentials.load())
+        XCTAssertEqual(HTTPStub.routes.count("logout"), 1)
+    }
+
+    func testWrongCurrentPasswordPreservesPatientLoginWithoutRefreshing() async throws {
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "change-password": .status(401, body: #"{"error":{"code":"INVALID_CREDENTIALS"}}"#)
+            default: .status(500)
+            }
+        }
+        _ = try await api.restore(language: .english)
+        do {
+            _ = try await api.request("auth/change-password", language: .english, method: "POST", body: Data("{}".utf8))
+            XCTFail("Expected a rejected current password")
+        } catch APIError.incorrectCurrentPassword {}
+        XCTAssertEqual(HTTPStub.routes.count("refresh"), 0)
+        let signedIn = await api.hasSession
+        XCTAssertTrue(signedIn)
+    }
+
     func testLocalDayQueryPreservesDSTOffsetsAndPositiveOffsetEncoding() async throws {
         let api = try makeClient { request in
             request.url?.lastPathComponent == "me" ? .json(Self.user) : .json("42")
@@ -625,7 +662,7 @@ private final class FailureOnce: @unchecked Sendable {
 private final class HTTPStub: URLProtocol, @unchecked Sendable {
     enum Reply {
         case json(String)
-        case status(Int)
+        case status(Int, body: String = "")
     }
 
     typealias Handler = @Sendable (URLRequest) -> Reply
@@ -671,9 +708,9 @@ private final class HTTPStub: URLProtocol, @unchecked Sendable {
         case let .json(body):
             status = 200
             data = Data(body.utf8)
-        case let .status(code):
+        case let .status(code, body):
             status = code
-            data = Data()
+            data = Data(body.utf8)
         }
         guard let response = HTTPURLResponse(
             url: url, statusCode: status, httpVersion: "HTTP/1.1",

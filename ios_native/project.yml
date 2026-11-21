@@ -35,6 +35,7 @@ targets:
         INFOPLIST_PREPROCESS: YES
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
+        KIOSK_IDLE_TIMEOUT_SECONDS: "180"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
   GUVoiceTests:
     type: bundle.unit-test
@@ -45,10 +46,19 @@ targets:
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.guvoice.guVoice.NativeTests
       GENERATE_INFOPLIST_FILE: YES
+  GUVoiceUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: GUVoice
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.guvoice.guVoice.KioskUITests
+      GENERATE_INFOPLIST_FILE: YES
 schemes:
   GUVoice:
     build:
       targets:
         GUVoice: all
     test:
-      targets: [GUVoiceTests]
+      targets: [GUVoiceTests, GUVoiceUITests]

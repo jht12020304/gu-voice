@@ -72,7 +72,9 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
 
     func text(_ key: String) -> String {
         let bundle = Bundle.main.url(forResource: localization, withExtension: "lproj").flatMap(Bundle.init(url:))
-        return (bundle ?? .main).localizedString(forKey: key, value: nil, table: nil)
+        let resources = bundle ?? .main
+        let text = resources.localizedString(forKey: key, value: nil, table: nil)
+        return text == key ? resources.localizedString(forKey: key, value: nil, table: "Kiosk") : text
     }
 
     func text(_ key: String, args: [String: String]) -> String {

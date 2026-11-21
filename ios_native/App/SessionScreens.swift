@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ClinicalSession: Decodable, Identifiable, Sendable {
     let id: UUID
+    let language: String?
+    let doctorID: UUID?
     let patientID: UUID
     let patientName: String?
     let complaint: String?
@@ -14,7 +16,8 @@ struct ClinicalSession: Decodable, Identifiable, Sendable {
     let conversations: [ConversationTurn]?
 
     enum CodingKeys: String, CodingKey {
-        case id, status, conversations
+        case id, status, conversations, language
+        case doctorID = "doctor_id"
         case patientID = "patient_id", patientName = "patient_name", complaint = "chief_complaint_text"
         case flagged = "red_flag", reason = "red_flag_reason", createdAt = "created_at", startedAt = "started_at"
         case duration = "duration_seconds"
@@ -52,7 +55,7 @@ struct SessionRow: View {
     }
 }
 
-private func sessionStatusKey(_ value: String) -> String {
+func sessionStatusKey(_ value: String) -> String {
     let suffix = switch value {
     case "in_progress": "InProgress"
     case "waiting": "Waiting"
@@ -255,6 +258,7 @@ struct SessionDetailScreen: View {
     let account: Account
     let language: AppLanguage
 
+    @Environment(KioskVisit.self) private var visit
     @Environment(\.dismiss) private var dismiss
     @State private var action: Action?
     @State private var busy = false
@@ -293,6 +297,7 @@ struct SessionDetailScreen: View {
             }
             Section {
                 if ["waiting", "in_progress"].contains(session.status) {
+                    Button(language.text("conversation.title")) { visit.resume(session, fallback: language) }
                     Button(language.text("session.doctor.detail.markCompleted")) { action = .completed }.disabled(busy)
                     Button(language.text("session.doctor.detail.cancelSession")) { action = .cancelled }.disabled(busy)
                 }

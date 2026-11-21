@@ -88,6 +88,7 @@ private struct PatientDetailScreen: View {
     let language: AppLanguage
     let onDelete: () -> Void
 
+    @Environment(KioskVisit.self) private var visit
     @Environment(\.dismiss) private var dismiss
     @State private var confirm = false
     @State private var busy = false
@@ -113,6 +114,7 @@ private struct PatientDetailScreen: View {
                 SessionRow(session: session, account: account, language: language)
             }
             Section {
+                Button(language.text("conversation.title")) { visit.step = .intake(patient: id) }
                 Button(language.text("common.doctor.patient.delete"), role: .destructive) { confirm = true }
                     .disabled(busy)
                 if failed { Text(language.text("common.doctor.patient.deleteError")).foregroundStyle(.red) }

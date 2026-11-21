@@ -1,0 +1,36 @@
+name: gu-voice-kiosk-native-qa
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: qa
+      POSTGRES_DB: kiosk
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+  provider:
+    image: python:3.12-alpine
+    command: ["python", "/provider.py"]
+    volumes: ["./kiosk-provider.py:/provider.py:ro"]
+  backend:
+    build: ../../backend
+    ports: ["127.0.0.1:18083:8000"]
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://postgres:qa@postgres:5432/kiosk
+      REDIS_URL: redis://redis:6379/0
+      OPENAI_BASE_URL: http://provider:8080/v1
+      OPENAI_API_KEY: local-fixture
+      JWT_ALGORITHM: HS256
+      JWT_SECRET_KEY: local-synthetic-test-only-secret-key
+      WORKERS: 1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      provider:
+        condition: service_started
