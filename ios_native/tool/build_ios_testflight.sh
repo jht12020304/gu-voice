@@ -23,11 +23,10 @@ HELP
 
 verify() {
   local ipa="$1" expected_build="$2" legacy="${3:-}"
-  "$flutter_dir/tool/build_ios_testflight.sh" \
-    --verify-only="$ipa" --build-number="$expected_build"
   python3 "$native_dir/tool/verify_ios_testflight.py" \
     "$ipa" "$expected_build" "$version" "$team_id" "$legacy"
   shasum -a 256 "$ipa"
+  printf '原生 IPA 本機驗證通過。\n'
 }
 
 case "${1:-}" in
@@ -43,8 +42,17 @@ case "${1:-}" in
 esac
 [[ $# -le 1 && "${1:-}" != -* ]] || die "$(usage)"
 [[ $# -eq 0 || -f "$1" ]] || die "找不到 Flutter IPA：$1"
-git -C "$native_dir" merge-base --is-ancestor 6e1bf55 HEAD ||
-  die "請從含 #134（6e1bf55）的 main 建置。"
+repo_dir="$native_dir/.."
+source_sha="$(git -C "$repo_dir" rev-parse origin/main)"
+git -C "$repo_dir" merge-base --is-ancestor 6e1bf55 "$source_sha" ||
+  die "請先更新 origin/main 至含 #134（6e1bf55）的版本。"
+app_inputs=(ios_native/App ios_native/Config ios_native/GUVoice.xcodeproj ios_native/project.yml
+  flutter_app/ios/Runner/GoogleService-Info.plist flutter_app/ios/ExportOptions.plist
+  flutter_app/tool/env.production.sh flutter_app/tool/build_ios_testflight.sh)
+git -C "$repo_dir" diff --quiet "$source_sha" HEAD -- "${app_inputs[@]}" ||
+  die "App 原始碼或共用發佈設定與 origin/main 不同。"
+[[ -z "$(git -C "$repo_dir" status --porcelain --untracked-files=all -- "${app_inputs[@]}" ios_native/tool)" ]] ||
+  die "App 原始碼或發佈腳本有未提交變更。"
 
 asc_max="$("${ASC_PYTHON:-python3}" -BI - "$HOME/.appstoreconnect/asc_api.py" <<'PY'
 import re
@@ -73,7 +81,7 @@ build="$(date -u +%Y%m%d%H%M)"
 [[ "$build" > "$asc_max" && "$build" > 202611141854 ]] ||
   die "UTC build $build 必須大於 ASC 最高號 $asc_max 與切換基線 202611141854。"
 
-source_sha="$(git -C "$native_dir" rev-parse HEAD)"
+release_sha="$(git -C "$repo_dir" rev-parse HEAD)"
 run_dir="$build_root/$build"
 mkdir -p "$build_root"
 mkdir "$run_dir" || die "已有此 build 的輸出目錄：$run_dir"
@@ -86,7 +94,8 @@ cp "$flutter_dir/ios/ExportOptions.plist" "$export_options"
    "$(plutil -extract manageAppVersionAndBuildNumber raw -o - "$export_options")" == false &&
    "$(plutil -extract testFlightInternalTestingOnly raw -o - "$export_options")" == true ]] ||
   die "ExportOptions.plist 不符合內部 TestFlight 的本機匯出設定。"
-printf 'Source=%s\nASC max=%s\nVersion=%s (%s)\n' "$source_sha" "$asc_max" "$version" "$build" |
+printf 'App source=%s\nRelease scripts=%s\nASC max=%s\nVersion=%s (%s)\n' \
+  "$source_sha" "$release_sha" "$asc_max" "$version" "$build" |
   tee "$run_dir/build.txt"
 
 archive="$run_dir/GUVoice.xcarchive"

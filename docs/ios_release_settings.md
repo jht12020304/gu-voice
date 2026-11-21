@@ -191,14 +191,14 @@ xcrun altool --upload-app  -f build/ios/ipa/gu_voice.ipa -t ios \
 從 repo 根目錄執行。準備已安裝的 Apple Distribution 身分、Xcode provisioning profiles，以及可匯入 `jwt` 和 `cryptography` 的 Python。若本機有最後一版 Flutter IPA，將它作為參數傳入，以比對兩顆 IPA 實際簽入的 entitlements 與 Firebase 設定。
 
 ```bash
-git merge-base --is-ancestor 6e1bf55 HEAD
+git fetch origin main
 export ASC_PYTHON="/path/to/backend/venv/bin/python"
 ./ios_native/tool/build_ios_testflight.sh "/absolute/path/to/gu_voice.ipa"
 ```
 
-腳本使用 §5 的 ASC 金鑰與本機 `~/.appstoreconnect/asc_api.py`，以 GET 讀完 build 清單。它以 `date -u +%Y%m%d%H%M` 產生 12 位 build 號，必須高於 ASC 上的所有 build。腳本以 Release 組態將版本覆寫成 `1.0.0`，依 `Package.resolved` 取用相依套件，並沿用 Flutter 的 `ExportOptions.plist` 本機匯出。Xcode 專案的預設版本仍為 `1.0`。請從腳本匯出，Organizer 的匯出流程會繞過該 plist。
+腳本確認 App 原始碼與本機 `origin/main` 相同，並拒絕 App 或發佈腳本的未提交修改。它使用 §5 的 ASC 金鑰與本機 `~/.appstoreconnect/asc_api.py`，以 GET 讀完 build 清單，再以 `date -u +%Y%m%d%H%M` 產生高於 ASC 現有 build 的 12 位號碼。腳本以 Release 組態將版本覆寫成 `1.0.0`，依 `Package.resolved` 取用相依套件，並沿用 Flutter 的 `ExportOptions.plist` 本機匯出。Xcode 專案的預設版本仍為 `1.0`。請從腳本匯出，Organizer 的匯出流程會繞過該 plist。
 
-每次的輸出在 `ios_native/build/testflight/<build>/`，包含 archive、IPA、匯出選項和驗證日誌。核對 `verify.log` 中的簽章、正式環境設定及 SHA-256。若 macOS 在簽章時顯示鑰匙圈對話框，授權 codesign 存取對應的簽章私鑰。失敗的輸出目錄保留供查證。等下一個 UTC 分鐘後重跑可取得新 build 號。清除 worktree 前先保全 IPA、archive 和驗證日誌。
+每次的輸出在 `ios_native/build/testflight/<build>/`，包含 archive、IPA、匯出選項和驗證日誌。核對 `verify.log` 中的簽章、正式環境設定、從 IPA 讀出的 `TFInternalTestingOnly=true` 及 SHA-256。若 macOS 在簽章時顯示鑰匙圈對話框，授權 codesign 存取對應的簽章私鑰。失敗的輸出目錄保留供查證。等下一個 UTC 分鐘後重跑可取得新 build 號。人工上傳前請保留 worktree，清除前先保全 IPA、archive 和驗證日誌。
 
 可對既有 IPA 重跑本機驗證。傳入產出時記錄的 build 號。
 
@@ -211,7 +211,8 @@ export ASC_PYTHON="/path/to/backend/venv/bin/python"
 ```bash
 export API_PRIVATE_KEYS_DIR="$HOME/.appstoreconnect/private_keys"
 IPA="/absolute/path/to/ios_native/build/testflight/<build>/export/GUVoice.ipa"
-shasum -a 256 "$IPA"
+EXPECTED_SHA256="<verify.log 的 SHA-256>"
+printf '%s  %s\n' "$EXPECTED_SHA256" "$IPA" | shasum -a 256 -c &&
 xcrun altool --validate-app -f "$IPA" -t ios \
   --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
 # 核對驗證結果後，由發佈人執行。

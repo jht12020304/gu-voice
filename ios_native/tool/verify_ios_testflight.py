@@ -21,12 +21,11 @@ IDENTITY_KEYS = (
 LOOPBACK = rb"(?:localhost\.?(?![a-z0-9.-])|127(?:\.[0-9]{1,3}){3}|\[::1\])"
 LOOPBACK_TEXT = re.compile(rb"(?<![a-z0-9.-])" + LOOPBACK, re.IGNORECASE)
 TEST_CREDENTIAL = re.compile(
-    rb"kiosk-(?:patient|doctor)@example\.com|Kiosk-fixture9!|"
+    rb"@example\.com|Kiosk-fixture9!|"
     rb"GUVOICE_KIOSK_TEST_FIXTURE|-----BEGIN [A-Z ]*PRIVATE KEY-----",
     re.IGNORECASE,
 )
 KEY_SUFFIXES = {".p8", ".p12", ".pfx", ".pem", ".key", ".cer", ".certsigningrequest"}
-CONFIG_SUFFIXES = {".plist", ".json", ".strings", ".xml", ".yaml", ".yml"}
 
 
 def require(condition, message):
@@ -50,6 +49,16 @@ def signature(app):
     return plistlib.loads(subprocess.check_output(["codesign", "-d", "--entitlements", ":-", app]))
 
 
+def verify_shared(ipa, expected_build, directory):
+    tool = directory / "tool"
+    tool.mkdir(parents=True)
+    for name in ("build_ios_testflight.sh", "env.production.sh"):
+        (tool / name).symlink_to(FLUTTER_DIR / "tool" / name)
+    subprocess.run([
+        tool / "build_ios_testflight.sh", f"--verify-only={ipa}", f"--build-number={expected_build}",
+    ], env={**os.environ, "TMPDIR": str(directory), "API_BASE": "", "WS_BASE": "", "WEB_BASE": ""}, check=True)
+
+
 def scan_bundle(root):
     for path in root.rglob("*"):
         relative = path.relative_to(root)
@@ -61,17 +70,21 @@ def scan_bundle(root):
             continue
         require(path.suffix.lower() not in KEY_SUFFIXES, f"包含憑證檔案：{relative}")
         data = path.read_bytes()
-        if path.suffix.lower() in CONFIG_SUFFIXES and data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        if data.startswith(b"bplist00"):
+            data = plistlib.dumps(plistlib.loads(data))
+        elif data.startswith((b"\xff\xfe", b"\xfe\xff")):
             data = data.decode("utf-16").encode()
         require(not TEST_CREDENTIAL.search(data), f"包含測試憑證或測試設定：{relative}")
         require(not LOOPBACK_TEXT.search(data), f"包含 localhost 或 loopback 位址：{relative}")
-    print("未發現測試 bundle、已知測試憑證、憑證檔案、localhost 或 loopback 位址。")
+    print("包內檔案掃描通過，未發現測試目錄、憑證檔案或可辨識的 fixture 和 loopback 字面值。")
+    print("執行檔未發現 GUVOICE_KIOSK_TEST_FIXTURE。位元組掃描無法辨識 Swift 編進指令的短字串。")
 
 
 def verify(ipa, expected_build, version, team_id, legacy):
     build_dir = NATIVE_DIR / "build"
     build_dir.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=build_dir) as work:
+        verify_shared(ipa, expected_build, Path(work) / "shared")
         unpacked = Path(work) / "native"
         app = extract_app(ipa, unpacked)
         entitlements = signature(app)
@@ -118,8 +131,9 @@ def verify(ipa, expected_build, version, team_id, legacy):
         icon = info.get("CFBundleIcons", {}).get("CFBundlePrimaryIcon", {}).get("CFBundleIconName")
         require(icon == "AppIcon", "缺少 CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName = AppIcon")
         require(info.get("ITSAppUsesNonExemptEncryption") is False, "出口合規旗標應為布林 false")
+        require(info.get("TFInternalTestingOnly") is True, "缺少 TFInternalTestingOnly = true")
         print(f"UIBackgroundModes 含 remote-notification，麥克風用途說明：{mic}")
-        print("巢狀 CFBundleIconName = AppIcon，ITSAppUsesNonExemptEncryption = false")
+        print("巢狀 CFBundleIconName = AppIcon，ITSAppUsesNonExemptEncryption = false，TFInternalTestingOnly = true")
         print(f"MinimumOSVersion = {info.get('MinimumOSVersion')}")
 
         firebase = plist(app / "GoogleService-Info.plist")
