@@ -31,6 +31,7 @@ final class KioskFlowTests: XCTestCase {
     func testCompletedAfterTextReplyAndConfirmedEnd() throws {
         try launchFixture()
         enterConversation(verifyDraft: true)
+        verifyAudioMenu()
         let answer = app.staticTexts.matching(NSPredicate(format: "label == %@", "How long have you felt this way?"))
         let greetingCount = answer.count
         let message = "I have needed to urinate more often for three days."
@@ -84,6 +85,26 @@ final class KioskFlowTests: XCTestCase {
         let field = element("kiosk-message")
         XCTAssertTrue(field.waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["AI Assistant"].waitForExistence(timeout: 30))
+    }
+
+    private func verifyAudioMenu() {
+        let more = app.buttons["secondary-actions-menu"]
+        wait(until: { more.isHittable && more.isEnabled })
+        more.tap()
+        let mute = app.buttons.matching(identifier: "kiosk-tts-mute").firstMatch
+        let speed = app.buttons.matching(identifier: "kiosk-tts-speed").firstMatch
+        XCTAssertTrue(mute.waitForExistence(timeout: 5))
+        XCTAssertTrue(speed.isHittable)
+        let initialMuteLabel = mute.label
+        let initialSpeedLabel = speed.label
+
+        mute.tap()
+        more.tap()
+        XCTAssertNotEqual(mute.label, initialMuteLabel)
+        speed.tap()
+        more.tap()
+        XCTAssertNotEqual(speed.label, initialSpeedLabel)
+        mute.tap()
     }
 
     private func send(_ text: String) {

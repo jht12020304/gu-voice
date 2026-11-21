@@ -6,7 +6,7 @@ import urllib.request
 import uuid
 
 BASE = "http://127.0.0.1:18083/api/v1"
-COMPOSE = ["docker", "compose", "-p", "gu-voice-declutter", "-f", "ios_native/TestsSupport/kiosk-compose.yml"]
+COMPOSE = ["docker", "compose", "-f", "ios_native/TestsSupport/kiosk-compose.yml"]
 PASSWORD = "Kiosk-fixture9!"
 
 
