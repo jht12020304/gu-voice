@@ -41,7 +41,11 @@ struct ReportListScreen: View {
             }
 
             ForEach(reports.filter(matches)) { report in
-                NavigationLink(value: NotificationRoute.report(report.sessionID)) { reportRow(report) }
+                NavigationLink {
+                    ReportDetailScreen(sessionID: report.sessionID, account: account, language: language)
+                } label: {
+                    reportRow(report)
+                }
             }
             if !reports.isEmpty, reports.filter(matches).isEmpty, cursor == nil {
                 Text(language.text("dashboard.reportList.emptyTitle"))

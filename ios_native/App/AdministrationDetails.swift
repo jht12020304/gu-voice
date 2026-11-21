@@ -113,6 +113,7 @@ struct AuditScreen: View {
             }
         }
         .navigationTitle(language.text("admin.audit.title"))
+        .refreshable { refresh += 1 }
         .toolbar { Button(language.text("admin.audit.refresh")) { refresh += 1 } }
     }
 
@@ -188,6 +189,7 @@ struct ComplaintTemplatesScreen: View {
             }
         }
         .navigationTitle(language.text("admin.complaints.title"))
+        .refreshable { update += 1 }
         .searchable(text: $search, prompt: language.text("admin.complaints.searchPlaceholder"))
         .toolbar { Button(language.text("admin.complaints.create")) { create = true }.disabled(busy) }
         .sheet(isPresented: $create) { editor(nil) }

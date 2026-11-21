@@ -4,7 +4,7 @@ import SwiftUI
 import UserNotifications
 
 enum NotificationRoute: Hashable, Sendable {
-    case report(UUID), order(UUID), session(UUID), alert(UUID)
+    case order(UUID), session(UUID), alert(UUID)
 
     init?(type: String?, sessionID: String?, alertID: String?, reportID: String?) {
         if let alertID, let id = UUID(uuidString: alertID) {

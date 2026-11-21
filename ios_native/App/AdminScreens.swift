@@ -72,6 +72,7 @@ struct AdminUsersScreen: View {
             }
         }
         .navigationTitle(language.text("admin.users.title"))
+        .refreshable { refresh += 1 }
         .searchable(text: $search, prompt: language.text("admin.users.searchPlaceholder"))
         .toolbar {
             Button(language.text("admin.users.create")) { create = true }.disabled(busy)

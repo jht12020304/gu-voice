@@ -29,10 +29,13 @@ struct ClinicalSession: Decodable, Identifiable, Sendable {
 
 struct SessionRow: View {
     let session: ClinicalSession
+    let account: Account
     let language: AppLanguage
 
     var body: some View {
-        NavigationLink(value: NotificationRoute.session(session.id)) {
+        NavigationLink {
+            SessionDetailScreen(id: session.id, account: account, language: language)
+        } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(session.patientName ?? language.text("session.doctor.list.unknownPatient"))
                     .font(.headline)
@@ -91,6 +94,7 @@ struct SessionsScreen: View {
     @State private var status = ""
     @State private var month = Date()
     @State private var calendarState: Load<[CalendarDay]> = .loading
+    @State private var update = 0
 
     private let filters = [("", "tabAll"), ("in_progress", "tabInProgress"), ("waiting", "tabWaiting"), ("completed", "tabCompleted")]
     private var calendar: Calendar {
@@ -141,11 +145,10 @@ struct SessionsScreen: View {
                     }
                 }
             }
-            Section {
-                PagedRows(account: account, language: language, endpoint: "sessions", query: dayQuery,
-                          refreshID: account.dashboardRevision, emptyKey: "session.doctor.list.emptyTitle", matches: { $0.matches(search) }) { (session: ClinicalSession) in
-                    SessionRow(session: session, language: language)
-                }
+            PagedRows(account: account, language: language, endpoint: "sessions", query: dayQuery,
+                      refreshID: update + account.dashboardRevision,
+                      emptyKey: "session.doctor.list.emptyTitle", matches: { $0.matches(search) }) { (session: ClinicalSession) in
+                SessionRow(session: session, account: account, language: language)
             }
         }
         .navigationTitle(language.text("session.doctor.list.title"))
@@ -153,7 +156,10 @@ struct SessionsScreen: View {
         .task(id: CalendarQuery(days: monthDays, mode: mode, revision: account.dashboardRevision)) {
             if mode { await loadMonth() }
         }
-        .refreshable { await loadMonth() }
+        .refreshable {
+            update += 1
+            if mode { await loadMonth() }
+        }
     }
 
     private var calendarGrid: some View {
@@ -270,7 +276,9 @@ struct SessionDetailScreen: View {
                     if let reason = session.reason { Text(reason) }
                 }
                 if ["completed", "aborted_red_flag"].contains(session.status) {
-                    NavigationLink(language.text("soap.page.title"), value: NotificationRoute.report(id))
+                    NavigationLink(language.text("soap.page.title")) {
+                        ReportDetailScreen(sessionID: id, account: account, language: language)
+                    }
                 }
             }
             Section(language.text("soap.tabs.transcript")) {

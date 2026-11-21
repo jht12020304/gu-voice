@@ -34,7 +34,6 @@ struct NotificationsScreen: View {
     let language: AppLanguage
     @State private var read = Set<UUID>()
     @State private var update = 0
-    @State private var route: NotificationRoute?
     @State private var busy = false
     @State private var failed = false
 
@@ -43,37 +42,49 @@ struct NotificationsScreen: View {
             if failed { Text(language.text("common.unknownError")).foregroundStyle(.red) }
             PagedRows(account: account, language: language, endpoint: "notifications",
                       refreshID: update + account.dashboardRevision, emptyKey: "dashboard.notifications.emptyTitle") { (item: InboxNotification) in
-                Button {
-                    route = item.route
-                    if !item.read && read.insert(item.id).inserted {
-                        Task { await markRead(item.id) }
+                if let route = item.route {
+                    NavigationLink {
+                        ClinicalDestination(route: route, account: account, language: language)
+                            .task { await readIfNeeded(item) }
+                    } label: {
+                        row(item)
                     }
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(item.title).font(.headline)
-                            if !item.read && !read.contains(item.id) {
-                                Text(language.text("dashboard.notifications.unreadBadge"))
-                                    .font(.caption).foregroundStyle(.tint)
-                            }
-                        }
-                        if let body = item.body { Text(body).foregroundStyle(.secondary) }
-                        Text(item.createdAt.formatted(.dateTime.month().day().hour().minute()))
-                            .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Button {
+                        Task { await readIfNeeded(item) }
+                    } label: {
+                        row(item)
                     }
-                    .foregroundStyle(.primary)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
         .navigationTitle(language.text("dashboard.notifications.title"))
-        .navigationDestination(item: $route) { route in
-            ClinicalDestination(route: route, account: account, language: language)
-        }
+        .refreshable { update += 1 }
         .toolbar {
             Button(language.text("dashboard.notifications.markAllRead")) { Task { await markRead(nil) } }
                 .disabled(busy)
         }
+    }
+
+    private func row(_ item: InboxNotification) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(item.title).font(.headline)
+                if !item.read && !read.contains(item.id) {
+                    Text(language.text("dashboard.notifications.unreadBadge"))
+                        .font(.caption).foregroundStyle(.tint)
+                }
+            }
+            if let body = item.body { Text(body).foregroundStyle(.secondary) }
+            Text(item.createdAt.formatted(.dateTime.month().day().hour().minute()))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .foregroundStyle(.primary)
+    }
+
+    private func readIfNeeded(_ item: InboxNotification) async {
+        if !item.read && read.insert(item.id).inserted { await markRead(item.id) }
     }
 
     private func markRead(_ id: UUID?) async {

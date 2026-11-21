@@ -122,7 +122,9 @@ struct QuickOrdersScreen: View {
                     }
                 }
                 if linkToReport {
-                    NavigationLink(language.text("soap.quickOrders.viewFullReport"), value: NotificationRoute.report(sessionID))
+                    NavigationLink(language.text("soap.quickOrders.viewFullReport")) {
+                        ReportDetailScreen(sessionID: sessionID, account: account, language: language)
+                    }
                 }
                 Section(language.text("soap.quickOrders.testsTitle")) {
                     if candidates.isEmpty { Text(language.text("soap.quickOrders.noTests")) }

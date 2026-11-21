@@ -72,6 +72,7 @@ struct PatientsScreen: View {
         }
         .navigationTitle(language.text("common.patientList.title"))
         .searchable(text: $search, prompt: language.text("common.patientList.searchPlaceholder"))
+        .refreshable { update += 1 }
     }
 
     private func shift(_ amount: Int) {
@@ -104,11 +105,10 @@ private struct PatientDetailScreen: View {
             history(patient.history, key: "medicalHistory")
             history(patient.allergies, key: "allergies")
             history(patient.medications, key: "currentMedications")
-            Section(language.text("common.doctor.patient.historyTitle")) {
-                PagedRows(account: account, language: language, endpoint: "patients/\(id)/sessions",
-                          emptyKey: "common.doctor.patient.noSessions") { (session: ClinicalSession) in
-                    SessionRow(session: session, language: language)
-                }
+            PagedRows(account: account, language: language, endpoint: "patients/\(id)/sessions",
+                      emptyKey: "common.doctor.patient.noSessions",
+                      sectionTitle: language.text("common.doctor.patient.historyTitle")) { (session: ClinicalSession) in
+                SessionRow(session: session, account: account, language: language)
             }
             Section {
                 Button(language.text("common.doctor.patient.delete"), role: .destructive) { confirm = true }
@@ -216,6 +216,7 @@ struct AlertsScreen: View {
         }
         .navigationTitle(language.text("dashboard.sidebar.nav.redFlagAlerts"))
         .searchable(text: $search, prompt: language.text("dashboard.alertList.searchPlaceholder"))
+        .refreshable { update += 1 }
         .confirmationDialog(language.text("dashboard.alertList.acknowledgeAll"), isPresented: $awaitingConfirm) {
             Button(language.text("dashboard.alertList.acknowledgeAll")) { Task { await acknowledgeAll() } }
         } message: {
@@ -256,7 +257,9 @@ struct AlertDetailScreen: View {
                 LabeledContent(language.text("dashboard.alert.triggerLabel"), value: alert.triggerReason)
                 LabeledContent(language.text("dashboard.alert.detail.occurredAt"),
                                value: alert.createdAt.formatted(.dateTime.month().day().hour().minute()))
-                NavigationLink(language.text("session.doctor.detail.title"), value: NotificationRoute.session(alert.sessionID))
+                NavigationLink(language.text("session.doctor.detail.title")) {
+                    SessionDetailScreen(id: alert.sessionID, account: account, language: language)
+                }
             }
             Section(language.text("dashboard.alert.detail.triggerKeywords")) {
                 let keywords = alert.keywords ?? []

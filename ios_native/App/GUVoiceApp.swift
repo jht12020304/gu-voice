@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 @main
@@ -128,6 +129,7 @@ final class Account {
     }
 
     func watchDashboard(user: UUID, language: AppLanguage) async {
+        let logger = Logger(subsystem: "com.guvoice.guVoice", category: "dashboard")
         while !Task.isCancelled, currentUser?.id == user {
             do {
                 let socket = try await api.dashboardConnection()
@@ -143,7 +145,11 @@ final class Account {
             } catch APIError.signedOut {
                 await noticeAuthorizationLoss(language)
                 return
-            } catch {}
+            } catch is CancellationError {
+                return
+            } catch {
+                logger.debug("Dashboard socket connection failed (\((error as NSError).code, privacy: .public))")
+            }
             do { try await Task.sleep(for: .seconds(8)) } catch { return }
         }
     }
@@ -273,8 +279,8 @@ private struct RootScreen: View {
             if waitingForCleanup && scenePhase == .active { await push.prepareCleanup(account: account, language: language) }
         }
         .task { await account.restore(language) }
-        .task(id: PushActivation(user: activeUserID, phase: scenePhase, language: language)) {
-            guard scenePhase == .active, let user = account.currentUser, user.role != .patient else { return }
+        .task(id: [activeUserID?.uuidString ?? "", language.rawValue]) {
+            guard let user = account.currentUser, user.role != .patient else { return }
             await account.watchDashboard(user: user.id, language: language)
         }
         .task(id: PushActivation(user: activeUserID, phase: scenePhase, language: language)) {

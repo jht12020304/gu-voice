@@ -351,6 +351,34 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(clear.redFlagStatus, .clear)
     }
 
+    func testRevisionRequiresNonblankReasonAndSendsOneWrite() async throws {
+        let record = """
+        {"id":"\(sessionID)","session_id":"\(sessionID)","created_at":"2026-08-01T00:00:00Z",
+        "status":"generated","review_status":"pending"}
+        """
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "review":
+                .json(record.replacingOccurrences(of: #""pending""#, with: #""revision_needed","review_notes":"Reason""#))
+            default: .json(record)
+            }
+        }
+        _ = try await api.restore(language: .english)
+        let report: Report = try await api.get("reports/\(sessionID)", language: .english)
+        let reports = Reports(api: api, language: .english)
+        do {
+            _ = try await reports.review(report, decision: .revisionNeeded, notes: "   \n")
+            XCTFail("Whitespace is not a revision reason")
+        } catch APIError.invalidResponse {}
+        XCTAssertEqual(HTTPStub.routes.count("review"), 0)
+
+        let reviewed = try await reports.review(report, decision: .revisionNeeded, notes: "  Reason  ")
+        XCTAssertEqual(reviewed.reviewStatus, .revisionNeeded)
+        XCTAssertEqual(reviewed.reviewNotes, "Reason")
+        XCTAssertEqual(HTTPStub.routes.requests("review").map(\.httpMethod), ["PUT"])
+    }
+
     func testReportDecodesDatesDecimalsAndPreservesClinicalKeys() async throws {
         let dates = ["2026-08-01T00:00:00.123456Z", "2026-08-01T08:00:00.123456+08:00",
                      "2026-08-01T00:00:00Z", "2026-08-01T00:00:00+00:00"]

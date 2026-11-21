@@ -8,6 +8,7 @@ struct PagedRows<Item: Decodable & Identifiable & Sendable, Row: View>: View {
     var query: [URLQueryItem] = []
     var refreshID = 0
     var emptyKey = "common.common.emptyTitle"
+    var sectionTitle: String?
     var matches: (Item) -> Bool = { _ in true }
     @ViewBuilder let row: (Item) -> Row
 
@@ -17,9 +18,10 @@ struct PagedRows<Item: Decodable & Identifiable & Sendable, Row: View>: View {
     @State private var loading = true
     @State private var failed = false
     @State private var generation = UUID()
+    @State private var requested: RequestKey?
 
     var body: some View {
-        Group {
+        Section {
             ForEach(items.filter(matches)) { item in row(item) }
             if loading {
                 ProgressView(language.text("common.loading"))
@@ -32,11 +34,20 @@ struct PagedRows<Item: Decodable & Identifiable & Sendable, Row: View>: View {
             } else if items.filter(matches).isEmpty {
                 Text(language.text(emptyKey)).foregroundStyle(.secondary)
             }
+        } header: {
+            if let sectionTitle { Text(sectionTitle) }
         }
-        .task(id: RequestKey(endpoint: endpoint, query: query, language: language, refresh: refreshID)) {
+        .task(id: requestKey) {
+            let key = requestKey
+            guard requested != key else { return }
+            requested = key
             await load(reset: true)
+            if Task.isCancelled && requested == key { requested = nil }
         }
-        .refreshable { await load(reset: true) }
+    }
+
+    private var requestKey: RequestKey {
+        RequestKey(endpoint: endpoint, query: query, language: language, refresh: refreshID)
     }
 
     private struct RequestKey: Equatable {
@@ -277,8 +288,6 @@ struct ClinicalDestination: View {
 
     var body: some View {
         switch route {
-        case let .report(id):
-            ReportDetailScreen(sessionID: id, account: account, language: language)
         case let .order(id):
             OrderDestination(sessionID: id, account: account, language: language)
         case let .session(id):
