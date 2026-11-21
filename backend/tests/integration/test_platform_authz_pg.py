@@ -112,8 +112,8 @@ def test_account_and_rule_permissions(role, license_number, monkeypatch):
                     assert str(register_token.await_args.args[1]) == response.json()["user"]["id"]
             if allowed:
                 # Omitting the license preserves it. Only an explicit NULL clears it.
-                await client.put(f"admin/users/{target.id}", json={"role": "admin"})
-                assert target.license_number == "L1"
+                kept = await client.put(f"admin/users/{target.id}", json={"role": "admin"})
+                assert kept.status_code == 200 and kept.json()["license_number"] == "L1"
                 cleared = await client.put(f"admin/users/{target.id}", json={"license_number": None})
                 assert cleared.status_code == 200 and cleared.json()["license_number"] is None
                 for blank in ("", "   "):
