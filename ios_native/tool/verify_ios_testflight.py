@@ -46,10 +46,11 @@ def extract_app(ipa, destination):
 
 def signature(app):
     subprocess.run(["codesign", "--verify", "--deep", "--strict", app], check=True)
-    return plistlib.loads(subprocess.check_output(["codesign", "-d", "--entitlements", ":-", app]))
+    return plistlib.loads(subprocess.check_output(["codesign", "-d", "--entitlements", "-", "--xml", app]))
 
 
 def verify_shared(ipa, expected_build, directory):
+    # Flutter derives its verification dump path from the script location.
     tool = directory / "tool"
     tool.mkdir(parents=True)
     for name in ("build_ios_testflight.sh", "env.production.sh"):
@@ -133,7 +134,8 @@ def verify(ipa, expected_build, version, team_id, legacy):
         require(info.get("ITSAppUsesNonExemptEncryption") is False, "出口合規旗標應為布林 false")
         require(info.get("TFInternalTestingOnly") is True, "缺少 TFInternalTestingOnly = true")
         print(f"UIBackgroundModes 含 remote-notification，麥克風用途說明：{mic}")
-        print("巢狀 CFBundleIconName = AppIcon，ITSAppUsesNonExemptEncryption = false，TFInternalTestingOnly = true")
+        print("巢狀 CFBundleIconName = AppIcon，ITSAppUsesNonExemptEncryption = false")
+        print("原生驗證直接從已簽 Info.plist 確認 TFInternalTestingOnly = true")
         print(f"MinimumOSVersion = {info.get('MinimumOSVersion')}")
 
         firebase = plist(app / "GoogleService-Info.plist")

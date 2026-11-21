@@ -23,7 +23,7 @@ HELP
 
 verify() {
   local ipa="$1" expected_build="$2" legacy="${3:-}"
-  python3 "$native_dir/tool/verify_ios_testflight.py" \
+  python3 -u "$native_dir/tool/verify_ios_testflight.py" \
     "$ipa" "$expected_build" "$version" "$team_id" "$legacy"
   shasum -a 256 "$ipa"
   printf '原生 IPA 本機驗證通過。\n'

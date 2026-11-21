@@ -206,7 +206,7 @@ export ASC_PYTHON="/path/to/backend/venv/bin/python"
 ./ios_native/tool/build_ios_testflight.sh --verify-only "$IPA" "$BUILD" "$FLUTTER_IPA"
 ```
 
-人工確認本機驗證後，依 §5 設定 ASC 金鑰資訊。將 `IPA` 指到驗證日誌所列的同一顆 IPA，確認其 SHA-256 相符。先 validate，成功後由發佈人執行 upload。
+人工確認本機驗證後，依 §6 設定 `ASC_API_KEY_ID` 與 `ASC_API_ISSUER_ID`。將 `IPA` 指到驗證日誌所列的同一顆 IPA，確認其 SHA-256 相符並執行 validate。
 
 ```bash
 export API_PRIVATE_KEYS_DIR="$HOME/.appstoreconnect/private_keys"
@@ -215,16 +215,21 @@ EXPECTED_SHA256="<verify.log 的 SHA-256>"
 printf '%s  %s\n' "$EXPECTED_SHA256" "$IPA" | shasum -a 256 -c &&
 xcrun altool --validate-app -f "$IPA" -t ios \
   --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
-# 核對驗證結果後，由發佈人執行。
+```
+
+發佈人確認 validate 成功後，在同一個終端機手動執行。
+
+```bash
+printf '%s  %s\n' "$EXPECTED_SHA256" "$IPA" | shasum -a 256 -c &&
 xcrun altool --upload-app -f "$IPA" -t ios \
   --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
 ```
 
-上傳前確認先行測試員及現場 kiosk 裝置都是 iOS 17 以上，且正式後端支援裝置解除綁定。上傳後確認該 build 在 TestFlight 顯示「內部」。先在專用實機以授權帳號與合成資料驗收。
+上傳前確認先行測試員及現場 kiosk 裝置都是 iOS 17 以上，且正式後端支援裝置解除綁定。上傳後確認該 build 在 TestFlight 顯示「內部」。先用只包含授權驗收帳號的內部群組，在專用實機以合成資料驗收。若尚未安排驗收群組，由發佈人先確認安排。驗收階段不要用 `asc_api.py attach`，它會直接指派給現有「先行測試」群組。下列驗收全數通過後，發佈人才能將原生版指派給「先行測試」作為切換。
 
 1. 在現有 Flutter 版登入醫師 A，直接覆裝原生版。確認沿用 A 的登入並能讀取報告。
 2. 開啟允許 Time Sensitive 通知的專注模式。觸發指派給 A 的合成紅旗，確認鎖定畫面收到推播且點入可開正確的紅旗。
-3. 斷線後讓 A 登出，重啟 App。恢復連線並完成解除綁定後再登入 B。各觸發一筆 A、B 的合成推播，確認共用裝置只收到 B 的新通知。
+3. 斷線後讓 A 登出，重啟 App。在解除綁定前確認無法換人登入。恢復連線並完成解除綁定後再登入 B。各觸發一筆 A、B 的合成推播，確認共用裝置只收到 B 的新通知。
 4. 在 kiosk 完成一場合成問診，驗證收音、TTS、App 進背景後中斷與返回、網路中斷後重連及完成結果。
 
 若需回滾，先檢查最後一版 Flutter build `202611141854` 的 TestFlight 效期。裝回 Flutter 後重新登入。若既有 build 已過期，依原 Flutter 流程重建，build 號必須高於當時 ASC 的最高號。
