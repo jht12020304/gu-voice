@@ -182,6 +182,8 @@ struct ClinicalHome: View {
                 if user.isSystemAdmin {
                     link("dashboard.sidebar.nav.userManagement", icon: "person.badge.key",
                          to: AdminUsersScreen(account: account, language: language))
+                }
+                if user.canOpenAuditAndResearch {
                     link("dashboard.sidebar.nav.auditLogs", icon: "doc.text.magnifyingglass",
                          to: AuditScreen(account: account, language: language))
                     link("dashboard.sidebar.nav.research", icon: "chart.bar",

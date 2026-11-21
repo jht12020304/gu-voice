@@ -82,8 +82,10 @@ struct AuditScreen: View {
             Section(language.text("admin.audit.filter")) {
                 TextField(language.text("admin.audit.filterActionPlaceholder"), text: $action)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
-                TextField(language.text("admin.audit.filterUserPlaceholder"), text: $operatorID)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                if account.currentUser?.isSystemAdmin == true {
+                    TextField(language.text("admin.audit.filterUserPlaceholder"), text: $operatorID)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                }
                 Toggle(language.text("admin.audit.filterStartDate"), isOn: $filterDates)
                 if filterDates {
                     DatePicker(language.text("admin.audit.filterStartDate"), selection: $from, in: ...through, displayedComponents: .date)

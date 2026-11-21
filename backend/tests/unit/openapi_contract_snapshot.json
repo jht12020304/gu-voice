@@ -2148,6 +2148,7 @@
   },
   "UserInfo": {
    "properties": [
+    "can_read_audit_and_research",
     "created_at",
     "department",
     "email",

@@ -31,6 +31,7 @@ class UserInfo(BaseModel):
     phone: Optional[str] = None
     department: Optional[str] = None
     license_number: Optional[str] = None
+    can_read_audit_and_research: bool = False
     is_active: Optional[bool] = None
     last_login_at: Optional[str] = None
     created_at: Optional[str] = None

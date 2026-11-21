@@ -210,6 +210,23 @@ final class FoundationTests: XCTestCase {
         XCTAssertNil(try credentials.loadPushBinding())
     }
 
+    func testClinicalAnalyticsRequiresBackendCapability() throws {
+        func user(role: User.Role, license: String?, allowed: Bool?) throws -> User {
+            let profile: [String: Any] = [
+                "id": sessionID.uuidString, "name": "Fixture", "role": role.rawValue,
+                "license_number": license.map { $0 as Any } ?? NSNull(),
+                "can_read_audit_and_research": allowed.map { $0 as Any } ?? NSNull(),
+            ]
+            return try JSONDecoder().decode(User.self, from: JSONSerialization.data(withJSONObject: profile))
+        }
+
+        XCTAssertFalse(try user(role: .doctor, license: "QA", allowed: nil).canOpenAuditAndResearch)
+        XCTAssertTrue(try user(role: .doctor, license: "QA", allowed: true).canOpenAuditAndResearch)
+        XCTAssertTrue(try user(role: .admin, license: "QA", allowed: true).canOpenAuditAndResearch)
+        XCTAssertFalse(try user(role: .admin, license: "", allowed: false).isSystemAdmin)
+        XCTAssertTrue(try user(role: .admin, license: nil, allowed: true).isSystemAdmin)
+    }
+
     func testReportReadyPayloadOpensOrdersAndAlertTakesPriority() {
         let id = sessionID.uuidString
         XCTAssertEqual(NotificationRoute(type: nil, sessionID: id, alertID: nil, reportID: id), .order(sessionID))

@@ -12,12 +12,15 @@ struct User: Decodable, Sendable {
     let name: String
     let role: Role
     let licenseNumber: String?
+    let canReadAuditAndResearch: Bool?
 
-    var isSystemAdmin: Bool { role == .admin && (licenseNumber ?? "").isEmpty }
+    var isSystemAdmin: Bool { role == .admin && licenseNumber == nil }
+    var canOpenAuditAndResearch: Bool { isSystemAdmin || canReadAuditAndResearch == true }
 
     enum CodingKeys: String, CodingKey {
         case id, name, role
         case licenseNumber = "license_number"
+        case canReadAuditAndResearch = "can_read_audit_and_research"
     }
 
     enum Role: String, Codable, CaseIterable, Sendable {
@@ -115,7 +118,7 @@ actor APIClient {
         let pair = try decodeTokens(data)
         let user: User
         let loginUser = try Self.decoder().decode(UserEnvelope.self, from: data).user
-        if loginUser.role == .admin {
+        if loginUser.role != .patient {
             let profile = try await send("auth/me", language: language, access: pair.access)
             user = try Self.decoder().decode(User.self, from: profile)
             guard user.id == loginUser.id else { throw APIError.invalidResponse }

@@ -17,8 +17,9 @@ from app.core.csrf import (
     validate_csrf,
 )
 from app.core.net import get_client_ip
+from app.core.authz import clinical_reader_id
 from app.core.dependencies import get_current_user, get_db
-from app.core.exceptions import AppException, UnauthorizedException
+from app.core.exceptions import AppException, ForbiddenException, UnauthorizedException
 from app.schemas.auth import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
@@ -409,7 +410,14 @@ async def get_me(
     current_user=Depends(get_current_user),
 ) -> UserResponse:
     """取得目前已認證使用者的完整資料。"""
-    return await auth_service.get_user_profile(db, user_id=current_user.id)
+    profile = await auth_service.get_user_profile(db, user_id=current_user.id)
+    try:
+        clinical_reader_id(current_user)
+    except ForbiddenException:
+        profile["can_read_audit_and_research"] = False
+    else:
+        profile["can_read_audit_and_research"] = True
+    return profile
 
 
 @router.put(

@@ -236,7 +236,7 @@ struct ResearchScreen: View {
     }
 
     private func load() async {
-        guard account.currentUser?.isSystemAdmin == true else { return }
+        guard account.currentUser?.canOpenAuditAndResearch == true else { return }
         let next: Load<ResearchData> = await Load.fetch {
             try await account.api.get("research/analytics", language: language)
         }

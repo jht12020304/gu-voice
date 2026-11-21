@@ -11,8 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import redis.asyncio as aioredis
 
-from app.core.authz import get_clinician_scope_id
-from app.core.dependencies import get_current_user, get_db, get_redis, require_role
+from app.core.dependencies import get_current_user, get_db, get_redis, require_system_admin
 from app.schemas.notification import (
     DeviceRecoveryRequest,
     DeviceUnbindRequest,
@@ -199,10 +198,8 @@ async def unbind_device(
 async def recover_device(
     payload: DeviceRecoveryRequest,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_role("admin")),
+    current_user=Depends(require_system_admin),
 ) -> None:
-    if get_clinician_scope_id(current_user) is not None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="System administrator required")
     if not await notification_service.recover_device(
         db, current_user.id, payload.user_id, payload.registration_id, payload.recovery_id
     ):

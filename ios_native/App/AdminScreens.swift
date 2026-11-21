@@ -194,6 +194,8 @@ private struct AdminUserEditor: View {
     @State private var saving = false
     @State private var errorKey: String?
 
+    private var isOwnAccount: Bool { user != nil && user?.id == account.currentUser?.id }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -209,10 +211,11 @@ private struct AdminUserEditor: View {
                         Text(language.text("admin.users.role.\(role.rawValue)")).tag(role)
                     }
                 }
+                .disabled(isOwnAccount)
                 TextField(language.text("admin.users.fieldPhone"), text: $phone).keyboardType(.phonePad)
                 TextField(language.text("common.doctor.settings.department"), text: $department)
-                TextField(language.text("native.licenseNumber"), text: $license)
-                Toggle(language.text("admin.users.fieldIsActive"), isOn: $active)
+                TextField(language.text("native.licenseNumber"), text: $license).disabled(isOwnAccount)
+                Toggle(language.text("admin.users.fieldIsActive"), isOn: $active).disabled(isOwnAccount)
                 if let errorKey { Text(language.text(errorKey)).foregroundStyle(.red) }
             }
             .disabled(saving)
@@ -250,12 +253,26 @@ private struct AdminUserEditor: View {
         let phone: String?
         let department: String?
         let license: String?
+        let clearLicense: Bool
         let active: Bool
         let password: String?
 
         enum CodingKeys: String, CodingKey {
             case name, email, role, phone, department, password
             case license = "license_number", active = "is_active"
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var body = encoder.container(keyedBy: CodingKeys.self)
+            try body.encode(name, forKey: .name)
+            try body.encode(email, forKey: .email)
+            try body.encode(role, forKey: .role)
+            try body.encodeIfPresent(phone, forKey: .phone)
+            try body.encodeIfPresent(department, forKey: .department)
+            if clearLicense { try body.encodeNil(forKey: .license) }
+            else { try body.encodeIfPresent(license, forKey: .license) }
+            try body.encode(active, forKey: .active)
+            try body.encodeIfPresent(password, forKey: .password)
         }
     }
 
@@ -274,11 +291,13 @@ private struct AdminUserEditor: View {
         saving = true
         errorKey = nil
         defer { saving = false }
+        let changedLicense = changedField(license, previous: user?.license)
         let body = Payload(
             name: cleanName, email: cleanEmail, role: role,
             phone: changedField(phone, previous: user?.phone),
             department: changedField(department, previous: user?.department),
-            license: changedField(license, previous: user?.license),
+            license: changedLicense?.isEmpty == false ? changedLicense : nil,
+            clearLicense: changedLicense?.isEmpty == true,
             active: active, password: user == nil ? password : nil
         )
         let endpoint = user.map { "admin/users/\($0.id)" } ?? "admin/users"
@@ -288,7 +307,6 @@ private struct AdminUserEditor: View {
             password = ""
             onSave()
             dismiss()
-            if user?.id == account.currentUser?.id, user != nil { await account.signOut(language) }
         } catch APIError.signedOut {
             await account.noticeAuthorizationLoss(language)
         } catch {
