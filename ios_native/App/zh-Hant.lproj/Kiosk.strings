@@ -294,7 +294,6 @@
 "session.patientHistory.filters.inProgress" = "進行中";
 "session.patientHistory.loading" = "載入紀錄...";
 "session.patientHistory.sessionCount" = "共 {{count}} 次問診";
-"session.thankYou.autoRedirectHint" = "將於數秒後自動回到首頁…";
 "session.thankYou.backNowAction" = "立即回到首頁";
 "session.thankYou.message" = "感謝您今日參與智慧問診，請至原本診間外等候，醫師評估過後，將由護理師給予您合適的檢查項目。";
 "session.thankYou.title" = "問診完成";

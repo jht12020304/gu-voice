@@ -101,3 +101,7 @@ output/
 
 # tsc -b 由 tsconfig.node.json（emitDeclarationOnly）產出，不入庫
 frontend/vite.config.d.ts
+
+/artifacts/
+/compare.md
+/declutter-plan.md

@@ -294,7 +294,6 @@
 "session.patientHistory.filters.inProgress" = "In progress";
 "session.patientHistory.loading" = "Loading records...";
 "session.patientHistory.sessionCount" = "{{count}} consultations";
-"session.thankYou.autoRedirectHint" = "Returning to home in a few seconds…";
 "session.thankYou.backNowAction" = "Back to home now";
 "session.thankYou.message" = "Thank you for joining today's smart consultation. Please wait outside your assigned clinic room; after the doctor's review, a nurse will arrange suitable tests for you.";
 "session.thankYou.title" = "Consultation complete";
