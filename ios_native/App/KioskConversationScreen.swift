@@ -71,6 +71,19 @@ private struct ConversationContent: View {
                 .accessibilityIdentifier("kiosk-end")
                 .disabled(model.ending || model.critical || model.connection == .interrupted)
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                SecondaryActionsMenu(language: language) {
+                    Button(action: model.toggleTTSMute) {
+                        Label(language.text(model.ttsMuted ? "conversation.tts.unmuteLabel" : "conversation.tts.muteLabel"), systemImage: model.ttsMuted ? "speaker.slash" : "speaker.wave.2")
+                    }
+                    .accessibilityIdentifier("kiosk-tts-mute")
+                    Button(action: model.cycleTTSSpeed) {
+                        Label("\(model.speed.formatted())×", systemImage: "speedometer")
+                    }
+                    .accessibilityIdentifier("kiosk-tts-speed")
+                }
+                .disabled(!model.canInput)
+            }
         }
         .alert(language.text("conversation.endSession"), isPresented: $confirmEnd) {
             Button(language.text("common.language.switchModal.cancel"), role: .cancel) {}
@@ -220,14 +233,6 @@ private struct ConversationContent: View {
                           systemImage: model.paused ? "mic" : "mic.slash")
                 }
                 .disabled(!model.canInput || model.audio.unavailable != nil)
-                Button(action: model.toggleTTSMute) {
-                    Label(language.text(model.ttsMuted ? "conversation.tts.unmuteLabel" : "conversation.tts.muteLabel"),
-                          systemImage: model.ttsMuted ? "speaker.slash" : "speaker.wave.2")
-                }
-                Button(action: model.cycleTTSSpeed) {
-                    Text("\(model.speed.formatted())×")
-                }
-                .accessibilityLabel(language.text("conversation.tts.speedLabel", args: ["rate": model.speed.formatted()]))
                 Button(action: model.audio.finishUtterance) {
                     Label(language.text("conversation.voiceControl.finishSpeaking"), systemImage: "checkmark.circle")
                 }

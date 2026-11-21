@@ -294,7 +294,6 @@
 "session.patientHistory.filters.inProgress" = "進行中";
 "session.patientHistory.loading" = "記録を読み込み中...";
 "session.patientHistory.sessionCount" = "問診 {{count}} 回";
-"session.thankYou.autoRedirectHint" = "数秒後に自動でホームへ戻ります…";
 "session.thankYou.backNowAction" = "今すぐホームに戻る";
 "session.thankYou.message" = "本日はスマート問診にご協力いただきありがとうございました。診察室の外でお待ちください。医師の評価後、看護師が必要な検査をご案内いたします。";
 "session.thankYou.title" = "問診完了";

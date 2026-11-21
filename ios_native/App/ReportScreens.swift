@@ -268,21 +268,40 @@ struct ReportDetailScreen: View {
         case .loaded(let report):
             if let report, report.status == .generated {
                 Section {
-                    Button { Task { await export(report) } } label: {
-                        Label(language.text("soap.export.button"), systemImage: "doc")
-                    }
-                    .disabled(exporting)
-                    NavigationLink {
-                        QuickOrdersScreen(sessionID: sessionID, report: report, account: account, language: language)
-                    } label: {
-                        Label(language.text("soap.quickOrders.title"), systemImage: "checklist")
-                    }
                     Text(language.text("soap.reviewStatus.\(report.reviewStatus == .revisionNeeded ? "revisionNeeded" : report.reviewStatus.rawValue)"))
                     if let uncertainReview {
                         Button(language.text("common.retry")) { decision = uncertainReview }
                     } else if report.reviewStatus == .pending {
                         Button(language.text("soap.review.approveButton")) { startReview(.approved) }
-                        Button(language.text("soap.review.rejectButton"), role: .destructive) { startReview(.revisionNeeded) }
+                        SecondaryActionsMenu(language: language) {
+                            Button { Task { await export(report) } } label: {
+                                Label(language.text("soap.export.button"), systemImage: "doc")
+                            }
+                            .disabled(exporting)
+                            .accessibilityIdentifier("report-export")
+                            NavigationLink {
+                                QuickOrdersScreen(sessionID: sessionID, report: report, account: account, language: language)
+                            } label: {
+                                Label(language.text("soap.quickOrders.title"), systemImage: "checklist")
+                            }
+                            .accessibilityIdentifier("report-quick-orders")
+                            Button(language.text("soap.review.rejectButton"), role: .destructive) { startReview(.revisionNeeded) }
+                                .accessibilityIdentifier("report-reject")
+                        }
+                    } else {
+                        SecondaryActionsMenu(language: language) {
+                            Button { Task { await export(report) } } label: {
+                                Label(language.text("soap.export.button"), systemImage: "doc")
+                            }
+                            .disabled(exporting)
+                            .accessibilityIdentifier("report-export")
+                            NavigationLink {
+                                QuickOrdersScreen(sessionID: sessionID, report: report, account: account, language: language)
+                            } label: {
+                                Label(language.text("soap.quickOrders.title"), systemImage: "checklist")
+                            }
+                            .accessibilityIdentifier("report-quick-orders")
+                        }
                     }
                 }
                 if let notes = report.reviewNotes, !notes.isEmpty {
@@ -326,9 +345,9 @@ struct ReportDetailScreen: View {
         let action = language.text(approving ? "soap.review.approveButton" : "soap.review.rejectButton")
         return NavigationStack {
             Form {
-                Text(language.text(approving ? "soap.review.approveDescription" : "soap.review.rejectDescription"))
+                if approving { Text(language.text("soap.review.approveDescription")) }
                 TextField(
-                    language.text(approving ? "soap.review.approveNotesPlaceholder" : "soap.review.rejectNotesPlaceholder"),
+                    language.text(approving ? "soap.review.approveNotesPlaceholder" : "soap.review.rejectFieldLabel"),
                     text: $notes, axis: .vertical
                 )
                 .disabled(submitting || uncertainReview != nil)

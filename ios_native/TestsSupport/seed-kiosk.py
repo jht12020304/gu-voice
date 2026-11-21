@@ -15,7 +15,7 @@ for kind in ("doctor", "patient"):
         with urllib.request.urlopen(request, timeout=10) as response:
             assert response.status == 201
     except urllib.error.HTTPError as error:
-        if error.code != 409:
+        if error.code not in (409, 429):
             raise
 subprocess.run(["docker", "compose", "-f", str(compose), "exec", "-T", "postgres",
                 "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "kiosk", "-c",
