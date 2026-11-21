@@ -89,8 +89,7 @@ String? resolveGuardRedirect({
   // 這個洞在 iOS 上一直被平台閘門蓋住（病患整個被擋在提示頁），web 上則是真的開著；
   // 平台閘門拆掉（iOS 開放語音問診）之後它就是唯一的防線，所以改成**整段比對**——
   // 與 `_isPatientOwnArea` 的註解警告的是同一個坑，只是當初這一行漏了。
-  // 2026-08-22 拍板「醫師＝管理員」：admin 四頁對醫師開放（後端 admin router 同步
-  // 改收 doctor）。病患仍然進不來——下一行已經把病患擋在自己的區域裡。
+  // 臨床人員可進入管理區，帳號管理權限由後端逐次驗證。
   if (isPatient && !_isPatientOwnArea(rest)) return landing; // patient blocked from doctor/admin
   return null;
 }

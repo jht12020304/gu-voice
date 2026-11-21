@@ -41,6 +41,7 @@
     "fieldDisplayOrder": "顯示順序"
   },
   "users": {
+    "forbidden": "只有系統管理員可以管理帳號。",
     "title": "使用者管理",
     "create": "新增使用者",
     "searchPlaceholder": "搜尋姓名或 Email...",

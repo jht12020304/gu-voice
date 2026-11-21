@@ -387,12 +387,11 @@ class AlertService:
             session = session_result.scalar_one_or_none()
 
             if session and session.doctor_id:
-                from app.utils.i18n_messages import get_message as _i18n_get
-                push_title = _i18n_get(
-                    "alert.push_notification_title",
-                    getattr(session, "language", None),
-                    title=data["title"],
-                )
+                from app.services.notification_service import NotificationService
+                from app.utils.notification_copy import notification_copy
+
+                languages = await NotificationService.preferred_languages(db, [session.doctor_id])
+                push_title, push_body = notification_copy("red_flag", languages.get(session.doctor_id))
                 severity_value = (
                     data["severity"].value
                     if hasattr(data["severity"], "value")
@@ -406,20 +405,18 @@ class AlertService:
                 }
                 # FCM 推播之外同時建立「站內通知」（通知中心可見、可追已讀）。
                 # RED_FLAG 為病安關鍵，NotificationService 對其不做偏好抑制。
-                from app.services.notification_service import NotificationService
-
                 await NotificationService.create(
                     db,
                     user_id=session.doctor_id,
                     type=NotificationType.RED_FLAG,
                     title=push_title,
-                    body=data.get("description") or "",
+                    body=push_body,
                     data=notification_data,
                 )
                 send_push_notification_task.delay(
                     user_id=str(session.doctor_id),
                     title=push_title,
-                    body=data.get("description", ""),
+                    body=push_body,
                     data=notification_data,
                 )
         except Exception:

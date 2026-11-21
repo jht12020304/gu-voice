@@ -568,12 +568,47 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ko-KR": "의미 분석으로 감지된 레드플래그",
         "vi-VN": "Cờ đỏ phát hiện bằng phân tích ngữ nghĩa",
     },
-    "alert.push_notification_title": {
-        "zh-TW": "紅旗警示: {title}",
-        "en-US": "Red flag alert: {title}",
-        "ja-JP": "レッドフラグ警告: {title}",
-        "ko-KR": "레드플래그 경고: {title}",
-        "vi-VN": "Cảnh báo cờ đỏ: {title}",
+    "notifications.red_flag.title": {
+        "zh-TW": "紅旗警示",
+        "en-US": "Red flag alert",
+        "ja-JP": "レッドフラグ警告",
+        "ko-KR": "레드 플래그 경고",
+        "vi-VN": "Cảnh báo cờ đỏ",
+    },
+    "notifications.red_flag.body": {
+        "zh-TW": "有新的紅旗警示，請開啟查看。",
+        "en-US": "Open the app to review the new red flag alert.",
+        "ja-JP": "新しい警告の詳細をアプリで確認してください。",
+        "ko-KR": "앱에서 새 경고를 확인하세요.",
+        "vi-VN": "Mở ứng dụng để xem cảnh báo cờ đỏ mới.",
+    },
+    "notifications.generic.title": {
+        "zh-TW": "新通知",
+        "en-US": "New notification",
+        "ja-JP": "新しい通知",
+        "ko-KR": "새 알림",
+        "vi-VN": "Thông báo mới",
+    },
+    "notifications.generic.body": {
+        "zh-TW": "請開啟應用程式查看。",
+        "en-US": "Open the app to view it.",
+        "ja-JP": "アプリでご確認ください。",
+        "ko-KR": "앱에서 확인하세요.",
+        "vi-VN": "Mở ứng dụng để xem.",
+    },
+    "notifications.report_failed.title": {
+        "zh-TW": "報告生成失敗",
+        "en-US": "Report generation failed",
+        "ja-JP": "レポート生成に失敗しました",
+        "ko-KR": "보고서 생성 실패",
+        "vi-VN": "Tạo báo cáo thất bại",
+    },
+    "notifications.report_failed.body": {
+        "zh-TW": "問診報告生成失敗，請重試。",
+        "en-US": "The consultation report could not be generated. Please retry.",
+        "ja-JP": "問診レポートを生成できませんでした。再試行してください。",
+        "ko-KR": "문진 보고서를 생성하지 못했습니다. 다시 시도해 주세요.",
+        "vi-VN": "Không thể tạo báo cáo khám. Vui lòng thử lại.",
     },
 
     # ── 站內通知（doctor-facing；以醫師 preferred_language 解析） ───
@@ -585,11 +620,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "vi-VN": "Hoàn tất buổi khám",
     },
     "notifications.session_complete.body": {
-        "zh-TW": "病患 {patient_name} 的問診已完成，SOAP 報告生成中。",
-        "en-US": "Consultation for {patient_name} is complete; the SOAP report is being generated.",
-        "ja-JP": "{patient_name} さんの問診が完了しました。SOAP レポートを生成しています。",
-        "ko-KR": "{patient_name} 환자의 문진이 완료되었습니다. SOAP 보고서를 생성 중입니다.",
-        "vi-VN": "Buổi khám của bệnh nhân {patient_name} đã hoàn tất; báo cáo SOAP đang được tạo.",
+        "zh-TW": "問診已完成，SOAP 報告生成中。",
+        "en-US": "The consultation is complete. The SOAP report is being generated.",
+        "ja-JP": "問診が完了しました。SOAP レポートを生成しています。",
+        "ko-KR": "문진이 완료되었습니다. SOAP 보고서를 생성 중입니다.",
+        "vi-VN": "Buổi khám đã hoàn tất. Báo cáo SOAP đang được tạo.",
     },
     "notifications.report_ready.title": {
         "zh-TW": "SOAP 報告已生成",
@@ -599,11 +634,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "vi-VN": "Báo cáo SOAP đã sẵn sàng",
     },
     "notifications.report_ready.body": {
-        "zh-TW": "病患 {patient_name} 的 SOAP 報告已生成，請審閱。",
-        "en-US": "The SOAP report for {patient_name} is ready for review.",
-        "ja-JP": "{patient_name} さんの SOAP レポートが完成しました。ご確認ください。",
-        "ko-KR": "{patient_name} 환자의 SOAP 보고서가 준비되었습니다. 검토해 주세요.",
-        "vi-VN": "Báo cáo SOAP của bệnh nhân {patient_name} đã sẵn sàng để xem xét.",
+        "zh-TW": "SOAP 報告已生成，請審閱。",
+        "en-US": "The SOAP report is ready for review.",
+        "ja-JP": "SOAP レポートが完成しました。ご確認ください。",
+        "ko-KR": "SOAP 보고서가 준비되었습니다. 검토해 주세요.",
+        "vi-VN": "Báo cáo SOAP đã sẵn sàng để xem xét.",
     },
 
     # ── LLM prompt 語言指示（附加在 system prompt 尾段） ───

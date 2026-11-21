@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # `from app.core.dependencies import get_redis` 呼叫端保持不變，同時
 # 保證全 backend 共用同一連線池。
 from app.cache.redis_client import get_redis as get_redis
+from app.core.authz import check_system_admin
 from app.core.database import async_session_factory
 from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.security import verify_access_token
@@ -116,6 +117,11 @@ async def get_current_user(
 
 
 # ── 角色權限控制 ───────────────────────────────────────
+async def require_system_admin(current_user: User = Depends(get_current_user)) -> User:
+    check_system_admin(current_user)
+    return current_user
+
+
 def require_role(*roles: str) -> Callable[..., Any]:
     """
     角色權限依賴工廠。

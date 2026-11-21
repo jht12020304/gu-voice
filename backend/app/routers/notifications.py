@@ -51,6 +51,7 @@ async def list_notifications(
         limit=limit,
         is_read=is_read,
         notification_type=type_filter,
+        language=current_user.preferred_language,
     )
 
 

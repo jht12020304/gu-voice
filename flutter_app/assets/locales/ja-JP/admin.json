@@ -41,6 +41,7 @@
     "fieldDisplayOrder": "表示順"
   },
   "users": {
+    "forbidden": "アカウントを管理できるのはシステム管理者のみです。",
     "title": "ユーザー管理",
     "create": "ユーザーを追加",
     "searchPlaceholder": "氏名またはメールを検索...",

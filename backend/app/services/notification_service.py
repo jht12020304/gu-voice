@@ -13,6 +13,8 @@ from uuid import UUID
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.schemas.notification import NotificationResponse
+from app.utils.notification_copy import clinical_notification_kind, notification_copy
 from app.utils.pagination import keyset_after, page_slice, parse_cursor
 from app.core.exceptions import NotFoundException
 from app.models.enums import DevicePlatform, NotificationType
@@ -108,7 +110,6 @@ class NotificationService:
         *,
         session_id: Any,
         doctor_id: UUID,
-        patient_id: Optional[UUID] = None,
     ) -> Optional[Notification]:
         """問診完成 → SESSION_COMPLETE 站內通知給負責醫師。
 
@@ -123,27 +124,14 @@ class NotificationService:
         那一則。所以未指派場次的廣播只留 report_ready 這一條。
         本函式的呼叫端（conversation_handler）本來就只在有 doctor_id 時呼叫。
         """
-        from app.models.patient import Patient
         from app.models.user import User
-        from app.utils.i18n_messages import get_message
 
         doctor_lang = (
             await db.execute(
                 select(User.preferred_language).where(User.id == doctor_id)
             )
         ).scalar_one_or_none()
-        patient_name: Optional[str] = None
-        if patient_id is not None:
-            patient_name = (
-                await db.execute(select(Patient.name).where(Patient.id == patient_id))
-            ).scalar_one_or_none()
-
-        title = get_message("notifications.session_complete.title", doctor_lang)
-        body = get_message(
-            "notifications.session_complete.body",
-            doctor_lang,
-            patient_name=patient_name or "",
-        )
+        title, body = notification_copy("session_complete", doctor_lang)
         data = {"session_id": str(session_id)}
 
         notification = await NotificationService.create(
@@ -187,27 +175,19 @@ class NotificationService:
         回傳**實際建立**的通知清單（被偏好抑制的醫師不在內）。
         呼叫端負責 commit；本函式僅 flush。
         """
-        from app.utils.i18n_messages import get_message
-
-        doctor_id, patient_name = await NotificationService._resolve_session_targets(
+        targets = await NotificationService._session_recipients(
             db, session_id
         )
-        targets = await NotificationService._doctor_targets(db, doctor_id, session_id)
         if not targets:
             return []
 
         data = {"session_id": str(session_id), "report_id": str(report_id)}
         created: list[Notification] = []
         # 一次查全部目標的 preferred_language（先前逐位查＝N 個 round trip）。
-        lang_by_user = await NotificationService._preferred_languages(db, targets)
+        lang_by_user = await NotificationService.preferred_languages(db, targets)
         for target_id in targets:
             doctor_lang = lang_by_user.get(target_id)
-            title = get_message("notifications.report_ready.title", doctor_lang)
-            body = get_message(
-                "notifications.report_ready.body",
-                doctor_lang,
-                patient_name=patient_name or "",
-            )
+            title, body = notification_copy("report_ready", doctor_lang)
             notification = await NotificationService.create(
                 db,
                 user_id=target_id,
@@ -244,11 +224,9 @@ class NotificationService:
 
         呼叫端負責 commit；本函式僅 flush。
         """
-
-        doctor_id, patient_name = await NotificationService._resolve_session_targets(
+        targets = await NotificationService._session_recipients(
             db, session_id
         )
-        targets = await NotificationService._doctor_targets(db, doctor_id, session_id)
         if not targets:
             return []
 
@@ -257,10 +235,10 @@ class NotificationService:
             data["report_id"] = str(report_id)
 
         created: list[Notification] = []
-        lang_by_user = await NotificationService._preferred_languages(db, targets)
+        lang_by_user = await NotificationService.preferred_languages(db, targets)
         for target_id in targets:
             doctor_lang = lang_by_user.get(target_id)
-            title, body = _report_failed_copy(doctor_lang, patient_name or "")
+            title, body = notification_copy("report_failed", doctor_lang)
             notification = await NotificationService.create(
                 db,
                 user_id=target_id,
@@ -277,11 +255,7 @@ class NotificationService:
         return created
 
     @staticmethod
-    async def _resolve_session_targets(
-        db: AsyncSession, session_id: Any
-    ) -> tuple[Optional[UUID], Optional[str]]:
-        """取 (場次的 doctor_id, 病患姓名)。查不到場次時回 (None, None)。"""
-        from app.models.patient import Patient
+    async def _session_recipients(db: AsyncSession, session_id: Any) -> list[UUID]:
         from app.models.session import Session
         from app.services.session_visibility import session_not_deleted
 
@@ -289,23 +263,21 @@ class NotificationService:
             session_uuid = UUID(str(session_id))
         except (ValueError, TypeError, AttributeError):
             logger.warning("session_id 不是合法 UUID，通知略過 | %r", session_id)
-            return None, None
+            return []
 
         row = (
             await db.execute(
-                select(Session.doctor_id, Patient.name)
-                .join(Patient, Patient.id == Session.patient_id, isouter=True)
-                # 場次在報告生成途中被軟刪除時不再發通知——推播點開只會是 404，
-                # 而 body 還帶著剛被刪掉的那位病患姓名。
+                select(Session.doctor_id)
                 .where(Session.id == session_uuid, session_not_deleted())
             )
         ).first()
+        # Only a visible, unassigned session fans out to all clinicians.
         if row is None:
-            return None, None
-        return row.doctor_id, row.name
+            return []
+        return await NotificationService._doctor_targets(db, row.doctor_id, session_id)
 
     @staticmethod
-    async def _preferred_languages(db: AsyncSession, user_ids: list[Any]) -> dict[Any, Optional[str]]:
+    async def preferred_languages(db: AsyncSession, user_ids: list[Any]) -> dict[Any, Optional[str]]:
         """一個 query 取回多位使用者的 preferred_language（fan-out 通知共用）。"""
         if not user_ids:
             return {}
@@ -364,6 +336,7 @@ class NotificationService:
         limit: int = 20,
         is_read: Optional[bool] = None,
         notification_type: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> dict[str, Any]:
         """
         取得使用者通知列表（Cursor-based 分頁）
@@ -412,8 +385,16 @@ class NotificationService:
         ).select_from(Notification).where(Notification.user_id == user_id))
         total_count, unread_count = counts.one()
 
+        items = []
+        for row in notifications:
+            item = NotificationResponse.model_validate(row)
+            kind = clinical_notification_kind(row.type, row.data or {})
+            if kind:
+                item.title, item.body = notification_copy(kind, language)
+            items.append(item)
+
         return {
-            "data": notifications,
+            "data": items,
             "pagination": {
                 "next_cursor": next_cursor,
                 "has_more": has_more,
@@ -716,42 +697,6 @@ class NotificationService:
 
 
 # ── 輔助函式 ─────────────────────────────────────────────
-
-# 「報告生成失敗」通知文案。
-#
-# ⚠️ 這裡沒有走 `app/utils/i18n_messages.py`，是**本輪的檔案邊界限制**
-#（該檔由另一位執行者持有），不是設計選擇。將來合併時應搬成
-# `notifications.report_failed.title` / `.body` 兩個 key，並把這個 dict 刪掉。
-# 在那之前這份拷貝要與其他 notifications.* 文案的語氣保持一致。
-_REPORT_FAILED_COPY: dict[str, tuple[str, str]] = {
-    "zh-TW": ("報告生成失敗", "{patient_name} 的問診報告生成失敗，請重試。"),
-    "en-US": (
-        "Report generation failed",
-        "The consultation report for {patient_name} could not be generated. Please retry.",
-    ),
-    "ja-JP": (
-        "レポート生成に失敗しました",
-        "{patient_name} さんの問診レポートを生成できませんでした。再試行してください。",
-    ),
-    "ko-KR": (
-        "리포트 생성 실패",
-        "{patient_name} 님의 문진 리포트를 생성하지 못했습니다. 다시 시도해 주세요.",
-    ),
-    "vi-VN": (
-        "Tạo báo cáo thất bại",
-        "Không thể tạo báo cáo khám cho {patient_name}. Vui lòng thử lại.",
-    ),
-}
-_REPORT_FAILED_DEFAULT_LANG = "zh-TW"
-
-
-def _report_failed_copy(language: Optional[str], patient_name: str) -> tuple[str, str]:
-    """回傳 (title, body)；未支援語言退回 zh-TW（與 i18n_messages 的預設一致）。"""
-    title, body = _REPORT_FAILED_COPY.get(
-        language or "", _REPORT_FAILED_COPY[_REPORT_FAILED_DEFAULT_LANG]
-    )
-    return title, body.format(patient_name=patient_name).strip()
-
 
 async def _dispatch_push_best_effort(
     *,

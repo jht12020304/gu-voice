@@ -103,7 +103,7 @@ async def _send_apns(
         # 所以它不會污染 App 端拿到的 data。
         # 先展開 `data` 再放我們的 id：這個 id 必須永遠存在且由後端產生（每則唯一），
         # 呼叫端若不慎在 data 塞同名 key 也不能覆蓋掉它。
-        payload = {"aps": aps, **(data or {}), "gcm.message_id": str(uuid.uuid4())}
+        payload = {**(data or {}), "aps": aps, "gcm.message_id": str(uuid.uuid4())}
         headers = {
             "authorization": f"bearer {auth_token}",
             "apns-topic": settings.APNS_TOPIC,
@@ -174,6 +174,8 @@ async def _async_send(
 
     from app.core.database import async_session_factory
     from app.models.fcm_device import FCMDevice
+    from app.models.user import User
+    from app.utils.notification_copy import notification_copy, queued_push_kind
 
     async with async_session_factory() as db:
         # 取得使用者所有活躍裝置 token
@@ -187,6 +189,10 @@ async def _async_send(
         if not devices:
             logger.info("使用者 %s 無已註冊裝置，跳過推播", user_id)
             return {"user_id": user_id, "sent": 0, "skipped": True}
+
+        # Legacy jobs carry rendered text. Both transports must use freshly generated copy.
+        language = await db.scalar(select(User.preferred_language).where(User.id == user_id))
+        title, body = notification_copy(queued_push_kind(data or {}), language)
 
         sent_count = 0
         apns_sent_count = 0

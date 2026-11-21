@@ -694,7 +694,6 @@ class SessionService:
                     db,
                     session_id=session.id,
                     doctor_id=session.doctor_id,
-                    patient_id=session.patient_id,
                 )
             except Exception as exc:  # pragma: no cover - 通知失敗不可擋轉移
                 logger.warning(

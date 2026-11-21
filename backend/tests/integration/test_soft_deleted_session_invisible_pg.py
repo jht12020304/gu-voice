@@ -89,7 +89,7 @@ def test_soft_deleted_session_disappears_from_every_read_path():
                 session, a.session.id, current_user=admin
             )
             assert before.id == a.session.id
-            analytics_before = await ResearchService().get_analytics(session)
+            analytics_before = await ResearchService().get_analytics(session, actor=admin)
 
             # ── 刪 ──────────────────────────────────────────
             deleted = await svc.soft_delete_session(
@@ -167,7 +167,7 @@ def test_soft_deleted_session_disappears_from_every_read_path():
             assert a.session.id not in {s.id for s in history["data"]}
 
             # ── 8. 研究分析母體少一場（統計不該再算它）──────────
-            analytics_after = await ResearchService().get_analytics(session)
+            analytics_after = await ResearchService().get_analytics(session, actor=admin)
             assert (
                 analytics_after.cohort.total_sessions
                 == analytics_before.cohort.total_sessions - 1

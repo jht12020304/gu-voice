@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -49,7 +50,7 @@ def test_toggle_self_raises_i18n_key_not_literal():
     svc = AdminService()
 
     with pytest.raises(ForbiddenException) as exc_info:
-        _run(svc.toggle_active(db, user_id=admin_id, toggled_by=admin_id))
+        _run(svc.toggle_active(db, user_id=admin_id, actor=SimpleNamespace(id=admin_id, role="admin", license_number=None)))
 
     # 進 DB 前就擋下
     assert db.execute_calls == 0

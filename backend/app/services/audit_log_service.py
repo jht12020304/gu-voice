@@ -5,7 +5,7 @@
 - 不可修改或刪除（僅 INSERT）
 """
 
-from datetime import datetime
+from ipaddress import ip_address as parse_address
 from typing import Any, Optional
 from uuid import UUID
 
@@ -13,7 +13,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils.pagination import page_slice
-from app.core.exceptions import NotFoundException
+from app.core.authz import clinical_reader_id
+from app.models.user import User
+from app.core.exceptions import NotFoundException, ValidationException
 from app.models.audit_log import AuditLog
 from app.models.enums import AuditAction
 from app.utils.datetime_utils import parse_iso
@@ -69,113 +71,18 @@ class AuditLogService:
         return audit_log
 
     @staticmethod
-    async def get_list(
-        db: AsyncSession,
-        cursor: Optional[str] = None,
-        limit: int = 20,
-        user_id: Optional[UUID] = None,
-        action: Optional[AuditAction] = None,
-        resource_type: Optional[str] = None,
-        resource_id: Optional[str] = None,
-        date_from: Optional[datetime] = None,
-        date_to: Optional[datetime] = None,
-        ip_address: Optional[str] = None,
-    ) -> dict[str, Any]:
-        """
-        取得稽核日誌列表（Cursor-based 分頁 + 多條件篩選）
-
-        Args:
-            cursor: 分頁游標（上一頁最後一筆的 ID）
-            limit: 每頁筆數
-            user_id: 篩選操作者
-            action: 篩選操作類型
-            resource_type: 篩選資源類型
-            date_from: 起始日期
-            date_to: 結束日期
-        """
-        limit = min(limit, 100)
-
-        query = select(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
-
-        # 條件篩選
-        if user_id:
+    def _scoped_query(actor: User):
+        query = select(AuditLog)
+        user_id = clinical_reader_id(actor)
+        if user_id is not None:
             query = query.where(AuditLog.user_id == user_id)
-        if action:
-            query = query.where(AuditLog.action == action)
-        if resource_type:
-            query = query.where(AuditLog.resource_type == resource_type)
-        if resource_id:
-            query = query.where(AuditLog.resource_id == resource_id)
-        if ip_address:
-            query = query.where(AuditLog.ip_address == ip_address)
-        if date_from:
-            query = query.where(AuditLog.created_at >= date_from)
-        if date_to:
-            query = query.where(AuditLog.created_at <= date_to)
+        return query
 
-        # Cursor 分頁（使用 BIGINT id）
-        if cursor:
-            try:
-                cursor_id = int(cursor)
-                query = query.where(AuditLog.id < cursor_id)
-            except ValueError:
-                pass  # 無效的 cursor 值，忽略
-
-        result = await db.execute(query.limit(limit + 1))
-        logs = result.scalars().all()
-
-        logs, has_more, next_cursor = page_slice(logs, limit)
-
-        # 精確總筆數（套用與 list 相同的篩選條件，含日期範圍）
-        count_query = select(func.count()).select_from(AuditLog)
-        if user_id:
-            count_query = count_query.where(AuditLog.user_id == user_id)
-        if action:
-            count_query = count_query.where(AuditLog.action == action)
-        if resource_type:
-            count_query = count_query.where(AuditLog.resource_type == resource_type)
-        if resource_id:
-            count_query = count_query.where(AuditLog.resource_id == resource_id)
-        if ip_address:
-            count_query = count_query.where(AuditLog.ip_address == ip_address)
-        if date_from:
-            count_query = count_query.where(AuditLog.created_at >= date_from)
-        if date_to:
-            count_query = count_query.where(AuditLog.created_at <= date_to)
-        total_result = await db.execute(count_query)
-        total_count = total_result.scalar() or 0
-
-        return {
-            "data": logs,
-            "pagination": {
-                "next_cursor": next_cursor,
-                "has_more": has_more,
-                "limit": limit,
-                "total_count": total_count,
-            },
-        }
-
-    @staticmethod
-    async def get_by_id(db: AsyncSession, log_id: int) -> AuditLog:
-        """
-        根據 ID 取得稽核日誌
-
-        Raises:
-            NotFoundException: 日誌不存在
-        """
-        result = await db.execute(
-            select(AuditLog).where(AuditLog.id == log_id)
-        )
-        log = result.scalar_one_or_none()
-        if log is None:
-            raise NotFoundException("errors.audit_log_not_found")
-        return log
-
-    # ── Router 對應方法 ─────────────────────────────────
-    # audit_logs router 以這兩個名稱呼叫；統一 caller/callee 命名（ADMIN-1）。
     async def list_audit_logs(
         self,
         db: AsyncSession,
+        *,
+        actor: User,
         cursor: Optional[str] = None,
         limit: int = 20,
         user_id: Optional[UUID] = None,
@@ -186,33 +93,53 @@ class AuditLogService:
         date_to: Optional[str] = None,
         ip_address: Optional[str] = None,
     ) -> dict[str, Any]:
-        """
-        取得稽核日誌列表 — router 入口。
-
-        將 router 傳入的字串 `action` / `date_from` / `date_to` 轉成
-        對應型別後委派給 `get_list`。無效值靜默忽略，不讓查詢 500。
-        """
-        action_enum: Optional[AuditAction] = None
+        query = self._scoped_query(actor)
+        if user_id:
+            query = query.where(AuditLog.user_id == user_id)
         if action:
             try:
                 action_enum = AuditAction(action)
             except ValueError:
-                action_enum = None
+                pass  # 相容舊客戶端：忽略未知 action。
+            else:
+                query = query.where(AuditLog.action == action_enum)
+        if resource_type:
+            query = query.where(AuditLog.resource_type == resource_type)
+        if resource_id:
+            query = query.where(AuditLog.resource_id == resource_id)
+        if ip_address:
+            try:
+                address = parse_address(ip_address)
+            except ValueError as exc:
+                raise ValidationException(details={"field": "ip_address"}) from exc
+            query = query.where(AuditLog.ip_address == address)
+        if date_from is not None:
+            query = query.where(AuditLog.created_at >= parse_iso(date_from))
+        if date_to is not None:
+            query = query.where(AuditLog.created_at <= parse_iso(date_to))
 
-        return await self.get_list(
-            db,
-            cursor=cursor,
-            limit=limit,
-            user_id=user_id,
-            action=action_enum,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            # 非法日期 → 422（parse_iso），不再靜默丟掉篩選
-            date_from=parse_iso(date_from),
-            date_to=parse_iso(date_to),
-            ip_address=ip_address,
-        )
+        total = await db.scalar(query.with_only_columns(func.count(), maintain_column_froms=True))
+        if cursor:
+            try:
+                query = query.where(AuditLog.id < int(cursor))
+            except ValueError:
+                pass
+        limit = min(limit, 100)
+        query = query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        rows = await db.scalars(query.limit(limit + 1))
+        logs, has_more, next_cursor = page_slice(rows.all(), limit)
+        return {
+            "data": logs,
+            "pagination": {
+                "next_cursor": next_cursor,
+                "has_more": has_more,
+                "limit": limit,
+                "total_count": total,
+            },
+        }
 
-    async def get_audit_log(self, db: AsyncSession, log_id: int) -> AuditLog:
-        """取得單筆稽核日誌 — router 入口，委派給 `get_by_id`。"""
-        return await self.get_by_id(db, log_id)
+    async def get_audit_log(self, db: AsyncSession, log_id: int, *, actor: User) -> AuditLog:
+        log = await db.scalar(self._scoped_query(actor).where(AuditLog.id == log_id))
+        if log is None:
+            raise NotFoundException("errors.audit_log_not_found")
+        return log

@@ -116,12 +116,11 @@ def push_task(monkeypatch):
 
 def _session_complete_db(*, type_enabled: Any = True, push_enabled: Any = True) -> _FakeDB:
     """notify_session_complete 的 execute 序列：
-    doctor lang → patient name → 類型開關 → push 通道開關。
+    doctor lang → 類型開關 → push 通道開關。
     """
     return _FakeDB(
         results=[
             _FakeResult(scalar="zh-TW"),
-            _FakeResult(scalar="王小明"),
             _FakeResult(scalar=type_enabled),
             _FakeResult(scalar=push_enabled),
         ]
@@ -135,7 +134,7 @@ def _report_ready_db(
     push_enabled: Any = True,
 ) -> _FakeDB:
     """notify_report_ready 的 execute 序列：
-    session+patient 列 → 全部目標的 lang（一次）→ 類型開關 → push 通道開關。
+    session 列 → 全部目標的 lang（一次）→ 類型開關 → push 通道開關。
     """
     return _FakeDB(
         results=[
@@ -161,7 +160,6 @@ def test_session_complete_dispatches_push(push_task):
             db,  # type: ignore[arg-type]
             session_id=session_id,
             doctor_id=doctor_id,
-            patient_id=uuid.uuid4(),
         )
     )
 
@@ -224,7 +222,7 @@ def _report_ready_fanout_db(
     push_enabled: Any = True,
 ) -> _FakeDB:
     """未指派場次的 execute 序列：
-    session+patient 列（doctor_id=None）→ 在職醫師清單
+    session 列（doctor_id=None）→ 在職醫師清單
     → 全部醫師的 lang（**一次**，B30 之前是每位各一次）→ 每位醫師各（類型開關 → push 開關）。
     """
     results = [
@@ -325,7 +323,6 @@ def test_push_disabled_still_creates_in_app_notification(push_task):
             db,  # type: ignore[arg-type]
             session_id=uuid.uuid4(),
             doctor_id=uuid.uuid4(),
-            patient_id=uuid.uuid4(),
         )
     )
 
@@ -368,7 +365,6 @@ def test_session_complete_survives_push_dispatch_failure(monkeypatch):
             db,  # type: ignore[arg-type]
             session_id=uuid.uuid4(),
             doctor_id=uuid.uuid4(),
-            patient_id=uuid.uuid4(),
         )
     )
 
@@ -411,7 +407,6 @@ def test_suppressed_type_skips_push(push_task):
             db,  # type: ignore[arg-type]
             session_id=uuid.uuid4(),
             doctor_id=uuid.uuid4(),
-            patient_id=uuid.uuid4(),
         )
     )
 
@@ -474,15 +469,15 @@ def test_report_failed_fans_out_when_unassigned(push_task):
 
 def test_report_failed_copy_is_localised_and_actionable(push_task):
     """文案要講清楚「壞了、請重試」，不能只是一句 error code。"""
-    from app.services.notification_service import _report_failed_copy
+    from app.utils.notification_copy import notification_copy
 
     for language in ("zh-TW", "en-US", "ja-JP", "ko-KR", "vi-VN"):
-        title, body = _report_failed_copy(language, "王小明")
+        title, body = notification_copy("report_failed", language)
         assert title.strip(), language
-        assert "王小明" in body, language
+        assert body and "王小明" not in body, language
     # 未支援語言退回 zh-TW（與 i18n_messages 的預設一致）
-    assert _report_failed_copy("de-DE", "王小明") == _report_failed_copy("zh-TW", "王小明")
-    assert _report_failed_copy(None, "王小明") == _report_failed_copy("zh-TW", "王小明")
+    assert notification_copy("report_failed", "de-DE") == notification_copy("report_failed", "zh-TW")
+    assert notification_copy("report_failed", None) == notification_copy("report_failed", "zh-TW")
 
 
 def test_report_failed_without_report_id_omits_the_key(push_task):

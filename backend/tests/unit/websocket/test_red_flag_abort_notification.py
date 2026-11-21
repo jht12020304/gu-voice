@@ -66,11 +66,10 @@ def test_aborted_with_assigned_doctor_creates_notification(monkeypatch):
     assert calls, "aborted_red_flag 沒建任何醫師通知，但病患被告知『已通知現場醫護人員』"
     assert len(calls) == 1
     assert calls[0].kwargs["user_id"] == DOC_A
-    assert "睪丸扭轉" in calls[0].kwargs["title"]
+    assert "睪丸扭轉" not in (calls[0].kwargs["title"] + calls[0].kwargs["body"])
     assert calls[0].kwargs["data"]["session_id"] == SID
     assert calls[0].kwargs["data"]["status"] == "aborted_red_flag"
-    # 有指派醫師時不該多跑一趟 SELECT
-    assert len(db.executed) == 1
+    assert len(db.executed) == 2  # CAS + recipient language
 
 
 def test_aborted_unassigned_fans_out_to_active_doctors(monkeypatch):
@@ -94,12 +93,12 @@ def test_aborted_without_reason_still_notifies(monkeypatch):
     assert "{" not in calls[0].kwargs["title"], "i18n 模板沒被套用"
 
 
-def test_notification_language_follows_session(monkeypatch):
-    """與 AlertService 既有的紅旗推播一致，用場次語言解析標題。"""
+def test_notification_language_follows_recipient(monkeypatch):
+    """場次為英文，醫師沒有設定時以預設繁中通知。"""
     db = StubDB(rowcount=1, returning_row=_row(doctor_id=DOC_A, language="en-US"))
     _ok, spy = _run(monkeypatch, db, "aborted_red_flag", red_flag_reason="Testicular torsion")
     title = _red_flag_calls(spy)[0].kwargs["title"]
-    assert title == "Red flag alert: Testicular torsion"
+    assert title == "紅旗警示"
 
 
 # ── 邊界 / 不回歸 ───────────────────────────────────────

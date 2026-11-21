@@ -51,11 +51,8 @@ def test_report_ready_fanout_uses_single_language_query(monkeypatch):
     db = _CountingDB(langs)
     created_titles: list[tuple] = []
 
-    async def _targets(db_, doctor_id, session_id):  # noqa: ARG001
+    async def _recipients(db_, session_id):
         return targets
-
-    async def _resolve(db_, session_id):  # noqa: ARG001
-        return None, "王小明"
 
     async def _create(db_, *, user_id, type, title, body, data):  # noqa: ARG001, A002
         created_titles.append((user_id, title))
@@ -64,8 +61,7 @@ def test_report_ready_fanout_uses_single_language_query(monkeypatch):
     async def _push(**kwargs):  # noqa: ARG001
         return None
 
-    monkeypatch.setattr(ns.NotificationService, "_doctor_targets", staticmethod(_targets))
-    monkeypatch.setattr(ns.NotificationService, "_resolve_session_targets", staticmethod(_resolve))
+    monkeypatch.setattr(ns.NotificationService, "_session_recipients", staticmethod(_recipients))
     monkeypatch.setattr(ns.NotificationService, "create", staticmethod(_create))
     monkeypatch.setattr(ns, "_dispatch_push_best_effort", _push)
 
