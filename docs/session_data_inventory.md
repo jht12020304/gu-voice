@@ -58,7 +58,7 @@ Key `gu:session:{session_id}:context` 的 `conversation_history` 欄（JSON，�
 | 欄位 | 內容 | 寫入時機 |
 |---|---|---|
 | `id` | 場次 UUID | 建立時 |
-| `patient_id` / `doctor_id` | 病患 / 指派醫師。DB 與 API schema 為 legacy 相容仍允許 NULL；現行 Flutter 基本資料頁必須先從 `GET /sessions/doctors` 選醫師才可建立場次 | 建立 / 指派時 |
+| `patient_id` / `doctor_id` | 病患 / 指派醫師。DB 與 API schema 為 legacy 相容仍允許 NULL；原生 iOS 基本資料頁必須先從 `GET /sessions/doctors` 選醫師才可建立場次 | 建立 / 指派時 |
 | `chief_complaint_id` | 主訴 FK（選「其他」時指向 sentinel UUID `...00ff`） | 建立時 |
 | `chief_complaint_text` | 病患自述主訴（≤200 字，「其他」時為實際主訴） | 建立時 |
 | `status` | `waiting` → `in_progress` → `completed` / `aborted_red_flag` / `cancelled`（CAS 轉移，終態不可被降級） | 全程 |
@@ -204,7 +204,7 @@ Key `gu:session:{session_id}:context` 的 `conversation_history` 欄（JSON，�
 - `REPORT_READY`：兩條 SOAP 生成路徑（WS / Celery）完成時，data 含 report_id + session_id（受偏好 `report_ready_enabled` 抑制）
 
 未指派的 legacy 場次中，`SESSION_COMPLETE`／`RED_FLAG` 不送；`REPORT_READY` 與報告失敗通知
-透過 `_doctor_targets()` fallback 給全部在職 doctor/admin。現行 Flutter UI 已把醫師選擇設為必填，
+透過 `_doctor_targets()` fallback 給全部在職 doctor/admin。原生 iOS UI 已把醫師選擇設為必填，
 正常流程不會使用 fallback。FCM 推播（`notification_retry.py`）照舊並行，推播失敗會把無效
 device token 標記 inactive；站內通知的已讀狀態同時驅動底部紅色未讀徽章。
 

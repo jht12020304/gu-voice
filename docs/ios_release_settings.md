@@ -7,7 +7,7 @@
 > - 決策、陷阱、被推翻過的錯誤修法 → [`.claude/skills/ios-testflight/SKILL.md`](../.claude/skills/ios-testflight/SKILL.md)
 > - 現況、未解的資料風險、加第 2 個測試人員的前置條件 → [`TODO.md`](TODO.md) §V8
 >
-> 最後更新：2026-11-15（後端改自架 `https://gu.zymomed.com`，Railway／Vercel 已刪；最新 production build `202611141854`，Delivery `c030ee9d-29a7-4f26-b02d-d4a3903daeaa`，此前所有 build 連的 Railway 後端已失效）
+> 最後更新：2026-11-15（後端改自架 `https://gu.zymomed.com`，Railway／Vercel 已刪；當時 production build `202611141854`，Delivery `c030ee9d-29a7-4f26-b02d-d4a3903daeaa`，此前所有 build 連的 Railway 後端已失效）
 >
 > ⚠️ **build 號的權威是 App Store Connect，不是這份文件。** 2026-09-03～09-09 之間本檔
 > 自相矛盾過：這一行與下方 §7 表格寫 `202609030302`，而 §4 與其他段落寫 `202609030649`，
@@ -60,7 +60,7 @@
 | 項目 | 值 | 改這個要連帶動什麼 |
 |---|---|---|
 | Apple ID team | `Chao-Hsin Ding` | — |
-| **Team ID** | **`K593X99M7G`** | `ios/ExportOptions.plist` 的 `teamID`、`tool/build_ios_testflight.sh` 的 `team_id`、`project.pbxproj` 三處 `DEVELOPMENT_TEAM`（Xcode 選 team 時會自動改） |
+| **Team ID** | **`K593X99M7G`** | `ios_native/Config/ExportOptions.plist` 的 `teamID`、`tool/build_ios_testflight.sh` 的 `team_id`、`project.pbxproj` 三處 `DEVELOPMENT_TEAM`（Xcode 選 team 時會自動改） |
 | 會籍 | 付費 Apple Developer Program，有效 | — |
 | 角色 | 帳號持有人（Account Holder） | 加內部測試員、建 App 記錄都需要 ≥ App Manager |
 
@@ -101,57 +101,26 @@
 
 | 項目 | 值 | 位置 |
 |---|---|---|
-| Flutter | **3.41.3**，一律 `fvm flutter` | `.fvmrc` |
-| Xcode | 27.0（Build 27A266a），iOS 27 SDK | 2026-10-03 staging 候選包實際工具鏈 |
-| `IPHONEOS_DEPLOYMENT_TARGET` | 15.0 | `project.pbxproj` 三處 |
-| CocoaPods | 1.17.0 | `ios/Podfile.lock` |
-| Firebase pods | 12.17.0（`firebase_core` 4.13.0 / `firebase_messaging` 16.5.0） | `ios/Podfile.lock` |
-| `aps-environment` | `development` | `ios/Runner/Runner.entitlements` — **這是正確狀態，不要改**（值由簽章時的 profile 決定，見 SKILL） |
-| `com.apple.developer.usernotifications.time-sensitive` | `true` | `ios/Runner/Runner.entitlements`（2026-09-09 起，醫師端紅旗推播要能穿透專注模式）。**兩邊都要做**：entitlements 宣告這個 key，**且** App ID 需勾 Time Sensitive Notifications capability（見上方第 3 節）——少一邊，打包腳本第 6 關（`tool/build_ios_testflight.sh`）會擋；症狀與驗法見 `docs/push_troubleshooting.md` |
-| `ITSAppUsesNonExemptEncryption` | `false` | `ios/Runner/Info.plist` |
-| `UIBackgroundModes` | `remote-notification` | `ios/Runner/Info.plist` |
-| App Icon 來源 | `frontend/public/logo.png`（1024²、無 alpha） | `tool/gen_app_icons.py` 自動裁盾牌、產 15 張 icon ＋ 3 張 LaunchImage |
+| Xcode | CI 用 26.6，原生 `202611211434` 以 27.2（27B52）匯出 | `.github/workflows/ci.yml` |
+| 最低 iOS | 17.0 | `ios_native/project.yml` 與 Xcode project |
+| Firebase Messaging | 12.17.0，Swift Package Manager | `Package.resolved`、`ios_native/Config/GoogleService-Info.plist` |
+| APNs | 匯出簽章應為 `production` | `Config/GUVoice.entitlements` 宣告 `development`，匯出 profile 決定實際值 |
+| Time Sensitive Notifications | `true` | App ID capability 與 `Config/GUVoice.entitlements` |
+| 加密合規 | `ITSAppUsesNonExemptEncryption=false` | `Config/Info.plist` |
+| 推播背景模式 | `remote-notification` | `Config/Info.plist` |
+| 圖示 | `AppIcon` | `App/Assets.xcassets/AppIcon.appiconset` |
 
-### ExportOptions.plist
+`ios_native/Config/ExportOptions.plist` 使用 `method=app-store-connect`、`destination=export`、`signingStyle=automatic`、`uploadSymbols=true`、`manageAppVersionAndBuildNumber=false` 與 `testFlightInternalTestingOnly=true`。驗證器確認已簽 `Info.plist` 有 `TFInternalTestingOnly=true`。匯出用腳本，讓發佈人能在上傳前檢查同一顆包。
 
-| key | 值 | 說明 |
-|---|---|---|
-| `method` | `app-store-connect` | Xcode 15.3 起的正名，`app-store` 已是 deprecated 別名 |
-| `destination` | `export` | 只出本機 .ipa，不讓 xcodebuild 直接上傳（要先跑產物驗證） |
-| `signingStyle` | `automatic` | |
-| `testFlightInternalTestingOnly` | `true` | ✅ **2026-08-21 證實有效**——build 上傳後在 ASC 顯示「內部」標記 |
-| `uploadSymbols` | `true` | 只救原生 crash，救不了 Dart 例外 |
-| `manageAppVersionAndBuildNumber` | `false` | `destination=export` 下本來就不生效，設著是為了讓意圖明確 |
+Release 從 `ios_native/Config/Production.xcconfig` 讀取下列值。給 simulator 使用的 loopback 設定放在 `Local.xcconfig`。
 
-### 後端位址（dart-define）
-
-變數名是 `API_BASE` / `WS_BASE`（**不是** `*_BASE_URL`），值含 path 後綴：
-
-```
+```text
 API_BASE=https://gu.zymomed.com/api/v1
 WS_BASE=wss://gu.zymomed.com/api/v1/ws
+WEB_BASE=https://gu.zymomed.com
 ```
 
-（2026-11-15 起自架；之前的 `gu-voice-app-production.up.railway.app` 已刪除。）沒帶 dart-define 時預設是 `http://localhost:8000/api/v1`，
-裝到手機上永遠連不到後端而且被 ATS 擋，UI 只會轉圈不報原因。打包腳本第 3 關會擋。
-
-`WEB_BASE`（2026-11-08 起）＝React 網頁版網址，醫師報告頁右上「在網頁開啟」會用 Safari 開
-`<WEB_BASE>/<語言>/reports/<sessionId>`（網頁需自行登入，登入後回到該報告）。打包腳本在連
-production 後端時預設帶 `https://gu.zymomed.com`（`tool/env.production.sh`
-的 `PROD_WEB_BASE`）；**自訂 `API_BASE` 時必須明確給 `WEB_BASE`**，否則第 3 關擋下。沒帶這個 define 時按鈕不顯示。
-
-### Build number
-
-`pubspec.yaml` 是 `version: 1.0.0+1`，**沒有遞增機制**。打包腳本用 `date -u +%Y%m%d%H%M`（UTC 12 位數）。
-
-⚠️ **兩種格式不可混用**：備援格式 `date -u +%Y.%m%d.%H%M`（→ `2026.0821.1930`）的首段
-`2026` < 現行 12 位數格式，CFBundleVersion 是逐段比較的，換過去會被判成未遞增而永久拒收。
-⚠️ **UTC 時間可能比上一顆的號碼小**（歷史上有 build 用了本地時間打號）：上一顆是
-`202608231410`（本地時間），若 `date -u` 算出來 ≤ 它，就改用 `date +%Y%m%d%H%M`（本地）
-明確帶 `--build-number=` ——只要單調遞增即可，UTC/本地混用在數值上無害。
-目前群組狀態：**先行測試群組最新 = `202609090231`（4 位測試員都在這個群組）；
-已停用的 4 人舊群組仍停在 `202608211213`**
-（0710 起的每一顆都只發先行測試）。
+打包腳本用 `date -u +%Y%m%d%H%M` 產生 12 位 build number，必須超過 ASC 現有最高號。用 `CURRENT_PROJECT_VERSION` 將 build number 傳給 Xcode。
 
 ## 5. 憑證與金鑰
 
@@ -171,39 +140,28 @@ production 後端時預設帶 `https://gu.zymomed.com`（`tool/env.production.sh
 
 ## 6. 上傳
 
-```bash
-export ASC_API_KEY_ID=<檔名裡那段>
-export ASC_API_ISSUER_ID=<ASC 整合頁面上的 Issuer ID>
+發佈人從 ASC 整合頁面取用 `ASC_API_KEY_ID`、`ASC_API_ISSUER_ID` 與對應私鑰。下節使用 `xcrun altool` 驗證及上傳 iOS IPA。
 
-cd flutter_app
-xcrun altool --validate-app -f build/ios/ipa/gu_voice.ipa -t ios \
-  --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"   # 先驗
-xcrun altool --upload-app  -f build/ios/ipa/gu_voice.ipa -t ios \
-  --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"   # 再傳
-```
-
-`notarytool` 是 macOS 公證用的，與 iOS 上架無關，不要拿來傳 .ipa。
-
-### 6.1 原生 iOS 切換版
+### 6.1 原生 iOS 發佈
 
 原生版與 Flutter 版共用 Team `K593X99M7G` 和 Bundle ID `com.guvoice.guVoice`。原生版最低要求 iOS 17。原生發佈從包含 #134（`6e1bf55`）的 `origin/main` 建置，後續修正跟隨 main。§7 記載的是當時 Flutter 發佈的來源與流程。
 
-從 repo 根目錄執行。準備已安裝的 Apple Distribution 身分、Xcode provisioning profiles，以及可匯入 `jwt` 和 `cryptography` 的 Python。若本機有最後一版 Flutter IPA，將它作為參數傳入，以比對兩顆 IPA 實際簽入的 entitlements 與 Firebase 設定。
+從 repo 根目錄執行。準備已安裝的 Apple Distribution 身分、Xcode provisioning profiles，以及可匯入 `jwt` 和 `cryptography` 的 Python。可傳入已驗收的參考 IPA，比對簽章身分、推播權限與 Firebase 設定。
 
 ```bash
 git fetch origin main
 export ASC_PYTHON="/path/to/backend/venv/bin/python"
-./ios_native/tool/build_ios_testflight.sh "/absolute/path/to/gu_voice.ipa"
+./ios_native/tool/build_ios_testflight.sh "/absolute/path/to/reference.ipa"
 ```
 
-腳本確認 App 原始碼與本機 `origin/main` 相同，並拒絕 App 或發佈腳本的未提交修改。它使用 §5 的 ASC 金鑰與本機 `~/.appstoreconnect/asc_api.py`，以 GET 讀完 build 清單，再以 `date -u +%Y%m%d%H%M` 產生高於 ASC 現有 build 的 12 位號碼。腳本以 Release 組態將版本覆寫成 `1.0.0`，依 `Package.resolved` 取用相依套件，並沿用 Flutter 的 `ExportOptions.plist` 本機匯出。Xcode 專案的預設版本仍為 `1.0`。請從腳本匯出，Organizer 的匯出流程會繞過該 plist。
+腳本確認 App 原始碼與本機 `origin/main` 相同，並拒絕 App 或發佈腳本的未提交修改。它使用 §5 的 ASC 金鑰與本機 `~/.appstoreconnect/asc_api.py`，以 GET 讀完 build 清單，再以 `date -u +%Y%m%d%H%M` 產生高於 ASC 現有 build 的 12 位號碼。腳本以 Release 組態將版本覆寫成 `1.0.0`，依 `Package.resolved` 取用相依套件，並使用 `ios_native/Config/ExportOptions.plist` 本機匯出。Xcode 專案的預設版本仍為 `1.0`。請從腳本匯出，Organizer 的匯出流程會繞過該 plist。
 
 每次的輸出在 `ios_native/build/testflight/<build>/`，包含 archive、IPA、匯出選項和驗證日誌。核對 `verify.log` 中的簽章、正式環境設定、從 IPA 讀出的 `TFInternalTestingOnly=true` 及 SHA-256。若 macOS 在簽章時顯示鑰匙圈對話框，授權 codesign 存取對應的簽章私鑰。失敗的輸出目錄保留供查證。等下一個 UTC 分鐘後重跑可取得新 build 號。人工上傳前請保留 worktree，清除前先保全 IPA、archive 和驗證日誌。
 
 可對既有 IPA 重跑本機驗證。傳入產出時記錄的 build 號。
 
 ```bash
-./ios_native/tool/build_ios_testflight.sh --verify-only "$IPA" "$BUILD" "$FLUTTER_IPA"
+./ios_native/tool/build_ios_testflight.sh --verify-only "$IPA" "$BUILD" "$REFERENCE_IPA"
 ```
 
 人工確認本機驗證後，依 §6 設定 `ASC_API_KEY_ID` 與 `ASC_API_ISSUER_ID`。將 `IPA` 指到驗證日誌所列的同一顆 IPA，確認其 SHA-256 相符並執行 validate。
@@ -232,7 +190,7 @@ xcrun altool --upload-app -f "$IPA" -t ios \
 3. 斷線後讓 A 登出，重啟 App。在解除綁定前確認無法換人登入。恢復連線並完成解除綁定後再登入 B。各觸發一筆 A、B 的合成推播，確認共用裝置只收到 B 的新通知。
 4. 在 kiosk 完成一場合成問診，驗證收音、TTS、App 進背景後中斷與返回、網路中斷後重連及完成結果。
 
-若需回滾，先檢查最後一版 Flutter build `202611141854` 的 TestFlight 效期。裝回 Flutter 後重新登入。若既有 build 已過期，依原 Flutter 流程重建，build 號必須高於當時 ASC 的最高號。
+目前「先行測試」的原生 build 是 `202611211434`，五位測試人員已完成真機驗收。舊版效期與重建步驟見 [iOS 回滾手冊](runbook/ios_rollback.md)。
 
 ## 7. 最近一次已確認的 TestFlight 狀態（2026-11-08）
 
@@ -383,7 +341,7 @@ TestFlight 邀請信。只寄第二封對方會卡住——這是這條流程最
 - 登入頁本身已依 taste-skill 重設計（PR #65；skill 裝在
   `.claude/skills/design-taste-frontend`，之後改前端視覺先載它）。
 
-## 9. 還沒做的事
+## 9. 舊版待辦紀錄與合規
 
 - ⬜ 在 iPhone（iOS 16+）上實際安裝並確認**打得開、功能能用**
   （2026-08-21 已有兩位測試員顯示「已安裝」，但沒有人回報過實際使用結果——

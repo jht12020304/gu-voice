@@ -1,13 +1,13 @@
 ---
 name: voice-pipeline-invariants
-description: 列出 GU Voice 語音問診管線（VAD/靜音/TTS/紅旗偵測/§3b 風險因子/STT/終態收尾/病患面文字）的不變式與修改流程，防止改動時破壞已修復的行為。Use when modifying **flutter_app/lib/features/voice/ 下任何檔案**（conversation_controller、vad_logic、tts_playback_controller、audio_stream_service、ws_manager）、backend/app/pipelines/ 下任何檔案（llm_conversation、red_flag_detector、supervisor、soap_generator、prompts/）、場次終態路徑（backend/app/websocket/conversation_handler.py、backend/app/services/session_service.py、backend/app/services/report_service.py）、兩份前端的 intake payload 組裝與病患面顯示頁、或任何影響問診對話行為的改動。**2026-11-08 起 React 網頁版已移除問診前端，這條管線只剩 Flutter 一份前端實作；下文提到 React 的條目是歷史證據。**
+description: GU Voice 問診管線不變式。修改 ios_native/App/Kiosk*.swift、後端 pipelines、WebSocket 對話協議、終態、intake 或病患面文字前使用。
 ---
 
 # 語音問診管線不變式
 
 ## Overview
 
-> ⚠️ **2026-11-08**：React 網頁版改成只給醫師看報告，`conversationStore.ts`、`ConversationPage.tsx`、`screens/patient/*`、`websocket.ts` 的對話實例與其 `__tests__` 都已刪除。本檔中引用這些檔案的段落只當「當時怎麼修的」歷史紀錄讀；「兩端同步」類規則現在只需顧 Flutter。後端不變式全部照舊。
+病患問診在原生 iOS。下方有日期的 Flutter 與 React 案例記錄當時的稽核證據，現行驗證使用 SwiftUI kiosk 及後端。
 
 這條管線的每一條不變式都對應一個修過的生產 bug 或 e2e 驗收（詳見 docs/archive/e2e_realopenai_audit_2026-06-28.md、docs/archive/product_audit_2026-07-06.md、2026-08-20 稽核修復戰役 commit 索引 `8e30bd3 931b9b7 116282d 6fc51e3 7e28d11 2daa82c c6938c8 24d3083 fb403d6`）。改動前先核對清單，改動後用 `e2e-real-openai` skill 驗證，否則回歸風險極高。
 
@@ -28,23 +28,23 @@ PR #57（`3eacd50`）修復合併，並在 2026-08-22 於 HEAD 逐條複核**：
 
 ## When to Use
 
-- 動到 `flutter_app/lib/features/voice/` 下任何檔案（同一條管線的第二份實作，2026-07-26 起）
+- 動到 `ios_native/App/Kiosk*.swift` 的語音、連線、病史或病患畫面
 - 動到 `backend/app/pipelines/` 任何檔案（含 prompts/）
 - 改 WebSocket 對話協議（`backend/app/websocket/conversation_handler.py`）
-- 動到場次終態轉移（`app/services/session_service.py`、`app/services/report_service.py`、`app/tasks/session_timeout.py`）或兩份前端的 intake payload 組裝／病患面顯示頁
+- 動到場次終態轉移（`app/services/session_service.py`、`app/services/report_service.py`、`app/tasks/session_timeout.py`）或原生 iOS 的 intake payload 組裝與病患面顯示頁
 - NOT for：純 UI 樣式、與對話流程無關的頁面
 
 ## 不變式清單
 
-**前端（conversationStore.ts / ConversationPage.tsx）**
+**原生 iOS**
 
-1. 靜音（mute）只擋 TTS 播放，不得影響辨識與對話流程。
-2. unmute 一律走 `shouldUnmuteVAD` 決策矩陣，不得散落各處各自判斷。
-3. AI 講話期間硬鎖麥克風（防自迴授），TTS 結束才依矩陣決定是否開麥。
-4. `userPaused` 是獨立閘門：使用者手動暫停後，任何自動流程不得替他恢復。
-5. `stopActiveTTS` 中斷播放時必須補呼 `onended` 回呼，否則狀態機卡死。
-6. STT 幻覺過濾與空辨識可見提示：空結果要給使用者看得到的回饋，不得靜默吞掉。
-7. 開場主訴選單在地化、含「其他」sentinel 選項，raw 主訴需與後續流程一致。
+1. 播放靜音只影響 TTS。文字、語音辨識與對話仍可進行。
+2. 每個新場次建立全新狀態。關閉或換人時取消錄音、TTS、WebSocket、計時器和在途工作。舊場次的遲到回呼不得改寫當前畫面或帶出前一位病患的資料。
+3. 播放 TTS 時關麥克風以防回授。播放完成或中斷後依當前場次與錄音狀態處理。
+4. 使用者手動暫停後，只接受使用者操作恢復。重連、前景切換和 TTS 結束皆須維持暫停。
+5. 中斷 TTS 時解除等待播放完成的狀態，並丟棄舊播放回呼。
+6. 空辨識或音訊輸入無法使用時給可見回饋。保留文字問診和 WebSocket。
+7. 以目前語言顯示主訴，保留「其他」選項，送出的原始主訴必須與後續場次一致。
 
 **後端（app/pipelines/）**
 
@@ -69,14 +69,14 @@ PR #57（`3eacd50`）修復合併，並在 2026-08-22 於 HEAD 逐條複核**：
 16. 場次狀態機單一權威（2026-07-19）：合法轉移只定義在 `app/core/session_state.py`（`VALID_TRANSITIONS`/`is_valid_transition`），REST 與 WS 共用。改轉移規則只改這一處；WS `_update_session_status` 送 DB 前先過 `is_valid_transition(..., allow_noop=True)`（放行 resume 自轉移），不得繞過。
 17. 自動結束政策與紅旗去重已抽到 `app/pipelines/conclusion_policy.py` 與 `app/pipelines/alert_dedup.py`——**這兩個新模組仍是問診保護區**，改動視同改管線、要 e2e。conversation_handler 以底線別名 re-import，不得把邏輯改回 inline。
     ※ `app/pipelines/next_focus_guard.py`（2026-08-18 新增，防 supervisor 換句話重問已拒答欄位的四層防線之一）**同屬保護區**，改動視同改管線、要 e2e（`dontknow_zh`）。
-18. **終態的 `session_status` 必須帶 `status`**：`send_localized_to_session` 的 canonical code 只夠拿來顯示文字，前端是靠 `extra` 裡的 `status` 才認得出「這場結束了」而導向感謝頁。`end_session` 曾漏填 → 後端場次 completed、SOAP 也生成了，但病患畫面停在對話頁、按鈕像壞掉（2026-07-27 由 Flutter 真跑抓到）。新增任何終端路徑都要帶。**對稱地，前端不得在送出 `end_session` 後本地搶先設 `completed`**：導頁會讓 autoDispose 拆掉 controller、`_ws.disconnect()` 早於指令送達，整場丟失。
-    ※ **「不搶先導頁」兩份前端都已落實；下面那四條是 React 專屬，Flutter 只做到第三條**（React 2026-08-20 EM-3 補上）。React 舊寫法在 `send()` 之後立刻 navigate：`websocket.ts` 的 `send()` 在 `readyState !== OPEN` 時只 `console.warn` 就 return（**靜默 no-op，違反 #6**），而導頁卸載本頁 → cleanup 走 `off()`/`disconnect()` → 那筆 `end_session` 永遠送不出去。症狀是後端卡在 `in_progress`、SOAP 不生成，病患卻已看到「問診完成」（重連中按結束鍵最容易踩到）。現行四條：連線非 OPEN → 不送並給**看得見的錯誤**、按鈕保持可按；已連線 → 送出後進 disabled + `aria-busy` 的「結束中」；**導頁一律由後端終態事件驅動**；12 秒 ACK 看門狗逾時解鎖可重試（kiosk 不能留死按鈕）。證據 `ConversationPage.tsx:55`（`END_SESSION_ACK_TIMEOUT_MS`）、`:935-975`；AST 防回歸 `frontend/src/screens/patient/__tests__/endSessionNoNavigate.test.mts`（釘住「`handleEndSession` 內不得出現 navigate」）。
-    ⚠️ **Flutter 側只有第三條，其餘三條待補**（2026-08-21 核對）：`conversation_controller.dart:499` 全文就是 `void endSession() => _ws.send('control', {'action': 'end_session'});`——**沒有連線檢查、沒有錯誤回饋**；`ws_manager.dart:111` 的 `if (!_isOpen || _channel == null) return;` 是**靜默丟棄**（正是 #6 禁止的形狀，與 React 修掉的舊 `websocket.ts` 同型）；`conversation_page.dart:82-85` 的按鈕**沒有 disabled／「結束中」／看門狗**。所以 Flutter 在重連中按結束鍵仍會走進「後端卡 in_progress、病患毫無回饋」那條路徑。動 Flutter 結束流程時這是第一件要補的事。
+18. **終態的 `session_status` 必須帶 `status`**：`send_localized_to_session` 的 canonical code 只夠拿來顯示文字，前端是靠 `extra` 裡的 `status` 才認得出「這場結束了」而導向感謝頁。`end_session` 曾漏填 → 後端場次 completed、SOAP 也生成了，但病患畫面停在對話頁、按鈕像壞掉（2026-07-27 由 Flutter 真跑抓到）。新增任何終端路徑都要帶。**原生 App 由伺服器終態確認後才導頁。** 斷線時給可見回饋。等待終態時防止重複送出，逾時後解除等待，允許安全重試或重新查詢。
+    ※ **歷史稽核：「不搶先導頁」當時兩份前端都已落實；下面那四條是 React 專屬，Flutter 只做到第三條**（React 2026-08-20 EM-3 補上）。React 舊寫法在 `send()` 之後立刻 navigate：`websocket.ts` 的 `send()` 在 `readyState !== OPEN` 時只 `console.warn` 就 return（**靜默 no-op，違反 #6**），而導頁卸載本頁 → cleanup 走 `off()`/`disconnect()` → 那筆 `end_session` 永遠送不出去。症狀是後端卡在 `in_progress`、SOAP 不生成，病患卻已看到「問診完成」（重連中按結束鍵最容易踩到）。現行四條：連線非 OPEN → 不送並給**看得見的錯誤**、按鈕保持可按；已連線 → 送出後進 disabled + `aria-busy` 的「結束中」；**導頁一律由後端終態事件驅動**；12 秒 ACK 看門狗逾時解鎖可重試（kiosk 不能留死按鈕）。證據 `ConversationPage.tsx:55`（`END_SESSION_ACK_TIMEOUT_MS`）、`:935-975`；AST 防回歸 `frontend/src/screens/patient/__tests__/endSessionNoNavigate.test.mts`（釘住「`handleEndSession` 內不得出現 navigate」）。
+    ⚠️ **Flutter 側只有第三條，其餘三條待補**（2026-08-21 核對）：`conversation_controller.dart:499` 全文就是 `void endSession() => _ws.send('control', {'action': 'end_session'});`——**沒有連線檢查、沒有錯誤回饋**；`ws_manager.dart:111` 的 `if (!_isOpen || _channel == null) return;` 是**靜默丟棄**（正是 #6 禁止的形狀，與 React 修掉的舊 `websocket.ts` 同型）；`conversation_page.dart:82-85` 的按鈕**沒有 disabled／「結束中」／看門狗**。所以 Flutter 在重連中按結束鍵仍會走進「後端卡 in_progress、病患毫無回饋」那條路徑。
 
 **2026-07-27 §R 新增（見 `docs/TODO.md` §R 與 §R-lessons）**
 
 19. **`patient_context.build_patient_info` 是 patient_info 的唯一來源**。WS 與 Celery SOAP 兩條路徑都必須走它。歷史教訓：兩份 builder 分岔，Celery 那份只放 name/gender/age、**完全不讀 `sessions.intake_data`**，導致 `soap_generator` 的病史/用藥/過敏/家族史四個分支在生產路徑是死碼，SOAP 對家族史寫「未提供」而 intake 明載父親膀胱癌。不得為了方便在任一端重新組裝。
-    ⚠️ **它的四個 `no_*` 分支只有在前端真的送得出旗標時才活著**。`no_family_history`（`patient_context.py:115-119`；`:99-114` 是另外三個 `no_*`）曾經是**死碼**：兩份前端都沒有勾選框，Flutter 更把 `familyHistory` 硬寫 `[]`（TODO G13），後端看起來有支援、實際永遠收不到。2026-08-20 才由 Flutter（D-10，`intake_payload.buildIntakePayload` 裡的 `'noFamilyHistory'` 鍵，理由註解就在它上方三行——`:103-106`，`:102` 是上一個清單的 `],`）與 React（`MedicalInfoPage.tsx:168-173`、`:288-299`、`:715-722`）各自補上勾選框後活化。新增 intake 三態欄位時，**後端 schema、`patient_context` 分支、兩份前端 UI 要同輪一起做**。
+    ⚠️ **它的四個 `no_*` 分支只有在前端真的送得出旗標時才活著**。`no_family_history`（`patient_context.py:115-119`；`:99-114` 是另外三個 `no_*`）曾經是**死碼**：兩份前端都沒有勾選框，Flutter 更把 `familyHistory` 硬寫 `[]`（TODO G13），後端看起來有支援、實際永遠收不到。2026-08-20 才由 Flutter（D-10，`intake_payload.buildIntakePayload` 裡的 `'noFamilyHistory'` 鍵，理由註解就在它上方三行——`:103-106`，`:102` 是上一個清單的 `],`）與 React（`MedicalInfoPage.tsx:168-173`、`:288-299`、`:715-722`）各自補上勾選框後活化。新增 intake 三態欄位時，同步更新後端 schema、`patient_context` 與原生 iOS。
 20. **每一個終態都要有 SOAP**（`cancelled` 除外，見下）。會生成 SOAP 的路徑：手動 `end_session`、自動結束、critical 紅旗中止、硬上限前遲到 critical、遲到 critical 的 drain、閒置逾時、**`PUT /sessions/{id}/status`（REST，2026-08-20 納入）**。
     ⚠️ **`end_for_language_switch` 不在這張清單裡**——它轉的是 `CANCELLED`，而 `_SOAP_ON_TERMINAL = {COMPLETED, ABORTED_RED_FLAG}` 不含它（`session_service.py:101-103`，該路徑的碼內註解 `:720-724` 逐字寫「**不派 SOAP**」（在 `:723`））。它 2026-08-20 納入的是**六件事矩陣**（`test_terminal_path_six_things_matrix.py` 的 `TERMINAL_PATHS` 裡 `fanout_key="session_service:end_for_language_switch"` 那一列，SOAP 那格是 `_CANCELLED_SOAP_SKIP`），不是 SOAP 清單。把它讀成「會生成 SOAP」會與下面那條產品決策、#13 SO-2 的「`cancelled` 刻意不派」、`REPORT_ELIGIBLE_SESSION_STATUSES` 三處直接衝突。
     新增任何終態轉移時**同時**檢查這六件事：改 status、派 SOAP、送病患端 `session_status`（帶 `extra`）、廣播 dashboard、建醫師通知、設 `_terminated`。主 abort 分支做全套、drain 分支只做兩件，就是這樣漏掉的。
@@ -107,7 +107,7 @@ PR #57（`3eacd50`）修復合併，並在 2026-08-22 於 HEAD 逐條複核**：
     ※ **涵蓋判定詞庫是五語的**（2026-08-20 IN-2）。intake 是病患用**場次語言**自填的自由文字，舊詞庫只有 zh+en：ko「방광암」、vi「ung thư bàng quang」、ja「膀胱がん／ワーファリン」判不出涵蓋 → 該項退回必問 → §3b 必問優先序高於禁問清單 → **病患剛填過的家族史被口頭重問**。抗凝血／惡性／泌尿／高血壓／冠心／心梗／中風／糖尿病 與取消資格限定語全部補齊 ja/ko/vi。收詞判準已入碼（`llm_conversation.py:121-140`）：只收高確信詞、每個字面先照 #25 檢查在其他四語是不是高頻子字串、ja 漢字 ≠ zh 漢字必須並列、`血液サラサラ` 刻意排除（保健食品行銷語，收了＝誤跳過）、ko「암」可收（有另一個詞群把關）、vi「u」不收。**判不準就不收**（安全方向）。
     ※ **來源標籤是三態的**（IN-3，`supervisor.py:143-190`）。舊版把扁平值整批標成「（intake 已提供）」，配上 prompt 那條「不得要求病患重述這些已知項目」——結果**幾個月前的舊病歷把本次問診的口頭確認整個關掉**，而對話端早就只採信本次 intake，兩端判準靜默漂移。現行：`session_intake_fields()` 認得的 →「（intake 已提供）」受不得重述限制；其餘扁平非空值（`patients` 表 fallback）→「（病歷記載，過往）」，prompt 明文**不**套用該條款。**supervisor 與對話端必須用同一支函式。**
     ※ **配額 K 吃的是「intake 過濾後」的必問題數**（D-2，`conclusion_policy.py:108-133` → `llm_conversation.count_must_ask_risk_factors:743-762`），不是主訴的原始 K。prompt 端的必問清單早就被三態判定過濾過，配額卻仍吃未過濾 K：血尿場 K=3、intake 已涵蓋 2 項時，病患只剩 1 題要答卻被抬到 soft_min 12／hard cap 15＝**白綁 6–7 輪**（修後 10／13）。**方向護欄是雙層 `min()` 只降不升**，`patient_info` 型別不對就退回未過濾 K——「多綁幾輪」是保守側，**K 變大是絕不能引入的反方向**。
-24. **SOAP 的 `plan.patient_education` 與 `summary` 是病患面欄位**（渲染在 React `PatientSessionDetailPage` 與 Flutter `patient_session_detail_page`），受 #11 kiosk 措辭鐵律約束，prompt 與出口消毒兩層都要有。`plan` 的其他欄位是醫師面，不受限制。判準是「**有沒有叫病患自行離場**」而不是「有沒有出現某個詞」——「醫師會為您安排急診評估」對候診中的病患不違規。
+24. **SOAP 的 `plan.patient_education` 與 `summary` 是病患面欄位**（原生 App 由 `KioskPatientRecord.swift` 顯示），受 #11 kiosk 措辭鐵律約束，prompt 與出口消毒兩層都要有。`plan` 的其他欄位是醫師面，不受限制。判準是「**有沒有叫病患自行離場**」而不是「有沒有出現某個詞」——「醫師會為您安排急診評估」對候診中的病患不違規。
     ※ **時間窗就是急迫度，只是換了詞性**（2026-08-20 SO-1，`soap_generator.py` 的 `_ZH_DEADLINE` / `_ZH_SELF_CARE` / `_ZH_URGENT` 三個 regex 片段常數，**寫符號名不寫行號：S8 修復中，本檔正在位移**）。`plan.urgency` 的四個 enum 被 LLM 寫成自然語言後**整族穿透**消毒層：「請於 24 小時內就醫」「本週內就診」「當天就醫」6/6 全放行。修法是把時間窗**另立一組** `_ZH_DEADLINE`，且**只**與「病患自己去求醫」的動作 `_ZH_SELF_CARE` 共現（那組動作的施事者天生是病患本人）——**不可塞進寬鬆的 `_ZH_URGENT`**，那會誤殺「急診評估的結果會併入今天的病歷」「這項檢查在本院急診就能完成」。`_ZH_SELF_CARE` 刻意**不收**「回診／複診／看診／掛號」（「建議一個月內回診」「請稍候等待看診」在院內候診情境完全合規）。施事者豁免判準不變：「醫師會在 24 小時內完成報告」不違規。規則都在同檔的 `_leave_site_patterns()`，它回傳 HARD／EXEMPT／SOFT 三組已編譯規則。⚠️ **SO-1 的時間窗規則全部只在 SOFT**（五語各一對雙向，共 10 條）——`_ZH/_EN/_JA/_KO/_VI_DEADLINE` 五個常數在 **HARD 側是零個使用點**；HARD 裡與 SO-1 相關的只有中文那條**單條**「祈使詞 ＋ 0–10 字插入語 ＋ `_ZH_SELF_CARE`」，它**不含時間窗**。分組不是隨手放的：時間窗那組要吃施事者豁免（「醫師會在 24 小時內完成報告」不違規）所以必須在 SOFT，而祈使那條的 `_ZH_SELF_CARE` 動詞施事者只可能是病患本人、語意上沒有「院方會做什麼」的解讀空間，才放得進不吃豁免的 HARD。oracle 語料獨立維護在 `backend/tests/unit/pipelines/patient_facing_corpus.py`。**消毒層與 prompt 禁語清單要同輪同步。**
     ※ 病患語言版（#12）的轉述輸出要過**目標語言**的消毒規則，不是中文那組。
 
@@ -132,21 +132,21 @@ PR #57（`3eacd50`）修復合併，並在 2026-08-22 於 HEAD 逐條複核**：
       （上表刻意用 `sốt` 當急性詞：它只在共現組的 `acuity_terms` 裡，所以命中**一定**經過 `tiểu` 這個 site 軸。**別拿 `ớn lạnh` 造反例**——`tôi hơi ớn lạnh` 單獨一句就命中 critical，那是 S1 那族刻意保留的單軸裸 trigger，與 `tiểu` 無關。）
       **這不是可以聳肩帶過的「政策接受的誤報」**：糖尿病是 §3b 的必問風險因子（`llm_conversation._DIABETES_TERMS` 自己就收了 `tiểu đường`），所以越南語病患**照著問診流程講出自己的病史**就會撞上它——與 R22 那個「排尿灼熱一講出主訴就被中止」同型，只是換成 vi。#25 的新字面檢查清單要多一條：**短字面除了「在其他四語是不是高頻子字串」，還要查「在它自己的語言裡是不是多義詞根」**。裸 `tiểu` 出現在**四個**共現組的 `site_terms`（`void_x_obstruction` / `urine_x_heavy_blood` / `urinary_x_systemic_infection` / `urine_x_blood_present`），修的時候四處都要看。詳見 TODO S12。
       ⚠️ **修法（`_TERM_FALSE_FRIENDS` 位置排除法）結構上不可能封閉**：漢越詞「小」的構詞沒有上限，那張表是**開放式列舉**，未收錄的「小」義複合詞（`tiểu thương`／`tiểu bang`／`tiểu thư`…）仍會供給泌尿軸。這件事本身被 `RF6_VI_KNOWN_OPEN_TAIL` ＋ `test_rf6_false_friend_table_is_an_open_ended_list_not_a_closed_set` 釘住（**斷言誤報仍會發生**，把某條收進表裡就會紅，逼人同步更新）。**收到 vi 誤中止回報時的第一個假設是「又一個沒收錄的複合詞」，不是「這條路封死了」。**
-26. **無麥克風降級路徑是保護區**。三者缺一不可，不得移除：
+26. **無麥克風降級路徑是保護區**。啟動錄音前確認權限與可用的音訊格式。無收音裝置時顯示回饋，保留文字問診與連線。
+
+    舊版稽核記錄的三條守衛：
     - `openMic()` 進入 `startStream` **之前**的「先權限、再可用輸入」兩道檢查；
     - iOS 的 `ios/Runner/MicProbe.swift`——`AVAudioEngine.inputNode.inputFormat` 是**模擬器上唯一不謊報的訊號**。無音訊輸入的宿主機上 `record.listInputDevices()`／`AVAudioSession.availableInputs`／`currentRoute.inputs`／`isInputAvailable` **全部回報幽靈裝置**，只有 inputNode format 誠實地回 0Hz/0ch；
     - `ConversationState.voiceUnavailable` 降級旗標。
     麥克風失敗**不得寫 `state.error`**（那是阻斷性錯誤且無任何路徑會清除，會讓一場全程成功的純文字問診從頭到尾掛著紅色橫幅），**也不得擋住 `_ws.connect`**（文字輸入走同一條紅旗／LLM／TTS 管線，麥克風壞掉只是「不能用講的」，不是「不能問診」）。少了這條防線，無音訊輸入的機器一進問診頁**必定在原生層 SIGABRT**（`installTap` 拿到無效 format → NSException，**Dart 的 try/catch 攔不到**，整個 app 當場死掉，重現 6/6）。
-27. **WS 事件的兩端訂閱清單要同步**。React 與 Flutter 是**手抄兩份、沒有 codegen**，所以後端加事件時漏掉任一端不會有任何編譯或型別訊號。`resume_failed` 就是這樣：後端有發、**兩端都沒訂**，病患畫面靜默停在斷線前的舊逐字稿，而後端其實已經拿伺服器端 history 繼續問診——之後的 AI 追問接在一份錯的上下文後面（違反 #6：不得靜默吞掉）。
-    - 現行為：兩端收到後以 REST `GET /sessions/{id}/conversations` **整批重抓取代**本地列表（不用 id 合併——樂觀送出的氣泡與半截 streaming 訊息會變成永久殘影），並清掉 `isAIResponding`／`sttProcessing`。
-    - 新增任何 WS 事件時，`conversationStore`／`ConversationPage`（React）與 `conversation_controller._registerWsHandlers`（Flutter）**要同輪補齊**，且 React 的 `off()` 清理清單也要一起加。
+27. **斷線後以伺服器狀態恢復同一場次**。`KioskConversation` 處理重連、拿不到 resume 資料時重抓完整對話，以及終態確認。恢復時清除過期的串流和處理中狀態。增修對話 WS 事件時同步檢查後端送出、原生接收和離場清理。
 
 **2026-08-20 LLM 管線稽核修復戰役新增（commit 索引 `8e30bd3`…`fb403d6`）**
 
-28. **前端的 `no_*` 旗標只能來自明確勾選（兩份前端都是）**。`noKnownAllergies` / `noCurrentMedications` / `noPastMedicalHistory` / `noFamilyHistory` **只有在病患把勾選框勾起來時才送 `true`**，絕不可從 `list.isEmpty` / `list.length === 0` 推斷。**空白必須維持空白——三態，不是兩態。**
+28. **前端的 `no_*` 旗標只能來自明確勾選**。`noKnownAllergies` / `noCurrentMedications` / `noPastMedicalHistory` / `noFamilyHistory` **只有在病患把勾選框勾起來時才送 `true`**，絕不可從空清單推斷。**空白必須維持空白——三態，不是兩態。**
     - 為什麼：後端把 `no_*` 當 `ANSWERED_NO`——該題進 §3b 禁問清單、SOAP 記「病患自述無」。把「沒填」偽造成「病患否認」＝**捏造病歷**，而且 §3b gate 會整個跳過該風險因子（違反 #23）。Flutter 舊碼正是 `_noAllergies || allergies.isEmpty`（IN-1，列為 Flutter Web promote blocker）。
-    - payload 組裝要留在 widget **外面**的純函式，單元測試斷言「勾選 / 留白 / 填寫」三種輸入的精確 JSON 形狀：真 OpenAI e2e 自己 POST 裸 JSON，**永遠看不到前端偽造的 payload**（見「測試設計」第 5 點）。
-      ⚠️ **這個形狀目前只有 Flutter 做到**：`intake_payload.dart` 是 widget 外的純函式，`intake_payload_test.dart` 的 `group('IN-1: no_* flags mean "the patient denied it", never "the box was blank"')` 真的斷言三態 JSON——三態分別是 `test('untouched form sends every no_* as FALSE with empty lists')`（留白）、`test('explicitly ticked boxes send true and an empty list')`（勾選）、`test('filled-in rows send false + the rows')`（填寫）。**寫測試名不寫行號**：三態不連續，先前引的 `:43-81` 只框到 helper 與前兩態，第三態落在框外。**React 的 payload 是寫在 component handler 裡的 inline literal**（`MedicalInfoPage.tsx:258-299`，沒有可獨立測試的純函式），守它的 `patientFacingSurface.test.mts:76-110` 是**原始碼正則掃描**（掃 `useState(false)`、`checked={noFamilyHistory}`、掃「不得出現 `familyHistory.length`」）而**不是 JSON 形狀斷言**——擋得住「從空清單推斷」這個具體回歸，擋不住其他形狀的 payload 漂移。React 端抽純函式是待補項。
+    - 以 `KioskIntakeTests` 驗證 App 產出的「勾選 / 留白 / 填寫」三種輸入的精確 JSON 形狀：真 OpenAI e2e 自己 POST 裸 JSON，**永遠看不到前端偽造的 payload**（見「測試設計」第 5 點）。
+      **舊版稽核證據**：`intake_payload.dart` 是 widget 外的純函式，`intake_payload_test.dart` 的 `group('IN-1: no_* flags mean "the patient denied it", never "the box was blank"')` 真的斷言三態 JSON——三態分別是 `test('untouched form sends every no_* as FALSE with empty lists')`（留白）、`test('explicitly ticked boxes send true and an empty list')`（勾選）、`test('filled-in rows send false + the rows')`（填寫）。**寫測試名不寫行號**：三態不連續，先前引的 `:43-81` 只框到 helper 與前兩態，第三態落在框外。**React 的 payload 是寫在 component handler 裡的 inline literal**（`MedicalInfoPage.tsx:258-299`，沒有可獨立測試的純函式），守它的 `patientFacingSurface.test.mts:76-110` 是**原始碼正則掃描**（掃 `useState(false)`、`checked={noFamilyHistory}`、掃「不得出現 `familyHistory.length`」）而**不是 JSON 形狀斷言**——擋得住「從空清單推斷」這個具體回歸，擋不住其他形狀的 payload 漂移。
     - 證據 `flutter_app/lib/features/patient/intake_payload.dart:1-19`（規則入碼的 header）、同檔的 `buildIntakePayload`（`:55-118`；docstring 在 `:49-54`，四個 `no_*` 鍵都在函式體內）；`frontend/src/screens/patient/MedicalInfoPage.tsx:259`／`:270`／`:279`／`:291`（四個 `no_*` 都直接讀勾選框 state）、`:168-173`、`:715-722`。守它的測試：`flutter_app/test/intake_payload_test.dart`、`flutter_app/test/medical_info_family_test.dart`、`frontend/src/screens/patient/__tests__/patientFacingSurface.test.mts`。
 29. **終態路徑 × 六件事矩陣有 AST 跳閘器**。`backend/tests/unit/test_terminal_path_six_things_matrix.py` 把 #20 的矩陣寫成資料：`TERMINAL_PATHS` 列出每條路徑每一格的預期值（`DONE` / `VIA_STATUS_HELPER` / `Skip(理由, 程式碼註解錨點)`），`test_terminal_path_does_the_six_things` 逐格跑真路徑比對（**不是** `test_matrix_cell`，那個名字不存在），`test_skipped_cells_are_documented_in_code` 確認每個「刻意不做」在產品碼有對應註解（**刪註解會紅**，逼下一個人重新面對這個決定），`test_registry_covers_every_terminal_fanout_site` 用 AST 掃 `conversation_handler.py` / `session_service.py` / `tasks/session_timeout.py` 三個模組所有「把場次寫成終態」的呼叫點與註冊表比對——**新增終態路徑而沒登記 → 直接紅**。
     - ⚠️ **歷史（`6ecf10a` HEAD 上的舊跳閘器，本輪已重寫）**：舊版 `_terminal_fanout_sites()` 三格認的形狀**不同**——conversation_handler 認 `_update_session_status(..., "<終態字面值>")`＝寫終態（keyword arg 或常數變數就掃不到）、session_timeout 認 `.values(status=SessionStatus.X)`＝寫終態、session_service 認的是 `_after_status_transition(...)`＝**fan-out 呼叫入口**。三者一律叫「fan-out 點」會讓人以為 session_service 那格也守得住「寫了終態但沒 fan-out」——2026-08-21 實測**守不住**：直接寫 `session.status = SessionStatus.COMPLETED` 而不呼叫 fan-out，跳閘器不跳，而那正是這條鐵律要防的失敗樣態（`session_service.py:557`、`:684` 已有兩處直接寫狀態）。**留這段是因為教訓比修法重要**：跳閘器的名字要說出它實際掃的是什麼，「fan-out 點」這個共用命名讓三格不同的覆蓋面被讀成同一件事，缺口整整活了一輪。現行分工是 `test_registry_covers_every_terminal_fanout_site`（有沒有登記）＋ `test_terminal_status_writes_route_through_the_fanout_entry`（有沒有真的 fan-out）兩條分別問。**無論如何：新增終態路徑靠的是人先加註冊表，跳閘器只是第二道網，別把「測試沒紅」讀成「六件事做完了」。**
@@ -198,15 +198,15 @@ PR #57（`3eacd50`）修復合併，並在 2026-08-22 於 HEAD 逐條複核**：
 35. **壓縮的歷史摘要必須真的進得了 LLM**。`_cap_conversation_history` 產生的摘要 content 必須以共用常數 `HISTORY_SUMMARY_PREFIX`（`[前段對話摘要]`）起頭，`format_messages` 靠它放行**且只放行這一則** role=system 歷史。
     - 為什麼：`format_messages` 原本無條件跳過所有 system 歷史 → 摘要**從來沒有進過 LLM**，「壓縮」實際上等於丟棄，長場次的前段病史對 AI 完全消失（而壓縮的初衷正是「不靜默丟棄舊輪次，以免遺失紅旗臨床脈絡」）。放行這一則比改 `_cap_conversation_history` 的 role 侵入更小：改成 assistant 會讓摘要漏進紅旗語意層的 `_build_conversation_summary`。**前綴不得兩邊各寫一份字面值。**
     - 證據 `llm_conversation.py:90-93`（常數）、`:1133-1142`（放行）、`conversation_handler.py:206-250`；測試同 #34。
-36. **病患端不得渲染未經醫師確認的 ICD-10 與 AI 信心分數**。React `PatientSessionDetailPage` / `SessionCompletePage` 與 Flutter `patient_session_detail_page` / `session_complete_page` 都不得渲染 `icd10_codes` 與 `ai_confidence_score`；醫師端不受限。
+36. **病患端不得渲染未經醫師確認的 ICD-10 與 AI 信心分數**。原生病患畫面不得顯示 `icd10_codes` 與 `ai_confidence_score`；醫師端不受限。
     - 為什麼：ICD-10 未經醫師 review 就會被病患讀成「診斷」；信心分數則讓病患拿一個百分比去衡量還沒審閱過的 AI 判斷。
     - 證據 `flutter_app/lib/features/patient/patient_session_detail_page.dart:12-14`（header 註解逐字寫 `no ICD-10/confidence`；`:79-84` 是 `resolvePatientFacingSummary` 呼叫，那是 #37 的材料不是本條的）、`session_complete_page.dart:170-182`（註解在 `:179-180`）；React 兩頁（commit `2daa82c`）。守它的測試 `flutter_app/test/patient_facing_summary_test.dart`（**靜態守衛**：讀原始碼、去註解後掃禁用識別字）、`frontend/src/screens/patient/__tests__/patientFacingSurface.test.mts`。
-37. **病患面摘要的三態 resolver 是唯一判斷點**。兩頁共用一支純函式（Flutter `resolvePatientFacingSummary`、React `resolvePatientFacing`），三態：(1) `patient_facing_localized.language` 與**場次語言**相符且有內容 → 用它；(2) 場次語言是 zh-TW → 用報告本體的 `summary` / `plan.patientEducation`；(3) 其餘（非中文場次、沒有可用的在地化文字）→ **五語通用訊息**（`session.patientFacing.notice`，kiosk 措辭）。
+37. **病患面摘要的三態 resolver 是唯一判斷點**。以 `KioskReportExcerpt.patientText` 共用三態：(1) `patient_facing_localized.language` 與**場次語言**相符且有內容 → 用它；(2) 場次語言是 zh-TW → 用報告本體的 `summary` / `plan.patientEducation`；(3) 其餘（非中文場次、沒有可用的在地化文字）→ **五語通用訊息**（`session.patientFacing.notice`，kiosk 措辭）。
     - 為什麼：非中文場次的病患全程講自己的語言，最後看到一段中文病歷摘要——讀不懂，也像系統壞掉。**分支 (3) 結構性地不把報告原文帶出函式**，避免日後有人在 UI 端「順手」退回中文。語言比對走主語言子標籤正規化（後端可能寫 `en` / `zh-Hant`），判不準一律退回通用訊息——與 §3b「判不準歸保守側」同一原則。
     - 證據 `flutter_app/lib/features/patient/patient_facing_summary.dart:1-103`、`frontend/src/utils/patientFacingReport.ts:1-109`（全檔；呼叫端 `SessionCompletePage.tsx:87`、`PatientSessionDetailPage.tsx:61`）。守它的測試 `flutter_app/test/patient_facing_summary_test.dart`、`frontend/src/utils/__tests__/patientFacingReport.test.mts`。
     - ⚠️ e2e driver 目前**沒撈** `patient_facing_localized`（`scripts/e2e_realopenai/driver.py` 的 `soap_select` 只取 S/O/A/P + summary），所以非 zh-TW 場次病患**實際看到的那份文字**沒有任何 e2e 措辭鐵律覆蓋，只有 unit test 撐著。改這一區時別把「e2e 綠」當成措辭有驗過。
 
-## ⚠️ 這些不變式現在有兩份實作
+## 歷史證據：Flutter 與 React 病患問診
 
 2026-07-26 起 `flutter_app/`（Dart，已入 main 未上生產）與 `frontend/`（React，生產在跑）
 都實作這條管線，**改動要同時顧兩邊**。純函式核心（shouldUnmuteVAD 64 組矩陣、TTS epoch
@@ -308,9 +308,8 @@ PR #57（`3eacd50`）修復合併，並在 2026-08-22 於 HEAD 逐條複核**：
 4. 動到終態轉移 → 先在 `tests/unit/test_terminal_path_six_things_matrix.py` 的
    `TERMINAL_PATHS` 加一列再讓它綠（#29），並確認 #20 的三條時序鐵律與 `_SOAP_ON_TERMINAL` /
    `REPORT_ELIGIBLE_SESSION_STATUSES` / `tasks/session_timeout` 三處政策一致（#13）。
-5. 動到 intake 三態欄位或病患面顯示 → 後端 schema、`patient_context` 分支、**兩份前端 UI**
-   同輪一起做（#19／#28），病患面文字兩端都要走同一支 resolver（#37）。
-6. 前端行為改動 → `npm run type-check` + 手動走一次對話流程；管線/prompt 改動 → 依
+5. 動到 intake 三態或病患面顯示時，同步更新後端 schema、`patient_context` 與原生 App（#19／#28／#37）。
+6. App 行為改動 → 跑 `GUVoiceTests` 和 kiosk 合成 UI 測試，音訊改動另做實機錄音、TTS 及中斷驗收；管線/prompt 改動 → 依
    `e2e-real-openai` skill 跑至少一個相關情境（紅旗改動跑 `torsion_critical_zh`
    **＋ `torsion_wordorder_zh` 或 `torsion_critical_en`**，結束邏輯改動跑 `dontknow_zh`，
    intake/§3b 改動跑 `intake_wiring_zh`）。
@@ -339,9 +338,9 @@ PR #57（`3eacd50`）修復合併，並在 2026-08-22 於 HEAD 逐條複核**：
 - [ ] 改偵測邏輯：`MUST_FIRE` 與 `MUST_NOT_FIRE` 雙向都有新增案例，且措辭不同於 persona 台詞
 - [ ] 新增抑制守衛：能說出「為什麼它不會造成漏報」；**移除／收窄字面**：逐字面舉證 + 附實測仍命中的句子 + 未動到 `KEPT_LITERALS`
 - [ ] 新增終態路徑：已登記進 `test_terminal_path_six_things_matrix.py` 的 `TERMINAL_PATHS`，六格皆 DONE 或有 docstring 理由 + 程式碼註解錨點
-- [ ] 動到 intake 三態或病患面文字：兩份前端都改了，且有斷言 payload 形狀／resolver 三態的單元測試
+- [ ] 動到 intake 三態或病患面文字：原生 App 有斷言 payload 形狀／resolver 三態的單元測試
 - [ ] 新增探針斷言：環境假設有自我證明分支，且沒有把單一合格樣態寫死（`post_abort_shape` 型的觀測欄位）
-- [ ] 前端改動通過 `npm run type-check` 與 `npm run lint`
+- [ ] App 改動通過 `GUVoiceTests` 及 [kiosk UI 驗收](../../../ios_native/README.md#模擬器雙路徑驗收)
 
 ## 2026-08-22 新增不變式（模型換代與 SOAP 表單指令）
 

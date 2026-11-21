@@ -10,6 +10,9 @@ description: Anti-slop frontend skill for landing pages, portfolios, and redesig
 
 ---
 
+For native iOS, use the existing SwiftUI controls in `ios_native/App` and follow the project's
+accessibility and localization conventions. The HTML, CSS, and React examples below apply to the web client.
+
 ## 0. BRIEF INFERENCE (Read the Room Before Anything Else)
 
 Before touching code or tweaking dials, **infer what the user actually wants**. Most LLM design output is bad because the model jumps to a default aesthetic instead of reading the room.

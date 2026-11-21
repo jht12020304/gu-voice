@@ -1,6 +1,6 @@
 # 問診流程圖：選主訴 → 問答 → 資料落地 → 研究分析
 
-> ⚠️ **2026-11-08**：React 網頁版已改成只給醫師看報告，下文提到的 React 病患／問診頁（`ConversationPage`、`MedicalInfoPage`、`screens/patient/*`）、`/research`、儀表板等頁面都已刪除，相關描述只當歷史參考；現行病患流程與研究分析畫面只在 Flutter App。
+> ⚠️ **2026-11-08**：React 網頁版已改成只給醫師看報告，下文提到的 React 病患／問診頁（`ConversationPage`、`MedicalInfoPage`、`screens/patient/*`）、`/research`、儀表板等頁面都已刪除，相關描述只當歷史參考；現行病患流程與研究分析畫面只在原生 iOS。
 
 > 建立日期：2026-07-06
 > 用途：完整盤點病患從「選擇主訴」到「語音/文字問答」到「產生的資料」到「研究分析頁」的端到端流程，
@@ -64,7 +64,7 @@
 
 ## 1b. 填基本資料 + 建場次（前端）
 
-**現行 TestFlight 畫面**：`flutter_app/lib/features/patient/medical_info_page.dart`。
+**現行 TestFlight 畫面**：`ios_native/App/KioskIntakeScreen.swift`。
 頁面載入時由 `SessionsApi.getDoctors()` 呼叫 `GET /sessions/doctors`，以下拉選單顯示姓名與科別；
 未選、清單仍載入或載入失敗時都不能開始問診。建立 payload 會帶 `doctorId`，所以該場次後續
 只進入被選醫師的臨床 scope 與通知目標。
@@ -86,7 +86,7 @@
 **Router**：`backend/app/routers/sessions.py` `create_session()`（`:33-63`）。語言優先序 = `payload.language > user.preferred_language > Accept-Language > default`（`:49-51`）。
 
 **Schema**：`backend/app/schemas/session.py` `SessionCreate`：`chief_complaint_id: UUID` 必填、
-`doctor_id: Optional[UUID]`（只為 legacy 客戶端相容；現行 Flutter 必填）、
+`doctor_id: Optional[UUID]`（只為 legacy 客戶端相容；原生 iOS 必填）、
 `chief_complaint_text: Optional[str] max_length=200`、`language` 對 `SUPPORTED_LANGUAGES`
 做 BCP-47 正規化、`patient_info` + `intake`。
 
@@ -109,7 +109,11 @@ chief_complaint = session_obj.chief_complaint_text
 
 ---
 
-## 3. 問答（前端）
+## 3. 問答（原生 iOS）
+
+`KioskConversationScreen.swift` 顯示對話。`KioskConversation.swift` 接收即時事件、恢復斷線的場次，並在伺服器確認終態後顯示完成或紅旗中止。`KioskAudio.swift` 負責錄音與 TTS。TTS 期間停收音，使用者手動暫停後要由本人恢復。離場時停止錄放音、連線與計時器。文字備援與語音使用相同的後端紅旗和問答管線。
+
+### 舊版 React 稽核證據
 
 **畫面**：`frontend/src/screens/patient/ConversationPage.tsx`
 

@@ -1,28 +1,23 @@
-"""The build banner must describe the selected backend, including staging."""
+"""The native release entry point identifies its production data boundary."""
 
-import os
 from pathlib import Path
-import re
 import subprocess
 
+SCRIPT = Path(__file__).resolve().parents[2] / "ios_native/tool/build_ios_testflight.sh"
 
-def test_build_banner_preserves_production_warning_and_shows_custom_targets():
-    script = (
-        Path(__file__).resolve().parents[2]
-        / "flutter_app/tool/build_ios_testflight.sh"
-    ).read_text()
-    constants = "\n".join(re.findall(r"^readonly PROD_.*$", script, re.MULTILINE))
-    banner = script[script.index("print_data_risk_banner() {") :]
-    banner = banner.split("# --- 參數處理", 1)[0]
-    command = constants + "\n" + banner + "\nprint_data_risk_banner"
-    env = {k: v for k, v in os.environ.items() if k not in {"API_BASE", "WS_BASE"}}
-    production = subprocess.check_output(["bash", "-c", command], env=env, text=True)
-    assert "生產後端" in production and "PHI" in production
-    for targets in (
-        {"API_BASE": "https://staging.example.com/api/v1", "WS_BASE": "wss://staging.example.com/api/v1/ws"},
-        {"WS_BASE": "wss://staging.example.com/api/v1/ws"},
-    ):
-        output = subprocess.check_output(["bash", "-c", command], env=env | targets, text=True)
-        assert "自訂後端建置" in output
-        assert "這顆包連的是「生產後端」" not in output
-        assert all(value in output for value in targets.values())
+
+def test_build_banner_identifies_production_and_requires_synthetic_data(monkeypatch):
+    monkeypatch.setenv("API_BASE", "https://staging.example.com/api/v1")
+    output = subprocess.check_output(["bash", SCRIPT, "--help"], text=True)
+    assert "生產後端" in output and "PHI" in output and "合成資料" in output
+    assert "staging.example.com" not in output
+
+
+def test_verify_only_requires_a_real_ipa_and_build_number():
+    result = subprocess.run(
+        ["bash", SCRIPT, "--verify-only", "/missing.ipa", "invalid"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "需要已存在的 IPA 與 12 位預期 build 號" in result.stderr

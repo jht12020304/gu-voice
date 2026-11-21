@@ -1,13 +1,12 @@
 # 泌尿科 AI 語音問診助手 — 系統架構設計
 
-> ⚠️ **2026-11-08**：React 網頁版已改成只給醫師看報告，下文提到的 React 病患／問診頁（`ConversationPage`、`MedicalInfoPage`、`screens/patient/*`）、`/research`、儀表板等頁面都已刪除，相關描述只當歷史參考；現行病患流程與研究分析畫面只在 Flutter App。
+> ⚠️ **2026-11-08**：React 網頁版已改成只給醫師看報告，下文提到的 React 病患／問診頁（`ConversationPage`、`MedicalInfoPage`、`screens/patient/*`）、`/research`、儀表板等頁面都已刪除，相關描述只當歷史參考；現行病患流程與研究分析畫面只在原生 iOS。
 
-> **iOS App（`flutter_app/`）與 React 網頁版（`frontend/`）都持續維護，共用後端。**
+> **iOS App（`ios_native/`）與 React 網頁版（`frontend/`）都持續維護，共用後端。**
 > 維護與驗證入口見 [README.md](README.md)。本文件描述兩端與共用問診管線；
 > 前端不變式（尤其 §2.2.1 的語音管線）兩端都適用，功能差異仍需逐端驗證。
 > iOS 已有 TestFlight 管道，設定見 [ios_release_settings.md](ios_release_settings.md)。
-> 已知缺口見 [TODO.md](TODO.md)。Flutter 專屬慣例（`_lngKeyed` 包路由、
-> `conversationControllerProvider` 必須 autoDispose）見 [../flutter_app/README.md](../flutter_app/README.md)。
+> [原生 iOS 指南](../ios_native/README.md) 提供 Xcode 與 kiosk 驗收流程。
 
 ## 1. 產品概述
 
@@ -410,7 +409,7 @@ Celery SOAP 路徑自己重組 `patient_info`、只放 name/gender/age，所以�
 
 **`plan.patient_education` 與 `summary` 是病患面欄位**，直接渲染在
 `frontend/src/screens/patient/PatientSessionDetailPage.tsx` 與
-`flutter_app/lib/features/patient/patient_session_detail_page.dart`。
+`ios_native/App/KioskPatientRecord.swift`。
 因此受 kiosk 措辭鐵律約束（「請稍候等看診」「請告知現場醫護」，禁「立即就醫」），
 prompt 與出口消毒兩層都要有。判準是「**有沒有叫病患自行離場**」而不是「有沒有出現某個詞」
 ——「醫師會為您安排急診評估」對候診中的病患不違規。`plan` 的其他欄位是醫師面，不受限制。
@@ -467,24 +466,20 @@ critical 紅旗中止、硬上限前遲到 critical、**遲到 critical 的 drai
 
 | 檢視 | 用途 | 資料來源 |
 |---|---|---|
-| 清單（預設） | **2026-11-08 起預設只列今天**：上方日期列 ‹ 前一天／點日期選日／後一天 ›／「全部」（＝最新 50 筆）；再用狀態 tab 與關鍵字找。每次登入回到今天；篩單日時副標顯示開始時間＋時長 | 單日：`GET /sessions?limit=100&date_from&date_to`（裝置時區位移，`sessions_list_controller.dart`）；全部：`GET /sessions?limit=50`；皆由 dashboard WS 事件觸發重抓 |
+| 清單（預設） | **2026-11-08 起預設只列今天**：上方日期列 ‹ 前一天／點日期選日／後一天 ›／「全部」（＝最新 50 筆）；再用狀態 tab 與關鍵字找。每次登入回到今天；篩單日時副標顯示開始時間＋時長 | 單日：`GET /sessions?limit=100&date_from&date_to`（裝置時區位移，`ios_native/App/SessionScreens.swift`）；全部：`GET /sessions?limit=50`；皆由 dashboard WS 事件觸發重抓 |
 | 日曆 | **以日期為索引**：點一天＝那天的問診，並疊一層時間管理（總時長／平均／第一場～最後一場／每場起訖與時長／兩場之間的空檔） | `GET /sessions?date_from&date_to`（游標翻完整月），前端依**裝置本地日期**分桶 |
 
 ⚠️ **日界線**：後端 `/dashboard/*` 的日／月區間是 **UTC 切日**（`dashboard_service._parse_day_range`
 ／`_parse_month_range`），在 +08:00 的診間等於把一天切在早上八點。日曆刻意**不用**那支
-月統計來畫格子——格子上的數字會跟點進去的清單對不起來。兩者共用同一份場次資料、在前端
-依本地日期分桶（`flutter_app/lib/features/doctor/screens/session_calendar_view.dart` 的
-`sessionLocalDay` / `bucketByLocalDay`），分桶錨點是 `created_at`（與後端日期篩選比對的
-欄位一致），顯示時間用 `started_at ?? created_at`。同一個坑在其他頁面仍未修——
-見 `docs/TODO.md` §U15。
+月統計來畫格子，避免格子上的數字與清單不符。
+原生 App 的日曆以裝置本地日期分桶，日期篩選帶裝置的時區位移。`SessionsScreen` 使用 `created_at` 對齊後端場次查詢。
 
 **場次詳情不提供「指派給我」（2026-11-08，PR #127 移除）：** 醫師本來就能操作未指派場次（後端 `_authorize_session_access`：`doctor_id` 為空或為自己），按鈕多餘；操作卡只剩完成／取消／產生報告。後端 `POST /sessions/{id}/assign` 仍在，App 不再呼叫。
 
 **問診起訖與時長（2026-11-08，PR #124）：** iOS 報告頁標題下與逐字稿分頁頂部顯示
 `09:12:03–09:19:40 · 持續時間 7:37`，逐字稿每句標 `HH:mm:ss`；場次詳情的持續時間格同樣顯示起訖＋時長；
 網頁報告頁標題區也有同一行。來源優先序：`started_at`／`completed_at`／`duration_seconds`，缺值時用
-逐字稿第一句／最後一句的 `created_at` 補（Flutter `shared/format.dart` 的 `consultWindow`、
-React `utils/consultWindow.ts`，兩端邏輯相同）。
+逐字稿第一句／最後一句的 `created_at` 補。
 
 **軟刪除問診（2026-08-23，admin 專屬）：** `DELETE /api/v1/sessions/{id}`（`require_role("admin")`，
 **刻意不套用「醫師＝管理員」**）標記 `sessions.is_deleted`，之後所有讀取路徑一律過濾掉；
@@ -504,7 +499,7 @@ React `utils/consultWindow.ts`，兩端邏輯相同）。
 
 | 端 | 位置 |
 |---|---|
-| 頁面 | `flutter_app/lib/features/doctor/screens/quick_orders_page.dart` |
+| 頁面 | `ios_native/App/ReportActions.swift` |
 | 端點 | `POST /api/v1/sessions/{id}/exam-orders`、`GET .../exam-orders/latest` |
 | 資料 | `exam_orders`（append-only，見 [session_data_inventory.md](session_data_inventory.md) §5.4） |
 
@@ -645,7 +640,7 @@ React `utils/consultWindow.ts`，兩端邏輯相同）。
 
 | 層級 | 技術 | 說明 |
 |------|------|------|
-| Frontend | React Native / Flutter | 跨平台 App |
+| Frontend | SwiftUI | 原生 iOS App |
 | Backend | Node.js / Python (FastAPI) | API 服務 |
 | LLM | Claude API / GPT-4o | 對話引擎 + 報告生成 |
 | STT | Whisper API / Google STT | 語音轉文字 |

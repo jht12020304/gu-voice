@@ -144,54 +144,29 @@ jobs:
           VITE_WS_BASE_URL: ws://localhost:8000/api/v1/ws
         run: npm run build
 
-  # ──────────────────────────────────────────────────────────────────────
-  # iOS app checks (Flutter). React remains the maintained web client.
-  #
-  # Added 2026-07-26: CI had zero Flutter coverage, so an `unnecessary_underscores`
-  # info slipped through review. `flutter analyze` exits 1 on info-level issues too
-  # (verified), which is exactly what we want here.
-  #
-  # ubuntu is enough: analyze + unit tests need no Apple toolchain. iOS/Android
-  # builds and `integration_test/` (needs a real simulator/device) stay local —
-  # `flutter test` with no args only runs `test/`, so the integration suite is
-  # naturally excluded rather than needing an ignore.
-  # ──────────────────────────────────────────────────────────────────────
-  flutter-checks:
-    name: flutter-checks
-    runs-on: ubuntu-latest
+  ios-native-checks:
+    name: ios-native-checks
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Third-party action (de-facto standard for Flutter CI). Mutable tag; this job
-      # has no secrets and only reads the repo, so the blast radius is a broken build.
-      # Pin to a full commit SHA if that ever stops being true.
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          # Keep in step with the version used locally (`flutter --version`), so CI
-          # and dev machines fail on the same lints.
-          flutter-version: "3.41.3"
-          channel: stable
-          cache: true
+      - name: Build
+        run: |
+          xcodebuild -version
+          xcodebuild -project ios_native/GUVoice.xcodeproj -scheme GUVoice \
+            -destination 'generic/platform=iOS Simulator' \
+            -disableAutomaticPackageResolution build
 
-      - name: Install Flutter dependencies
-        working-directory: flutter_app
-        run: flutter pub get
-
-      - name: Analyze
-        working-directory: flutter_app
-        run: flutter analyze
-
-      - name: Test
-        working-directory: flutter_app
-        run: flutter test
-
-      - name: Calendar across daylight saving changes
-        working-directory: flutter_app
-        env:
-          TZ: America/New_York
-        run: flutter test --no-pub test/session_calendar_test.dart
+      - name: Run native unit tests
+        run: |
+          xcodebuild -project ios_native/GUVoice.xcodeproj -scheme GUVoice \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
+            -parallel-testing-enabled NO -disableAutomaticPackageResolution \
+            -only-testing:GUVoiceTests test
 
   # ──────────────────────────────────────────────────────────────────────
   # Web browser tests use the mocked API in playwright.config.ts.

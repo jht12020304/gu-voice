@@ -7,8 +7,7 @@
    reference(source of truth)。
 2. Mirror — `frontend/public/locales` 是 React 的 vite build 鏡像。
    比對「檔案集合」與「每個檔的 key 集合」是否與 React source 一致。
-   iOS 與網頁持續並行維護，各端有自己的畫面與文案；Flutter assets 是
-   獨立來源，用 --locales-dir 檢查，不能當成 React 的鏡像。
+   iOS 用 --ios-app-dir 檢查 String Catalog 和 kiosk 的五份 Kiosk.strings。
 
 支援 human-readable、JSON 與 GitHub Actions Markdown summary 三種輸出,
 並以 exit code 反映檢查結果,供 CI 掛鉤。
@@ -24,7 +23,7 @@ Exit code 慣例(CI 依賴,勿改):
     python scripts/check_translations.py --github-summary
     python scripts/check_translations.py --threshold 90
     python scripts/check_translations.py --mirrors ""          # 只跑 coverage
-    python scripts/check_translations.py --locales-dir flutter_app/assets/locales
+    python scripts/check_translations.py --ios-app-dir ios_native/App
 
 設計備忘:
 - 盡量用 Python 3.12 標準庫(argparse / json / pathlib),不引入外部依賴。
@@ -42,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -54,8 +54,12 @@ DEFAULT_THRESHOLD = 95.0
 DEFAULT_BETA_LOCALES = "ja-JP,ko-KR,vi-VN"
 BETA_ALLOWED_NAMESPACES = {"common"}  # beta locale 只檢查這些 namespace
 
-# React build 鏡像。Flutter 是獨立客戶端，CI 另以 --locales-dir 檢查。
+# React build 鏡像。
 DEFAULT_MIRROR_DIRS = ("frontend/public/locales",)
+IOS_LOCALES = {"zh-TW": "zh-Hant", "en-US": "en-US", "ja-JP": "ja", "ko-KR": "ko", "vi-VN": "vi"}
+OPENSTEP_STRING = r'"((?:[^"\\]|\\.)*)"'
+KIOSK_ENTRY = re.compile(rf"\s*{OPENSTEP_STRING}\s*=\s*{OPENSTEP_STRING}\s*;")
+KIOSK_COMMENT = re.compile(r"\s*(?:/\*[\s\S]*?\*/|//[^\n]*|\Z)")
 
 
 # ---------------------------------------------------------------------------
@@ -505,6 +509,70 @@ def check_translations(
     return report
 
 
+def kiosk_keys(path: Path) -> set[str]:
+    keys = set()
+    text = path.read_text(encoding="utf-8-sig")
+    offset = 0
+    while offset < len(text):
+        comment = KIOSK_COMMENT.match(text, offset)
+        if comment:
+            offset = comment.end()
+            continue
+        entry = KIOSK_ENTRY.match(text, offset)
+        if entry is None:
+            line = text.count("\n", 0, offset) + 1
+            raise ValueError(f"{path}:{line}: invalid .strings entry")
+        key, value = entry.groups()
+        if key in keys or not value.strip():
+            raise ValueError(f"{path}: duplicate key or empty translation for {key!r}")
+        keys.add(key)
+        offset = entry.end()
+    return keys
+
+
+def check_ios_translations(app_dir: Path) -> FullReport:
+    catalog = load_json(app_dir / "Localizable.xcstrings")
+    reference = DEFAULT_REFERENCE
+    source = IOS_LOCALES[reference]
+    strings = catalog["strings"]
+    if catalog["sourceLanguage"] != source or not strings:
+        raise ValueError(f"Localizable.xcstrings must have {source} as its source and contain entries")
+
+    kiosk_reference = kiosk_keys(app_dir / f"{source}.lproj/Kiosk.strings")
+    if not kiosk_reference:
+        raise ValueError(f"{source}.lproj/Kiosk.strings is empty")
+    catalog_reference = set(strings)
+
+    report = FullReport(reference=reference, threshold=100.0, beta_locales=[])
+    for api_locale, apple_locale in IOS_LOCALES.items():
+        catalog_keys = set()
+        for key, entry in strings.items():
+            unit = entry.get("localizations", {}).get(apple_locale, {}).get("stringUnit", {})
+            if unit.get("state") == "translated" and unit.get("value", "").strip():
+                catalog_keys.add(key)
+        kiosk_path = app_dir / f"{apple_locale}.lproj/Kiosk.strings"
+        kiosk_exists = kiosk_path.is_file()
+        kiosk_target = kiosk_keys(kiosk_path) if kiosk_exists else set()
+        locale = LocaleReport(locale=api_locale, is_beta=False)
+        for name, expected, actual, exists in (
+            ("Localizable.xcstrings", catalog_reference, catalog_keys, bool(catalog_keys)),
+            ("Kiosk.strings", kiosk_reference, kiosk_target, kiosk_exists),
+        ):
+            missing = sorted(expected - actual)
+            if api_locale == reference and missing:
+                raise ValueError(f"{name}: missing {apple_locale} source translations: {', '.join(missing)}")
+            locale.namespaces.append(NamespaceReport(
+                namespace=name,
+                reference_count=len(expected),
+                target_count=len(actual),
+                missing_keys=missing,
+                extra_keys=sorted(actual - expected),
+                target_exists=exists,
+            ))
+        report.locales.append(locale)
+    return report
+
+
 # ---------------------------------------------------------------------------
 # Renderers
 # ---------------------------------------------------------------------------
@@ -845,6 +913,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory containing <locale>/<namespace>.json (default: %(default)s)",
     )
     parser.add_argument(
+        "--ios-app-dir",
+        type=Path,
+        help="Check the native String Catalog and kiosk strings in this App directory",
+    )
+    parser.add_argument(
         "--reference",
         default=DEFAULT_REFERENCE,
         help="Reference locale used as source of truth (default: %(default)s)",
@@ -852,8 +925,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--threshold",
         type=float,
-        default=DEFAULT_THRESHOLD,
-        help="Minimum coverage percent for active locales (default: %(default)s)",
+        help="Minimum coverage percent (default: 95 for web, 100 for iOS)",
     )
     parser.add_argument(
         "--beta-locales",
@@ -908,13 +980,17 @@ def main(argv: list[str] | None = None) -> int:
         mirror_dirs = [m.strip() for m in args.mirrors.split(",") if m.strip()]
 
     try:
-        report = check_translations(
-            locales_dir=locales_dir,
-            reference=args.reference,
-            beta_locales=beta_locales,
-            mirror_dirs=mirror_dirs,
-        )
-    except FileNotFoundError as exc:
+        if args.ios_app_dir is not None:
+            report = check_ios_translations(args.ios_app_dir)
+        else:
+            report = check_translations(
+                locales_dir=locales_dir,
+                reference=args.reference,
+                beta_locales=beta_locales,
+                mirror_dirs=mirror_dirs,
+            )
+            report.threshold = DEFAULT_THRESHOLD
+    except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
         message = f"Error: {exc}"
         if args.json_out:
             print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
@@ -922,7 +998,8 @@ def main(argv: list[str] | None = None) -> int:
             print(message, file=sys.stderr)
         return 2
 
-    report.threshold = float(args.threshold)
+    if args.threshold is not None:
+        report.threshold = args.threshold
 
     if args.json_out:
         print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))

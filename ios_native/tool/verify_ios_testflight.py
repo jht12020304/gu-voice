@@ -9,7 +9,12 @@ import tempfile
 from pathlib import Path
 
 NATIVE_DIR = Path(__file__).resolve().parents[1]
-FLUTTER_DIR = NATIVE_DIR.parent / "flutter_app"
+LOCALES = ("en-US", "ja", "ko", "vi", "zh-Hant")
+PRODUCTION_ENDPOINTS = {
+    "API_BASE": "https://gu.zymomed.com/api/v1",
+    "WS_BASE": "wss://gu.zymomed.com/api/v1/ws",
+    "WEB_BASE": "https://gu.zymomed.com",
+}
 BUNDLE_ID = "com.guvoice.guVoice"
 IDENTITY_KEYS = (
     "application-identifier",
@@ -49,17 +54,6 @@ def signature(app):
     return plistlib.loads(subprocess.check_output(["codesign", "-d", "--entitlements", "-", "--xml", app]))
 
 
-def verify_shared(ipa, expected_build, directory):
-    # Flutter derives its verification dump path from the script location.
-    tool = directory / "tool"
-    tool.mkdir(parents=True)
-    for name in ("build_ios_testflight.sh", "env.production.sh"):
-        (tool / name).symlink_to(FLUTTER_DIR / "tool" / name)
-    subprocess.run([
-        tool / "build_ios_testflight.sh", f"--verify-only={ipa}", f"--build-number={expected_build}",
-    ], env={**os.environ, "TMPDIR": str(directory), "API_BASE": "", "WS_BASE": "", "WEB_BASE": ""}, check=True)
-
-
 def scan_bundle(root):
     for path in root.rglob("*"):
         relative = path.relative_to(root)
@@ -81,11 +75,10 @@ def scan_bundle(root):
     print("執行檔未發現 GUVOICE_KIOSK_TEST_FIXTURE。位元組掃描無法辨識 Swift 編進指令的短字串。")
 
 
-def verify(ipa, expected_build, version, team_id, legacy):
+def verify(ipa, expected_build, version, team_id, reference):
     build_dir = NATIVE_DIR / "build"
     build_dir.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=build_dir) as work:
-        verify_shared(ipa, expected_build, Path(work) / "shared")
         unpacked = Path(work) / "native"
         app = extract_app(ipa, unpacked)
         entitlements = signature(app)
@@ -100,28 +93,26 @@ def verify(ipa, expected_build, version, team_id, legacy):
         for key, expected in {
             "application-identifier": f"{team_id}.{BUNDLE_ID}",
             "com.apple.developer.team-identifier": team_id,
+            "aps-environment": "production",
         }.items():
             require(entitlements.get(key) == expected, f"簽章 {key} 預期 {expected}")
             print(f"{key} = {expected}")
+        require(entitlements.get("get-task-allow", False) is False, "簽章允許除錯（get-task-allow）")
+        require(
+            entitlements.get("com.apple.developer.usernotifications.time-sensitive") is True,
+            "缺少 Time Sensitive Notifications 簽章權限",
+        )
+        print("get-task-allow = false 或未簽入，Time Sensitive Notifications = true")
         print(f"codesign --verify 通過，Apple Distribution，TeamIdentifier={team_id}")
 
         info = plist(app / "Info.plist")
-        env = subprocess.check_output([
-            "bash", "-c",
-            'source "$1"; printf "%s\\n" "$PROD_API_BASE" "$PROD_WS_BASE" "$PROD_WEB_BASE"',
-            "bash", FLUTTER_DIR / "tool/env.production.sh",
-        ], text=True).splitlines()
         expected = {
+            "CFBundleIdentifier": BUNDLE_ID,
             "CFBundleShortVersionString": version,
             "CFBundleVersion": expected_build,
-            "API_BASE": env[0],
-            "WS_BASE": env[1],
-            "WEB_BASE": env[2],
             "KIOSK_IDLE_TIMEOUT_SECONDS": "180",
+            **PRODUCTION_ENDPOINTS,
         }
-        require(env[0].startswith("https://") and env[0].endswith("/api/v1"), "API_BASE 格式錯誤")
-        require(env[1].startswith("wss://") and env[1].endswith("/api/v1/ws"), "WS_BASE 格式錯誤")
-        require(env[2].startswith("https://"), "WEB_BASE 格式錯誤")
         for key, value in expected.items():
             require(info.get(key) == value, f"{key} 預期 {value}，實際 {info.get(key)!r}")
             print(f"{key} = {value}")
@@ -129,8 +120,13 @@ def verify(ipa, expected_build, version, team_id, legacy):
         require("remote-notification" in info.get("UIBackgroundModes", []), "缺少 remote-notification")
         mic = info.get("NSMicrophoneUsageDescription", "")
         require(isinstance(mic, str) and mic.strip(), "缺少麥克風用途說明")
+        require((app / "Assets.car").is_file(), "缺少 Assets.car")
         icon = info.get("CFBundleIcons", {}).get("CFBundlePrimaryIcon", {}).get("CFBundleIconName")
         require(icon == "AppIcon", "缺少 CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName = AppIcon")
+        for locale in LOCALES:
+            for resource in ("InfoPlist.strings", "Kiosk.strings", "Localizable.strings"):
+                require((app / f"{locale}.lproj" / resource).is_file(), f"缺少 {locale} 的 {resource}")
+        print("五語皆包含 App、kiosk 與 Info.plist 的翻譯。")
         require(info.get("ITSAppUsesNonExemptEncryption") is False, "出口合規旗標應為布林 false")
         require(info.get("TFInternalTestingOnly") is True, "缺少 TFInternalTestingOnly = true")
         print(f"UIBackgroundModes 含 remote-notification，麥克風用途說明：{mic}")
@@ -140,27 +136,26 @@ def verify(ipa, expected_build, version, team_id, legacy):
 
         firebase = plist(app / "GoogleService-Info.plist")
         require(firebase.get("BUNDLE_ID") == BUNDLE_ID, "Firebase Bundle ID 錯誤")
-        require(firebase == plist(FLUTTER_DIR / "ios/Runner/GoogleService-Info.plist"), "Firebase 設定與來源不同")
-        print("GoogleService-Info.plist 與 Flutter 專案來源內容相同。")
+        require(firebase == plist(NATIVE_DIR / "Config/GoogleService-Info.plist"), "Firebase 設定與來源不同")
+        print("GoogleService-Info.plist 與原生專案來源內容相同。")
         scan_bundle(unpacked)
 
-        if not legacy:
-            print("未提供舊 Flutter IPA，跳過簽章權限與 Firebase 實包比對。")
+        if not reference:
             return
-        old_app = extract_app(legacy, Path(work) / "flutter")
+        old_app = extract_app(reference, Path(work) / "reference")
         old_info = plist(old_app / "Info.plist")
         require(old_info.get("CFBundleIdentifier") == BUNDLE_ID, "Flutter 參考 IPA 的 Bundle ID 錯誤")
         old = signature(old_app)
-        require(firebase == plist(old_app / "GoogleService-Info.plist"), "Firebase 設定與 Flutter IPA 不同")
+        require(firebase == plist(old_app / "GoogleService-Info.plist"), "Firebase 設定與參考 IPA 不同")
         for key in IDENTITY_KEYS:
-            require(old.get(key) == entitlements.get(key), f"與 Flutter IPA 的 {key} 不一致")
-            print(f"與 Flutter IPA 相同：{key} = {entitlements.get(key)!r}")
-        print(f"Flutter 參考 build = {old_info['CFBundleVersion']}，GoogleService-Info.plist 內容相同。")
+            require(old.get(key) == entitlements.get(key), f"與參考 IPA 的 {key} 不一致")
+            print(f"與參考 IPA 相同：{key} = {entitlements.get(key)!r}")
+        print(f"參考 build = {old_info['CFBundleVersion']}，GoogleService-Info.plist 內容相同。")
         differences = sorted(key for key in old.keys() | entitlements.keys() if old.get(key) != entitlements.get(key))
         for key in differences:
-            print(f"Entitlement 差異 {key}：Flutter {old.get(key)!r}，原生 {entitlements.get(key)!r}")
+            print(f"Entitlement 差異 {key}：參考 {old.get(key)!r}，原生 {entitlements.get(key)!r}")
         if not differences:
-            print("Flutter 與原生的已簽 entitlements 完全相同。")
+            print("參考 IPA 與候選 IPA 的已簽 entitlements 完全相同。")
 
 
 if __name__ == "__main__":

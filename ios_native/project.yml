@@ -19,7 +19,7 @@ targets:
     platform: iOS
     sources:
       - App
-      - path: ../flutter_app/ios/Runner/GoogleService-Info.plist
+      - path: Config/GoogleService-Info.plist
         buildPhase: resources
     dependencies:
       - package: Firebase

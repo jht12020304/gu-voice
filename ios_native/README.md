@@ -4,9 +4,9 @@
 
 ## 在本機建置與測試
 
-使用支援 Swift 6 的 Xcode 16 或更新版本。從 repo 根目錄開啟 `ios_native/GUVoice.xcodeproj`，選 **GUVoice** scheme 和專用 simulator。專案已包含在 repo 中。修改 `project.yml` 後才需要在 `ios_native/` 執行 `xcodegen generate`。可用 `brew install xcodegen` 安裝。原生版測試在本機執行。Xcode 會由 Swift Package Manager 取得 Firebase Messaging。原生專案與 Flutter 共用既有 `GoogleService-Info.plist`。
+使用 Xcode 26.6 或更新版本。開啟 `ios_native/GUVoice.xcodeproj`，選 **GUVoice** scheme 和專用 simulator。修改 `project.yml` 後才需要在 `ios_native/` 執行 `xcodegen generate`，並保留已提交的 `Package.resolved`。Xcode 用 Swift Package Manager 取得 Firebase Messaging，將 `Config/GoogleService-Info.plist` 打進 App。
 
-Flutter 退役前，將 `../flutter_app/ios/Runner/GoogleService-Info.plist` 搬入原生專案，更新 `project.yml`、Xcode 專案與匯出驗證腳本的參照，並確認原生 IPA 順利打包同一份 Firebase 設定。將 `../flutter_app/ios/ExportOptions.plist` 移到原生 `Config/`，並將 `../flutter_app/tool/env.production.sh` 與 `../flutter_app/tool/build_ios_testflight.sh` 的產物驗證移到原生 `tool/`，更新打包腳本參照後再移除 Flutter。
+CI 建置 simulator App 並執行 `GUVoiceTests`。下方 kiosk UI 測試使用獨立的合成資料 Compose。
 
 1. 從 repo 根目錄啟動本機後端。若 `backend/.env` 不存在，先建立空檔。
 
@@ -23,7 +23,7 @@ Flutter 退役前，將 `../flutter_app/ios/Runner/GoogleService-Info.plist` 搬
 
    xcodebuild -project ios_native/GUVoice.xcodeproj -scheme GUVoice \
      -destination 'platform=iOS Simulator,id=<unit-simulator-id>' \
-     -parallel-testing-enabled NO test
+     -parallel-testing-enabled NO -only-testing:GUVoiceTests test
    ```
 
 3. 如需檢查 Release 設定，在本機產出 unsigned archive。
@@ -41,7 +41,7 @@ Flutter 退役前，將 `../flutter_app/ios/Runner/GoogleService-Info.plist` 搬
 | Debug · `Config/Local.xcconfig` | `http://127.0.0.1:8000/api/v1` | `ws://127.0.0.1:8000/api/v1/ws` | `http://127.0.0.1` |
 | Release · `Config/Production.xcconfig` | `https://gu.zymomed.com/api/v1` | `wss://gu.zymomed.com/api/v1/ws` | `https://gu.zymomed.com` |
 
-Debug 允許 loopback HTTP。需要開啟本機 React 報告頁時，執行 `docker compose up -d frontend`。Web 連結帶 App 目前的語言與場次 ID。App 可切換繁體中文、英文、日文、韓文與越南文。首次啟動比照 Flutter，依裝置的主要語言比對，沒有相符項目時使用繁體中文。之後以 App 內選擇為準。
+Debug 允許 loopback HTTP。需要開啟本機 React 報告頁時，執行 `docker compose up -d frontend`。Web 連結帶 App 目前的語言與場次 ID。App 可切換繁體中文、英文、日文、韓文與越南文。首次啟動依裝置的主要語言比對，沒有相符項目時使用繁體中文。之後以 App 內選擇為準。
 
 ## 病患 kiosk
 
@@ -87,7 +87,7 @@ docker compose -f ios_native/TestsSupport/kiosk-compose.yml stop
 
 本專案使用 Flutter 版相同的 Team `K593X99M7G`、Bundle ID `com.guvoice.guVoice` 和 Automatic Signing。同 ID 安裝會取代裝置上的舊版。只在專用 simulator 做覆裝驗收，使用獨立本機 Compose 的合成資料。應在另一台 simulator 跑單元測試。禁止覆裝服役中的 kiosk、使用 production 資料測試、加入 `-allowProvisioningUpdates` 或上傳 TestFlight／App Store Connect。
 
-以 `fvm flutter` 建置連線至同一個本機後端的 Flutter 版，登入測試醫師帳號。保留舊 App 的安裝，直接在同一台 simulator 安裝 SwiftUI 版。啟動後應進入醫師報告清單。開啟有紅旗的合成場次，核對病患姓名、紅旗、SOAP 和逐字稿。登出後重開 App，再換另一個測試醫師，確認只讀得到後端授權的資料。管理員應進入診間首頁，病患帳號應進入問診首頁。
+需要覆裝舊版時，見 [iOS 回滾手冊](../docs/runbook/ios_rollback.md) 的來源 SHA。先在專用 simulator 用舊版登入合成醫師帳號，再覆裝原生版。核對報告、紅旗、SOAP 和逐字稿。登出、重開並換另一位測試醫師，確認只讀得到後端授權的資料。另驗證管理員與病患帳號分流。
 
 原生 App 從同一個 Keychain access group 讀取 Flutter 的 `flutter_secure_storage_service`。遷移成功後，原生格式以單筆紀錄保存 access 和 refresh token，並刪除 Flutter 項目。遷移寫入失敗會保留 Flutter 項目並顯示登入頁。暫時無法讀取 Keychain 時會回到登入頁，可在裝置解鎖後重試。登出時先遮住帳號畫面，透過後端解除裝置綁定，然後清除憑證。斷網時重啟仍保留待解除狀態。舊憑證過期時，原帳號重新驗證只會完成解除綁定，接著回到登入頁。若裝回 Flutter，請重新登入。
 
@@ -112,14 +112,6 @@ docker compose -f ios_native/TestsSupport/kiosk-compose.yml stop
 
 3. 確認回應 HTTP 200，並在稽核日誌核對 `push_device_recovery` 和該復原編號。請原使用者在 App 按 **重試**。若憑證已過期，先以原帳號重新驗證。App 查到解除紀錄後回到登入頁。
 
-## 追平 Flutter
-
-| 階段 | 工作 |
-| --- | --- |
-| C · 醫師與管理員 | 已接上診間與系統管理功能。全院帳號目錄和特權操作限 system admin。Doctor 與臨床 admin 可讀指派給本人的場次及後端允許的舊未指派場次。臨床研究母體只含本人指派的場次。 |
-| D · 語音與病患 kiosk | 已接上病患 kiosk、原生錄放音、閒置登出，以及醫師代病患開場與續問。 |
-| E · 切換 | 驗證既有 Flutter 裝置綁定、換人後的鎖定畫面、簽章與實機覆裝。依 [iOS 發布設定](../docs/ios_release_settings.md) 的時間戳規則遞增 build 號，完成追平後切換並退役 Flutter。 |
-
 ## 本機驗收截圖
 
 以下是第一階段的 iPhone 17 Pro simulator 截圖，畫面中的資料皆為合成資料。
@@ -128,9 +120,9 @@ docker compose -f ios_native/TestsSupport/kiosk-compose.yml stop
 - [報告與紅旗](Screenshots/03-native-report.png) · [SOAP 四段](Screenshots/04-native-soap.png) · [逐字稿](Screenshots/05-native-transcript.png)
 - [換第二位醫師](Screenshots/06-native-second-doctor.png) · [管理員占位頁](Screenshots/07-native-admin.png) · [病患 kiosk 占位頁](Screenshots/08-native-kiosk.png)
 
-## 正式切換時的人工驗收
+## 發佈前的實機驗收
 
-發佈用的簽章打包與 TestFlight 實機驗收見 [原生 iOS 切換版](../docs/ios_release_settings.md#61-原生-ios-切換版)。後端部署完成後，由使用者用測試帳號與合成資料執行下列清單。
+發佈用的簽章打包與 TestFlight 實機驗收見 [原生 iOS 切換版](../docs/ios_release_settings.md#61-原生-ios-發佈)。後端部署完成後，由使用者用測試帳號與合成資料執行下列清單。
 
 1. 先確認 Apple Developer App ID 已開啟 Push Notifications 和 Time Sensitive Notifications。核對 Team `K593X99M7G` 與 Bundle ID `com.guvoice.guVoice`，並檢查已簽 App 的 APNs 環境、Time Sensitive entitlement 和 `remote-notification` 背景模式。
 2. 在同一台驗收裝置的 Flutter 版登入醫師 A。保留登入，覆裝相同 Bundle ID 的 SwiftUI 版。確認保留 A 的登入。核對報告、紅旗、SOAP、逐字稿與網頁連結。讓 access token 過期後重開 App，確認可繼續查閱。

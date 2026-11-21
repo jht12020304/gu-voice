@@ -3,8 +3,7 @@
 <!--
   Gu Voice — iOS TestFlight 匯出設定（ExportOptions.plist）
 
-  用途：`fvm flutter build ipa --export-options-plist=ios/ExportOptions.plist`
-        （由 tool/build_ios_testflight.sh 帶入，不建議手動呼叫）
+  用途：由 ios_native/tool/build_ios_testflight.sh 傳給 xcodebuild -exportArchive。
 
   合法 key 與允許值的唯一權威來源＝這台機器的 `xcodebuild -help` 最末段
   「Available keys for -exportOptionsPlist:」。本檔註解中所有引號內英文，
@@ -31,10 +30,6 @@
 
     → 查證結論：這台 Xcode 26.6 仍接受舊名 app-store，但已明文標記 deprecated，
       正名是 app-store-connect。這裡用正名。
-    → 順帶查證：`flutter build ipa --export-method` 的說明只列 app-store / ad-hoc /
-      development / enterprise，那是 Flutter 3.41.3 自己寫死的過時清單。
-      所以本專案一律走 --export-options-plist（值直接交給 xcodebuild），
-      不要用 --export-method，否則會被 Flutter 的舊清單綁住。
   -->
   <key>method</key>
   <string>app-store-connect</string>
@@ -98,7 +93,7 @@
        Connect? Defaults to YES."
 
     設為 false：build number 由 build_ios_testflight.sh 以 UTC 時間戳決定並用
-    --build-number 傳入，必須是我們印在終端機上的那一個值，不能被 Xcode 偷偷改掉，
+    CURRENT_PROJECT_VERSION 傳入，必須是我們印在終端機上的那一個值，不能被 Xcode 偷偷改掉，
     否則腳本最後印出的 CFBundleVersion 與 App Store Connect 上看到的會對不起來。
     （destination = export 時本 key 實際上不會生效，但明寫出來是為了表態：
       版本號的權威在腳本，不在 Xcode。）
@@ -145,10 +140,8 @@
           → production 內測只給獲授權院內人員；未授權工程／PM 走 staging，
             詳細邊界見 docs/TODO.md §V8。
 
-    另註：打包腳本的第 6 關【仍然檢查不到它】——這個 key 是給 xcodebuild 的匯出
-    指示，不會在 .ipa 的 bundle 或 entitlements 裡留下痕跡。所以「產物驗證全綠」
-    不等於「這道旗標有帶到」；要看就看 ASC 上那個「內部」標記（上傳後順手瞄一眼即可，
-    不必再當成必辦事項）。
+    原生匯出驗證會檢查已簽 Info.plist 的 TFInternalTestingOnly=true。
+    上傳後再核對 TestFlight 的「內部」標記。
 
     → 【不要拿掉】。
     → 內部測試員（含日後加人）不受影響，照樣可以裝。

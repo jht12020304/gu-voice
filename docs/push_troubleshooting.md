@@ -79,7 +79,7 @@ PY
   `register_fcm_token` 設回 True 並更新 `updated_at`；`updated_at` 沒動 = 那支 App 根本沒重新註冊。
 - `device_name='localhost'` = 真 iPhone；`*.local`（如 `chundeMac-mini.local`）= 模擬器。
   **模擬器拿不到 APNs token，推播在架構上就不可能送達。**
-- 完全沒有列 = App 端註冊失敗，回頭看 `push_service.dart` 的 debugPrint 或後端 access log
+- 完全沒有列 = App 端註冊失敗，回頭看 原生 App 的 Console 記錄 或後端 access log
   有沒有 `POST /api/v1/notifications/fcm-token`。
 
 ### 4. 通知有沒有被建立、推播任務有沒有跑
@@ -159,27 +159,21 @@ PY
 一般通知**。build `202609081800` 以前的每一顆都沒有這個 entitlement，所以後端一直以為紅旗會
 穿透勿擾，實際上從來沒有。
 
-**驗法**（對 export 出來的 .ipa，不是看 repo 的 entitlements 檔）：
+**驗法**：用已匯出的原生 IPA 與預期 build 號執行 `ios_native/tool/build_ios_testflight.sh --verify-only "$IPA" "$BUILD"`。驗證器會讀已簽章的 Time Sensitive entitlement。
 
-```bash
-unzip -q build/ios/ipa/gu_voice.ipa -d /tmp/ipa && codesign -d --entitlements :- /tmp/ipa/Payload/Runner.app
-# 期望看到 <key>com.apple.developer.usernotifications.time-sensitive</key><true/>
-```
-
-打包腳本第 6 關已會擋（2026-09-09 起）。⚠️ 用 `plutil -extract` 讀這個 key 要把點跳脫成
-`com\.apple\.developer\.…`，否則 plutil 把點當 key path 分隔符、永遠讀到空。
-
-**修法**（兩邊都要）：
-1. `flutter_app/ios/Runner/Runner.entitlements` 宣告該 key（已於 2026-09-09 加入）。
-2. App ID `com.guvoice.guVoice` 要有 **Time Sensitive Notifications** capability。專案是自動簽章且
-   `flutter build ipa` 帶 `-allowProvisioningUpdates`，Xcode 通常會在打包時自動把它加到 App ID；
-   若簽章報 provisioning profile 缺該 entitlement，就到 developer.apple.com → Identifiers 手動勾。
+**修法**：
+1. 確認 `ios_native/Config/GUVoice.entitlements` 宣告該 key。
+2. 確認 App ID `com.guvoice.guVoice` 已開啟 **Time Sensitive Notifications** capability，且匯出的 distribution profile 允許該 entitlement。
 
 **限制**：就算修好，使用者仍可在「設定 → 通知 → UroSense」關掉「時效性通知」；它是提高送達
 機率，不是保證。要「靜音也響」得申請 Apple 的 Critical Alerts entitlement（需送審，醫療 App 是
 合格類別），另案處理。
 
-### 8. 推播收得到，但點下去不導頁（App 只是被帶到前景）
+### 8. 推播收得到，但點下去不導頁
+
+原生 App 的 `PushNotifications.swift` 接收系統通知點擊。使用合成通知分別測 App 在背景與冷啟動時的導頁，再確認明細仍受目前帳號的 API 授權限制。
+
+#### 2026-09-09 舊版稽核證據
 
 **症狀**：鎖定畫面亮、聲音有，點下去 App 打開卻停在原本的畫面（首頁／通知中心），沒有跳到
 `AppNotification.route()` 算出來的那一頁。從 App 內通知中心列表點同一則卻會正確導頁。

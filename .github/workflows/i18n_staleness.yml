@@ -11,8 +11,8 @@ name: i18n-staleness
     paths:
       - "frontend/src/**"
       - "frontend/public/locales/**"
-      - "flutter_app/assets/locales/**"
-      - "flutter_app/lib/**"
+      - "ios_native/App/Localizable.xcstrings"
+      - "ios_native/App/*.lproj/Kiosk.strings"
       - "frontend/i18next-parser.config.js"
       - "frontend/package.json"
       - "frontend/package-lock.json"
@@ -33,17 +33,14 @@ jobs:
       matrix:
         include:
           - client: web
-            locales: frontend/src/i18n/locales
-            mirrors: frontend/public/locales
+            args: --locales-dir frontend/src/i18n/locales --mirrors frontend/public/locales
+            threshold: 95
           - client: ios
-            locales: flutter_app/assets/locales
-            mirrors: ""
+            args: --ios-app-dir ios_native/App
+            threshold: 100
     env:
-      # Tunable — raise once en-US catches up, lower for emergencies.
-      THRESHOLD: "95"
+      THRESHOLD: ${{ matrix.threshold }}
       COMMENT_MARKER: "<!-- urosense-i18n-staleness-${{ matrix.client }} -->"
-      LOCALES_DIR: ${{ matrix.locales }}
-      MIRROR_DIRS: ${{ matrix.mirrors }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,7 +54,7 @@ jobs:
         id: json_report
         run: |
           python scripts/check_translations.py \
-            --locales-dir "${LOCALES_DIR}" --mirrors "${MIRROR_DIRS}" \
+            ${{ matrix.args }} \
             --threshold "${THRESHOLD}" \
             --json > translations.json
         continue-on-error: true
@@ -71,7 +68,7 @@ jobs:
       - name: Append report to GITHUB_STEP_SUMMARY
         run: |
           python scripts/check_translations.py \
-            --locales-dir "${LOCALES_DIR}" --mirrors "${MIRROR_DIRS}" \
+            ${{ matrix.args }} \
             --threshold "${THRESHOLD}" \
             --github-summary >> "$GITHUB_STEP_SUMMARY" || true
 
@@ -90,7 +87,7 @@ jobs:
           {
             echo "${COMMENT_MARKER}"
             python scripts/check_translations.py \
-              --locales-dir "${LOCALES_DIR}" --mirrors "${MIRROR_DIRS}" \
+              ${{ matrix.args }} \
               --threshold "${THRESHOLD}" \
               --github-summary || true
           } > pr_comment.md

@@ -34,7 +34,7 @@ GU-Voice 是一套**以語音對話為核心**的醫療遠端問診系統，協�
 
 > 2026-09-02 起不能只用 role 推斷病歷視野：doctor 與有 `license_number` 的 admin
 > 都是「臨床帳號」，只看 `sessions.doctor_id` 指派給自己的病患／場次／報告／紅旗；
-> 沒有執照欄位的 system admin 才保留全院稽核視野。病患在現行 Flutter 問診流程建立場次前
+> 沒有執照欄位的 system admin 才保留全院稽核視野。病患在原生 iOS 問診流程建立場次前
 > 必須先選醫師。
 
 ---
@@ -113,7 +113,7 @@ GU-Voice 是一套**以語音對話為核心**的醫療遠端問診系統，協�
 | 層級 | 服務 |
 |------|------|
 | 網頁版 | React `frontend/`，由自架 nginx 提供（`https://gu.zymomed.com`）；與 iOS 並行維護，分工見 [README.md](README.md) |
-| iOS App | Flutter `flutter_app/`，TestFlight 內部測試；設定見 [ios_release_settings.md](ios_release_settings.md) |
+| iOS App | SwiftUI `ios_native/`，TestFlight 內部測試；設定見 [ios_release_settings.md](ios_release_settings.md) |
 | 後端 | **自架 Mac**（docker compose 專案 `gu-voice-host`，Cloudflare Tunnel 對外；`backend/scripts/start.sh` 同容器起 uvicorn＋Celery） |
 | 資料庫 | **自架 PostgreSQL 17**（同 compose，每日 pg_dump 備份） |
 | 快取 / 佇列 | Redis 7（同 compose），同時做 Celery broker / result backend |
