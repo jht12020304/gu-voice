@@ -339,7 +339,7 @@ def _rest_wiring(monkeypatch):
 
     notif_calls: list[Any] = []
 
-    async def _notify(db, *, session_id, doctor_id, patient_id):
+    async def _notify(db, *, session_id, doctor_id):
         notif_calls.append(doctor_id)
         return SimpleNamespace(id=uuid.uuid4())
 

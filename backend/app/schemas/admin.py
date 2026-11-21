@@ -19,7 +19,7 @@ class AdminUserCreate(BaseModel):
     role: UserRole
     phone: Optional[str] = Field(None, max_length=20)
     department: Optional[str] = Field(None, max_length=100)
-    license_number: Optional[str] = Field(None, max_length=50)
+    license_number: Optional[str] = Field(None, max_length=50, pattern=r"\S")
     is_active: bool = True
 
 
@@ -30,7 +30,7 @@ class AdminUserUpdate(BaseModel):
     role: Optional[UserRole] = None
     phone: Optional[str] = Field(None, max_length=20)
     department: Optional[str] = Field(None, max_length=100)
-    license_number: Optional[str] = Field(None, max_length=50)
+    license_number: Optional[str] = Field(None, max_length=50, pattern=r"\S")
     is_active: Optional[bool] = None
 
 

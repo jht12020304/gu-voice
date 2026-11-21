@@ -191,6 +191,9 @@ class StubResult:
             return SimpleNamespace(language="zh-TW", doctor_id=None, patient_id=None)
         return None
 
+    def all(self):
+        return []  # No stored doctor language preference.
+
     def scalars(self) -> _StubScalars:
         """SELECT 的純量投影。預設空清單。
 

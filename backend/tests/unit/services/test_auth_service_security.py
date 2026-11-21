@@ -3,8 +3,7 @@ Unit tests for auth_service security fixes (P6-auth-backend).
 
 純 Python stub（無真 DB / 無真 Redis），只驗兩個 production blocker 的核心邏輯：
 
-- AUTH-3：公開註冊不得提權。`_is_admin` 是 register() 用來決定角色降級的閘門，
-  未登入 / 非 admin / 未知角色一律 False → register 強制 PATIENT。
+- AUTH-3：只有身分完整且沒有執照的 admin 可建立特權帳號。
 - reset_password str→UUID cast bug：forgot_password 以 str(user.id) 寫進 Redis，
   decode_responses=True 取回為 str；若直接拿 str 去比對 UUID 欄位，valid token
   也會查不到 user 而誤拋 user_not_found。修正後應正確以 UUID 找到 user 並改密碼，
@@ -20,12 +19,12 @@ from typing import Any
 
 import pytest
 
+from app.core.authz import is_system_admin
 from app.core.exceptions import NotFoundException, UnauthorizedException
 from app.models.enums import UserRole
 from app.services.auth_service import (
     RESET_TOKEN_KEY_PREFIX,
     AuthService,
-    _is_admin,
 )
 
 
@@ -35,39 +34,43 @@ def _run(coro):
 
 
 # ──────────────────────────────────────────────────────
-# AUTH-3：_is_admin 閘門
+# AUTH-3：is_system_admin 閘門
 # ──────────────────────────────────────────────────────
 
-def test_is_admin_none_is_false():
+def test_is_system_admin_none_is_false():
     # 公開（未認證）註冊 → 不是 admin → register 會降級為 PATIENT
-    assert _is_admin(None) is False
+    assert is_system_admin(None) is False
 
 
-def test_is_admin_patient_enum_is_false():
+def test_is_system_admin_patient_enum_is_false():
     user = SimpleNamespace(role=UserRole.PATIENT)
-    assert _is_admin(user) is False
+    assert is_system_admin(user) is False
 
 
-def test_is_admin_doctor_cannot_self_elevate():
+def test_is_system_admin_doctor_cannot_self_elevate():
     # 即使帶著 DOCTOR token 來註冊，也不是 admin → 不得指定角色
     user = SimpleNamespace(role=UserRole.DOCTOR)
-    assert _is_admin(user) is False
+    assert is_system_admin(user) is False
 
 
-def test_is_admin_admin_enum_is_true():
-    user = SimpleNamespace(role=UserRole.ADMIN)
-    assert _is_admin(user) is True
+def test_is_system_admin_admin_enum_is_true():
+    user = SimpleNamespace(id=uuid.uuid4(), role=UserRole.ADMIN, license_number=None)
+    assert is_system_admin(user) is True
 
 
-def test_is_admin_admin_string_is_true():
+def test_is_system_admin_admin_string_is_true():
     # role 可能是字串（來自 token / ORM 反序列化）
-    user = SimpleNamespace(role="admin")
-    assert _is_admin(user) is True
+    user = SimpleNamespace(id=uuid.uuid4(), role="admin", license_number=None)
+    assert is_system_admin(user) is True
 
 
-def test_is_admin_unknown_role_is_false():
+def test_missing_license_attribute_does_not_grant_platform_access():
+    assert not is_system_admin(SimpleNamespace(id=uuid.uuid4(), role=UserRole.ADMIN))
+
+
+def test_is_system_admin_unknown_role_is_false():
     user = SimpleNamespace(role="superuser")
-    assert _is_admin(user) is False
+    assert is_system_admin(user) is False
 
 
 # ──────────────────────────────────────────────────────

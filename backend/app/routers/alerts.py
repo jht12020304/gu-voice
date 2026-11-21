@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_user, get_db, require_role
+from app.core.dependencies import get_current_user, get_db, require_role, require_system_admin
 from app.schemas.alert import (
     AcknowledgeAlertRequest,
     AcknowledgeAlertResponse,
@@ -97,12 +97,11 @@ async def list_rules(
     response_model=RedFlagRuleDetail,
     status_code=status.HTTP_201_CREATED,
     summary="建立紅旗規則",
-    dependencies=[Depends(require_role("admin"))],
 )
 async def create_rule(
     payload: RedFlagRuleCreate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_system_admin),
 ) -> RedFlagRuleDetail:
     """新增紅旗警示觸發規則。僅限管理員。"""
     return await alert_service.create_rule_entry(
@@ -197,13 +196,12 @@ async def acknowledge_alert(
     response_model=RedFlagRuleDetail,
     status_code=status.HTTP_200_OK,
     summary="更新紅旗規則",
-    dependencies=[Depends(require_role("admin"))],
+    dependencies=[Depends(require_system_admin)],
 )
 async def update_rule(
     rule_id: UUID,
     payload: RedFlagRuleUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
 ) -> RedFlagRuleDetail:
     """更新指定紅旗規則。僅限管理員。"""
     return await alert_service.update_rule_entry(
@@ -217,12 +215,11 @@ async def update_rule(
     "/rules/{rule_id}",
     status_code=status.HTTP_200_OK,
     summary="刪除紅旗規則",
-    dependencies=[Depends(require_role("admin"))],
+    dependencies=[Depends(require_system_admin)],
 )
 async def delete_rule(
     rule_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
 ) -> None:
     """刪除指定紅旗規則（軟刪除：設為非啟用 is_active=False）。僅限管理員。"""
     await alert_service.delete_rule(db, rule_id=rule_id)

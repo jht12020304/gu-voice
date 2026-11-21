@@ -41,6 +41,7 @@
     "fieldDisplayOrder": "Thứ tự hiển thị"
   },
   "users": {
+    "forbidden": "Chỉ quản trị viên hệ thống mới có thể quản lý tài khoản.",
     "title": "Quản lý người dùng",
     "create": "Thêm người dùng",
     "searchPlaceholder": "Tìm tên hoặc email...",

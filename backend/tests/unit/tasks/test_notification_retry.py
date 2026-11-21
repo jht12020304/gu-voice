@@ -61,6 +61,9 @@ def _stub_devices(monkeypatch, devices):
         async def __aexit__(self, *_):
             return None
 
+        async def scalar(self, _stmt):
+            return "en-US"
+
         async def execute(self, _stmt):
             return Result()
 
@@ -188,16 +191,17 @@ def test_gcm_message_id_is_top_level_not_inside_aps(monkeypatch):
     assert "gcm.message_id" not in payload["aps"]
 
 
-def test_gcm_message_id_not_overridden_by_caller_data(monkeypatch):
+def test_apns_alert_and_message_id_not_overridden_by_caller_data(monkeypatch):
     """呼叫端 data 裡的同名 key 不能蓋掉後端產生的 id。"""
     captured = _stub_apns_transport(monkeypatch)
 
     asyncio.run(
         notification_retry._send_apns(
-            "apns-token", "標題", "內容", {"gcm.message_id": "not-a-uuid"}
+            "apns-token", "標題", "內容", {"gcm.message_id": "not-a-uuid", "aps": {"alert": "Legacy detail"}}
         )
     )
 
+    assert captured["json"]["aps"]["alert"] == {"title": "標題", "body": "內容"}
     message_id = captured["json"]["gcm.message_id"]
     assert message_id != "not-a-uuid"
     uuid.UUID(message_id)
@@ -242,3 +246,24 @@ def test_bad_device_token_clears_token_but_keeps_device_and_falls_back(monkeypat
     assert sent_messages[0].token == "fcm-token"
     assert result["sent"] == 1
     assert result["apns_sent"] == 0
+
+
+@pytest.mark.parametrize("data", [
+    {"type": "red_flag", "alert_id": "fixture"},
+    {"session_id": "fixture", "report_id": "fixture"},
+    {"session_id": "fixture", "status": "failed"},
+    {"session_id": "fixture"},
+    {},
+])
+def test_queued_text_is_replaced_before_either_transport(monkeypatch, data):
+    captured = _stub_apns_transport(monkeypatch, status_code=400, reason="BadDeviceToken")
+    _stub_devices(monkeypatch, [_device()])
+    messages = []
+    monkeypatch.setattr(notification_retry.messaging, "send", messages.append)
+    asyncio.run(notification_retry._async_send("fixture", "Legacy title", "Legacy detail", data))
+    alert = captured["json"]["aps"]["alert"]
+    assert alert["title"] and alert["title"] != "Legacy title"
+    assert alert["body"] and alert["body"] != "Legacy detail"
+    assert messages[0].notification.title == alert["title"]
+    assert messages[0].notification.body == alert["body"]
+    assert messages[0].data == data

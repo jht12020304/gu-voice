@@ -56,7 +56,7 @@ class RegisterRequest(BaseModel):
     role: UserRole = UserRole.PATIENT
     phone: Optional[str] = Field(None, max_length=20)
     department: Optional[str] = Field(None, max_length=100)
-    license_number: Optional[str] = Field(None, max_length=50)
+    license_number: Optional[str] = Field(None, max_length=50, pattern=r"\S")
 
     @field_validator("password")
     @classmethod

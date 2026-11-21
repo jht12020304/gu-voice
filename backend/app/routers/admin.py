@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_user, get_db, require_role
+from app.core.dependencies import get_current_user, get_db, require_role, require_system_admin
 from app.schemas.admin import (
     CreateUserRequest,
     SystemHealthResponse,
@@ -24,9 +24,6 @@ from app.services.admin_service import AdminService
 router = APIRouter(
     prefix="/api/v1/admin",
     tags=["系統管理"],
-    # 2026-08-22 使用者拍板「醫師＝管理員」：本診所的醫師就是管理者，admin 四頁
-    # （使用者管理／主訴模板／系統健康／稽核日誌）對醫師開放。角色本身不合併——
-    # 病患端的 RoleGuard、報告 scope 等仍分 doctor/admin 判斷，只有這個 router 收兩者。
     dependencies=[Depends(require_role("admin", "doctor"))],
 )
 
@@ -43,7 +40,7 @@ admin_service = AdminService()
 )
 async def list_users(
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_system_admin),
     cursor: str | None = None,
     limit: int = Query(20, ge=1, le=100),
     role: str | None = None,
@@ -53,6 +50,7 @@ async def list_users(
     """取得系統中所有使用者的列表，支援依角色、啟用狀態篩選及關鍵字搜尋。"""
     return await admin_service.list_users(
         db,
+        actor=current_user,
         cursor=cursor,
         limit=limit,
         role=role,
@@ -70,13 +68,13 @@ async def list_users(
 async def create_user(
     payload: CreateUserRequest,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_system_admin),
 ) -> UserDetail:
     """由管理員建立新使用者帳號（支援所有角色）。"""
     return await admin_service.create_user(
         db,
         data=payload,
-        created_by=current_user.id,
+        actor=current_user,
     )
 
 
@@ -90,14 +88,14 @@ async def update_user(
     user_id: UUID,
     payload: UpdateUserRequest,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_system_admin),
 ) -> UserDetail:
     """更新指定使用者的資料。僅限管理員。"""
     return await admin_service.update_user(
         db,
         user_id=user_id,
         data=payload,
-        updated_by=current_user.id,
+        actor=current_user,
     )
 
 
@@ -110,13 +108,13 @@ async def update_user(
 async def toggle_user_active(
     user_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_system_admin),
 ) -> ToggleActiveResponse:
     """切換指定使用者的啟用/停用狀態。不可對自己操作。"""
     return await admin_service.toggle_active(
         db,
         user_id=user_id,
-        toggled_by=current_user.id,
+        actor=current_user,
     )
 
 
@@ -129,7 +127,7 @@ async def toggle_user_active(
 async def reset_user_password(
     user_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_system_admin),
 ) -> ResetPasswordResponse:
     """管理員代為重設密碼，回傳一次性臨時密碼；同時撤銷該使用者所有 refresh token。
 
@@ -143,7 +141,7 @@ async def reset_user_password(
     return await admin_service.reset_user_password(
         db,
         user_id=user_id,
-        reset_by=current_user.id,
+        actor=current_user,
     )
 
 

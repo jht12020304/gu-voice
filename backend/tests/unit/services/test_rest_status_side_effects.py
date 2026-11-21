@@ -147,7 +147,7 @@ def wiring(monkeypatch):
 
     notif_calls: list[dict[str, Any]] = []
 
-    async def _notify_complete(db, *, session_id, doctor_id, patient_id):
+    async def _notify_complete(db, *, session_id, doctor_id):
         notif_calls.append({"session_id": session_id, "doctor_id": doctor_id})
         return SimpleNamespace(id=uuid.uuid4())
 

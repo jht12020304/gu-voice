@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
@@ -32,6 +33,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
   String? _cursor;
   bool _hasMore = true;
   bool _loading = true;
+  String? _error;
   int _totalCount = 0;
   String _search = '';
   String? _role; // null = all
@@ -65,14 +67,34 @@ class _UserManagementPageState extends State<UserManagementPage> {
       );
       if (!mounted) return;
       setState(() {
+        _error = null;
         _users = reset ? page.data : [..._users, ...page.data];
         _cursor = page.nextCursor;
         _hasMore = page.hasMore;
         _totalCount = page.totalCount;
         _loading = false;
       });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = _errorKey(error, 'admin.users.operationFailed');
+        _users = [];
+        _cursor = null;
+        _loading = false;
+      });
+    }
+  }
+
+  String _errorKey(Object error, String fallback) =>
+      error is DioException && error.response?.statusCode == 403 ? 'admin.users.forbidden' : fallback;
+
+  void _operationError(Object error, String fallback) {
+    if (!mounted) return;
+    final key = _errorKey(error, fallback);
+    if (key == 'admin.users.forbidden') {
+      setState(() => _error = key);
+    } else {
+      showToast(context, t(key));
     }
   }
 
@@ -116,9 +138,8 @@ class _UserManagementPageState extends State<UserManagementPage> {
         showToast(context, t('admin.users.createSuccess'));
       }
       await _fetch(reset: true);
-    } catch (_) {
-      if (!mounted) return;
-      showToast(context, t('admin.users.operationFailed'));
+    } catch (error) {
+      _operationError(error, 'admin.users.operationFailed');
     }
   }
 
@@ -150,9 +171,8 @@ class _UserManagementPageState extends State<UserManagementPage> {
       if (!mounted) return;
       setState(() => _tempPassword = (email: r.email, password: r.tempPassword));
       await _showTempPasswordDialog();
-    } catch (_) {
-      if (!mounted) return;
-      showToast(context, t('admin.users.resetPasswordFailed'));
+    } catch (error) {
+      _operationError(error, 'admin.users.resetPasswordFailed');
     } finally {
       if (mounted) setState(() => _resettingId = null);
     }
@@ -211,9 +231,8 @@ class _UserManagementPageState extends State<UserManagementPage> {
       if (!mounted) return;
       showToast(context, user.isActive ? t('admin.users.deactivateSuccess') : t('admin.users.activateSuccess'));
       await _fetch(reset: true);
-    } catch (_) {
-      if (!mounted) return;
-      showToast(context, t('admin.users.toggleFailed'));
+    } catch (error) {
+      _operationError(error, 'admin.users.toggleFailed');
     } finally {
       if (mounted) setState(() => _togglingId = null);
     }
@@ -226,29 +245,36 @@ class _UserManagementPageState extends State<UserManagementPage> {
         leading: const DashboardBackButton(),
         title: Text(t('admin.users.title')),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.person_add_alt),
-            tooltip: t('admin.users.create'),
-            onPressed: () => _openForm(),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: TextField(
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
-                hintText: t('admin.users.searchPlaceholder'),
-              ),
-              onChanged: _onSearch,
+          if (_error == null && !_loading)
+            IconButton(
+              icon: const Icon(Icons.person_add_alt),
+              tooltip: t('admin.users.create'),
+              onPressed: () => _openForm(),
             ),
-          ),
-          _filters(context),
-          Expanded(child: _body(context)),
         ],
       ),
+      body: _error != null
+          ? ErrorState(
+              message: t(_error!),
+              retryLabel: t('common.retry'),
+              onRetry: () => _fetch(reset: true),
+            )
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: TextField(
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search),
+                      hintText: t('admin.users.searchPlaceholder'),
+                    ),
+                    onChanged: _onSearch,
+                  ),
+                ),
+                _filters(context),
+                Expanded(child: _body(context)),
+              ],
+            ),
     );
   }
 

@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.utils.pagination import keyset_after, page_slice, parse_cursor
+from app.core.authz import check_system_admin
 from app.core.exceptions import (
     EmailAlreadyExistsException,
     ForbiddenException,
@@ -37,12 +38,15 @@ class AdminService:
     async def list_users(
         self,
         db: AsyncSession,
+        *,
+        actor: User,
         cursor: str | None = None,
         limit: int = 20,
         role: str | None = None,
         is_active: bool | None = None,
         search: str | None = None,
     ) -> UserListResponse:
+        check_system_admin(actor)
         query = select(User).order_by(User.created_at.desc(), User.id.desc())
         count_query = select(func.count()).select_from(User)
 
@@ -94,7 +98,8 @@ class AdminService:
         self,
         db: AsyncSession,
         data: CreateUserRequest,
-        created_by: UUID,
+        *,
+        actor: User,
     ) -> UserDetail:
         """管理員建立使用者帳號。
 
@@ -103,6 +108,7 @@ class AdminService:
         - 以指定角色建立 User，commit 後回傳
         - 寫入 audit log（CREATE / user）
         """
+        check_system_admin(actor)
         existing = await db.execute(
             select(User).where(User.email == data.email)
         )
@@ -129,7 +135,7 @@ class AdminService:
         # 統一處理（沿用 auth_service 慣例）。
         await AuditLogService.log(
             db,
-            user_id=created_by,
+            user_id=actor.id,
             action=AuditAction.CREATE,
             resource_type="user",
             resource_id=str(user.id),
@@ -143,7 +149,8 @@ class AdminService:
         db: AsyncSession,
         user_id: UUID,
         data: UpdateUserRequest,
-        updated_by: UUID,
+        *,
+        actor: User,
     ) -> UserDetail:
         """管理員更新使用者欄位（name / email / role / phone / department /
         license_number / is_active），persist 後寫入 audit log。
@@ -151,6 +158,7 @@ class AdminService:
         - 僅更新 payload 中有提供（非 None）的欄位
         - email 變更時驗證唯一性
         """
+        check_system_admin(actor)
         result = await db.execute(
             select(User).where(User.id == user_id)
         )
@@ -160,6 +168,13 @@ class AdminService:
 
         # 只取 client 實際送出的欄位（exclude_unset 區分「沒帶」與「帶 None」）
         updates = data.model_dump(exclude_unset=True)
+
+        if user_id == actor.id and (
+            updates.get("is_active") is False
+            or updates.get("role") not in (None, user.role)
+            or updates.get("license_number") is not None
+        ):
+            raise ForbiddenException()
 
         # email 變更需驗證唯一（排除自己）
         new_email = updates.get("email")
@@ -190,7 +205,7 @@ class AdminService:
 
         await AuditLogService.log(
             db,
-            user_id=updated_by,
+            user_id=actor.id,
             action=AuditAction.UPDATE,
             resource_type="user",
             resource_id=str(user.id),
@@ -203,7 +218,8 @@ class AdminService:
         self,
         db: AsyncSession,
         user_id: UUID,
-        toggled_by: UUID,
+        *,
+        actor: User,
     ) -> ToggleActiveResponse:
         """切換使用者啟用狀態。
 
@@ -211,7 +227,8 @@ class AdminService:
         - 真實 flip `User.is_active`，persist 後回傳實際新狀態
         - 寫入 audit log（UPDATE / user）
         """
-        if user_id == toggled_by:
+        check_system_admin(actor)
+        if user_id == actor.id:
             # 防止管理員停用自己鎖死後台（ADMIN-9）。
             # errors.cannot_toggle_self 已登錄於 i18n_messages，交由
             # i18n_error_handler 依 Accept-Language 解譯。
@@ -232,7 +249,7 @@ class AdminService:
 
         await AuditLogService.log(
             db,
-            user_id=toggled_by,
+            user_id=actor.id,
             action=AuditAction.UPDATE,
             resource_type="user",
             resource_id=str(user.id),
@@ -249,7 +266,8 @@ class AdminService:
         self,
         db: AsyncSession,
         user_id: UUID,
-        reset_by: UUID,
+        *,
+        actor: User,
     ) -> ResetPasswordResponse:
         """管理員代為重設使用者密碼，回傳一次性臨時密碼。
 
@@ -265,7 +283,8 @@ class AdminService:
         - 禁止對自己用（管理員改自己密碼走 `/auth/change-password`，那條要驗舊密碼）
         - 寫 audit log；**details 不含密碼**
         """
-        if user_id == reset_by:
+        check_system_admin(actor)
+        if user_id == actor.id:
             # 對自己重設會繞過「須驗舊密碼」的保護 → 導回 change-password
             raise ForbiddenException("errors.cannot_reset_own_password")
 
@@ -297,7 +316,7 @@ class AdminService:
 
         await AuditLogService.log(
             db,
-            user_id=reset_by,
+            user_id=actor.id,
             action=AuditAction.UPDATE,
             resource_type="user",
             resource_id=str(user.id),

@@ -77,6 +77,10 @@ class _FakeDB:
         self.commit_calls += 1
 
 
+def _system_admin(user_id=None):
+    return SimpleNamespace(id=user_id or uuid.uuid4(), role=UserRole.ADMIN, license_number=None)
+
+
 def _make_user(
     user_id: Optional[uuid.UUID] = None,
     *,
@@ -103,7 +107,7 @@ def test_toggle_active_blocks_self():
     db = _FakeDB()
     svc = AdminService()
     with pytest.raises(ForbiddenException):
-        _run(svc.toggle_active(db, user_id=admin_id, toggled_by=admin_id))
+        _run(svc.toggle_active(db, user_id=admin_id, actor=_system_admin(admin_id)))
     # 應在進 DB 前就擋下
     assert db.flush_calls == 0
     assert db.added == []
@@ -119,7 +123,7 @@ def test_toggle_active_flips_state_and_returns_new_state():
     # 第一個 execute = 查 target user
     db = _FakeDB(results=[target])
     svc = AdminService()
-    resp = _run(svc.toggle_active(db, user_id=target.id, toggled_by=admin_id))
+    resp = _run(svc.toggle_active(db, user_id=target.id, actor=_system_admin(admin_id)))
     # DB 物件真的被 flip
     assert target.is_active is False
     # 回應反映實際新狀態（非寫死 False）
@@ -133,7 +137,7 @@ def test_toggle_active_flips_back_to_true():
     target = _make_user(is_active=False)
     db = _FakeDB(results=[target])
     svc = AdminService()
-    resp = _run(svc.toggle_active(db, user_id=target.id, toggled_by=uuid.uuid4()))
+    resp = _run(svc.toggle_active(db, user_id=target.id, actor=_system_admin()))
     assert target.is_active is True
     assert resp.is_active is True
 
@@ -154,7 +158,7 @@ def test_create_user_duplicate_email_rejected():
         role=UserRole.DOCTOR,
     )
     with pytest.raises(EmailAlreadyExistsException):
-        _run(svc.create_user(db, data=payload, created_by=uuid.uuid4()))
+        _run(svc.create_user(db, data=payload, actor=_system_admin()))
     # 不應建立任何 User
     assert db.added == []
 
@@ -228,7 +232,7 @@ def test_reset_user_password_blocks_self():
     admin_id = uuid.uuid4()
     db = _FakeDB()
     with pytest.raises(ForbiddenException):
-        _run(AdminService().reset_user_password(db, user_id=admin_id, reset_by=admin_id))
+        _run(AdminService().reset_user_password(db, user_id=admin_id, actor=_system_admin(admin_id)))
     assert db.flush_calls == 0
 
 
@@ -239,7 +243,7 @@ def test_reset_user_password_unknown_user_raises():
     with pytest.raises(NotFoundException):
         _run(
             AdminService().reset_user_password(
-                db, user_id=uuid.uuid4(), reset_by=uuid.uuid4()
+                db, user_id=uuid.uuid4(), actor=_system_admin()
             )
         )
     assert db.flush_calls == 0
@@ -282,7 +286,7 @@ def test_reset_user_password_rotates_hash_revokes_refresh_and_audits(monkeypatch
     monkeypatch.setattr(AuditLogService, "log", _fake_log)
 
     result = _run(
-        AdminService().reset_user_password(db, user_id=target.id, reset_by=admin_id)
+        AdminService().reset_user_password(db, user_id=target.id, actor=_system_admin(admin_id))
     )
 
     # 回應帶明文臨時密碼（只此一次），且通過強度規則
@@ -329,7 +333,7 @@ def test_reset_user_password_survives_redis_failure(monkeypatch):
 
     result = _run(
         AdminService().reset_user_password(
-            db, user_id=target.id, reset_by=uuid.uuid4()
+            db, user_id=target.id, actor=_system_admin()
         )
     )
     assert result.temp_password
@@ -350,3 +354,23 @@ def test_audit_rules_cover_admin_reset_password():
     assert action is AuditAction.UPDATE
     assert resource_type == "user"
     assert resource_id == uid, "resource_id 應為被重設的使用者，不是 None"
+
+
+@pytest.mark.parametrize("role,license_number", [
+    (UserRole.DOCTOR, None), (UserRole.ADMIN, "LICENSE"), (UserRole.PATIENT, None),
+    (UserRole.ADMIN, ""), (UserRole.ADMIN, "  "),
+])
+def test_account_services_reject_before_touching_database(role, license_number):
+    actor = SimpleNamespace(id=uuid.uuid4(), role=role, license_number=license_number)
+    target_id = uuid.uuid4()
+    service = AdminService()
+    db = object()  # No query, flush, or write is permitted.
+    new_user = AdminUserCreate(email="fixture@example.com", password="FixturePass9",
+                               name="Fixture", role=UserRole.PATIENT)
+    for method, args in [
+        (service.list_users, ()), (service.create_user, (new_user,)),
+        (service.update_user, (target_id, AdminUserUpdate(name="Updated"))),
+        (service.toggle_active, (target_id,)), (service.reset_user_password, (target_id,)),
+    ]:
+        with pytest.raises(ForbiddenException):
+            _run(method(db, *args, actor=actor))

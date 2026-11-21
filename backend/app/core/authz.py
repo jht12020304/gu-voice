@@ -5,8 +5,11 @@ get_user_role 原本在 patient / session / report / alert 四個 service
 """
 
 from typing import Any, Optional
+from uuid import UUID
 
+from app.core.exceptions import ForbiddenException
 from app.models.enums import UserRole
+from app.models.user import User
 
 
 def get_user_role(current_user: Any) -> Optional[UserRole]:
@@ -22,6 +25,32 @@ def get_user_role(current_user: Any) -> Optional[UserRole]:
         return UserRole(raw)
     except ValueError:
         return None
+
+
+def is_system_admin(actor: User | None) -> bool:
+    return (
+        get_user_role(actor) == UserRole.ADMIN
+        and getattr(actor, "id", None) is not None
+        and hasattr(actor, "license_number")
+        and actor.license_number is None
+    )
+
+
+def check_system_admin(actor: User) -> None:
+    if not is_system_admin(actor):
+        raise ForbiddenException()
+
+
+def clinical_reader_id(actor: User) -> UUID | None:
+    """只有明確的系統管理員可使用全院的稽核或研究母體。"""
+    if is_system_admin(actor):
+        return None
+    role = get_user_role(actor)
+    license_number = getattr(actor, "license_number", None)
+    licensed_admin = role == UserRole.ADMIN and isinstance(license_number, str) and license_number.strip()
+    if getattr(actor, "id", None) is None or not (role == UserRole.DOCTOR or licensed_admin):
+        raise ForbiddenException()
+    return actor.id
 
 
 def get_clinician_scope_id(current_user: Any) -> Any:

@@ -16,6 +16,12 @@ _NOTIFICATION_KEYS = [
     "notifications.session_complete.body",
     "notifications.report_ready.title",
     "notifications.report_ready.body",
+    "notifications.report_failed.title",
+    "notifications.report_failed.body",
+    "notifications.red_flag.title",
+    "notifications.red_flag.body",
+    "notifications.generic.title",
+    "notifications.generic.body",
 ]
 
 _ALL_LOCALES = ["zh-TW", "en-US", "ja-JP", "ko-KR", "vi-VN"]
@@ -30,9 +36,7 @@ def test_notification_keys_cover_all_locales(key: str):
 
 
 @pytest.mark.parametrize("locale", _ALL_LOCALES)
-def test_body_templates_render_patient_name(locale: str):
-    msg = get_message(
-        "notifications.report_ready.body", locale, patient_name="王小明"
-    )
-    assert "王小明" in msg
-    assert "{patient_name}" not in msg
+@pytest.mark.parametrize("key", _NOTIFICATION_KEYS)
+def test_notification_text_is_static(locale, key):
+    msg = get_message(key, locale)
+    assert msg and "{" not in msg and "}" not in msg
