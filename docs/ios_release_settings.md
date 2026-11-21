@@ -184,6 +184,50 @@ xcrun altool --upload-app  -f build/ios/ipa/gu_voice.ipa -t ios \
 
 `notarytool` 是 macOS 公證用的，與 iOS 上架無關，不要拿來傳 .ipa。
 
+### 6.1 原生 iOS 切換版
+
+原生版與 Flutter 版共用 Team `K593X99M7G` 和 Bundle ID `com.guvoice.guVoice`。原生版最低要求 iOS 17。原生發佈從包含 #134（`6e1bf55`）的 `origin/main` 建置，後續修正跟隨 main。§7 記載的是當時 Flutter 發佈的來源與流程。
+
+從 repo 根目錄執行。準備已安裝的 Apple Distribution 身分、Xcode provisioning profiles，以及可匯入 `jwt` 和 `cryptography` 的 Python。若本機有最後一版 Flutter IPA，將它作為參數傳入，以比對兩顆 IPA 實際簽入的 entitlements 與 Firebase 設定。
+
+```bash
+git merge-base --is-ancestor 6e1bf55 HEAD
+export ASC_PYTHON="/path/to/backend/venv/bin/python"
+./ios_native/tool/build_ios_testflight.sh "/absolute/path/to/gu_voice.ipa"
+```
+
+腳本使用 §5 的 ASC 金鑰與本機 `~/.appstoreconnect/asc_api.py`，以 GET 讀完 build 清單。它以 `date -u +%Y%m%d%H%M` 產生 12 位 build 號，必須高於 ASC 上的所有 build。腳本以 Release 組態將版本覆寫成 `1.0.0`，依 `Package.resolved` 取用相依套件，並沿用 Flutter 的 `ExportOptions.plist` 本機匯出。Xcode 專案的預設版本仍為 `1.0`。請從腳本匯出，Organizer 的匯出流程會繞過該 plist。
+
+每次的輸出在 `ios_native/build/testflight/<build>/`，包含 archive、IPA、匯出選項和驗證日誌。核對 `verify.log` 中的簽章、正式環境設定及 SHA-256。若 macOS 在簽章時顯示鑰匙圈對話框，授權 codesign 存取對應的簽章私鑰。失敗的輸出目錄保留供查證。等下一個 UTC 分鐘後重跑可取得新 build 號。清除 worktree 前先保全 IPA、archive 和驗證日誌。
+
+可對既有 IPA 重跑本機驗證。傳入產出時記錄的 build 號。
+
+```bash
+./ios_native/tool/build_ios_testflight.sh --verify-only "$IPA" "$BUILD" "$FLUTTER_IPA"
+```
+
+人工確認本機驗證後，依 §5 設定 ASC 金鑰資訊。將 `IPA` 指到驗證日誌所列的同一顆 IPA，確認其 SHA-256 相符。先 validate，成功後由發佈人執行 upload。
+
+```bash
+export API_PRIVATE_KEYS_DIR="$HOME/.appstoreconnect/private_keys"
+IPA="/absolute/path/to/ios_native/build/testflight/<build>/export/GUVoice.ipa"
+shasum -a 256 "$IPA"
+xcrun altool --validate-app -f "$IPA" -t ios \
+  --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
+# 核對驗證結果後，由發佈人執行。
+xcrun altool --upload-app -f "$IPA" -t ios \
+  --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
+```
+
+上傳前確認先行測試員及現場 kiosk 裝置都是 iOS 17 以上，且正式後端支援裝置解除綁定。上傳後確認該 build 在 TestFlight 顯示「內部」。先在專用實機以授權帳號與合成資料驗收。
+
+1. 在現有 Flutter 版登入醫師 A，直接覆裝原生版。確認沿用 A 的登入並能讀取報告。
+2. 開啟允許 Time Sensitive 通知的專注模式。觸發指派給 A 的合成紅旗，確認鎖定畫面收到推播且點入可開正確的紅旗。
+3. 斷線後讓 A 登出，重啟 App。恢復連線並完成解除綁定後再登入 B。各觸發一筆 A、B 的合成推播，確認共用裝置只收到 B 的新通知。
+4. 在 kiosk 完成一場合成問診，驗證收音、TTS、App 進背景後中斷與返回、網路中斷後重連及完成結果。
+
+若需回滾，先檢查最後一版 Flutter build `202611141854` 的 TestFlight 效期。裝回 Flutter 後重新登入。若既有 build 已過期，依原 Flutter 流程重建，build 號必須高於當時 ASC 的最高號。
+
 ## 7. 最近一次已確認的 TestFlight 狀態（2026-11-08）
 
 **2026-11-08 現況（ASC API 實查）**：先行測試群組最新 build＝ **`202611081428`**（1.0.0，`VALID`、內部，Delivery `77977634-99dc-4718-a8a7-c472ae7012da`）：在 `202611081413`（`47d8dc08-…`，PR #124 問診時長）之上移除場次詳情「指派給我」（PR #127）。`202611081413` 在 `202611081352`（`64f6d72a-…`，PR #122 問診場次日期篩選）
