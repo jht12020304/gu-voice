@@ -13,11 +13,21 @@ struct Tokens: Codable, Equatable, Sendable {
     var isComplete: Bool { !access.isEmpty && !refresh.isEmpty }
 }
 
-struct Credentials: Sendable {
+protocol CredentialStore: Sendable {
+    func load() throws -> Tokens?
+    func save(_ tokens: Tokens) throws
+    func markUnpersistedRotation()
+    func clear() throws
+    func removeLegacy() throws
+}
+
+struct Credentials: CredentialStore {
     static let flutterService = "flutter_secure_storage_service"
     private let service: String
     private let legacyService: String
     private let account = "tokens"
+    private var clearingKey: String { "\(service).clearing" }
+    private var rotationKey: String { "\(service).rotationPending" }
 
     init(service: String, legacyService: String = Self.flutterService) {
         self.service = service
@@ -25,23 +35,29 @@ struct Credentials: Sendable {
     }
 
     func load() throws -> Tokens? {
-        if let data = try read(service: service, account: account) {
-            let tokens = try JSONDecoder().decode(Tokens.self, from: data)
-            try? removeLegacy()
-            return tokens.isComplete ? tokens : nil
-        }
-
-        guard let access = try readLegacy("access_token"),
-              let refresh = try readLegacy("refresh_token") else { return nil }
-        let tokens = Tokens(access: access, refresh: refresh)
-        guard tokens.isComplete else { return nil }
-        do {
-            try save(tokens)
-        } catch {
+        if UserDefaults.standard.bool(forKey: clearingKey) {
+            try clear()
             return nil
         }
-        try? removeLegacy()
-        return tokens
+
+        if let access = try readLegacy("access_token"),
+           let refresh = try readLegacy("refresh_token") {
+            let tokens = Tokens(access: access, refresh: refresh)
+            if tokens.isComplete {
+                do { try save(tokens) }
+                catch { return nil }
+                try removeLegacy()
+                return tokens
+            }
+        }
+
+        if UserDefaults.standard.bool(forKey: rotationKey) {
+            try clear()
+            return nil
+        }
+        guard let data = try read(service: service, account: account) else { return nil }
+        let tokens = try JSONDecoder().decode(Tokens.self, from: data)
+        return tokens.isComplete ? tokens : nil
     }
 
     func save(_ tokens: Tokens) throws {
@@ -56,11 +72,20 @@ struct Credentials: Sendable {
         } else {
             try requireSuccess(status)
         }
+        UserDefaults.standard.removeObject(forKey: rotationKey)
+    }
+
+    func markUnpersistedRotation() {
+        UserDefaults.standard.set(true, forKey: rotationKey)
     }
 
     func clear() throws {
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: clearingKey)
         try removeLegacy()
         try remove(service: service, account: account)
+        defaults.removeObject(forKey: rotationKey)
+        defaults.removeObject(forKey: clearingKey)
     }
 
     func removeLegacy() throws {

@@ -33,6 +33,24 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(SecItemCopyMatching(flutterKey("access_token") as CFDictionary, nil), errSecSuccess)
     }
 
+    func testFlutterSignInReplacesOlderNativeAccountAfterRollback() throws {
+        XCTAssertEqual(Credentials.flutterService, "flutter_secure_storage_service")
+        try credentials.save(Tokens(access: "native-a", refresh: "native-a-refresh"))
+        let newer = Tokens(access: "flutter-b", refresh: "flutter-b-refresh")
+        try seedFlutter(newer.access, account: "access_token")
+        try seedFlutter(newer.refresh, account: "refresh_token")
+        XCTAssertEqual(try credentials.load(), newer)
+        XCTAssertEqual(try credentials.load(), newer)
+        XCTAssertEqual(SecItemCopyMatching(flutterKey("access_token") as CFDictionary, nil), errSecItemNotFound)
+    }
+
+    func testColdLaunchCannotReuseAnUnpersistedRotation() throws {
+        try credentials.save(Tokens(access: "expired", refresh: "consumed"))
+        credentials.markUnpersistedRotation()
+        XCTAssertNil(try credentials.load())
+        XCTAssertNil(try credentials.load())
+    }
+
     func testConcurrentUnauthorizedRequestsRotateOnceAndPersistPair() async throws {
         let api = try makeClient { request in
             switch request.url?.lastPathComponent {
@@ -94,6 +112,98 @@ final class FoundationTests: XCTestCase {
         XCTAssertNil(try credentials.load())
     }
 
+    func testLogoutStillRevokesWhenLocalClearFailsAndRetriesRemoteFailure() async throws {
+        let storage = FailingCredentials(base: credentials, failingClear: FailureOnce())
+        let api = try makeClient(storage: storage) { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "logout": .status(503)
+            default: .status(500)
+            }
+        }
+        _ = try await api.restore(language: .english)
+        do {
+            try await api.signOut(language: .english)
+            XCTFail("Expected the local clear to fail")
+        } catch let error as KeychainError {
+            XCTAssertEqual(error.status, errSecInteractionNotAllowed)
+        }
+        XCTAssertEqual(HTTPStub.routes.count("logout"), 1)
+        let signedIn = await api.hasSession
+        XCTAssertFalse(signedIn)
+
+        HTTPStub.routes.configure { _ in .json("{}") }
+        try await api.signOut(language: .english)
+        XCTAssertEqual(HTTPStub.routes.count("logout"), 1)
+        XCTAssertNil(try credentials.load())
+    }
+
+    func testLogoutDuringRotationRevokesTheNewPairAndDropsTheOldRequest() async throws {
+        let allowRotation = DispatchSemaphore(value: 0)
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "refresh":
+                allowRotation.wait(timeout: .now() + 5) == .success
+                    ? .json(Self.rotatedTokens) : .status(503)
+            case "protected": .status(401)
+            case "logout": .json("{}")
+            default: .status(500)
+            }
+        }
+        _ = try await api.restore(language: .english)
+        let request = Task { () -> Int in try await api.get("protected", language: .english) }
+        for _ in 0..<100 where HTTPStub.routes.count("refresh") == 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(HTTPStub.routes.count("refresh"), 1)
+        let logout = Task { try await api.signOut(language: .english) }
+        for _ in 0..<100 {
+            if !(await api.hasSession) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        allowRotation.signal()
+        try await logout.value
+        do {
+            _ = try await request.value
+            XCTFail("The request crossed an account change")
+        } catch APIError.signedOut {}
+        XCTAssertEqual(HTTPStub.routes.requests("logout").map(Self.refreshBody), ["new-refresh"])
+        XCTAssertNil(try credentials.load())
+    }
+
+    func testFailedRotationWriteDoesNotFailTheRequestAndIsRetried() async throws {
+        let storage = FailingCredentials(base: credentials, failingSave: FailureOnce())
+        let api = try makeClient(storage: storage) { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "refresh": .json(Self.rotatedTokens)
+            case "protected":
+                request.value(forHTTPHeaderField: "Authorization") == "Bearer new-access"
+                    ? .json("42") : .status(401)
+            default: .status(500)
+            }
+        }
+        _ = try await api.restore(language: .english)
+        let first: Int = try await api.get("protected", language: .english)
+        let second: Int = try await api.get("protected", language: .english)
+        XCTAssertEqual(first, 42)
+        XCTAssertEqual(second, 42)
+        XCTAssertEqual(HTTPStub.routes.count("refresh"), 1)
+        XCTAssertEqual(try credentials.load(), Tokens(access: "new-access", refresh: "new-refresh"))
+    }
+
+    func testDisabledAccountCannotRestoreFromMeOrRefresh() async throws {
+        for initialStatus in [401, 403] {
+            let api = try makeClient { request in
+                request.url?.lastPathComponent == "me" ? .status(initialStatus) : .status(403)
+            }
+            let restored = try await api.restore(language: .english)
+            XCTAssertNil(restored)
+            XCTAssertNil(try credentials.load())
+        }
+    }
+
     func testPartialLoadsCannotTurnFailureIntoNoRedFlags() async throws {
         let api = try makeClient { request in
             switch request.url?.lastPathComponent {
@@ -151,7 +261,9 @@ final class FoundationTests: XCTestCase {
         guard case .text("test")? = page.data.first?.subjective?["chief_complaint"] else {
             return XCTFail("Expected the JSONB field name as sent")
         }
-        let cursor = try page.continuation(after: nil)
+        var seen = Set<String>()
+        let cursor = try page.continuation(seen: &seen)
+        XCTAssertThrowsError(try page.continuation(seen: &seen))
         _ = try await reports.page(after: cursor)
         let request = try XCTUnwrap(HTTPStub.routes.requests("reports").last)
         let url = try XCTUnwrap(request.url)
@@ -161,7 +273,7 @@ final class FoundationTests: XCTestCase {
 
     func testLanguageAndReportLink() throws {
         XCTAssertEqual(AppLanguage.resolve(saved: "", preferred: ["ja-JP"]), .japanese)
-        XCTAssertEqual(AppLanguage.resolve(saved: "", preferred: ["fr-FR"]), .traditionalChinese)
+        XCTAssertEqual(AppLanguage.resolve(saved: "", preferred: ["fr-FR", "en-US"]), .traditionalChinese)
         XCTAssertEqual(AppLanguage.resolve(saved: "ko-KR", preferred: ["en-US"]), .korean)
         let config = try Configuration(settings: Self.settings)
         XCTAssertEqual(config.reportLink(sessionID: sessionID, language: .vietnamese).absoluteString,
@@ -205,12 +317,14 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(SecItemAdd(item as CFDictionary, nil), errSecSuccess)
     }
 
-    private func makeClient(_ handler: @escaping HTTPStub.Handler) throws -> APIClient {
+    private func makeClient(
+        storage: (any CredentialStore)? = nil, _ handler: @escaping HTTPStub.Handler
+    ) throws -> APIClient {
         try credentials.save(Tokens(access: "old-access", refresh: "old-refresh"))
         HTTPStub.routes.configure(handler)
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [HTTPStub.self]
-        return try APIClient(configuration: Configuration(settings: Self.settings), credentials: credentials,
+        return try APIClient(configuration: Configuration(settings: Self.settings), credentials: storage ?? credentials,
                              session: URLSession(configuration: config))
     }
 
@@ -237,6 +351,38 @@ final class FoundationTests: XCTestCase {
     private nonisolated static func decodeRefresh(_ data: Data?) -> String? {
         guard let data else { return nil }
         return (try? JSONDecoder().decode([String: String].self, from: data))?["refresh_token"]
+    }
+}
+
+private struct FailingCredentials: CredentialStore {
+    let base: Credentials
+    var failingSave: FailureOnce?
+    var failingClear: FailureOnce?
+
+    func load() throws -> Tokens? { try base.load() }
+    func save(_ tokens: Tokens) throws {
+        try failingSave?.check()
+        try base.save(tokens)
+    }
+    func markUnpersistedRotation() { base.markUnpersistedRotation() }
+    func clear() throws {
+        try failingClear?.check()
+        try base.clear()
+    }
+    func removeLegacy() throws { try base.removeLegacy() }
+}
+
+private final class FailureOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var remaining = true
+
+    func check() throws {
+        try lock.withLock {
+            if remaining {
+                remaining = false
+                throw KeychainError(status: errSecInteractionNotAllowed)
+            }
+        }
     }
 }
 

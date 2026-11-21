@@ -60,8 +60,15 @@ struct ReportListScreen: View {
                     .foregroundStyle(.red)
             }
             ViewThatFits(in: .horizontal) {
-                HStack { reportDate(report); Spacer(); reportStatus(report) }
-                VStack(alignment: .leading) { reportDate(report); reportStatus(report) }
+                HStack {
+                    reportDate(report)
+                    Spacer()
+                    reportStatus(report)
+                }
+                VStack(alignment: .leading) {
+                    reportDate(report)
+                    reportStatus(report)
+                }
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -97,8 +104,7 @@ struct ReportListScreen: View {
         do {
             let page = try await Reports(api: account.api, language: language).page(after: previous)
             guard id == requestID, !Task.isCancelled else { return }
-            let next = try page.continuation(after: previous)
-            if let next, !seenCursors.insert(next).inserted { throw APIError.invalidResponse }
+            let next = try page.continuation(seen: &seenCursors)
             var existing = Set(reports.map(\.id))
             reports.append(contentsOf: page.data.filter { existing.insert($0.id).inserted })
             cursor = next
@@ -162,10 +168,10 @@ private struct ReportDetailScreen: View {
                             Text(alert.triggerReason)
                         }
                     }
+                    if case .failed = details.alerts {
+                        FailureRow(key: "soap.redFlag.loadFailedTitle", language: language, retry: load)
+                    }
                 case .unavailable:
-                    EmptyView()
-                }
-                if case .failed = details.alerts {
                     FailureRow(key: "soap.redFlag.loadFailedTitle", language: language, retry: load)
                 }
             }
@@ -216,7 +222,7 @@ private struct ReportDetailScreen: View {
 
     private func clinicalSection(_ name: String, fields: [String: ClinicalValue]?) -> some View {
         Section(language.text("soap.section.\(name).title")) {
-            let rows = ClinicalRows(language: language).fields(fields ?? [:])
+            let rows = ClinicalRows(language: language, section: name).fields(fields ?? [:])
             if rows.isEmpty {
                 Text(language.text("soap.common.empty")).foregroundStyle(.secondary)
             } else {
@@ -260,10 +266,12 @@ private struct ReportDetailScreen: View {
         let id = UUID()
         requestID = id
         details = ReportDetails()
-        let result = await Reports(api: account.api, language: language).details(for: sessionID)
+        let result = await Reports(api: account.api, language: language).details(for: sessionID) { result in
+            guard id == requestID, !Task.isCancelled else { return }
+            details = result
+        }
         guard id == requestID, !Task.isCancelled else { return }
         if result.isSignedOut { await account.noticeAuthorizationLoss() }
-        details = result
     }
 }
 

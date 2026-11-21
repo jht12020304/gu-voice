@@ -8,6 +8,18 @@ struct ClinicalRows {
     }
 
     let language: AppLanguage
+    let section: String
+
+    private static let fieldOrder = [
+        "chief_complaint", "hpi", "onset", "location", "duration", "severity", "characteristics",
+        "timing", "context", "aggravating_factors", "relieving_factors", "associated_symptoms",
+        "past_medical_history", "medication_history", "medications", "allergies", "family_history",
+        "review_of_systems", "system_review", "social_history",
+        "vital_signs", "physical_exam", "lab_results", "imaging_results",
+        "clinical_impression", "differential_diagnoses", "diagnosis", "likelihood", "reasoning",
+        "urgency", "recommended_tests", "test_name", "rationale", "clinical_reasoning",
+        "treatments", "follow_up", "referrals", "patient_education", "diagnostic_reasoning"
+    ]
 
     private static let labels: [String: String] = [
         "chief_complaint": "soap.subjective.chiefComplaint",
@@ -52,17 +64,27 @@ struct ClinicalRows {
     ]
 
     func fields(_ values: [String: ClinicalValue]) -> [Row] {
-        let leading = ["chief_complaint", "hpi", "clinical_impression", "urgency", "test_name", "diagnosis"]
+        let order = Self.fieldOrder
         return values.keys.sorted { lhs, rhs in
-            let left = leading.firstIndex(of: normalized(lhs)) ?? leading.count
-            let right = leading.firstIndex(of: normalized(rhs)) ?? leading.count
+            let left = rank(for: lhs, order: order)
+            let right = rank(for: rhs, order: order)
             return left == right ? lhs < rhs : left < right
         }.compactMap { key in
             guard let value = values[key], let text = render(value, key: key) else { return nil }
             let canonical = normalized(key)
-            let label = Self.labels[canonical].map(language.text) ?? canonical.replacingOccurrences(of: "_", with: " ").capitalized
+            let labelKey = section == "plan" && canonical == "medications"
+                ? "native.soap.recommendedMedications" : Self.labels[canonical]
+            let label = labelKey.map(language.text) ?? canonical.replacingOccurrences(of: "_", with: " ").capitalized
             return Row(id: key, label: label, content: text)
         }
+    }
+
+    private func rank(for key: String, order: [String]) -> Int {
+        let name = normalized(key)
+        if section == "plan", name == "medications" {
+            return order.firstIndex(of: "treatments") ?? order.count
+        }
+        return order.firstIndex(of: name) ?? order.count
     }
 
     private func normalized(_ key: String) -> String {

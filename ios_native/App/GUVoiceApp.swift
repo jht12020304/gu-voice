@@ -26,7 +26,6 @@ struct GUVoiceApp: App {
                 }
             }
             .environment(\.locale, Locale(identifier: language.rawValue))
-            .tint(Color.accentColor)
         }
     }
 }
@@ -121,7 +120,10 @@ private struct RootScreen: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Picker(language.text("common.language.label"), selection: $savedLanguage) {
+                        Picker(
+                            language.text("common.language.label"),
+                            selection: Binding(get: { language.rawValue }, set: { savedLanguage = $0 })
+                        ) {
                             ForEach(AppLanguage.allCases) { item in
                                 Text(item.name).tag(item.rawValue)
                             }

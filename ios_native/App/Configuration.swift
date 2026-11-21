@@ -63,13 +63,11 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
 
     static func resolve(saved: String, preferred: [String] = Locale.preferredLanguages) -> Self {
         if let explicit = Self(rawValue: saved) { return explicit }
-        for identifier in preferred {
-            let code = Locale(identifier: identifier).language.languageCode?.identifier
-            if let match = allCases.first(where: {
-                Locale(identifier: $0.rawValue).language.languageCode?.identifier == code
-            }) { return match }
-        }
-        return .traditionalChinese
+        guard let first = preferred.first else { return .traditionalChinese }
+        let code = Locale(identifier: first).language.languageCode?.identifier
+        return allCases.first {
+            Locale(identifier: $0.rawValue).language.languageCode?.identifier == code
+        } ?? .traditionalChinese
     }
 
     func text(_ key: String) -> String {

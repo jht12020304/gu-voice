@@ -14,9 +14,9 @@ struct Page<Item: Decodable & Sendable>: Decodable, Sendable {
         }
     }
 
-    func continuation(after previous: String?) throws -> String? {
+    func continuation(seen: inout Set<String>) throws -> String? {
         guard pagination.hasMore else { return nil }
-        guard let cursor = pagination.nextCursor, !cursor.isEmpty, cursor != previous else {
+        guard let cursor = pagination.nextCursor, !cursor.isEmpty, seen.insert(cursor).inserted else {
             throw APIError.invalidResponse
         }
         return cursor
@@ -174,21 +174,52 @@ struct Reports: Sendable {
         return try await api.get("reports", language: language, query: query)
     }
 
-    func details(for id: UUID) async -> ReportDetails {
-        let sessionPath = "sessions/\(id.uuidString.lowercased())"
-        async let session = Load.fetch { try await api.get(sessionPath, language: language) } as Load<ReportSession>
-        async let report = Load.fetch {
-            do { return try await api.get("\(sessionPath)/report", language: language) }
-            catch APIError.status(404) { return nil }
-        } as Load<Report?>
-        async let alerts = Load.fetch {
-            try await allPages("alerts", query: [URLQueryItem(name: "session_id", value: id.uuidString.lowercased())])
-        } as Load<[ReportAlert]>
-        async let transcript = Load.fetch {
-            let turns: [ConversationTurn] = try await allPages("\(sessionPath)/conversations")
-            return turns.sorted { $0.sequence < $1.sequence }
+    private enum DetailUpdate: Sendable {
+        case session(Load<ReportSession>)
+        case report(Load<Report?>)
+        case alerts(Load<[ReportAlert]>)
+        case transcript(Load<[ConversationTurn]>)
+    }
+
+    func details(
+        for id: UUID, onUpdate: (@MainActor @Sendable (ReportDetails) -> Void)? = nil
+    ) async -> ReportDetails {
+        let id = id.uuidString.lowercased()
+        let sessionPath = "sessions/\(id)"
+        return await withTaskGroup(of: DetailUpdate.self) { group in
+            group.addTask {
+                .session(await Load.fetch { try await api.get(sessionPath, language: language) })
+            }
+            group.addTask {
+                .report(await Load.fetch {
+                    do { return try await api.get("\(sessionPath)/report", language: language) }
+                    catch APIError.status(404) { return nil }
+                })
+            }
+            group.addTask {
+                .alerts(await Load.fetch {
+                    try await allPages("alerts", query: [URLQueryItem(name: "session_id", value: id)])
+                })
+            }
+            group.addTask {
+                .transcript(await Load.fetch {
+                    let turns: [ConversationTurn] = try await allPages("\(sessionPath)/conversations")
+                    return turns.sorted { $0.sequence < $1.sequence }
+                })
+            }
+
+            var details = ReportDetails()
+            for await update in group {
+                switch update {
+                case let .session(value): details.session = value
+                case let .report(value): details.report = value
+                case let .alerts(value): details.alerts = value
+                case let .transcript(value): details.transcript = value
+                }
+                await onUpdate?(details)
+            }
+            return details
         }
-        return await ReportDetails(session: session, report: report, alerts: alerts, transcript: transcript)
     }
 
     private func allPages<Item: Decodable & Sendable>(
@@ -202,8 +233,7 @@ struct Reports: Sendable {
             if let cursor { parameters.append(URLQueryItem(name: "cursor", value: cursor)) }
             let page: Page<Item> = try await api.get(path, language: language, query: parameters)
             items.append(contentsOf: page.data)
-            cursor = try page.continuation(after: cursor)
-            if let cursor, !seen.insert(cursor).inserted { throw APIError.invalidResponse }
+            cursor = try page.continuation(seen: &seen)
         } while cursor != nil
         return items
     }

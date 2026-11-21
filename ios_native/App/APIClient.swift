@@ -18,16 +18,18 @@ struct User: Decodable, Sendable {
 
 actor APIClient {
     let configuration: Configuration
-    private let credentials: Credentials
+    private let credentials: any CredentialStore
     private let session: URLSession
     private var tokens: Tokens?
     private var revision = 0
     private var refreshTask: (id: UUID, task: Task<Tokens, Error>)?
     private var signingOut = false
+    private var pendingRevocation: Tokens?
+    private var needsPersistence = false
 
     var hasSession: Bool { tokens != nil }
 
-    init(configuration: Configuration, credentials: Credentials, session: URLSession = APIClient.makeSession()) {
+    init(configuration: Configuration, credentials: any CredentialStore, session: URLSession = APIClient.makeSession()) {
         self.configuration = configuration
         self.credentials = credentials
         self.session = session
@@ -64,7 +66,7 @@ actor APIClient {
         let pair = try decodeTokens(data)
         guard revision == attempt, !signingOut else { throw APIError.signedOut }
         try credentials.save(pair)
-        try? credentials.removeLegacy()
+        try credentials.removeLegacy()
         revision += 1
         tokens = pair
         return user
@@ -74,31 +76,48 @@ actor APIClient {
         guard !signingOut else { return }
         signingOut = true
         defer { signingOut = false }
-        let current = tokens
+        let current = tokens ?? pendingRevocation
         let pending = refreshTask?.task
         revision += 1
         tokens = nil
         refreshTask = nil
-        try credentials.clear()
+        needsPersistence = false
+        pendingRevocation = nil
+        let clearance = Result { try credentials.clear() }
 
         var pair = current
         if let pending, let rotated = try? await pending.value { pair = rotated }
-        guard let pair else { return }
+        if let pair {
+            let remaining = await revokeOnLogout(pair, language: language)
+            if case .failure = clearance { pendingRevocation = remaining }
+        }
+        try clearance.get()
+    }
+
+    private func revokeOnLogout(_ pair: Tokens, language: AppLanguage) async -> Tokens? {
         do {
             try await revoke(pair, language: language)
         } catch APIError.status(401) {
-            if let newPair = try? await rotate(pair, language: language) {
-                try? await revoke(newPair, language: language)
+            var latest = pair
+            do {
+                latest = try await rotate(pair, language: language)
+                try await revoke(latest, language: language)
+            } catch APIError.status(401), APIError.status(403) {
+                return nil
+            } catch {
+                return latest
             }
         } catch {
-            // The local account is already cleared even when the server is unreachable.
+            return pair
         }
+        return nil
     }
 
     func get<Value: Decodable & Sendable>(
         _ path: String, language: AppLanguage, query: [URLQueryItem] = []
     ) async throws -> Value {
         guard let pair = tokens else { throw APIError.signedOut }
+        if needsPersistence { persistRotation(pair) }
         let requestRevision = revision
         let data: Data
         do {
@@ -107,10 +126,14 @@ actor APIClient {
             let fresh = try await refresh(after: pair, revision: requestRevision, language: language)
             do {
                 data = try await send(path, language: language, query: query, access: fresh.access)
-            } catch APIError.status(401) {
+            } catch let error as APIError
+                where error == .status(401) || (path == "auth/me" && error == .status(403)) {
                 if requestRevision == revision, tokens == fresh { try discard() }
                 throw APIError.signedOut
             }
+        } catch APIError.status(403) where path == "auth/me" {
+            if requestRevision == revision { try discard() }
+            throw APIError.signedOut
         }
         guard revision == requestRevision else { throw APIError.signedOut }
         try Task.checkCancellation()
@@ -130,7 +153,7 @@ actor APIClient {
             guard revision == expected else { throw APIError.signedOut }
             if refreshTask?.id == refresh.id {
                 refreshTask = nil
-                if error as? APIError == .status(401) {
+                if let failure = error as? APIError, [.status(401), .status(403)].contains(failure) {
                     try discard()
                     throw APIError.signedOut
                 }
@@ -140,17 +163,27 @@ actor APIClient {
 
         guard revision == expected, let active = tokens else { throw APIError.signedOut }
         if active != rejected { return active }
-        // Keep the server's rotated pair in memory if Keychain is temporarily unavailable.
         tokens = rotated
         refreshTask = nil
-        try credentials.save(rotated)
+        credentials.markUnpersistedRotation()
+        persistRotation(rotated)
         return rotated
+    }
+
+    private func persistRotation(_ pair: Tokens) {
+        do {
+            try credentials.save(pair)
+            needsPersistence = false
+        } catch {
+            needsPersistence = true
+        }
     }
 
     private func discard() throws {
         revision += 1
         tokens = nil
         refreshTask = nil
+        needsPersistence = false
         try credentials.clear()
     }
 

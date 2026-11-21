@@ -1693,6 +1693,42 @@
         }
       }
     },
+    "native.soap.recommendedMedications": {
+      "comment": "Native iOS",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建議用藥"
+          }
+        },
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommended medications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推奨薬"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권장 약물"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thuốc được đề xuất"
+          }
+        }
+      }
+    },
     "native.soap.urgency": {
       "comment": "Native iOS",
       "extractionState": "manual",

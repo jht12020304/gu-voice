@@ -49,13 +49,15 @@ Debug 允許 loopback HTTP。需要開啟本機 React 報告頁時，執行 `doc
 
 原生 App 從同一個 Keychain access group 讀取 Flutter 的 `flutter_secure_storage_service`。遷移成功後，原生格式以單筆紀錄保存 access 和 refresh token，並刪除 Flutter 項目。遷移寫入失敗會保留 Flutter 項目並顯示登入頁。暫時無法存取 Keychain 時，可在裝置解鎖後重試。若裝回 Flutter，請重新登入。Simulator 驗收不能取代日後實機簽章與覆裝驗證。本期未加入 APNs、Time Sensitive Notifications 或 Firebase。
 
+**實機切換前須清理舊推播註冊。** 同 ID 覆裝可能保留舊 Flutter 的裝置推播註冊。若原生版登出後註冊仍有效，前一位醫師的通知可能在同一台裝置的鎖定畫面顯示病患姓名。完成裝置層級的取消註冊與換人驗證後才可實機覆裝。
+
 ## 追平 Flutter
 
 | 階段 | 工作 |
 | --- | --- |
-| C · 醫師與管理員 | 報告確認／退回、PDF、快速開單、醫師其餘頁、帳號管理與推播。臨床 admin 與 system admin 的資料範圍沿用後端及 Flutter 規則。 |
+| C · 醫師與管理員 | 報告確認／退回、PDF、快速開單、醫師其餘頁、帳號管理與推播。臨床 admin 只讀指派給自己的報告。System admin 可看全院資料。 |
 | D · 病患 kiosk | 原生語音問診、閒置登出和 kiosk 流程。語音使用 AVAudioEngine，問診連線使用 URLSession WebSocket。 |
-| E · 切換 | 驗證簽章與原地升級，完成追平後切換並退役 Flutter。 |
+| E · 切換 | 清理舊 Flutter 裝置的推播註冊，驗證換人後的鎖定畫面、簽章及實機覆裝。依 [iOS 發布設定](../docs/ios_release_settings.md) 的時間戳規則遞增 build 號，完成追平後切換並退役 Flutter。 |
 
 ## 本機驗收截圖
 
