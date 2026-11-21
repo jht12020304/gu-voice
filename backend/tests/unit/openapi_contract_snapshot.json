@@ -1753,6 +1753,7 @@
   },
   "ReviewReportRequest": {
    "properties": [
+    "pending_only",
     "review_notes",
     "review_status",
     "soap_overrides"

@@ -664,6 +664,7 @@ class ReportService:
         review_notes: Optional[str] = None,
         soap_overrides: Optional[dict[str, Any]] = None,
         current_user: Any = None,
+        pending_only: bool = False,
     ) -> SOAPReport:
         """
         醫師審閱報告
@@ -681,6 +682,10 @@ class ReportService:
             ReportNotReadyException: 報告尚未生成完成
         """
         report = await ReportService.get_report(db, report_id, current_user=current_user)
+        if pending_only:
+            await db.refresh(report, with_for_update=True)
+            if report.review_status != ReviewStatus.PENDING:
+                raise ConflictException()
 
         if report.status != ReportStatus.GENERATED:
             raise ReportNotReadyException()

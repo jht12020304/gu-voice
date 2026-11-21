@@ -108,6 +108,7 @@ class SOAPReportDetailResponse(SOAPReportResponse):
 class ReviewRequest(BaseModel):
     """審閱請求"""
     review_status: ReviewStatus
+    pending_only: bool = False
     review_notes: Optional[str] = Field(None, description="審閱備註")
     soap_overrides: Optional[dict[str, Any]] = Field(None, description="SOAP 內容覆寫")
 

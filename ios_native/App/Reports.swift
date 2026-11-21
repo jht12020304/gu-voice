@@ -204,9 +204,14 @@ struct Reports: Sendable {
         guard decision == .approved || decision == .revisionNeeded && !notes.isEmpty else {
             throw APIError.invalidResponse
         }
-        var body = ["review_status": decision.rawValue]
-        if !notes.isEmpty { body["review_notes"] = notes }
+        let body = ReviewRequest(review_status: decision.rawValue, review_notes: notes.isEmpty ? nil : notes)
         return try await api.write("reports/\(report.id)/review", method: "PUT", language: language, body: body)
+    }
+
+    private struct ReviewRequest: Encodable, Sendable {
+        let review_status: String
+        let review_notes: String?
+        let pending_only = true
     }
 
     func pdf(_ report: Report) async throws -> Data {

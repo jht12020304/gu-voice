@@ -275,7 +275,6 @@ actor APIClient {
             } catch APIError.status(409) where binding.requiresLegacyLookup == true {
                 throw PushDeviceRecoveryRequired(id: binding.id)
             } catch {
-                if binding.requiresLegacyLookup == true { throw PushDeviceRecoveryRequired(id: binding.id) }
                 throw PushCleanupPending()
             }
             pair = fresh

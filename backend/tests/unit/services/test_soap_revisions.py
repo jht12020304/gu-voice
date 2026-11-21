@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.core.exceptions import ConflictException
 from app.models.enums import (
     ReportRevisionReason,
     ReportStatus,
@@ -180,6 +181,32 @@ def test_review_metadata_only_does_not_snapshot(
     )
 
     assert patch_snapshot.await_count == 0
+
+
+def test_pending_only_review_cannot_overwrite_a_concurrent_decision(monkeypatch, fake_db, fake_report):
+    monkeypatch.setattr(ReportService, "get_report", AsyncMock(return_value=fake_report))
+
+    async def concurrent_commit(report, *, with_for_update):
+        assert report is fake_report
+        assert with_for_update
+        report.review_status = ReviewStatus.APPROVED
+        report.review_notes = "First review"
+
+    monkeypatch.setattr(fake_db, "refresh", concurrent_commit, raising=False)
+
+    with pytest.raises(ConflictException):
+        _run(
+            ReportService.review_report(
+                fake_db,
+                report_id=fake_report.id,
+                reviewed_by=uuid.uuid4(),
+                review_status=ReviewStatus.REVISION_NEEDED,
+                review_notes="Second review",
+                pending_only=True,
+            )
+        )
+    assert fake_report.review_notes == "First review"
+    assert fake_db.flushed == 0
 
 
 def test_review_with_empty_overrides_dict_does_not_snapshot(

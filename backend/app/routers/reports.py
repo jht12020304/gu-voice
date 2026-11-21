@@ -170,6 +170,7 @@ async def review_report(
         report_id=report_id,
         review_status=payload.review_status,
         review_notes=payload.review_notes,
+        pending_only=payload.pending_only,
         soap_overrides=payload.soap_overrides,
         reviewed_by=current_user.id,
         current_user=current_user,
