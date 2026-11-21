@@ -4,7 +4,7 @@ import 'parse_page.dart';
 
 typedef UserPage = ({List<User> data, String? nextCursor, bool hasMore, int totalCount});
 
-// Port of frontend/src/services/api/admin.ts. Admin-only endpoints (RoleGuard enforces).
+// The backend checks the current account on every management request.
 class AdminApi {
   final _dio = ApiClient.instance.dio;
 
@@ -39,7 +39,7 @@ class AdminApi {
   /// ⚠️ `tempPassword` 是明文憑證且**只出現這一次**（後端只存 hash、不寫 log）。
   /// 不要寫進 localStorage、不要送進任何 log／錯誤追蹤。
   /// 存在理由：生產未設 email transport，忘記密碼的信寄不出去，前端引導使用者
-  /// 「告知現場醫護或系統管理員」——這支就是讓那句話成真的途徑（TODO H1）。
+  /// 「請聯絡系統管理員」——這支就是讓那句話成真的途徑（TODO H1）。
   Future<({String email, String tempPassword})> resetUserPassword(String id) async {
     final res = await _dio.post('/admin/users/$id/reset-password');
     final d = res.data as Map;

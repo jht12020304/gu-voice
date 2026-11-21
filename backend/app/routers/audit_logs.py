@@ -19,9 +19,6 @@ from app.services.audit_log_service import AuditLogService
 router = APIRouter(
     prefix="/api/v1/audit-logs",
     tags=["稽核日誌"],
-    # 醫師＝管理員（2026-08-22 拍板）：admin 四頁對醫師開放。當時只改了
-    # admin.py 的 router，漏掉這支獨立 router——iOS 稽核日誌頁對醫師 403 的根因
-    # 之一（另一半是 Flutter 打錯路徑，admin_api.dart 同輪修正）。
     dependencies=[Depends(require_role("admin", "doctor"))],
 )
 
@@ -50,7 +47,7 @@ async def list_audit_logs(
     ip_address: str | None = None,
 ) -> AuditLogListResponse:
     """
-    取得系統稽核日誌，記錄所有使用者操作。僅限管理員存取。
+    臨床人員只可查自己的操作，系統管理員可查全院紀錄。
     支援依操作者、操作類型、資源類型、日期範圍、IP 位址篩選。
 
     日期範圍同時接受 `date_from`/`date_to` 與前端使用的
@@ -59,6 +56,7 @@ async def list_audit_logs(
     """
     return await audit_log_service.list_audit_logs(
         db,
+        actor=current_user,
         cursor=cursor,
         limit=limit,
         user_id=user_id,
@@ -82,5 +80,5 @@ async def get_audit_log(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> AuditLogDetail:
-    """取得指定稽核日誌的完整詳細資料。僅限管理員。"""
-    return await audit_log_service.get_audit_log(db, log_id=log_id)
+    """取得指定稽核日誌的完整詳細資料，沿用清單的操作者範圍。"""
+    return await audit_log_service.get_audit_log(db, log_id=log_id, actor=current_user)

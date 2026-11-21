@@ -41,6 +41,7 @@
     "fieldDisplayOrder": "표시 순서"
   },
   "users": {
+    "forbidden": "시스템 관리자만 계정을 관리할 수 있습니다.",
     "title": "사용자 관리",
     "create": "사용자 추가",
     "searchPlaceholder": "이름 또는 이메일 검색...",

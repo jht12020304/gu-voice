@@ -151,7 +151,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
             ],
           ),
 
-          // 醫師＝管理員（2026-08-22）：admin 工具列對醫師與管理員都顯示
+          // 臨床人員共用管理區入口，帳號管理頁會顯示後端的權限結果。
           if ((user?.isAdmin ?? false) || (user?.isDoctor ?? false)) ...[
             const SizedBox(height: 8),
             GroupHeader(t('dashboard.sidebar.sections.admin')),

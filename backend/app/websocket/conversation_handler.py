@@ -2297,8 +2297,6 @@ async def _handle_text_message(
                     target_db,
                     session_id=session_id,
                     doctor_id=None,
-                    language=session_context.get("language"),
-                    red_flag_reason=resolved_title,
                     extra_data={"alert_id": alert_id, "severity": alert["severity"]},
                 )
                 await target_db.commit()
@@ -3027,8 +3025,6 @@ async def _notify_doctors_red_flag(
     *,
     session_id: str,
     doctor_id: Any,
-    language: str | None,
-    red_flag_reason: str | None,
     extra_data: dict[str, Any] | None = None,
 ) -> int:
     """紅旗事件 → 建立 RED_FLAG 站內通知給醫師，回傳**實際建立**的筆數。
@@ -3045,10 +3041,6 @@ async def _notify_doctors_red_flag(
     紅旗是病安事件，寧可多人看到也不能沒人看到。`NotificationType.RED_FLAG` 在
     `NotificationService` 不受使用者偏好抑制（病安關鍵，恆送）。
 
-    標題語言沿用 `sessions.language`（與 `AlertService` 既有的紅旗推播一致），
-    不另外查每位醫師的 preferred_language —— 避免 N+1 查詢，且兩處紅旗通知
-    對同一事件顯示同一語言。
-
     `extra_data`：併進 notification.data 的額外欄位（如 alert_id / severity），
     讓醫師端可以從通知直接跳到該則警示。
 
@@ -3059,7 +3051,7 @@ async def _notify_doctors_red_flag(
 
     from app.models.enums import NotificationType
     from app.services.notification_service import NotificationService
-    from app.utils.i18n_messages import get_message as _i18n_get
+    from app.utils.notification_copy import notification_copy
 
     targets: list[Any] = []
     if doctor_id is not None:
@@ -3089,8 +3081,7 @@ async def _notify_doctors_red_flag(
         )
         return 0
 
-    reason_text = red_flag_reason or _i18n_get("alert.unknown_title", language)
-    title = _i18n_get("alert.push_notification_title", language, title=reason_text)
+    languages = await NotificationService.preferred_languages(db, targets)
     payload: dict[str, Any] = {
         "type": "red_flag",
         "session_id": str(session_id),
@@ -3100,12 +3091,13 @@ async def _notify_doctors_red_flag(
         payload.update(extra_data)
     created = 0
     for target_id in targets:
+        title, body = notification_copy("red_flag", languages.get(target_id))
         notification = await NotificationService.create(
             db,
             user_id=target_id,
             type=NotificationType.RED_FLAG,
             title=title,
-            body=reason_text,
+            body=body,
             data=dict(payload),
         )
         if notification is not None:
@@ -3285,7 +3277,6 @@ async def _update_session_status(
                     db,
                     session_id=session_id,
                     doctor_id=row.doctor_id,
-                    patient_id=row.patient_id,
                 )
             elif new_status == "aborted_red_flag" and notify_doctors:
                 # 病患收到的終止提示原文明說「系統已將…通知現場醫護人員」
@@ -3295,8 +3286,6 @@ async def _update_session_status(
                     db,
                     session_id=session_id,
                     doctor_id=row.doctor_id,
-                    language=row.language,
-                    red_flag_reason=red_flag_reason,
                     extra_data={"status": "aborted_red_flag"},
                 )
             await db.commit()

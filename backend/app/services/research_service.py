@@ -22,11 +22,13 @@ from typing import Any, Iterable, Optional, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authz import clinical_reader_id
 from app.models.chief_complaint import ChiefComplaint
 from app.models.conversation import Conversation
 from app.models.patient import Patient
 from app.models.red_flag_alert import RedFlagAlert
 from app.models.session import Session
+from app.models.user import User
 from app.services.session_visibility import session_not_deleted
 from app.models.soap_report import SOAPReport
 from app.models.soap_report_revision import SOAPReportRevision
@@ -607,6 +609,8 @@ class ResearchService:
     async def get_analytics(
         self,
         db: AsyncSession,
+        *,
+        actor: User,
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
     ) -> ResearchAnalyticsResponse:
@@ -622,6 +626,9 @@ class ResearchService:
         ).where(session_not_deleted())
         # Q1 是整份分析的母體：Q2〜Q6 全部以這裡取到的 session_ids 限縮，
         # 所以軟刪除只要擋在這一條，整份研究統計就不會算進已刪場次。
+        doctor_id = clinical_reader_id(actor)
+        if doctor_id is not None:
+            stmt = stmt.where(Session.doctor_id == doctor_id)
         if date_from is not None:
             stmt = stmt.where(Session.created_at >= date_from)
         if date_to is not None:

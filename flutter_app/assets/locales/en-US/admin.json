@@ -41,6 +41,7 @@
     "fieldDisplayOrder": "Display order"
   },
   "users": {
+    "forbidden": "Only system administrators can manage accounts.",
     "title": "User Management",
     "create": "Add User",
     "searchPlaceholder": "Search name or email...",

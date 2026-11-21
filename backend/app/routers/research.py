@@ -53,5 +53,5 @@ async def get_research_analytics(
     - by_language：各語言子群摘要（table view）
     """
     return await research_service.get_analytics(
-        db, date_from=date_from, date_to=date_to
+        db, actor=current_user, date_from=date_from, date_to=date_to
     )

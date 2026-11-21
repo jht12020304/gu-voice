@@ -17,7 +17,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.authz import get_user_role
+from app.core.authz import check_system_admin
 from app.core.config import settings
 from app.core.exceptions import (
     AccountDisabledException,
@@ -103,15 +103,6 @@ async def _revoke_all_refresh_tokens(redis: Any, user_id: Any) -> int:
     async for key in redis.scan_iter(match=pattern):
         count += int(await redis.delete(key))
     return count
-
-
-def _is_admin(current_user: Any) -> bool:
-    """current_user 是否為已認證的 ADMIN（role 容忍 string 或 enum）。
-
-    `core.authz.get_user_role` 的容錯解析：未登入 / 解不出角色一律視為非 admin，
-    公開註冊因此一律降級為 PATIENT（AUTH-3）。
-    """
-    return get_user_role(current_user) == UserRole.ADMIN
 
 
 class AuthService:
@@ -215,21 +206,16 @@ class AuthService:
         Raises:
             EmailAlreadyExistsException: Email 已被註冊
         """
+        effective_role = UserRole.PATIENT if current_user is None else data.role
+        if effective_role != UserRole.PATIENT:
+            check_system_admin(current_user)
+
         # 檢查 email 是否已存在
         result = await db.execute(
             select(User).where(User.email == data.email)
         )
         if result.scalar_one_or_none() is not None:
             raise EmailAlreadyExistsException()
-
-        # AUTH-3：公開註冊一律為 PATIENT；唯有以已認證 ADMIN 身分呼叫才可指定角色。
-        # 管理員建立帳號走 admin_service.create_user，這裡只是防止自助註冊提權。
-        requested_role = getattr(data, "role", None) or UserRole.PATIENT
-        effective_role = (
-            requested_role
-            if _is_admin(current_user)
-            else UserRole.PATIENT
-        )
 
         # 建立使用者
         now = utc_now()
