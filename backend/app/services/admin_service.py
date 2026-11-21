@@ -155,7 +155,7 @@ class AdminService:
         """管理員更新使用者欄位（name / email / role / phone / department /
         license_number / is_active），persist 後寫入 audit log。
 
-        - 僅更新 payload 中有提供（非 None）的欄位
+        - 只更新有提供的欄位；明確的 license_number=null 表示清除執照
         - email 變更時驗證唯一性
         """
         check_system_admin(actor)
@@ -196,7 +196,7 @@ class AdminService:
         }
         changed: list[str] = []
         for field, value in updates.items():
-            if field in updatable_fields and value is not None:
+            if field in updatable_fields and (value is not None or field == "license_number"):
                 setattr(user, field, value)
                 changed.append(field)
 
@@ -271,10 +271,7 @@ class AdminService:
     ) -> ResetPasswordResponse:
         """管理員代為重設使用者密碼，回傳一次性臨時密碼。
 
-        存在的理由（H1）：生產沒有設定 email transport，`/auth/forgot-password`
-        的信永遠寄不出去，前端因此顯示「請告知現場醫護或系統管理員」——但管理員
-        原本沒有任何重設他人密碼的能力，那句話等於空話。院內 kiosk 情境下病患人
-        就在現場，當面由醫護重設本來就比 email 直接。
+        無法寄送重設郵件時，由系統管理員協助使用者重設密碼。
 
         - 臨時密碼用 `secrets` 生成，**只在這次回應裡出現一次**，不寫 log、不存明文
         - 產生的密碼保證通過 `RegisterRequest` 的強度規則（大小寫 + 數字 + ≥8）

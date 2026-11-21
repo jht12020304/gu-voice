@@ -390,7 +390,7 @@ class AlertService:
                 from app.services.notification_service import NotificationService
                 from app.utils.notification_copy import notification_copy
 
-                languages = await NotificationService._preferred_languages(db, [session.doctor_id])
+                languages = await NotificationService.preferred_languages(db, [session.doctor_id])
                 push_title, push_body = notification_copy("red_flag", languages.get(session.doctor_id))
                 severity_value = (
                     data["severity"].value

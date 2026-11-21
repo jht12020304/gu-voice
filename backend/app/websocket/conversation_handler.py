@@ -3081,7 +3081,7 @@ async def _notify_doctors_red_flag(
         )
         return 0
 
-    languages = await NotificationService._preferred_languages(db, targets)
+    languages = await NotificationService.preferred_languages(db, targets)
     payload: dict[str, Any] = {
         "type": "red_flag",
         "session_id": str(session_id),

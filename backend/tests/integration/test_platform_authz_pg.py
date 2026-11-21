@@ -16,10 +16,14 @@ from app.models.chief_complaint import ChiefComplaint
 from app.models.enums import AuditAction, Gender, NotificationType, SessionStatus, UserRole
 from app.models.notification import Notification
 from app.models.patient import Patient
+from app.models.red_flag_alert import RedFlagAlert
+from app.models.soap_report import SOAPReport
 from app.models.red_flag_rule import RedFlagRule
 from app.models.session import Session
 from app.models.user import User
-from app.routers import admin, alerts, audit_logs, auth, notifications, research, sessions
+from app.routers import admin, alerts, audit_logs, auth, notifications, reports, research, sessions
+from app.services.notification_service import NotificationService
+from app.utils.notification_copy import notification_copy
 from tests.integration.conftest import requires_db, run_with_session
 
 pytestmark = requires_db
@@ -38,17 +42,20 @@ def account(role, license_number=None):
 
 def api(db, actor):
     app = FastAPI()
-    for module in (admin, alerts, audit_logs, auth, notifications, research, sessions):
+    for module in (admin, alerts, audit_logs, auth, notifications, reports, research, sessions):
         app.include_router(module.router)
     register_exception_handlers(app)
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: actor
-    app.dependency_overrides[auth._get_optional_current_user] = lambda: actor
+    if actor is not None:
+        app.dependency_overrides[auth._get_optional_current_user] = lambda: actor
     return httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test/api/v1/")
 
 
 @pytest.mark.parametrize("role,license_number", ROLES)
 def test_account_and_rule_permissions(role, license_number, monkeypatch):
+    monkeypatch.setattr("app.services.admin_service._probe_openai", AsyncMock(return_value="ok"))
+    monkeypatch.setattr("app.services.admin_service._probe_redis", AsyncMock(return_value="ok"))
     register_token = AsyncMock()
     revoke = AsyncMock(return_value=1)
     monkeypatch.setattr("app.services.auth_service._register_refresh_token", register_token)
@@ -104,6 +111,11 @@ def test_account_and_rule_permissions(role, license_number, monkeypatch):
                 elif path == "auth/register":
                     assert str(register_token.await_args.args[1]) == response.json()["user"]["id"]
             if allowed:
+                # Omitting the license preserves it. Only an explicit NULL clears it.
+                await client.put(f"admin/users/{target.id}", json={"role": "admin"})
+                assert target.license_number == "L1"
+                cleared = await client.put(f"admin/users/{target.id}", json={"license_number": None})
+                assert cleared.status_code == 200 and cleared.json()["license_number"] is None
                 for blank in ("", "   "):
                     for method, path, payload in (
                         ("POST", "admin/users", create),
@@ -119,6 +131,10 @@ def test_account_and_rule_permissions(role, license_number, monkeypatch):
                 assert await snapshot() == before
             patient = await client.post("auth/register", json={**create, "email": f"{uuid4()}@example.com", "role": "patient"})
             assert patient.status_code == 201 and patient.json()["user"]["role"] == "patient"
+            profile = await client.put("auth/me", json={"department": "Updated clinic"})
+            assert profile.status_code == 200 and profile.json()["department"] == "Updated clinic"
+            health = await client.get("admin/system/health")
+            assert health.status_code == (403 if role == UserRole.PATIENT else 200)
             kiosk = await client.get("sessions/doctors")
             assert kiosk.status_code == 200
             assert all(set(row) == {"id", "name", "department"} for row in kiosk.json())
@@ -179,18 +195,32 @@ def test_audit_and_research_scope(role, license_number):
     run_with_session(body)
 
 
-def test_existing_clinical_inbox_text_is_masked_without_rewriting_rows():
+@pytest.mark.parametrize("language", ["en-US", "ja-JP"])
+def test_existing_clinical_inbox_text_is_masked_without_rewriting_rows(language):
     async def body(db):
-        actor = account(UserRole.DOCTOR)
-        actor.preferred_language = "en-US"
-        db.add(actor)
+        actor, other = account(UserRole.DOCTOR), account(UserRole.DOCTOR)
+        actor.preferred_language = language
+        db.add_all([actor, other])
+        await db.flush()
+        patient = Patient(user_id=actor.id, name="Fixture", medical_record_number=str(uuid4()),
+                          gender=Gender.OTHER, date_of_birth=date(1980, 1, 1))
+        complaint = ChiefComplaint(name=str(uuid4()), category="fixture")
+        db.add_all([patient, complaint])
+        await db.flush()
+        session = Session(patient_id=patient.id, doctor_id=actor.id, chief_complaint_id=complaint.id)
+        db.add(session)
+        await db.flush()
+        alert = RedFlagAlert(session_id=session.id, conversation_id=uuid4(), alert_type="rule_based",
+                             severity="high", title="Private alert", trigger_reason="Private detail")
+        report = SOAPReport(session_id=session.id, status="generated", review_status="pending")
+        db.add_all([alert, report])
         await db.flush()
         rows = []
         for kind, data in [
-            (NotificationType.RED_FLAG, {"alert_id": str(uuid4())}),
-            (NotificationType.SESSION_COMPLETE, {"session_id": str(uuid4())}),
-            (NotificationType.REPORT_READY, {"report_id": str(uuid4())}),
-            (NotificationType.SYSTEM, {"session_id": str(uuid4()), "status": "failed"}),
+            (NotificationType.RED_FLAG, {"alert_id": str(alert.id)}),
+            (NotificationType.SESSION_COMPLETE, {"session_id": str(session.id)}),
+            (NotificationType.REPORT_READY, {"report_id": str(report.id)}),
+            (NotificationType.SYSTEM, {"session_id": str(session.id), "status": "failed"}),
             (NotificationType.SYSTEM, {}),
         ]:
             row = Notification(user_id=actor.id, type=kind, data=data, title="Stored title", body="Stored detail")
@@ -201,12 +231,52 @@ def test_existing_clinical_inbox_text_is_masked_without_rewriting_rows():
             result = await client.get("notifications")
             assert result.status_code == 200
             items = {item["id"]: item for item in result.json()["data"]}
+            links = []
             for row in rows[:-1]:
                 item = items[str(row.id)]
                 assert item["title"] != row.title and item["body"] != row.body
                 assert item["data"] == row.data
+                data = item["data"]
+                if "alert_id" in data:
+                    links.append(f"alerts/{data['alert_id']}")
+                elif "report_id" in data:
+                    links.append(f"reports/{data['report_id']}")
+                else:
+                    links.append(f"sessions/{data['session_id']}")
+                kind = "report_failed" if row.type == NotificationType.SYSTEM else row.type.value
+                assert (item["title"], item["body"]) == notification_copy(kind, language)
+                assert (await client.get(links[-1])).status_code == 200
             assert items[str(rows[-1].id)]["body"] == "Stored detail"
             for row in rows:
                 await db.refresh(row)
                 assert (row.title, row.body) == ("Stored title", "Stored detail")
+        async with api(db, other) as client:
+            for link in links:
+                assert (await client.get(link)).status_code in (403, 404)
+            session.doctor_id = None
+            await db.flush()
+            for link in links:
+                assert (await client.get(link)).status_code == 200
+        session.is_deleted = True
+        await db.flush()
+        for session_id in (session.id, uuid4(), "invalid"):
+            assert await NotificationService.notify_report_ready(db, session_id=session_id, report_id=report.id) == []
+            assert await NotificationService.notify_report_failed(db, session_id=session_id, report_id=report.id) == []
+    run_with_session(body)
+
+
+def test_anonymous_registration_only_creates_patient(monkeypatch):
+    monkeypatch.setattr("app.services.auth_service._register_refresh_token", AsyncMock())
+    monkeypatch.setattr("app.cache.redis_client.get_redis", AsyncMock())
+    monkeypatch.setattr("app.core.rate_limit.enforce_register_ip_rate_limit", AsyncMock())
+
+    async def body(db):
+        async with api(db, None) as client:
+            response = await client.post("auth/register", json={
+                "email": f"{uuid4()}@example.com", "password": "FixturePass9",
+                "name": "Fixture", "role": "admin", "license_number": "Claimed",
+            })
+            assert response.status_code == 201
+            user = await db.get(User, response.json()["user"]["id"])
+            assert user.role == UserRole.PATIENT and user.license_number is None
     run_with_session(body)

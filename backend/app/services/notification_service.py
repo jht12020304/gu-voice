@@ -184,7 +184,7 @@ class NotificationService:
         data = {"session_id": str(session_id), "report_id": str(report_id)}
         created: list[Notification] = []
         # 一次查全部目標的 preferred_language（先前逐位查＝N 個 round trip）。
-        lang_by_user = await NotificationService._preferred_languages(db, targets)
+        lang_by_user = await NotificationService.preferred_languages(db, targets)
         for target_id in targets:
             doctor_lang = lang_by_user.get(target_id)
             title, body = notification_copy("report_ready", doctor_lang)
@@ -235,7 +235,7 @@ class NotificationService:
             data["report_id"] = str(report_id)
 
         created: list[Notification] = []
-        lang_by_user = await NotificationService._preferred_languages(db, targets)
+        lang_by_user = await NotificationService.preferred_languages(db, targets)
         for target_id in targets:
             doctor_lang = lang_by_user.get(target_id)
             title, body = notification_copy("report_failed", doctor_lang)
@@ -271,12 +271,13 @@ class NotificationService:
                 .where(Session.id == session_uuid, session_not_deleted())
             )
         ).first()
+        # Only a visible, unassigned session fans out to all clinicians.
         if row is None:
             return []
         return await NotificationService._doctor_targets(db, row.doctor_id, session_id)
 
     @staticmethod
-    async def _preferred_languages(db: AsyncSession, user_ids: list[Any]) -> dict[Any, Optional[str]]:
+    async def preferred_languages(db: AsyncSession, user_ids: list[Any]) -> dict[Any, Optional[str]]:
         """一個 query 取回多位使用者的 preferred_language（fan-out 通知共用）。"""
         if not user_ids:
             return {}

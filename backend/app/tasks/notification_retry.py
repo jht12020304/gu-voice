@@ -190,6 +190,7 @@ async def _async_send(
             logger.info("使用者 %s 無已註冊裝置，跳過推播", user_id)
             return {"user_id": user_id, "sent": 0, "skipped": True}
 
+        # Legacy jobs carry rendered text. Both transports must use freshly generated copy.
         language = await db.scalar(select(User.preferred_language).where(User.id == user_id))
         title, body = notification_copy(queued_push_kind(data or {}), language)
 

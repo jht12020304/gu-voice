@@ -191,9 +191,6 @@ class StubResult:
             return SimpleNamespace(language="zh-TW", doctor_id=None, patient_id=None)
         return None
 
-    def all(self):
-        return []  # No stored doctor language preference.
-
     def scalars(self) -> _StubScalars:
         """SELECT 的純量投影。預設空清單。
 
@@ -224,10 +221,12 @@ class StubDB:
         self.commits = 0
         self.rollbacks = 0
 
-    async def execute(self, stmt: Any) -> StubResult:
+    async def execute(self, stmt: Any) -> StubResult | _StubScalars:
         if self.execute_error is not None:
             raise self.execute_error
         self.executed.append(stmt)
+        if "users.preferred_language" in str(stmt):
+            return _StubScalars([])  # No stored recipient language preference.
         return StubResult(
             self.rowcount, row=self.returning_row, scalars=self.doctor_ids
         )

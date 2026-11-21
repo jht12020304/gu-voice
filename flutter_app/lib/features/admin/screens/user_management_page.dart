@@ -76,12 +76,17 @@ class _UserManagementPageState extends State<UserManagementPage> {
       });
     } catch (error) {
       if (!mounted) return;
+      final key = _errorKey(error, 'admin.users.operationFailed');
+      final showErrorPage = key == 'admin.users.forbidden' || _users.isEmpty;
       setState(() {
-        _error = _errorKey(error, 'admin.users.operationFailed');
-        _users = [];
-        _cursor = null;
         _loading = false;
+        if (showErrorPage) {
+          _error = key;
+          _users = [];
+          _cursor = null;
+        }
       });
+      if (!showErrorPage) showToast(context, t(key));
     }
   }
 
@@ -245,7 +250,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
         leading: const DashboardBackButton(),
         title: Text(t('admin.users.title')),
         actions: [
-          if (_error == null && !_loading)
+          if (_error == null)
             IconButton(
               icon: const Icon(Icons.person_add_alt),
               tooltip: t('admin.users.create'),

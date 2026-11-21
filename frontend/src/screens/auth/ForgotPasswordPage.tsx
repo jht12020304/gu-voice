@@ -105,12 +105,12 @@ export default function ForgotPasswordPage() {
                 /* 後端無 email transport：不謊稱已寄出，引導找現場人員（院內 kiosk 情境） */
                 <>
                   <h2 className="text-h3 text-ink-heading dark:text-white">
-                    {t('auth:forgot.onsiteTitle', '請找現場人員協助重設')}
+                    {t('auth:forgot.onsiteTitle', '請聯絡系統管理員')}
                   </h2>
                   <p className="mt-2 text-body text-ink-secondary">
                     {t(
                       'auth:forgot.onsiteBody',
-                      '目前系統無法寄送重設信。請告知現場醫護或系統管理員，由他們協助您重設密碼。',
+                      '目前無法寄送重設信。請聯絡系統管理員協助重設密碼。',
                     )}
                   </p>
                 </>
