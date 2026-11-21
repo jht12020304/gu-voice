@@ -6,6 +6,8 @@
 
 使用支援 Swift 6 的 Xcode 16 或更新版本。從 repo 根目錄開啟 `ios_native/GUVoice.xcodeproj`，選 **GUVoice** scheme 和專用 simulator。專案已包含在 repo 中。修改 `project.yml` 後才需要在 `ios_native/` 執行 `xcodegen generate`。可用 `brew install xcodegen` 安裝。原生版測試在本機執行。Xcode 會由 Swift Package Manager 取得 Firebase Messaging。原生專案與 Flutter 共用既有 `GoogleService-Info.plist`。
 
+Flutter 退役前，將 `../flutter_app/ios/Runner/GoogleService-Info.plist` 搬入原生專案，更新 `project.yml`、Xcode 專案與匯出驗證腳本的參照，並確認原生 IPA 順利打包同一份 Firebase 設定。將 `../flutter_app/ios/ExportOptions.plist` 移到原生 `Config/`，並將 `../flutter_app/tool/env.production.sh` 與 `../flutter_app/tool/build_ios_testflight.sh` 的產物驗證移到原生 `tool/`，更新打包腳本參照後再移除 Flutter。
+
 1. 從 repo 根目錄啟動本機後端。若 `backend/.env` 不存在，先建立空檔。
 
    ```sh
@@ -128,7 +130,7 @@ docker compose -f ios_native/TestsSupport/kiosk-compose.yml stop
 
 ## 正式切換時的人工驗收
 
-後端部署完成後，由使用者用測試帳號與合成資料執行下列清單。
+發佈用的簽章打包與 TestFlight 實機驗收見 [原生 iOS 切換版](../docs/ios_release_settings.md#61-原生-ios-切換版)。後端部署完成後，由使用者用測試帳號與合成資料執行下列清單。
 
 1. 先確認 Apple Developer App ID 已開啟 Push Notifications 和 Time Sensitive Notifications。核對 Team `K593X99M7G` 與 Bundle ID `com.guvoice.guVoice`，並檢查已簽 App 的 APNs 環境、Time Sensitive entitlement 和 `remote-notification` 背景模式。
 2. 在同一台驗收裝置的 Flutter 版登入醫師 A。保留登入，覆裝相同 Bundle ID 的 SwiftUI 版。確認保留 A 的登入。核對報告、紅旗、SOAP、逐字稿與網頁連結。讓 access token 過期後重開 App，確認可繼續查閱。
