@@ -1,6 +1,20 @@
 import Charts
 import SwiftUI
 
+struct SecondaryActionsMenu<Content: View>: View {
+    let language: AppLanguage
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Menu {
+            content()
+        } label: {
+            Label(language.text("common.header.more"), systemImage: "ellipsis.circle")
+        }
+        .accessibilityIdentifier("secondary-actions-menu")
+    }
+}
+
 struct PagedRows<Item: Decodable & Identifiable & Sendable, Row: View>: View {
     let account: Account
     let language: AppLanguage

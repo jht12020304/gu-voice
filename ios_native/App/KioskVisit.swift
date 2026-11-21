@@ -129,7 +129,6 @@ private struct KioskThankYou: View {
             if status != "cancelled" {
                 Text(language.text(aborted ? "ws.events.session.aborted_red_flag" : "session.thankYou.message"))
             }
-            if status == "completed" { Text(language.text("session.thankYou.autoRedirectHint")).foregroundStyle(.secondary) }
             Button(language.text("session.thankYou.backNowAction"), action: close)
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("kiosk-return")
