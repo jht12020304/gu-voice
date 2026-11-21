@@ -865,6 +865,42 @@
         }
       }
     },
+    "native.accountDisabled": {
+      "comment": "Native iOS",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳號已停用"
+          }
+        },
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account is disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントは無効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정은 비활성화되었습니다"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tài khoản này đã bị vô hiệu hóa"
+          }
+        }
+      }
+    },
     "native.adminPlaceholder": {
       "comment": "Native iOS",
       "extractionState": "manual",
@@ -1257,6 +1293,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "Không có tên bệnh nhân"
+          }
+        }
+      }
+    },
+    "native.redFlagUnknown": {
+      "comment": "Native iOS",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "紅旗狀態未知"
+          }
+        },
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red flag status unknown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告の状態は不明です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위험 경고 상태를 확인할 수 없습니다"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa rõ tình trạng cảnh báo"
           }
         }
       }

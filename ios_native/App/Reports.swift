@@ -136,6 +136,11 @@ enum Load<Value: Sendable>: Sendable {
         return nil
     }
 
+    var isLoading: Bool {
+        if case .loading = self { return true }
+        return false
+    }
+
     var isSignedOut: Bool {
         if case .signedOut = self { return true }
         return false
@@ -158,6 +163,13 @@ struct ReportDetails: Sendable {
         if case .failed = alerts { return .unavailable }
         if session.value != nil, alerts.value != nil { return .clear }
         return .loading
+    }
+
+    mutating func apply(_ update: ReportDetails) {
+        if !update.session.isLoading { session = update.session }
+        if !update.report.isLoading { report = update.report }
+        if !update.alerts.isLoading { alerts = update.alerts }
+        if !update.transcript.isLoading { transcript = update.transcript }
     }
 
     var isSignedOut: Bool {

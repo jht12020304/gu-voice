@@ -8,16 +8,17 @@ struct ReportListScreen: View {
     @State private var cursor: String?
     @State private var seenCursors: Set<String> = []
     @State private var isLoading = true
-    @State private var loadFailed = false
+    @State private var failedReset: Bool?
+    @State private var loadedLanguage: AppLanguage?
     @State private var requestID = UUID()
 
     var body: some View {
         List {
-            if reports.isEmpty {
-                if isLoading {
+            if failedReset == true {
+                FailureRow(key: "native.reportsFailed", language: language) { await load(reset: true) }
+            } else if reports.isEmpty {
+                if isLoading || loadedLanguage != language {
                     ProgressView(language.text("common.loading"))
-                } else if loadFailed {
-                    FailureRow(key: "native.reportsFailed", language: language) { await load(reset: true) }
                 } else {
                     ContentUnavailableView(
                         language.text("dashboard.reportList.emptyTitle"), systemImage: "doc.text",
@@ -31,9 +32,9 @@ struct ReportListScreen: View {
             }
 
             if !reports.isEmpty, let cursor {
-                if loadFailed {
+                if failedReset == false {
                     FailureRow(key: "native.reportsFailed", language: language) { await load(reset: false) }
-                } else {
+                } else if failedReset == nil {
                     ProgressView(language.text("common.pagination.loadingMore"))
                         .task(id: cursor) { await load(reset: false) }
                 }
@@ -43,7 +44,9 @@ struct ReportListScreen: View {
         .navigationDestination(for: UUID.self) { id in
             ReportDetailScreen(sessionID: id, account: account, language: language)
         }
-        .task(id: language) { await load(reset: true) }
+        .task(id: language) {
+            if loadedLanguage != language { await load(reset: true) }
+        }
         .refreshable { await load(reset: true) }
     }
 
@@ -58,6 +61,9 @@ struct ReportListScreen: View {
             if report.hasRedFlag == true {
                 Label(language.text("dashboard.reportList.redFlagBadge"), systemImage: "flag.fill")
                     .foregroundStyle(.red)
+            } else if report.hasRedFlag == nil {
+                Label(language.text("native.redFlagUnknown"), systemImage: "questionmark.circle")
+                    .foregroundStyle(.secondary)
             }
             ViewThatFits(in: .horizontal) {
                 HStack {
@@ -92,19 +98,18 @@ struct ReportListScreen: View {
         if !reset, isLoading { return }
         let id = UUID()
         requestID = id
-        if reset {
-            reports = []
-            cursor = nil
-            seenCursors = []
-        }
         isLoading = true
-        loadFailed = false
+        failedReset = nil
         defer { if id == requestID { isLoading = false } }
-        let previous = cursor
+        let previous = reset ? nil : cursor
         do {
             let page = try await Reports(api: account.api, language: language).page(after: previous)
             guard id == requestID, !Task.isCancelled else { return }
-            let next = try page.continuation(seen: &seenCursors)
+            var visited = reset ? Set<String>() : seenCursors
+            let next = try page.continuation(seen: &visited)
+            if reset { reports = [] }
+            seenCursors = visited
+            loadedLanguage = language
             var existing = Set(reports.map(\.id))
             reports.append(contentsOf: page.data.filter { existing.insert($0.id).inserted })
             cursor = next
@@ -112,7 +117,7 @@ struct ReportListScreen: View {
             await account.noticeAuthorizationLoss()
         } catch {
             guard id == requestID, !Task.isCancelled else { return }
-            loadFailed = true
+            failedReset = reset
         }
     }
 }
@@ -122,6 +127,7 @@ private struct ReportDetailScreen: View {
     let account: Account
     let language: AppLanguage
     @State private var details = ReportDetails()
+    @State private var displayedLanguage: AppLanguage?
     @State private var requestID = UUID()
     @State private var tab: Tab = .report
 
@@ -265,10 +271,13 @@ private struct ReportDetailScreen: View {
     private func load() async {
         let id = UUID()
         requestID = id
-        details = ReportDetails()
+        if displayedLanguage != language {
+            details = ReportDetails()
+            displayedLanguage = language
+        }
         let result = await Reports(api: account.api, language: language).details(for: sessionID) { result in
             guard id == requestID, !Task.isCancelled else { return }
-            details = result
+            details.apply(result)
         }
         guard id == requestID, !Task.isCancelled else { return }
         if result.isSignedOut { await account.noticeAuthorizationLoss() }

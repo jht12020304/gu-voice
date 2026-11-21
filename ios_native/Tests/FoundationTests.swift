@@ -51,6 +51,17 @@ final class FoundationTests: XCTestCase {
         XCTAssertNil(try credentials.load())
     }
 
+    func testCredentialReadErrorShowsLoginWithoutSendingARequest() async throws {
+        let storage = FailingCredentials(base: credentials, failingLoad: FailureOnce())
+        let api = try makeClient(storage: storage) { _ in .status(500) }
+        let account = Account(api: api)
+        await account.restore(.english)
+        guard case .signedOut = account.state else { return XCTFail("Expected the login screen") }
+        XCTAssertTrue(account.credentialsUnavailable)
+        XCTAssertEqual(HTTPStub.routes.count("me"), 0)
+        XCTAssertEqual(try credentials.load(), Tokens(access: "old-access", refresh: "old-refresh"))
+    }
+
     func testConcurrentUnauthorizedRequestsRotateOnceAndPersistPair() async throws {
         let api = try makeClient { request in
             switch request.url?.lastPathComponent {
@@ -358,8 +369,12 @@ private struct FailingCredentials: CredentialStore {
     let base: Credentials
     var failingSave: FailureOnce?
     var failingClear: FailureOnce?
+    var failingLoad: FailureOnce?
 
-    func load() throws -> Tokens? { try base.load() }
+    func load() throws -> Tokens? {
+        try failingLoad?.check()
+        return try base.load()
+    }
     func save(_ tokens: Tokens) throws {
         try failingSave?.check()
         try base.save(tokens)

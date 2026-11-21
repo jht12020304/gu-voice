@@ -36,7 +36,8 @@ struct Credentials: CredentialStore {
 
     func load() throws -> Tokens? {
         if UserDefaults.standard.bool(forKey: clearingKey) {
-            try clear()
+            do { try clear() }
+            catch { throw CredentialClearancePending() }
             return nil
         }
 
@@ -132,3 +133,5 @@ struct Credentials: CredentialStore {
 struct KeychainError: Error, Equatable {
     let status: OSStatus
 }
+
+struct CredentialClearancePending: Error {}

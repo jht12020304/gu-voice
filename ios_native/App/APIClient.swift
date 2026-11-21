@@ -4,6 +4,7 @@ enum APIError: Error, Equatable {
     case status(Int)
     case invalidResponse
     case signedOut
+    case credentialsUnavailable
 }
 
 struct User: Decodable, Sendable {
@@ -48,7 +49,11 @@ actor APIClient {
 
     func restore(language: AppLanguage) async throws -> User? {
         guard !signingOut else { throw APIError.signedOut }
-        if tokens == nil { tokens = try credentials.load() }
+        if tokens == nil {
+            do { tokens = try credentials.load() }
+            catch let error as CredentialClearancePending { throw error }
+            catch { throw APIError.credentialsUnavailable }
+        }
         guard tokens != nil else { return nil }
         do {
             return try await get("auth/me", language: language)
@@ -65,8 +70,8 @@ actor APIClient {
         let user = try Self.decoder().decode(UserEnvelope.self, from: data).user
         let pair = try decodeTokens(data)
         guard revision == attempt, !signingOut else { throw APIError.signedOut }
-        try credentials.save(pair)
         try credentials.removeLegacy()
+        try credentials.save(pair)
         revision += 1
         tokens = pair
         return user

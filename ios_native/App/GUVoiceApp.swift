@@ -6,6 +6,9 @@ struct GUVoiceApp: App {
     @State private var account: Account?
 
     init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
+        #endif
         if let settings = Bundle.main.infoDictionary,
            let configuration = try? Configuration(settings: settings) {
             let credentials = Credentials(service: "com.guvoice.guVoice.native.\(configuration.api.absoluteString)")
@@ -39,6 +42,7 @@ final class Account {
     let api: APIClient
     private(set) var state: State = .starting
     private(set) var isWorking = false
+    private(set) var credentialsUnavailable = false
 
     init(api: APIClient) {
         self.api = api
@@ -48,9 +52,15 @@ final class Account {
         guard !isWorking else { return }
         isWorking = true
         defer { isWorking = false }
+        credentialsUnavailable = false
         do {
             if let user = try await api.restore(language: language) { state = .signedIn(user) }
             else { state = .signedOut }
+        } catch is CredentialClearancePending {
+            state = .clearanceFailed
+        } catch APIError.credentialsUnavailable {
+            credentialsUnavailable = true
+            state = .signedOut
         } catch {
             state = .unavailable
         }
@@ -67,6 +77,7 @@ final class Account {
         guard !isWorking else { return }
         isWorking = true
         state = .starting
+        credentialsUnavailable = false
         defer { isWorking = false }
         do {
             try await api.signOut(language: language)
@@ -214,6 +225,9 @@ private struct LoginScreen: View {
             } footer: {
                 if let errorKey {
                     Text(language.text(errorKey)).foregroundStyle(.red)
+                } else if account.credentialsUnavailable {
+                    Text(language.text("native.restoreFailed"))
+                    Button(language.text("common.retry")) { Task { await account.restore(language) } }
                 }
             }
         }
@@ -231,6 +245,8 @@ private struct LoginScreen: View {
                 password = ""
             } catch APIError.status(401) {
                 errorKey = "native.invalidLogin"
+            } catch APIError.status(403) {
+                errorKey = "native.accountDisabled"
             } catch APIError.status(429) {
                 errorKey = "native.loginThrottled"
             } catch {
