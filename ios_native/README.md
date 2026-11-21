@@ -66,3 +66,13 @@ Debug 允許 loopback HTTP。需要開啟本機 React 報告頁時，執行 `doc
 - [Flutter 已登入](Screenshots/01-flutter-signed-in.png) · [SwiftUI 覆裝後直接進入報告](Screenshots/02-native-after-upgrade.png)
 - [報告與紅旗](Screenshots/03-native-report.png) · [SOAP 四段](Screenshots/04-native-soap.png) · [逐字稿](Screenshots/05-native-transcript.png)
 - [換第二位醫師](Screenshots/06-native-second-doctor.png) · [管理員占位頁](Screenshots/07-native-admin.png) · [病患 kiosk 占位頁](Screenshots/08-native-kiosk.png)
+
+## 正式切換時的人工驗收
+
+這份清單在 C、D 追平且 E 完成舊推播清理後，由使用者在正式切換時執行。本期使用 simulator 驗收，禁止上傳 TestFlight 或 App Store Connect。
+
+1. 在舊 Flutter 版登入一個醫師帳號，記下帳號名稱和一筆有權限查看的場次。保留登入，直接覆裝同 Bundle ID 的原生版。
+2. **確認原地升級保留同一位醫師的登入。** 首次啟動應直接進入報告清單，不要求重新輸入帳密。檢查原有場次的病患姓名、紅旗、SOAP、逐字稿及網頁連結。
+3. 等待 access token 過期後重開 App。確認仍可讀取報告。再登出、關閉並重開 App，確認停在登入頁。
+4. 用第二位醫師登入，確認只顯示該帳號有權限的場次。再核對管理員、臨床管理員和病患 kiosk 的角色分流與權限。
+5. 切換帳號後確認這台裝置的鎖定畫面沒有收到前一位醫師的通知。任何一項不符時，記下版本和重現步驟，先停止擴大切換。若裝回 Flutter，重新登入。
