@@ -11,18 +11,38 @@ struct Tokens: Codable, Equatable, Sendable {
     }
 
     var isComplete: Bool { !access.isEmpty && !refresh.isEmpty }
+
+    var previousClinicianID: UUID? {
+        let pieces = access.split(separator: ".")
+        guard pieces.count == 3 else { return nil }
+        var payload = pieces[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.utf8.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload),
+              let identity = try? JSONDecoder().decode(PreviousIdentity.self, from: data),
+              identity.role == "doctor" || identity.role == "admin" else { return nil }
+        return identity.sub
+    }
+
+    private struct PreviousIdentity: Decodable {
+        let sub: UUID
+        let role: String
+    }
 }
 
 struct PushBinding: Codable, Sendable {
     let userID: UUID
+    var id = UUID()
     var tokens: Set<String> = []
     var isSigningOut = false
     var requiresLegacyLookup: Bool?
     var apnsToken: String?
+    var serverUnbound = false
 }
 
 struct PushCleanupPending: Error {}
 struct PushCleanupReauthentication: Error {}
+struct PushDeviceRecoveryRequired: Error { let id: UUID }
+struct PushBackendUpgradeRequired: Error {}
 
 protocol CredentialStore: Sendable {
     func load() throws -> Tokens?

@@ -94,7 +94,7 @@ final class FoundationTests: XCTestCase {
             switch request.url?.lastPathComponent {
             case "me": .json(Self.user)
             case "fcm-token": .json("{}")
-            case "unbind": .status(503)
+            case "unbind": HTTPStub.routes.count("unbind") == 1 ? .json("{}") : .status(503)
             default: .status(500)
             }
         }
@@ -122,6 +122,57 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(HTTPStub.routes.count("logout"), 1)
         XCTAssertNil(try credentials.loadPushBinding())
         XCTAssertNil(try credentials.load())
+    }
+
+    func testLegacyDeviceWithoutAPNsUsesRecoveryCodeOrCachedFCM() async throws {
+        let pending = PushBinding(userID: sessionID, isSigningOut: true, requiresLegacyLookup: true)
+        try credentials.savePushBinding(pending)
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "unbind": .status(409)
+            default: .status(500)
+            }
+        }
+        let account = Account(api: api)
+        await account.restore(.english)
+        guard case let .deviceRecovery(id) = account.state else { return XCTFail("Expected device recovery") }
+        XCTAssertEqual(id, pending.id)
+        XCTAssertEqual(try credentials.loadPushBinding()?.id, pending.id)
+        XCTAssertEqual(HTTPStub.routes.count("logout"), 0)
+
+        try await api.captureLegacyDevice(apnsToken: nil, fcmToken: "flutter-cached-fcm")
+        XCTAssertEqual(try credentials.loadPushBinding()?.tokens, ["flutter-cached-fcm"])
+        HTTPStub.routes.configure { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "unbind", "logout": .json("{}")
+            default: .status(500)
+            }
+        }
+        await account.signOut(.english)
+        guard case .signedOut = account.state else { return XCTFail("Expected login after device cleanup") }
+        XCTAssertNil(try credentials.loadPushBinding())
+    }
+
+    func testOlderBackendCannotCreateNativePushBinding() async throws {
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(Self.user)
+            case "unbind": .status(404)
+            case "logout": .json("{}")
+            default: .status(500)
+            }
+        }
+        _ = try await api.restore(language: .english)
+        do {
+            try await api.registerPush(user: sessionID, token: "token", apnsToken: "abcd", language: .english)
+            XCTFail("Expected push registration to wait for the backend upgrade")
+        } catch is PushBackendUpgradeRequired {}
+        XCTAssertEqual(HTTPStub.routes.count("fcm-token"), 0)
+        XCTAssertNil(try credentials.loadPushBinding())
+        try await api.signOut(language: .english)
+        XCTAssertEqual(HTTPStub.routes.count("logout"), 1)
     }
 
     func testExpiredPendingPushCleanupRequiresOriginalAccount() async throws {
@@ -349,6 +400,23 @@ final class FoundationTests: XCTestCase {
         }
         let clear = await Reports(api: api, language: .english).details(for: sessionID)
         XCTAssertEqual(clear.redFlagStatus, .clear)
+    }
+
+    func testClinicalMessagesInterpolateInEveryLanguage() {
+        for language in AppLanguage.allCases {
+            for (key, argument) in [
+                ("common.patientList.newPatientsInMonth", "month"),
+                ("common.doctor.patient.deleteConfirm", "name"),
+                ("dashboard.alert.triggerLabel", "value"),
+                ("soap.quickOrders.lastOrdered", "time"),
+            ] {
+                let message = language.text(key, args: [argument: "fixture"])
+                XCTAssertTrue(message.contains("fixture"), "\(language.rawValue) \(key)")
+                XCTAssertFalse(message.contains("{{"), "\(language.rawValue) \(key)")
+            }
+            XCTAssertNotEqual(language.text("native.researchGender"), "native.researchGender")
+            XCTAssertNotEqual(language.text("native.pushDeviceRecovery"), "native.pushDeviceRecovery")
+        }
     }
 
     func testRevisionRequiresNonblankReasonAndSendsOneWrite() async throws {

@@ -16,17 +16,18 @@ struct PagedRows<Item: Decodable & Identifiable & Sendable, Row: View>: View {
     @State private var cursor: String?
     @State private var seen = Set<String>()
     @State private var loading = true
-    @State private var failed = false
+    @State private var failedReset: Bool?
     @State private var generation = UUID()
     @State private var requested: RequestKey?
+    @State private var displayed: RequestKey?
 
     var body: some View {
         Section {
             ForEach(items.filter(matches)) { item in row(item) }
             if loading {
                 ProgressView(language.text("common.loading"))
-            } else if failed {
-                Button(language.text("common.retry")) { Task { await load(reset: cursor == nil) } }
+            } else if let failedReset {
+                Button(language.text("common.retry")) { Task { await load(reset: failedReset) } }
             } else if let cursor {
                 Button(language.text("common.pagination.loadMore")) {
                     Task { if self.cursor == cursor { await load(reset: false) } }
@@ -55,32 +56,43 @@ struct PagedRows<Item: Decodable & Identifiable & Sendable, Row: View>: View {
         let query: [URLQueryItem]
         let language: AppLanguage
         let refresh: Int
+
+        func hasSameQuery(as other: Self) -> Bool {
+            endpoint == other.endpoint && query == other.query && language == other.language
+        }
     }
 
     private func load(reset: Bool) async {
         if !reset && loading { return }
         let id = UUID()
         generation = id
-        if reset {
+        let key = requestKey
+        if reset && displayed?.hasSameQuery(as: key) != true {
             items = []
             cursor = nil
             seen = []
         }
+        let requestedCursor = reset ? nil : cursor
         loading = true
-        failed = false
+        failedReset = nil
         defer { if generation == id { loading = false } }
         var parameters = query
-        if let cursor { parameters.append(.init(name: "cursor", value: cursor)) }
+        if let requestedCursor { parameters.append(.init(name: "cursor", value: requestedCursor)) }
         do {
             let page: Page<Item> = try await account.api.get(endpoint, language: language, query: parameters)
             guard generation == id, !Task.isCancelled else { return }
-            cursor = try page.continuation(seen: &seen)
-            let existing = Set(items.map(\.id))
-            items.append(contentsOf: page.data.filter { !existing.contains($0.id) })
+            var traversed = reset ? Set<String>() : seen
+            let next = try page.continuation(seen: &traversed)
+            if reset { items = [] }
+            var existing = Set(items.map(\.id))
+            items.append(contentsOf: page.data.filter { existing.insert($0.id).inserted })
+            cursor = next
+            seen = traversed
+            displayed = key
         } catch APIError.signedOut {
             await account.noticeAuthorizationLoss(language)
         } catch {
-            if generation == id && !Task.isCancelled { failed = true }
+            if generation == id && !Task.isCancelled { failedReset = reset }
         }
     }
 }

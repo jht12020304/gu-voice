@@ -49,9 +49,26 @@ Debug 允許 loopback HTTP。需要開啟本機 React 報告頁時，執行 `doc
 
 原生 App 從同一個 Keychain access group 讀取 Flutter 的 `flutter_secure_storage_service`。遷移成功後，原生格式以單筆紀錄保存 access 和 refresh token，並刪除 Flutter 項目。遷移寫入失敗會保留 Flutter 項目並顯示登入頁。暫時無法讀取 Keychain 時會回到登入頁，可在裝置解鎖後重試。登出時先遮住帳號畫面，透過後端解除裝置綁定，然後清除憑證。斷網時重啟仍保留待解除狀態。舊憑證過期時，原帳號重新驗證只會完成解除綁定，接著回到登入頁。若裝回 Flutter，請重新登入。
 
-同 Bundle ID 覆裝後，原生版會以既有 Firebase app 將 APNs token 與 FCM token 註冊至後端。後端會停用同 APNs token 上的舊綁定。若覆裝後尚未取得裝置憑證就登出，會等待 APNs 回傳裝置 token，再繼續解除綁定。系統通知與站內通知直接顯示伺服器文字，點擊後才透過有權限的 API 取得明細。正式切換前須確認部署的後端送出通用通知文字。
+同 Bundle ID 覆裝後，原生版會以既有 Firebase app 將 APNs token 與 FCM token 註冊至後端。後端會停用同 APNs token 上的舊綁定。若覆裝後尚未取得裝置憑證就登出，會使用 APNs 裝置 token 或 Firebase 快取的 FCM token 解除綁定。若兩種識別皆不可用，請依維運流程處理。系統通知與站內通知直接顯示伺服器文字，點擊後才透過有權限的 API 取得明細。正式切換前先部署支援裝置解除的後端，再發佈 App。後端須已改用通用通知文字。原生版會先確認後端支援裝置解除，再註冊新的推播綁定。
 
 測試 bundle 會停用對外 Firebase 註冊。需要在專用 simulator 用 `simctl push` 驗證合成 payload 時，可用 `SIMCTL_CHILD_GUVOICE_DISABLE_REMOTE_PUSH=1 xcrun simctl launch <simulator-id> com.guvoice.guVoice` 啟動 App。模擬注入驗證顯示與導頁。本機 Docker 的換人回歸測試則使用真實推播 worker 選取收件裝置，並以本機替身記錄 APNs／FCM 傳送。部署後再按下方清單驗證供應商到鎖定畫面的送達。
+
+### 無法辨識裝置時的維運復原
+
+覆裝後若 APNs 和 Firebase 快取都無法提供這台裝置的識別，App 會顯示「請聯絡系統管理員」與復原編號。系統管理員只解除已核對的那台裝置。其他裝置繼續收通知。
+
+1. 取得原帳號與畫面上的復原編號。透過維運紀錄核對這台實體裝置在 `fcm_devices` 的 iOS 登記 `id`。可以比對同一位使用者的 `device_name`、`created_at` 和 `updated_at`。若裝置名稱與時間無法唯一對應，請保持待解除狀態，先恢復 APNs 辨識或繼續查證。
+2. 使用無執照的 system admin 憑證呼叫 `POST /api/v1/notifications/devices/recover`。指定原帳號 ID、已核對的登記 ID 與復原編號。
+
+   ```json
+   {
+     "user_id": "<原帳號 UUID>",
+     "registration_id": "<已核對的 fcm_devices.id>",
+     "recovery_id": "<App 顯示的復原編號>"
+   }
+   ```
+
+3. 確認回應 HTTP 200，並在稽核日誌核對 `push_device_recovery` 和該復原編號。請原使用者在 App 按 **重試**。若憑證已過期，先以原帳號重新驗證。App 查到解除紀錄後回到登入頁。
 
 ## 追平 Flutter
 

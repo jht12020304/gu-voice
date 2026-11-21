@@ -15,10 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils.pagination import keyset_after, page_slice, parse_cursor
 from app.core.exceptions import NotFoundException
-from app.models.enums import DevicePlatform, NotificationType
+from app.models.audit_log import AuditLog
+from app.models.enums import AuditAction, DevicePlatform, NotificationType
 from app.models.fcm_device import FCMDevice
 from app.models.notification import Notification
 from app.models.notification_preference import NotificationPreference
+from app.services.audit_log_service import AuditLogService
 from app.schemas.notification import MarkAllReadResponse, NotificationPreferenceUpdate
 from app.utils.datetime_utils import utc_now
 
@@ -26,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 # 未讀計數快取 TTL
 UNREAD_CACHE_TTL = 300
+_DEVICE_LOCK = 0x4755564F494345
+_BINDING_LOG = "push_binding_unbound"
+_RECOVERY_LOG = "push_device_recovery"
 
 # 通知類型 → NotificationPreference 上對應的「類型開關」欄位名。
 # red_flag 為病安關鍵，刻意不列入；其抑制邏輯一律放行（恆為開）。
@@ -610,7 +615,8 @@ class NotificationService:
         apns_token: Optional[str],
         platform: DevicePlatform,
         device_name: Optional[str] = None,
-    ) -> FCMDevice:
+        binding_id: UUID | None = None,
+    ) -> FCMDevice | None:
         """
         註冊 FCM 推播 token
 
@@ -618,7 +624,9 @@ class NotificationService:
         """
         now = utc_now()
         # Serialize the FCM/APNs identity update with logout, including first registration.
-        await db.execute(select(func.pg_advisory_xact_lock(0x4755564F494345)))
+        await db.execute(select(func.pg_advisory_xact_lock(_DEVICE_LOCK)))
+        if binding_id and await NotificationService._binding_unbound(db, user_id, binding_id):
+            return None
         result = await db.execute(select(FCMDevice).where(FCMDevice.device_token == token))
         device = result.scalar_one_or_none()
         apns_token = (apns_token or (device.apns_token if device else None) or "").lower() or None
@@ -663,9 +671,14 @@ class NotificationService:
 
     @staticmethod
     async def unbind_device(
-        db: AsyncSession, user_id: UUID, tokens: list[str], apns_token: Optional[str]
+        db: AsyncSession, user_id: UUID, tokens: list[str], apns_token: Optional[str],
+        binding_id: UUID | None = None,
     ) -> None:
-        await db.execute(select(func.pg_advisory_xact_lock(0x4755564F494345)))
+        if not (tokens or apns_token or binding_id):
+            return
+        await db.execute(select(func.pg_advisory_xact_lock(_DEVICE_LOCK)))
+        if binding_id and not await NotificationService._binding_unbound(db, user_id, binding_id):
+            await AuditLogService.log(db, user_id, AuditAction.UPDATE, _BINDING_LOG, str(binding_id))
         owned_ios_tokens = select(func.lower(FCMDevice.apns_token)).where(
             FCMDevice.user_id == user_id,
             FCMDevice.platform == DevicePlatform.IOS,
@@ -685,6 +698,52 @@ class NotificationService:
             )
             .values(is_active=False, updated_at=utc_now())
         )
+
+    @staticmethod
+    async def _binding_unbound(db: AsyncSession, user_id: UUID, binding_id: UUID) -> bool:
+        result = await db.execute(
+            select(AuditLog.id).where(
+                AuditLog.user_id == user_id,
+                AuditLog.resource_type == _BINDING_LOG,
+                AuditLog.resource_id == str(binding_id),
+            ).limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    @staticmethod
+    async def device_recovery_confirmed(db: AsyncSession, user_id: UUID, recovery_id: UUID) -> bool:
+        result = await db.execute(
+            select(AuditLog.id).where(
+                AuditLog.resource_type == _RECOVERY_LOG,
+                AuditLog.resource_id == str(recovery_id),
+                AuditLog.details["owner_id"].astext == str(user_id),
+            ).limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    @staticmethod
+    async def recover_device(
+        db: AsyncSession, actor_id: UUID, user_id: UUID, registration_id: UUID, recovery_id: UUID
+    ) -> bool:
+        await db.execute(select(func.pg_advisory_xact_lock(_DEVICE_LOCK)))
+        if await NotificationService.device_recovery_confirmed(db, user_id, recovery_id):
+            return True
+        result = await db.execute(
+            select(FCMDevice).where(
+                FCMDevice.id == registration_id,
+                FCMDevice.user_id == user_id,
+                FCMDevice.platform == DevicePlatform.IOS,
+            )
+        )
+        device = result.scalar_one_or_none()
+        if device is None:
+            return False
+        await NotificationService.unbind_device(db, user_id, [device.device_token], device.apns_token, recovery_id)
+        await AuditLogService.log(
+            db, actor_id, AuditAction.UPDATE, _RECOVERY_LOG, str(recovery_id),
+            details={"owner_id": str(user_id), "registration_id": str(registration_id)},
+        )
+        return True
 
     @staticmethod
     async def send_push_notification(

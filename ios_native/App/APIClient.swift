@@ -80,6 +80,10 @@ actor APIClient {
             }
             return nil
         }
+        if credentials.migratedFromFlutter, pushBinding == nil, let previous = tokens?.previousClinicianID {
+            // The server verifies ownership before using this locally retained identity.
+            try storePushBinding(PushBinding(userID: previous, requiresLegacyLookup: true))
+        }
         do {
             let user: User = try await get("auth/me", language: language)
             if var binding = pushBinding, binding.userID != user.id {
@@ -118,7 +122,10 @@ actor APIClient {
         } else {
             user = loginUser
         }
-        if let binding = pushBinding, binding.userID != user.id {
+        if var binding = pushBinding, binding.userID != user.id {
+            _ = await revokeOnLogout(pair, language: language)
+            binding.isSigningOut = true
+            try storePushBinding(binding)
             throw PushCleanupPending()
         }
         guard revision == attempt, !signingOut else { throw APIError.signedOut }
@@ -148,15 +155,22 @@ actor APIClient {
 
     func registerPush(user: UUID, token: String, apnsToken: String, language: AppLanguage) async throws {
         guard user == userID, hasSession, pushRegistration == nil else { return }
+        let expected = revision
+        do {
+            try await request("notifications/devices/unbind", language: language, method: "POST", body: Data("{}".utf8))
+        } catch APIError.status(404), APIError.status(405) {
+            throw PushBackendUpgradeRequired()
+        }
+        guard hasSession, revision == expected, userID == user, pushRegistration == nil else { return }
         var binding = pushBinding ?? PushBinding(userID: user)
         guard binding.userID == user else { throw PushCleanupPending() }
         binding.tokens.insert(token)
         binding.apnsToken = apnsToken
         binding.requiresLegacyLookup = false
-        try credentials.savePushBinding(binding)
-        pushBinding = binding
+        try storePushBinding(binding)
 
-        let payload = ["device_token": token, "apns_token": apnsToken, "platform": "ios"]
+        let payload = ["device_token": token, "apns_token": apnsToken, "platform": "ios",
+                       "binding_id": binding.id.uuidString.lowercased()]
         let body = try JSONEncoder().encode(payload)
         let task = Task {
             try await request("notifications/fcm-token", language: language, method: "POST", body: body)
@@ -167,13 +181,13 @@ actor APIClient {
         credentials.finishFlutterPushMigration()
     }
 
-    func captureLegacyDevice(apnsToken: String, fcmToken: String?) throws {
-        guard var binding = pushBinding, binding.requiresLegacyLookup == true else { return }
+    func captureLegacyDevice(apnsToken: String?, fcmToken: String?) throws {
+        guard var binding = pushBinding, binding.requiresLegacyLookup == true,
+              apnsToken != nil || fcmToken?.isEmpty == false else { return }
         binding.apnsToken = apnsToken
         if let fcmToken, !fcmToken.isEmpty { binding.tokens.insert(fcmToken) }
         binding.requiresLegacyLookup = false
-        try credentials.savePushBinding(binding)
-        pushBinding = binding
+        try storePushBinding(binding)
     }
 
     func reauthenticateForPushCleanup(email: String, password: String, language: AppLanguage) async throws {
@@ -241,28 +255,41 @@ actor APIClient {
         try clearance.get()
     }
 
-    private func completePushCleanup(_ binding: PushBinding, pair: Tokens?, language: AppLanguage) async throws {
-        guard binding.requiresLegacyLookup != true else { throw PushCleanupPending() }
-        guard var pair else { throw PushCleanupReauthentication() }
-        do {
+    private func completePushCleanup(_ pending: PushBinding, pair: Tokens?, language: AppLanguage) async throws {
+        var binding = pending
+        var pair = pair
+        if !binding.serverUnbound {
+            guard var fresh = pair else { throw PushCleanupReauthentication() }
             do {
-                try await unbindPush(binding, using: pair, language: language)
-            } catch APIError.status(401) {
-                pair = try await rotate(pair, language: language)
-                try credentials.save(pair)
-                try await unbindPush(binding, using: pair, language: language)
+                do {
+                    try await unbindPush(binding, using: fresh, language: language)
+                } catch APIError.status(401) {
+                    fresh = try await rotate(fresh, language: language)
+                    try credentials.save(fresh)
+                    try await unbindPush(binding, using: fresh, language: language)
+                }
+            } catch APIError.status(401), APIError.status(403) {
+                throw PushCleanupReauthentication()
+            } catch APIError.status(404), APIError.status(405) {
+                throw PushBackendUpgradeRequired()
+            } catch APIError.status(409) where binding.requiresLegacyLookup == true {
+                throw PushDeviceRecoveryRequired(id: binding.id)
+            } catch {
+                if binding.requiresLegacyLookup == true { throw PushDeviceRecoveryRequired(id: binding.id) }
+                throw PushCleanupPending()
             }
-        } catch APIError.status(401), APIError.status(403) {
-            throw PushCleanupReauthentication()
-        } catch {
-            throw PushCleanupPending()
+            pair = fresh
+            binding.serverUnbound = true
+            try storePushBinding(binding)
         }
 
-        _ = await revokeOnLogout(pair, language: language)
+        if let pair, let remaining = await revokeOnLogout(pair, language: language) {
+            try credentials.save(remaining)
+            throw PushCleanupPending()
+        }
         try credentials.clear()
-        try credentials.savePushBinding(nil)
+        try storePushBinding(nil)
         credentials.finishFlutterPushMigration()
-        pushBinding = nil
     }
 
     private func unbindPush(_ binding: PushBinding, using pair: Tokens, language: AppLanguage) async throws {
@@ -272,7 +299,10 @@ actor APIClient {
         let tokens = binding.tokens.sorted()
         for start in stride(from: 0, to: max(tokens.count, 1), by: 50) {
             let batch = Array(tokens[start..<min(start + 50, tokens.count)])
-            let payload = UnbindPayload(device_tokens: batch, apns_token: binding.apnsToken)
+            let payload = UnbindPayload(
+                device_tokens: batch, apns_token: binding.apnsToken,
+                binding_id: binding.id, recovery_id: binding.requiresLegacyLookup == true ? binding.id : nil
+            )
             let data = try JSONEncoder().encode(payload)
             _ = try await send("notifications/devices/unbind", language: language, access: pair.access, body: data)
         }
@@ -281,11 +311,20 @@ actor APIClient {
     private struct UnbindPayload: Encodable {
         let device_tokens: [String]
         let apns_token: String?
+        let binding_id: UUID
+        let recovery_id: UUID?
+    }
+
+    private func storePushBinding(_ binding: PushBinding?) throws {
+        try credentials.savePushBinding(binding)
+        pushBinding = binding
     }
 
     private func revokeOnLogout(_ pair: Tokens, language: AppLanguage) async -> Tokens? {
         do {
             try await revoke(pair, language: language)
+        } catch APIError.status(403) {
+            return nil
         } catch APIError.status(401) {
             var latest = pair
             do {

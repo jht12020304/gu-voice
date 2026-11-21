@@ -476,6 +476,13 @@
    "request": "#/components/schemas/ComplaintCreate",
    "response": "{\"$ref\": \"#/components/schemas/ComplaintResponse\"}"
   },
+  "POST /api/v1/notifications/devices/recover": {
+   "params": [
+    "header:Authorization*"
+   ],
+   "request": "#/components/schemas/DeviceRecoveryRequest",
+   "response": "{\"title\": \"Response Recover Device Api V1 Notifications Devices Recover Post\", \"type\": \"null\"}"
+  },
   "POST /api/v1/notifications/devices/unbind": {
    "params": [
     "header:Authorization*"
@@ -984,10 +991,24 @@
    "properties": [],
    "required": []
   },
+  "DeviceRecoveryRequest": {
+   "properties": [
+    "recovery_id",
+    "registration_id",
+    "user_id"
+   ],
+   "required": [
+    "recovery_id",
+    "registration_id",
+    "user_id"
+   ]
+  },
   "DeviceUnbindRequest": {
    "properties": [
     "apns_token",
-    "device_tokens"
+    "binding_id",
+    "device_tokens",
+    "recovery_id"
    ],
    "required": []
   },
@@ -1072,6 +1093,7 @@
   "FCMTokenCreate": {
    "properties": [
     "apns_token",
+    "binding_id",
     "device_name",
     "device_token",
     "platform"

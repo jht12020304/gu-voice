@@ -46,7 +46,8 @@ struct ResearchScreen: View {
         figure("demographics.title", subtitle: "demographics.subtitle") {
             metrics(data.demographics, [("age_years", "demographics.age")])
             chart(distribution(data.demographics, "age_band_distribution"), label: "demographics.ageBands")
-            chart(distribution(data.demographics, "gender_distribution", prefix: "common.gender."), label: "demographics.gender")
+            chart(distribution(data.demographics, "gender_distribution", prefix: "research.demographics.gender."),
+                  label: "native.researchGender")
             chart(distribution(data.demographics, "chief_complaint_distribution"), label: "demographics.caseMix")
         }
         figure("cohort.title", subtitle: "cohort.subtitle") {
@@ -180,7 +181,7 @@ struct ResearchScreen: View {
     }
 
     private func chart(_ values: [Point], label: String, percentage: Bool = false) -> some View {
-        let title = language.text("research.\(label)")
+        let title = language.text(label.hasPrefix("native.") ? label : "research.\(label)")
         return VStack(alignment: .leading) {
             Text(title).font(.subheadline.bold())
             if values.isEmpty {

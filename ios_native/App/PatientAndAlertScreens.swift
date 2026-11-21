@@ -40,7 +40,9 @@ struct PatientsScreen: View {
     var body: some View {
         List {
             Section {
-                Toggle(language.text("common.patientList.newPatientsInMonth"), isOn: Binding(
+                Toggle(language.text("common.patientList.newPatientsInMonth", args: [
+                    "month": (month ?? Date()).formatted(.dateTime.year().month(.wide).locale(Locale(identifier: language.rawValue)))
+                ]), isOn: Binding(
                     get: { month != nil }, set: { month = $0 ? Date() : nil }
                 ))
                 if let month {
@@ -120,7 +122,7 @@ private struct PatientDetailScreen: View {
                     Task { await delete() }
                 }
             } message: {
-                Text(language.text("common.doctor.patient.deleteConfirm"))
+                Text(language.text("common.doctor.patient.deleteConfirm", args: ["name": patient.name]))
             }
         }
     }
@@ -254,7 +256,7 @@ struct AlertDetailScreen: View {
             Section(alert.title) {
                 Text(language.text("native.severity.\(alert.severity)")).foregroundStyle(.red)
                 if let description = alert.description { Text(description) }
-                LabeledContent(language.text("dashboard.alert.triggerLabel"), value: alert.triggerReason)
+                Text(language.text("dashboard.alert.triggerLabel", args: ["value": alert.triggerReason]))
                 LabeledContent(language.text("dashboard.alert.detail.occurredAt"),
                                value: alert.createdAt.formatted(.dateTime.month().day().hour().minute()))
                 NavigationLink(language.text("session.doctor.detail.title")) {
@@ -301,7 +303,10 @@ struct AlertDetailScreen: View {
         failed = false
         defer { busy = false }
         do {
-            let body = try JSONEncoder().encode(["action_taken": action, "acknowledge_notes": notes])
+            let fields = ["action_taken": action, "acknowledge_notes": notes]
+                .mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.value.isEmpty }
+            let body = try JSONEncoder().encode(fields)
             try await account.api.request("alerts/\(id)/acknowledge", language: language, method: "POST", body: body)
         } catch APIError.signedOut {
             await account.noticeAuthorizationLoss(language)

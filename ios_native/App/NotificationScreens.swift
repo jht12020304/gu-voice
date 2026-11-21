@@ -133,7 +133,7 @@ struct ClinicalSettings: View {
             }
             Section(language.text("common.doctor.settings.appearance")) {
                 Picker(language.text("common.doctor.settings.themeMode"), selection: $theme) {
-                    Text(language.text("common.roles.system")).tag("")
+                    Text(language.text("native.systemAppearance")).tag("")
                     Text(language.text("common.doctor.settings.themeLight")).tag("light")
                     Text(language.text("common.doctor.settings.themeDark")).tag("dark")
                 }

@@ -58,8 +58,9 @@ final class PushNotifications: NSObject, UIApplicationDelegate, UNUserNotificati
         guard await account.api.needsDeviceIdentity, configureFirebase() else { return }
         cleanupAccount = account
         self.language = language
-        if let apnsToken {
-            await captureForCleanup(apnsToken)
+        let cachedToken = Messaging.messaging().fcmToken
+        if apnsToken != nil || cachedToken?.isEmpty == false {
+            await captureForCleanup(apnsToken, cachedToken: cachedToken)
         } else {
             UIApplication.shared.registerForRemoteNotifications()
         }
@@ -77,10 +78,10 @@ final class PushNotifications: NSObject, UIApplicationDelegate, UNUserNotificati
         return true
     }
 
-    private func captureForCleanup(_ token: Data) async {
-        guard let account = cleanupAccount else { return }
+    private func captureForCleanup(_ token: Data?, cachedToken: String?) async {
+        guard let account = cleanupAccount, token != nil || cachedToken?.isEmpty == false else { return }
         do {
-            try await account.api.captureLegacyDevice(apnsToken: hex(token), fcmToken: Messaging.messaging().fcmToken)
+            try await account.api.captureLegacyDevice(apnsToken: token.map(hex), fcmToken: cachedToken)
             cleanupAccount = nil
             await account.signOut(language)
         } catch {}
@@ -111,8 +112,15 @@ final class PushNotifications: NSObject, UIApplicationDelegate, UNUserNotificati
         }
         Messaging.messaging().apnsToken = token
         Task {
-            await captureForCleanup(token)
+            await captureForCleanup(token, cachedToken: Messaging.messaging().fcmToken)
             await fetchToken()
+        }
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        guard FirebaseApp.app() != nil else { return }
+        Task {
+            await captureForCleanup(nil, cachedToken: Messaging.messaging().fcmToken)
         }
     }
 

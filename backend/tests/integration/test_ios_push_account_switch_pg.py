@@ -6,6 +6,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core import database
+from app.models.audit_log import AuditLog
 from app.models.enums import DevicePlatform, UserRole
 from app.models.fcm_device import FCMDevice
 from app.models.user import User
@@ -27,6 +28,7 @@ def test_switching_ios_accounts_revokes_all_same_device_aliases(monkeypatch):
         this_apns = key + "a0"
         other_apns = key + "b0"
         current = key + "-flutter-current"
+        binding_id, recovery_id = uuid.uuid4(), uuid.uuid4()
         db.add_all(
             [
                 FCMDevice(
@@ -63,11 +65,18 @@ def test_switching_ios_accounts_revokes_all_same_device_aliases(monkeypatch):
             assert before.count(this_apns) == 2
             assert other_apns in before
 
-            await NotificationService.unbind_device(db, a.id, [current], this_apns)
+            await NotificationService.unbind_device(db, a.id, [current], this_apns, binding_id)
             await db.commit()
             assert await deliveries(a.id) == [other_apns]
 
-            await NotificationService.register_fcm_token(db, b.id, key + "-native", this_apns, DevicePlatform.IOS)
+            late_registration = await NotificationService.register_fcm_token(
+                db, a.id, current, this_apns, DevicePlatform.IOS, binding_id=binding_id
+            )
+            await db.commit()
+            assert late_registration is None
+            assert await deliveries(a.id) == [other_apns]
+
+            b_device = await NotificationService.register_fcm_token(db, b.id, key + "-native", this_apns, DevicePlatform.IOS)
             await db.commit()
             assert await deliveries(a.id) == [other_apns]
             assert await deliveries(b.id) == [this_apns]
@@ -75,8 +84,18 @@ def test_switching_ios_accounts_revokes_all_same_device_aliases(monkeypatch):
             await NotificationService.unbind_device(db, a.id, [], this_apns)
             await db.commit()
             assert await deliveries(b.id) == [this_apns]
+
+            assert not await NotificationService.recover_device(db, a.id, a.id, b_device.id, recovery_id)
+            assert not await NotificationService.device_recovery_confirmed(db, b.id, recovery_id)
+            assert await NotificationService.recover_device(db, a.id, b.id, b_device.id, recovery_id)
+            await db.commit()
+            assert await NotificationService.device_recovery_confirmed(db, b.id, recovery_id)
+            assert not await NotificationService.device_recovery_confirmed(db, a.id, recovery_id)
+            assert await deliveries(b.id) == []
+            assert await deliveries(a.id) == [other_apns]
         finally:
             await db.rollback()
+            await db.execute(delete(AuditLog).where(AuditLog.user_id.in_(user_ids)))
             await db.execute(delete(FCMDevice).where(FCMDevice.user_id.in_(user_ids)))
             await db.execute(delete(User).where(User.id.in_(user_ids)))
             await db.commit()

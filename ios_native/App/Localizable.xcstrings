@@ -17892,6 +17892,150 @@
           }
         }
       }
+    },
+    "native.pushBackendUpgrade": {
+      "comment": "Native iOS",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後端尚未支援解除推播綁定。請聯絡系統管理員更新後端。"
+          }
+        },
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server needs an update to remove this device. Contact your system administrator."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端末の通知登録を解除するにはサーバーの更新が必要です。システム管理者に連絡してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 연결을 해제하려면 서버를 업데이트해야 합니다. 시스템 관리자에게 문의하세요."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cần cập nhật máy chủ để hủy liên kết thiết bị. Hãy liên hệ quản trị viên hệ thống."
+          }
+        }
+      }
+    },
+    "native.pushDeviceRecovery": {
+      "comment": "Native iOS",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前無法辨識這台裝置。請聯絡系統管理員並提供下方復原編號。"
+          }
+        },
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device could not be identified. Contact your system administrator and share the recovery code below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末を特定できません。下の復旧コードをシステム管理者にお伝えください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기를 식별할 수 없습니다. 시스템 관리자에게 아래 복구 코드를 알려 주세요."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể xác định thiết bị này. Hãy liên hệ quản trị viên hệ thống và cung cấp mã khôi phục bên dưới."
+          }
+        }
+      }
+    },
+    "native.researchGender": {
+      "comment": "Native iOS",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "性別"
+          }
+        },
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gender"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "性別"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "성별"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giới tính"
+          }
+        }
+      }
+    },
+    "native.systemAppearance": {
+      "comment": "Native iOS",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟隨系統"
+          }
+        },
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use system appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムの外観に合わせる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정 따르기"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theo giao diện hệ thống"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

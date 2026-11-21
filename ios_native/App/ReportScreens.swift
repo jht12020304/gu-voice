@@ -162,7 +162,7 @@ struct ReportDetailScreen: View {
     @State private var decision: Report.Review?
     @State private var notes = ""
     @State private var submitting = false
-    @State private var uncertainReview = false
+    @State private var uncertainReview: Report.Review?
     @State private var regenerating = false
     @State private var confirmGeneration = false
     @State private var exporting = false
@@ -278,7 +278,9 @@ struct ReportDetailScreen: View {
                         Label(language.text("soap.quickOrders.title"), systemImage: "checklist")
                     }
                     Text(language.text("soap.reviewStatus.\(report.reviewStatus == .revisionNeeded ? "revisionNeeded" : report.reviewStatus.rawValue)"))
-                    if report.reviewStatus == .pending {
+                    if let uncertainReview {
+                        Button(language.text("common.retry")) { decision = uncertainReview }
+                    } else if report.reviewStatus == .pending {
                         Button(language.text("soap.review.approveButton")) { startReview(.approved) }
                         Button(language.text("soap.review.rejectButton"), role: .destructive) { startReview(.revisionNeeded) }
                     }
@@ -316,7 +318,6 @@ struct ReportDetailScreen: View {
         guard !submitting else { return }
         decision = value
         notes = ""
-        uncertainReview = false
         errorKey = nil
     }
 
@@ -330,10 +331,17 @@ struct ReportDetailScreen: View {
                     language.text(approving ? "soap.review.approveNotesPlaceholder" : "soap.review.rejectNotesPlaceholder"),
                     text: $notes, axis: .vertical
                 )
-                .disabled(submitting || uncertainReview)
+                .disabled(submitting || uncertainReview != nil)
                 if let errorKey { Text(language.text(errorKey)).foregroundStyle(.red) }
-                if uncertainReview {
-                    Button(language.text("common.retry")) { Task { await reconcileReview(value) } }
+                if uncertainReview != nil {
+                    Button(language.text("common.retry")) {
+                        Task {
+                            guard !submitting else { return }
+                            submitting = true
+                            defer { submitting = false }
+                            await reconcileReview(value)
+                        }
+                    }
                         .disabled(submitting)
                 } else {
                     Button(action) { Task { await submitReview(value) } }
@@ -345,23 +353,25 @@ struct ReportDetailScreen: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(language.text("common.cancel")) { decision = nil }
-                        .disabled(submitting || uncertainReview)
+                        .disabled(submitting)
                 }
             }
         }
-        .interactiveDismissDisabled(submitting || uncertainReview)
+        .interactiveDismissDisabled(submitting)
     }
 
     private func submitReview(_ value: Report.Review) async {
-        guard !submitting, !uncertainReview, let report else { return }
+        guard !submitting, uncertainReview == nil, let report else { return }
         submitting = true
         defer { submitting = false }
         do {
-            details.report = .loaded(try await reports.review(report, decision: value, notes: notes))
+            let updated = try await reports.review(report, decision: value, notes: notes)
+            requestID = UUID()
+            details.report = .loaded(updated)
             decision = nil
         } catch {
             errorKey = "soap.review.submitError"
-            uncertainReview = true
+            uncertainReview = value
             await reconcileReview(value)
         }
     }
@@ -369,12 +379,17 @@ struct ReportDetailScreen: View {
     private func reconcileReview(_ value: Report.Review) async {
         do {
             let refreshed: Report = try await account.api.get("sessions/\(sessionID)/report", language: language)
+            requestID = UUID()
             details.report = .loaded(refreshed)
-            uncertainReview = false
+            uncertainReview = nil
             if refreshed.reviewStatus != .pending {
                 decision = nil
                 if refreshed.reviewStatus == value { errorKey = nil }
             }
+        } catch APIError.status(403), APIError.status(404) {
+            decision = nil
+            uncertainReview = nil
+            await load()
         } catch APIError.signedOut {
             await account.noticeAuthorizationLoss(language)
         } catch {}

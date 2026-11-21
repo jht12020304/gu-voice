@@ -51,6 +51,7 @@ struct GUVoiceApp: App {
 final class Account {
     enum State {
         case starting, signedOut, unavailable, clearanceFailed, reauthenticate, signedIn(User)
+        case deviceRecovery(UUID), backendUpgrade
     }
 
     let api: APIClient
@@ -80,10 +81,8 @@ final class Account {
             do {
                 try await api.signOut(language: language)
                 state = .signedOut
-            } catch is PushCleanupReauthentication {
-                state = .reauthenticate
             } catch {
-                state = .clearanceFailed
+                showCleanupError(error)
             }
         } catch is CredentialClearancePending {
             state = .clearanceFailed
@@ -103,8 +102,14 @@ final class Account {
             do {
                 try await api.reauthenticateForPushCleanup(email: email, password: password, language: language)
                 state = .signedOut
+            } catch is PushCleanupReauthentication {
+                throw PushCleanupReauthentication()
             } catch is PushCleanupPending {
                 state = .clearanceFailed
+            } catch let recovery as PushDeviceRecoveryRequired {
+                state = .deviceRecovery(recovery.id)
+            } catch is PushBackendUpgradeRequired {
+                state = .backendUpgrade
             }
         } else {
             do { state = .signedIn(try await api.signIn(email: email, password: password, language: language)) }
@@ -121,10 +126,17 @@ final class Account {
         do {
             try await api.signOut(language: language)
             state = .signedOut
-        } catch is PushCleanupReauthentication {
-            state = .reauthenticate
         } catch {
-            state = .clearanceFailed
+            showCleanupError(error)
+        }
+    }
+
+    private func showCleanupError(_ error: Error) {
+        switch error {
+        case let recovery as PushDeviceRecoveryRequired: state = .deviceRecovery(recovery.id)
+        case is PushCleanupReauthentication: state = .reauthenticate
+        case is PushBackendUpgradeRequired: state = .backendUpgrade
+        default: state = .clearanceFailed
         }
     }
 
@@ -228,6 +240,20 @@ private struct RootScreen: View {
                     } actions: {
                         Button(language.text("common.retry")) { Task { await account.signOut(language) } }
                     }
+                case let .deviceRecovery(id):
+                    ContentUnavailableView {
+                        Label(language.text("native.pushDeviceRecovery"), systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(id.uuidString.lowercased()).font(.callout.monospaced()).textSelection(.enabled)
+                    } actions: {
+                        Button(language.text("common.retry")) { Task { await account.signOut(language) } }
+                    }
+                case .backendUpgrade:
+                    ContentUnavailableView {
+                        Label(language.text("native.pushBackendUpgrade"), systemImage: "exclamationmark.triangle")
+                    } actions: {
+                        Button(language.text("common.retry")) { Task { await account.signOut(language) } }
+                    }
                 case let .signedIn(user):
                     landing(user)
                         .id(user.id)
@@ -275,17 +301,17 @@ private struct RootScreen: View {
         .onChange(of: accountHasNoAccessibleSession) {
             if accountHasNoAccessibleSession { push.deactivate() }
         }
-        .task(id: waitingForCleanup && scenePhase == .active) {
-            if waitingForCleanup && scenePhase == .active { await push.prepareCleanup(account: account, language: language) }
+        .task(id: waitingForCleanup && scenePhase != .background) {
+            if waitingForCleanup && scenePhase != .background { await push.prepareCleanup(account: account, language: language) }
         }
         .task { await account.restore(language) }
-        .task(id: [activeUserID?.uuidString ?? "", language.rawValue]) {
-            guard let user = account.currentUser, user.role != .patient else { return }
+        .task(id: PushActivation(user: activeUserID, phase: scenePhase, language: language)) {
+            guard scenePhase != .background, let user = account.currentUser, user.role != .patient else { return }
             await account.watchDashboard(user: user.id, language: language)
         }
         .task(id: PushActivation(user: activeUserID, phase: scenePhase, language: language)) {
-            guard scenePhase == .active else { return }
-            if case .clearanceFailed = account.state { await account.signOut(language) }
+            guard scenePhase != .background else { return }
+            if waitingForCleanup { await account.signOut(language) }
             if let user = account.currentUser {
                 await push.activate(account: account, user: user, language: language)
             }
@@ -293,13 +319,15 @@ private struct RootScreen: View {
     }
 
     private var waitingForCleanup: Bool {
-        if case .clearanceFailed = account.state { return true }
-        return false
+        switch account.state {
+        case .clearanceFailed, .deviceRecovery, .backendUpgrade: true
+        default: false
+        }
     }
 
     private var accountHasNoAccessibleSession: Bool {
         switch account.state {
-        case .signedOut, .unavailable, .clearanceFailed, .reauthenticate: true
+        case .signedOut, .unavailable, .clearanceFailed, .reauthenticate, .deviceRecovery, .backendUpgrade: true
         case .signedIn, .starting: false
         }
     }

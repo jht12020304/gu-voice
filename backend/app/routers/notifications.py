@@ -6,13 +6,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import redis.asyncio as aioredis
 
-from app.core.dependencies import get_current_user, get_db, get_redis
+from app.core.authz import get_clinician_scope_id
+from app.core.dependencies import get_current_user, get_db, get_redis, require_role
 from app.schemas.notification import (
+    DeviceRecoveryRequest,
     DeviceUnbindRequest,
     FCMTokenCreate,
     FCMTokenResponse,
@@ -140,14 +142,18 @@ async def register_fcm_token(
     current_user=Depends(get_current_user),
 ) -> FCMTokenResponse:
     """註冊或更新 Firebase Cloud Messaging (FCM) 裝置 Token，用於推播通知。"""
-    return await notification_service.register_fcm_token(
+    device = await notification_service.register_fcm_token(
         db,
         user_id=current_user.id,
         token=payload.device_token,
         apns_token=payload.apns_token,
         platform=payload.platform,
         device_name=payload.device_name,
+        binding_id=payload.binding_id,
     )
+    if device is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Device binding was removed")
+    return device
 
 
 @router.delete(
@@ -178,9 +184,28 @@ async def unbind_device(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> None:
+    if payload.recovery_id is not None:
+        if not await notification_service.device_recovery_confirmed(db, current_user.id, payload.recovery_id):
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="Device recovery is pending")
+        return
     await notification_service.unbind_device(
-        db, user_id=current_user.id, tokens=payload.device_tokens, apns_token=payload.apns_token
+        db, user_id=current_user.id, tokens=payload.device_tokens, apns_token=payload.apns_token,
+        binding_id=payload.binding_id,
     )
+
+
+@router.post("/devices/recover", status_code=status.HTTP_200_OK, summary="解除已核對的 Apple 裝置綁定")
+async def recover_device(
+    payload: DeviceRecoveryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role("admin")),
+) -> None:
+    if get_clinician_scope_id(current_user) is not None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="System administrator required")
+    if not await notification_service.recover_device(
+        db, current_user.id, payload.user_id, payload.registration_id, payload.recovery_id
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Device registration not found")
 
 
 @router.put(

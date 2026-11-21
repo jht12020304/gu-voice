@@ -117,8 +117,9 @@ struct QuickOrdersScreen: View {
                 Section(language.text("soap.quickOrders.summaryTitle")) {
                     Text(report.summary.flatMap { $0.isEmpty ? nil : $0 } ?? language.text("soap.quickOrders.noSummary"))
                     if let order {
-                        Text(language.text("soap.quickOrders.lastOrdered")
-                            .replacingOccurrences(of: "{{time}}", with: order.createdAt.formatted(.dateTime.hour().minute())))
+                        Text(language.text("soap.quickOrders.lastOrdered", args: [
+                            "time": order.createdAt.formatted(.dateTime.hour().minute().locale(Locale(identifier: language.rawValue)))
+                        ]))
                     }
                 }
                 if linkToReport {

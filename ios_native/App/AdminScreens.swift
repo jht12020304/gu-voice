@@ -247,9 +247,9 @@ private struct AdminUserEditor: View {
         let name: String
         let email: String
         let role: User.Role
-        let phone: String
-        let department: String
-        let license: String
+        let phone: String?
+        let department: String?
+        let license: String?
         let active: Bool
         let password: String?
 
@@ -274,8 +274,13 @@ private struct AdminUserEditor: View {
         saving = true
         errorKey = nil
         defer { saving = false }
-        let body = Payload(name: cleanName, email: cleanEmail, role: role, phone: phone, department: department,
-                        license: license, active: active, password: user == nil ? password : nil)
+        let body = Payload(
+            name: cleanName, email: cleanEmail, role: role,
+            phone: changedField(phone, previous: user?.phone),
+            department: changedField(department, previous: user?.department),
+            license: changedField(license, previous: user?.license),
+            active: active, password: user == nil ? password : nil
+        )
         let endpoint = user.map { "admin/users/\($0.id)" } ?? "admin/users"
         do {
             _ = try await account.api.write(endpoint, method: user == nil ? "POST" : "PUT", language: language, body: body)
@@ -290,4 +295,10 @@ private struct AdminUserEditor: View {
             errorKey = "admin.users.operationFailed"
         }
     }
+
+    private func changedField(_ value: String, previous: String?) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed == (previous ?? "") ? nil : trimmed
+    }
+
 }
