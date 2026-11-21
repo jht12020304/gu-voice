@@ -1,7 +1,7 @@
 // =============================================================================
 // Playwright 設定 — e2e 測試
 // 網頁版只剩醫師看報告：啟動一個 mock 模式 vite dev server（VITE_MOCK_ROLE=doctor）。
-// 以 chromium 為唯一 browser。預設語系 en-US。
+// 預設語系 en-US，並以 WebKit 覆蓋院內 Safari。
 // =============================================================================
 
 import { defineConfig, devices } from '@playwright/test';
@@ -50,6 +50,9 @@ export default defineConfig({
     video: 'retain-on-failure',
     viewport: { width: 1280, height: 800 },
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+  ],
   webServer: [devServer(PORT)],
 });

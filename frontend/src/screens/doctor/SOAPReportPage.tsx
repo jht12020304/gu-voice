@@ -2,7 +2,7 @@
 // SOAP 報告頁 — 審閱工作台
 // =============================================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { apiErrorMessage } from '../../services/api/client';
@@ -85,6 +85,7 @@ export default function SOAPReportPage() {
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewError, setReviewError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const reviewTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [activeTab, setActiveTab] = useState<'report' | 'transcript'>('report');
   const report = selectedReport;
@@ -407,7 +408,8 @@ export default function SOAPReportPage() {
               <div className="flex flex-wrap gap-3">
                 <button
                   className="btn-primary bg-alert-success hover:bg-green-700"
-                  onClick={() => {
+                  onClick={(event) => {
+                    reviewTriggerRef.current = event.currentTarget;
                     setReviewAction('approved');
                     setReviewError('');
                     setShowReviewModal(true);
@@ -420,7 +422,8 @@ export default function SOAPReportPage() {
                 </button>
                 <button
                   className="btn-primary bg-alert-high hover:bg-orange-700"
-                  onClick={() => {
+                  onClick={(event) => {
+                    reviewTriggerRef.current = event.currentTarget;
                     setReviewAction('revision_needed');
                     setReviewError('');
                     setShowReviewModal(true);
@@ -442,6 +445,7 @@ export default function SOAPReportPage() {
         onClose={() => {
           setShowReviewModal(false);
           setReviewError('');
+          requestAnimationFrame(() => reviewTriggerRef.current?.focus());
         }}
         title={reviewAction === 'approved' ? t('soap:review.approveButton', '確認報告') : t('soap:review.rejectButton', '退回修改')}
         footer={

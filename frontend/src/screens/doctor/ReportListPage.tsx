@@ -211,7 +211,7 @@ export default function ReportListPage() {
   }, [displayReports, searchQuery, sessionMeta]);
 
   const groupedReports = useMemo(() => {
-    const sorted = [...filteredReports].sort(
+    const sorted = filteredReports.toSorted(
       (a, b) => new Date(getReportTimestamp(b)).getTime() - new Date(getReportTimestamp(a)).getTime(),
     );
 
