@@ -1,5 +1,7 @@
 # GU_0410 Repository Guide
 
+This project's Baseline target is Baseline Newly available. The frontend uses Chrome Modern Web Guidance (MWG); use feature detection and `@supports` progressive enhancement with graceful fallbacks for unsupported browsers.
+
 ## Maintained clients
 
 iOS (`flutter_app/`) and React web (`frontend/`) both remain maintained and share

@@ -71,4 +71,32 @@ test.describe('醫師端流程', () => {
     expect(body.items[0].test_name).toBeTruthy();
   });
 
+  test('SOAP 審閱對話框支援 Esc、焦點還原與退回必填理由', async ({ page }) => {
+    await bootstrap(page, '/en-US/reports/s1');
+    let reviewRequests = 0;
+    await page.route(/\/api\/v1\/reports\/rpt-001\/review$/, async (route) => {
+      reviewRequests += 1;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    });
+
+    const trigger = page.getByRole('button', { name: 'Request Revision' });
+    await expect(trigger).toBeVisible();
+    await trigger.focus();
+    await trigger.click();
+    const dialog = page.getByRole('dialog', { name: 'Request Revision' });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+
+    await trigger.click();
+    const confirm = dialog.getByRole('button', { name: 'Confirm' });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByRole('textbox').fill('Please clarify the assessment.');
+    await expect(confirm).toBeEnabled();
+    await confirm.click();
+    await expect(dialog).toBeHidden();
+    expect(reviewRequests).toBe(1);
+  });
+
 });

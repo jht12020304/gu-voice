@@ -79,7 +79,7 @@ export default function TranscriptPanel({
     );
   }
 
-  const sorted = [...conversations].sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+  const sorted = conversations.toSorted((a, b) => a.sequenceNumber - b.sequenceNumber);
   const preview = sorted.slice(0, 4);
   const hasMore = sorted.length > 4;
   const visibleMessages = sorted.filter((message) => {

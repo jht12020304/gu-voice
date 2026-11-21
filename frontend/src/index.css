@@ -22,6 +22,8 @@
     -moz-osx-font-smoothing: grayscale;
     color: #425466;
     background-color: #ffffff;
+    scrollbar-color: #d0dae8 transparent;
+    scrollbar-width: thin;
   }
 
   /* 暗色模式全域 */
@@ -49,26 +51,31 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* 自訂捲軸 */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #d0dae8;
-    border-radius: 9999px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #8898aa;
-  }
-  html.dark ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.12);
-  }
-  html.dark ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
+  /* Legacy fallback for browsers without standard scrollbar styling. */
+  @supports not (scrollbar-color: auto) {
+    html {
+      scrollbar-width: auto;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #d0dae8;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #8898aa;
+    }
+    html.dark ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.12);
+    }
+    html.dark ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
   }
 
   /* 移除 input 自動填入背景色 */

@@ -1,5 +1,7 @@
 # GU_0410 — GU Voice 泌尿科語音問診系統
 
+This project's Baseline target is Baseline Newly available. The frontend uses Chrome Modern Web Guidance (MWG); use feature detection and `@supports` progressive enhancement with graceful fallbacks for unsupported browsers.
+
 院內候診 Kiosk 的語音 AI 問診系統：病患已在現場、問診完成後等看診。FastAPI + Celery 共用後端、Flutter iOS App（病患 kiosk＋醫師＋管理員）、React + Vite 網頁版（**只給醫師看報告**）、5 語言（zh-TW / en-US / ja-JP / ko-KR / vi-VN）。
 
 ## 專案結構
