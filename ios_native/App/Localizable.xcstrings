@@ -1,6 +1,16 @@
 {
   "sourceLanguage": "zh-Hant",
   "strings": {
+    "common.header.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "更多" } },
+        "en-US": { "stringUnit": { "state": "translated", "value": "More" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "その他" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "더 보기" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Thêm" } }
+      }
+    },
     "common.header.logout": {
       "comment": "flutter_app/assets/locales",
       "extractionState": "manual",
@@ -1005,42 +1015,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Email hoặc mật khẩu không đúng"
-          }
-        }
-      }
-    },
-    "native.kioskPlaceholder": {
-      "comment": "Native iOS",
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請稍候等看診，若需要協助請告知現場醫護。"
-          }
-        },
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Please wait for your visit. If you need help, tell the clinic staff."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "診察までお待ちください。お困りの場合はスタッフにお声がけください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "진료를 기다려 주세요. 도움이 필요하면 의료진에게 알려 주세요."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vui lòng chờ đến lượt khám. Nếu cần hỗ trợ, hãy báo cho nhân viên y tế tại chỗ."
           }
         }
       }
@@ -17677,74 +17651,38 @@
         }
       }
     },
-    "soap.review.rejectDescription": {
+    "soap.review.rejectFieldLabel": {
       "comment": "flutter_app/assets/locales",
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請填寫需要修改的原因，這會作為退回修正的依據。"
+            "value": "退回理由"
           }
         },
         "en-US": {
           "stringUnit": {
             "state": "translated",
-            "value": "Please describe why revisions are needed. This will serve as the basis for the requested changes."
+            "value": "Revision reason"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "修正が必要な理由を入力してください。これが差し戻しの根拠になります。"
+            "value": "差し戻し理由"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "수정이 필요한 이유를 입력해 주세요. 이는 반려 사유의 근거가 됩니다."
+            "value": "반려 사유"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vui lòng nhập lý do cần chỉnh sửa. Đây sẽ là căn cứ để trả lại chỉnh sửa."
-          }
-        }
-      }
-    },
-    "soap.review.rejectNotesPlaceholder": {
-      "comment": "flutter_app/assets/locales",
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請輸入退回修改原因..."
-          }
-        },
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enter the reason for requesting revision..."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "差し戻し理由を入力してください..."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "반려 사유를 입력해 주세요..."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vui lòng nhập lý do yêu cầu chỉnh sửa..."
+            "value": "Lý do trả lại"
           }
         }
       }

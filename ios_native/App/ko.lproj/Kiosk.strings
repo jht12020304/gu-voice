@@ -294,7 +294,6 @@
 "session.patientHistory.filters.inProgress" = "진행 중";
 "session.patientHistory.loading" = "기록을 불러오는 중...";
 "session.patientHistory.sessionCount" = "문진 {{count}}회";
-"session.thankYou.autoRedirectHint" = "잠시 후 자동으로 홈으로 이동합니다…";
 "session.thankYou.backNowAction" = "지금 홈으로 돌아가기";
 "session.thankYou.message" = "오늘 스마트 문진에 참여해 주셔서 감사합니다. 원래 진료실 앞에서 대기해 주시면, 의사의 검토 후 간호사가 적합한 검사 항목을 안내해 드립니다.";
 "session.thankYou.title" = "문진이 완료되었습니다";

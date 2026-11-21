@@ -294,7 +294,6 @@
 "session.patientHistory.filters.inProgress" = "Đang tiến hành";
 "session.patientHistory.loading" = "Đang tải hồ sơ...";
 "session.patientHistory.sessionCount" = "{{count}} lần khám";
-"session.thankYou.autoRedirectHint" = "Sẽ tự động quay về trang chủ sau vài giây…";
 "session.thankYou.backNowAction" = "Về trang chủ ngay";
 "session.thankYou.message" = "Cảm ơn quý vị đã tham gia khám thông minh hôm nay. Vui lòng quay lại phòng khám ban đầu để chờ. Sau khi bác sĩ đánh giá, điều dưỡng sẽ hướng dẫn các hạng mục kiểm tra phù hợp.";
 "session.thankYou.title" = "Phiên khám hoàn tất";
