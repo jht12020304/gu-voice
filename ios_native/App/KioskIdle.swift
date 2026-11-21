@@ -66,23 +66,33 @@ struct KioskIdleLogout: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidChangeNotification)) { _ in
                 if enabled { timer.activity() }
             }
-            .task(id: enabled ? account.currentUser?.id : nil) {
-                guard enabled, let patient = account.currentUser?.id else { timer.cancel(); return }
-                if timer.remaining() == nil { timer.activity() }
-                while !Task.isCancelled, let delay = timer.remaining() {
-                    if delay == 0 {
-                        guard account.currentUser?.id == patient else { return }
-                        await account.signOut(language)
-                        return
-                    }
-                    do { try await Task.sleep(for: .seconds(delay)) } catch { return }
-                }
-            }
+            .task(id: enabled ? account.currentUser?.id : nil) { await waitForIdleLogout() }
             .onChange(of: scenePhase) {
                 if enabled, scenePhase == .active, let patient = account.currentUser?.id, timer.remaining() == 0 {
-                    Task { if account.currentUser?.id == patient { await account.signOut(language) } }
+                    signOutIfExpired(patient)
                 }
             }
+    }
+
+    func waitForIdleLogout() async {
+        guard enabled, let patient = account.currentUser?.id else { timer.cancel(); return }
+        if timer.remaining() == nil { timer.activity() }
+        while !Task.isCancelled, let delay = timer.remaining() {
+            if delay == 0 {
+                await signOutIfExpired(patient).value
+                return
+            }
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+        }
+    }
+
+    @discardableResult
+    private func signOutIfExpired(_ patient: UUID) -> Task<Void, Never> {
+        // Clearing currentUser cancels the view's timer task. Revocation must finish independently.
+        Task {
+            guard account.currentUser?.id == patient, timer.remaining() == 0 else { return }
+            await account.signOut(language)
+        }
     }
 }
 

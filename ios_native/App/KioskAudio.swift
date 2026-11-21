@@ -1,5 +1,6 @@
 import AVFoundation
 import Observation
+import Combine
 
 enum KioskMicUnavailable: Error {
     case noInputDevice, permissionDenied, failed
@@ -62,6 +63,19 @@ struct KioskSpeechSegment {
     }
 }
 
+protocol KioskMicInput: AnyObject {
+    func start() throws
+    func pause()
+    func detach()
+}
+
+extension AVAudioEngine: KioskMicInput {
+    func detach() {
+        stop()
+        inputNode.removeTap(onBus: 0)
+    }
+}
+
 @MainActor @Observable
 final class KioskAudio: NSObject, AVAudioPlayerDelegate {
     private(set) var unavailable: KioskMicUnavailable?
@@ -71,7 +85,14 @@ final class KioskAudio: NSObject, AVAudioPlayerDelegate {
 
     var onUtterance: ((Data) -> Void)?
     private let session = AVAudioSession.sharedInstance()
-    private var engine: AVAudioEngine?
+    typealias DeliverFrame = @Sendable ([Int16], UInt64) -> Void
+    private let requestPermission: () async -> Bool
+    private let inputFactory: (@MainActor (@escaping DeliverFrame) throws -> any KioskMicInput)?
+    private var engine: (any KioskMicInput)?
+    private var observers = Set<AnyCancellable>()
+    private var inputGeneration = 0
+    private var permitted = false
+    private var interrupted = false
     private var requestedListening = false
     private var closed = false
     private var opening = false
@@ -87,34 +108,96 @@ final class KioskAudio: NSObject, AVAudioPlayerDelegate {
     private var playbackTails: [() -> Void] = []
     private var playbackTimeout: Task<Void, Never>?
 
+    init(
+        requestPermission: @escaping () async -> Bool = { await AVAudioApplication.requestRecordPermission() },
+        inputFactory: (@MainActor (@escaping DeliverFrame) throws -> any KioskMicInput)? = nil
+    ) {
+        self.requestPermission = requestPermission
+        self.inputFactory = inputFactory
+        super.init()
+        let center = NotificationCenter.default
+        center.publisher(for: AVAudioSession.interruptionNotification, object: session)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                guard let self, !closed,
+                      let raw = event.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      let kind = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+                if kind == .began {
+                    interrupted = true
+                    sessionActive = false
+                    finishUtterance()
+                    detachInput()
+                    stopPlayback()
+                    if permitted { unavailable = .failed }
+                } else if kind == .ended {
+                    interrupted = false
+                    rebuildInput()
+                }
+            }.store(in: &observers)
+        center.publisher(for: AVAudioSession.routeChangeNotification, object: session)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                guard let reason = event.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                      reason != AVAudioSession.RouteChangeReason.categoryChange.rawValue else { return }
+                self?.rebuildInput()
+            }.store(in: &observers)
+        // Engine notifications originate on its internal queue. Tear down after that callback has returned.
+        center.publisher(for: .AVAudioEngineConfigurationChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                guard let self, let engine, event.object as AnyObject? === engine else { return }
+                rebuildInput()
+            }.store(in: &observers)
+    }
+
     func openMic() async {
         guard !closed, !opening, engine == nil else { return }
         opening = true
         defer { opening = false }
-        let allowed = await AVAudioApplication.requestRecordPermission()
+        let allowed = await requestPermission()
         guard !closed, !Task.isCancelled else { return }
+        permitted = allowed
         guard allowed else { unavailable = .permissionDenied; return }
+        guard !interrupted else { unavailable = .failed; return }
+        rebuildInput()
+    }
+
+    private func rebuildInput() {
+        guard !closed, permitted, !interrupted else { return }
+        finishUtterance()
+        detachInput()
         do {
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
-            try session.setActive(true)
-            sessionActive = true
-            let engine = AVAudioEngine()
-            let input = engine.inputNode
-            // On a mic-less simulator route/permission can look valid while this format is 0 Hz / 0 ch.
-            let hardware = input.inputFormat(forBus: 0)
-            let format = input.outputFormat(forBus: 0)
-            guard Self.usable(hardware), Self.usable(format) else { throw KioskMicUnavailable.noInputDevice }
-            guard let mono = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: false),
-                  let converter = AVAudioConverter(from: format, to: mono) else { throw KioskMicUnavailable.failed }
-            input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(converter) { [weak self] frame, time in
-                Task { @MainActor in self?.receive(frame, at: time) }
-            })
-            self.engine = engine
+            let generation = inputGeneration
+            let deliver: DeliverFrame = { [weak self] frame, time in
+                Task { @MainActor in
+                    guard let self, generation == self.inputGeneration else { return }
+                    self.receive(frame, at: time)
+                }
+            }
+            engine = try inputFactory?(deliver) ?? systemInput(deliver)
             unavailable = nil
             updateCapture()
         } catch {
             unavailable = (error as? KioskMicUnavailable) ?? .failed
         }
+    }
+
+    private func systemInput(_ deliver: @escaping DeliverFrame) throws -> AVAudioEngine {
+        if session.category != .playAndRecord || session.mode != .voiceChat || !session.categoryOptions.contains(.defaultToSpeaker) {
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
+        }
+        try session.setActive(true)
+        sessionActive = true
+        let engine = AVAudioEngine()
+        let input = engine.inputNode
+        // On a mic-less simulator route/permission can look valid while this format is 0 Hz / 0 ch.
+        let hardware = input.inputFormat(forBus: 0)
+        let format = input.outputFormat(forBus: 0)
+        guard Self.usable(hardware), Self.usable(format) else { throw KioskMicUnavailable.noInputDevice }
+        guard let mono = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: false),
+              let converter = AVAudioConverter(from: format, to: mono) else { throw KioskMicUnavailable.failed }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(converter, deliver: deliver))
+        return engine
     }
 
     private static func usable(_ format: AVAudioFormat) -> Bool {
@@ -149,7 +232,7 @@ final class KioskAudio: NSObject, AVAudioPlayerDelegate {
 
     private func updateCapture() {
         guard let engine else { return }
-        guard !closed, requestedListening, player == nil, sentences.isEmpty else {
+        guard !closed, !interrupted, requestedListening, player == nil, sentences.isEmpty else {
             if listenFrom != nil { engine.pause() }
             resetCapture()
             return
@@ -215,20 +298,21 @@ final class KioskAudio: NSObject, AVAudioPlayerDelegate {
     }
 
     private func detachInput() {
-        engine?.stop()
-        engine?.inputNode.removeTap(onBus: 0)
+        inputGeneration += 1
+        engine?.detach()
         engine = nil
         resetCapture()
     }
 
     func enqueue(_ base64: String, speed: Double) {
-        guard !closed, let data = Data(base64Encoded: base64), !data.isEmpty else { return }
+        guard !closed, !interrupted, let data = Data(base64Encoded: base64), !data.isEmpty else { return }
         sentences.append((data, speed))
         updateCapture()
         advancePlayback()
     }
 
     func afterPlayback(_ onEnded: @escaping () -> Void) {
+        guard !closed else { return }
         if player == nil && sentences.isEmpty { onEnded() } else { playbackTails.append(onEnded) }
     }
 
@@ -299,6 +383,8 @@ final class KioskAudio: NSObject, AVAudioPlayerDelegate {
     func close() {
         guard !closed else { return }
         closed = true
+        observers.removeAll()
+        playbackTails.removeAll()
         onUtterance = nil
         detachInput()
         stopPlayback()

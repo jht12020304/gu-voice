@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Security
 import XCTest
 @testable import GUVoice
@@ -83,6 +84,38 @@ final class FoundationTests: XCTestCase {
         guard case .signedOut = account.state else { return XCTFail("Expired kiosk restored patient access") }
         XCTAssertNil(try credentials.load())
         XCTAssertEqual(HTTPStub.routes.count("logout"), 1)
+    }
+
+    func testIdleDeadlinePostsLogoutEvenWhenClearingThePatientCancelsTheViewTask() async throws {
+        let patient = UUID()
+        let profile = #"{"id":"\#(patient)","name":"Fixture","role":"patient"}"#
+        let api = try makeClient { request in
+            switch request.url?.lastPathComponent {
+            case "me": .json(profile)
+            case "refresh": .json(Self.rotatedTokens)
+            case "logout":
+                request.value(forHTTPHeaderField: "Authorization") == "Bearer new-access" ? .status(204) : .status(401)
+            default: .status(500)
+            }
+        }
+        let account = Account(api: api)
+        await account.restore(.english)
+        XCTAssertEqual(account.currentUser?.id, patient)
+        account.kioskIdle.start(patient: patient, restoring: false, at: .distantPast)
+        defer { account.kioskIdle.clear() }
+        let modifier = KioskIdleLogout(account: account, language: .english, enabled: true)
+        let viewTask = Task { await modifier.waitForIdleLogout() }
+        withObservationTracking { _ = account.currentUser } onChange: { viewTask.cancel() }
+        await viewTask.value
+
+        XCTAssertTrue(viewTask.isCancelled)
+        let calls = HTTPStub.routes.requests("logout")
+        XCTAssertEqual(calls.map(\.httpMethod), ["POST", "POST"])
+        XCTAssertEqual(HTTPStub.routes.count("refresh"), 1)
+        XCTAssertEqual(calls.last?.value(forHTTPHeaderField: "Authorization"), "Bearer new-access")
+        XCTAssertEqual(calls.first?.url?.path, "/api/v1/auth/logout")
+        XCTAssertNil(try credentials.load())
+        guard case .signedOut = account.state else { return XCTFail("Kiosk kept its patient login") }
     }
 
     func testWrongCurrentPasswordPreservesPatientLoginWithoutRefreshing() async throws {

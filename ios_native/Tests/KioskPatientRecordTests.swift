@@ -19,6 +19,14 @@ final class KioskPatientRecordTests: XCTestCase {
         for code in ["vi-VN", "ko-KR", "en-US"] { XCTAssertEqual(KioskReportExcerpt.patientText(report, sessionLanguage: code), .notice) }
     }
 
+    func testUnknownSessionLanguageShowsOnlyTheGenericNoticeEvenWithAGeneratedReport() throws {
+        let json = #"{"status":"generated","summary":"醫師摘要","patient_facing_localized":{"language":"vi","summary":"Tóm tắt"}}"#
+        let report = try JSONDecoder().decode(KioskReportExcerpt.self, from: Data(json.utf8))
+        for unknown in [nil, "", "  ", "und"] as [String?] {
+            XCTAssertEqual(KioskReportExcerpt.patientText(report, sessionLanguage: unknown), .notice)
+        }
+    }
+
     func testMissingReportUsesSessionLanguageForFallback() {
         XCTAssertEqual(KioskReportExcerpt.patientText(nil, sessionLanguage: "vi-VN"), .notice)
         XCTAssertEqual(KioskReportExcerpt.patientText(nil, sessionLanguage: "zh-TW"), .content(nil, []))

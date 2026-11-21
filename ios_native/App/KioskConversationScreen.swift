@@ -20,11 +20,8 @@ private struct ConversationContent: View {
     let onTerminal: (String) -> Void
     let onLeave: () -> Void
     @State private var model: KioskConversation
-    @State private var draft = ""
     @State private var confirmEnd = false
     @State private var retry = 0
-    @AppStorage("kioskTtsMuted") private var muted = false
-    @AppStorage("kioskTtsSpeed") private var speed = 1.0
 
     init(account: Account, sessionID: UUID, language: AppLanguage,
          onTerminal: @escaping (String) -> Void, onLeave: @escaping () -> Void) {
@@ -80,10 +77,7 @@ private struct ConversationContent: View {
             Button(language.text("conversation.endSession"), role: .destructive) { model.end() }
                 .accessibilityIdentifier("kiosk-end-confirm")
         }
-        .task {
-            model.configureVoice(muted: muted, speed: speed)
-            await model.openMic()
-        }
+        .task { await model.openMic() }
         .task(id: model.noSpeech) {
             guard model.noSpeech else { return }
             do { try await Task.sleep(for: .seconds(4)); model.clearSpeechHint() } catch {}
@@ -92,19 +86,16 @@ private struct ConversationContent: View {
             await model.run()
             if !Task.isCancelled { await account.noticeAuthorizationLoss(language) }
         }
-        .onChange(of: muted) { _, value in model.configureVoice(muted: value, speed: speed) }
-        .onChange(of: speed) { _, value in model.configureVoice(muted: muted, speed: value) }
         .onChange(of: model.terminal) { _, status in if let status { onTerminal(status) } }
         .onDisappear { model.close() }
     }
 
     @ViewBuilder private var guidance: some View {
-        ForEach(model.flags.prefix(3)) { flag in
+        ForEach(model.visibleFlags) { flag in
             VStack(alignment: .leading, spacing: 6) {
-                Label(flag.title.isEmpty ? language.text("conversation.redFlag.generic") : flag.title,
+                Label(flag.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? language.text("conversation.redFlag.generic") : flag.title,
                       systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red).font(.headline)
-                Text(flag.notice.flatMap { $0.isEmpty ? nil : $0 } ?? language.text("conversation.redFlag.patientNotice"))
                 if flag.acknowledged {
                     Image(systemName: "checkmark.circle").accessibilityLabel(language.text("common.acknowledge"))
                 } else {
@@ -114,6 +105,9 @@ private struct ConversationContent: View {
         }
         if model.flags.count > 3 {
             Text(language.text("conversation.redFlag.more", args: ["count": String(model.flags.count - 3)]))
+        }
+        if !model.visibleFlags.isEmpty {
+            Text(model.sharedVisibleNotice ?? language.text("conversation.redFlag.patientNotice"))
         }
         if model.degraded { Text(language.text("conversation.supervisor.degraded")) }
         if !model.focus.isEmpty {
@@ -181,7 +175,8 @@ private struct ConversationContent: View {
     }
 
     private var controls: some View {
-        VStack(spacing: 8) {
+        @Bindable var model = model
+        return VStack(spacing: 8) {
             if model.canInput {
                 if model.audio.isSpeaking {
                     HStack(alignment: .center, spacing: 2) {
@@ -192,20 +187,32 @@ private struct ConversationContent: View {
                 }
                 Text(status).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
+            ForEach(model.recoveredDrafts) { candidate in
+                HStack {
+                    Text(candidate.text)
+                    Button(language.text("common.retry")) { model.retryText(candidate) }
+                        .disabled(!model.canSendText)
+                }
+            }
+            if model.canLeaveWithoutConfirmation {
+                Button(language.text("session.complete.actionHome"), action: onLeave)
+            }
             HStack {
-                TextField(language.text("conversation.input.textPlaceholder"), text: $draft, axis: .vertical)
+                TextField(language.text("conversation.input.textPlaceholder"), text: $model.draft, axis: .vertical)
                     .textFieldStyle(.roundedBorder).lineLimit(1...3)
                     .accessibilityIdentifier("kiosk-message")
-                    .onChange(of: draft) { _, value in if value.count > 2000 { draft = String(value.prefix(2000)) } }
+                    .onChange(of: model.draft) { _, value in
+                        if value.unicodeScalars.count > 2000 { model.draft = String(value.unicodeScalars.prefix(2000)) }
+                    }
                 Button {
-                    if model.sendText(draft) { draft = "" }
+                    model.sendText(model.draft)
                 } label: {
                     Label(language.text("conversation.input.send"), systemImage: "arrow.up.circle.fill")
                         .labelStyle(.iconOnly).font(.title2)
                 }
                 .frame(minWidth: 44, minHeight: 44)
                 .accessibilityIdentifier("kiosk-send")
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canInput || model.waiting || model.responding)
+                .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canSendText)
             }
             HStack(spacing: 20) {
                 Button(action: model.togglePause) {
@@ -213,14 +220,14 @@ private struct ConversationContent: View {
                           systemImage: model.paused ? "mic" : "mic.slash")
                 }
                 .disabled(!model.canInput || model.audio.unavailable != nil)
-                Button { muted.toggle() } label: {
-                    Label(language.text(muted ? "conversation.tts.unmuteLabel" : "conversation.tts.muteLabel"),
-                          systemImage: muted ? "speaker.slash" : "speaker.wave.2")
+                Button(action: model.toggleTTSMute) {
+                    Label(language.text(model.ttsMuted ? "conversation.tts.unmuteLabel" : "conversation.tts.muteLabel"),
+                          systemImage: model.ttsMuted ? "speaker.slash" : "speaker.wave.2")
                 }
-                Button { speed = speed == 1 ? 1.25 : speed == 1.25 ? 1.5 : 1 } label: {
-                    Text("\(speed.formatted())×")
+                Button(action: model.cycleTTSSpeed) {
+                    Text("\(model.speed.formatted())×")
                 }
-                .accessibilityLabel(language.text("conversation.tts.speedLabel", args: ["rate": speed.formatted()]))
+                .accessibilityLabel(language.text("conversation.tts.speedLabel", args: ["rate": model.speed.formatted()]))
                 Button(action: model.audio.finishUtterance) {
                     Label(language.text("conversation.voiceControl.finishSpeaking"), systemImage: "checkmark.circle")
                 }
@@ -233,5 +240,27 @@ private struct ConversationContent: View {
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
         .background(.bar)
+    }
+}
+
+extension KioskConversation {
+    var visibleFlags: ArraySlice<Flag> { flags.prefix(3) }
+
+    var sharedVisibleNotice: String? {
+        func trimmedNotice(_ flag: Flag) -> String? {
+            flag.notice?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let first = visibleFlags.first, let notice = trimmedNotice(first), !notice.isEmpty,
+              visibleFlags.dropFirst().allSatisfy({ trimmedNotice($0) == notice }) else { return nil }
+        return notice
+    }
+
+    func toggleTTSMute() {
+        configureVoice(muted: !ttsMuted, speed: speed)
+    }
+
+    func cycleTTSSpeed() {
+        let next = speed == 1 ? 1.25 : speed == 1.25 ? 1.5 : 1
+        configureVoice(muted: ttsMuted, speed: next)
     }
 }

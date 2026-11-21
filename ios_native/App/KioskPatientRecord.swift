@@ -59,11 +59,12 @@ struct KioskReportExcerpt: Decodable, Sendable {
         localized = try? values.decode(Texts.self, forKey: .localized)
     }
 
-    static func patientText(_ report: Self?, sessionLanguage: String) -> PatientText {
-        func code(_ language: String) -> String {
-            Locale(identifier: language).language.languageCode?.identifier ?? ""
+    static func patientText(_ report: Self?, sessionLanguage: String?) -> PatientText {
+        func code(_ language: String) -> String? {
+            Locale(identifier: language).language.languageCode?.identifier
         }
-        let sessionCode = code(sessionLanguage)
+        guard let sessionCode = sessionLanguage.flatMap(code),
+              AppLanguage.allCases.contains(where: { code($0.rawValue) == sessionCode }) else { return .notice }
         if let localized = report?.localized, let language = localized.language, code(language) == sessionCode,
            localized.summary != nil || !localized.education.isEmpty {
             return .content(localized.summary, localized.education)
@@ -86,7 +87,7 @@ struct KioskPatientRecord: View {
     private func t(_ key: String) -> String { language.text(key) }
 
     private var patientText: KioskReportExcerpt.PatientText {
-        KioskReportExcerpt.patientText(report, sessionLanguage: session?.language ?? language.rawValue)
+        KioskReportExcerpt.patientText(report, sessionLanguage: session?.language)
     }
 
     var body: some View {

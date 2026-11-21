@@ -60,35 +60,51 @@ final class KioskConversation {
     private(set) var responding = false
     private(set) var waiting = false
     private(set) var ending = false
+    private(set) var canLeaveWithoutConfirmation = false
+    var draft = ""
+    struct Submission: Identifiable {
+        let id = UUID()
+        let text: String
+        let previousMatches: Int
+    }
+    private var submissions: [Submission] = []
+    private(set) var recoveredDrafts: [Submission] = []
     private(set) var critical = false
     private(set) var noSpeech = false
     private(set) var error: String?
     private(set) var focus = ""
     private(set) var missingHPI: [String] = []
     private(set) var degraded = false
-    let audio = KioskAudio()
+    let audio: KioskAudio
 
+    private let endCheckInterval: Duration
     private let id: UUID
     private let source: any KioskConversationSource
     private let language: AppLanguage
     private var socket: (any KioskSocket)?
+    @ObservationIgnored private var consecutiveRetries = 0
     private var outgoing: AsyncStream<String>.Continuation?
     private var endWatch: Task<Void, Never>?
+    private var textCheck: Task<Void, Never>?
     private var disposed = false
     private var playing = false
     private var playbackGeneration = 0
-    private var ttsMuted = false
-    private var speed = 1.0
+    private(set) var ttsMuted = false
+    private(set) var speed = 1.0
 
-    init(id: UUID, source: any KioskConversationSource, language: AppLanguage) {
+    init(id: UUID, source: any KioskConversationSource, language: AppLanguage,
+         audio: KioskAudio = KioskAudio(), endCheckInterval: Duration = .seconds(12)) {
+        self.audio = audio
+        self.endCheckInterval = endCheckInterval
         self.id = id
         self.source = source
         self.language = language
     }
 
     var canInput: Bool { connection == .ready && !critical && !ending }
+    var canSendText: Bool { canInput && !waiting && !responding && textCheck == nil }
     var allowsListening: Bool {
-        canInput && !disposed && !paused && !waiting && !playing && (!responding || ttsMuted)
+        canInput && !disposed && !paused && !waiting && textCheck == nil && !playing && (!responding || ttsMuted)
     }
 
     func configureVoice(muted: Bool, speed: Double) {
@@ -110,13 +126,14 @@ final class KioskConversation {
 
     // Each pass reconciles the visible transcript and terminal status before admitting input.
     func run(retryDelay: Duration = .seconds(1)) async {
+        if connection == .interrupted { error = nil }
         connection = .connecting
-        var retries = 0
+        consecutiveRetries = 0
         while !disposed && !Task.isCancelled && terminal == nil {
             do {
                 let snapshot = try await reload()
                 guard !disposed, terminal == nil else { return }
-                let resume = retries > 0 || snapshot.status == "in_progress"
+                let resume = consecutiveRetries > 0 || snapshot.status == "in_progress"
                     ? try await source.kioskResume(for: id, language: language) : nil
                 try Task.checkCancellation()
                 guard !disposed else { return }
@@ -137,13 +154,13 @@ final class KioskConversation {
                     _ = try? await reload()
                     guard !disposed, !Task.isCancelled, terminal == nil else { return }
                 }
-                if error as? APIError == .signedOut || [4003, 4004, 4009].contains(code ?? 0) || retries >= 3 {
+                if error as? APIError == .signedOut || [4003, 4004, 4009].contains(code ?? 0) || consecutiveRetries >= 3 {
                     connection = .interrupted
                     self.error = language.text("conversation.error.sessionInterrupted")
                     return
                 }
-                retries += 1
-                do { try await Task.sleep(for: retryDelay * (1 << (retries - 1))) }
+                consecutiveRetries += 1
+                do { try await Task.sleep(for: retryDelay * (1 << (consecutiveRetries - 1))) }
                 catch { return }
             }
         }
@@ -154,6 +171,7 @@ final class KioskConversation {
         try Task.checkCancellation()
         guard !disposed else { throw CancellationError() }
         if !setTerminal(snapshot.status) {
+            reconcile(submissions, with: snapshot)
             messages = snapshot.conversations.sorted { $0.sequence < $1.sequence }.map {
                 Message(id: $0.id.uuidString, role: $0.role, text: $0.content)
             }
@@ -228,8 +246,8 @@ final class KioskConversation {
                 socket?.cancel(with: .policyViolation, reason: nil)
                 return
             }
+            consecutiveRetries = 0
             connection = .ready
-            error = nil
             if paused { control("pause_recording") }
             if critical { watchForTerminal() }
         case "ai_response_start":
@@ -242,7 +260,7 @@ final class KioskConversation {
             guard let index = messages.lastIndex(where: { $0.id == messageID }) else { return }
             messages[index].text += p["text"] as? String ?? ""
             if p["ttsFailed"] as? Bool == true { messages[index].ttsFailed = true }
-            if let chunk = p["audioB64"] as? String, !chunk.isEmpty {
+            if !ending, let chunk = p["audioB64"] as? String, !chunk.isEmpty {
                 messages[index].audio.append(chunk)
                 if !ttsMuted && !critical {
                     playing = true
@@ -289,8 +307,7 @@ final class KioskConversation {
         case "error":
             responding = false
             waiting = false
-            endWatch?.cancel()
-            ending = false
+            verifyPendingAfterError()
             error = p["code"].flatMap { $0 as? String }.map {
                 language.text("ws.\($0)", args: (p["params"] as? [String: Any] ?? [:]).mapValues { String(describing: $0) })
             } ?? language.text("conversation.error.aiUnavailable")
@@ -302,7 +319,7 @@ final class KioskConversation {
     }
 
     private func rank(_ severity: String) -> Int {
-        switch severity { case "critical": 3; case "high": 2; default: 1 }
+        switch severity { case "critical": 3; case "high": 2; case "medium": 1; default: 0 }
     }
 
     @discardableResult
@@ -342,14 +359,59 @@ final class KioskConversation {
 
     private func control(_ action: String) { emit("control", ["action": action]) }
 
-    func sendText(_ input: String) -> Bool {
+    // The backend assigns new DB IDs. Count earlier identical patient turns so a repeated
+    // "no" is confirmed only by a new occurrence in this session's authoritative transcript.
+    private func reconcile(_ candidates: [Submission], with snapshot: KioskSnapshot) {
+        for candidate in candidates {
+            guard let index = submissions.firstIndex(where: { $0.id == candidate.id }) else { continue }
+            submissions.remove(at: index)
+            let matches = snapshot.conversations.filter { $0.role == "patient" && $0.content == candidate.text }.count
+            guard matches <= candidate.previousMatches else { continue }
+            messages.removeAll { $0.id == candidate.id.uuidString }
+            if draft.isEmpty { draft = candidate.text }
+            else { recoveredDrafts.append(candidate) }
+            if error == nil { error = language.text("conversation.input.sendOffline") }
+        }
+    }
+
+    private func verifyPendingAfterError() {
+        let candidates = submissions
+        guard !candidates.isEmpty else { return }
+        textCheck?.cancel()
+        textCheck = Task { [weak self, source, id, language] in
+            do {
+                let snapshot = try await source.kioskSnapshot(for: id, language: language)
+                guard let self, !Task.isCancelled else { return }
+                reconcile(candidates, with: snapshot)
+                textCheck = nil
+                updateMic()
+            } catch {
+                if !Task.isCancelled { self?.socket?.cancel(with: .goingAway, reason: nil) }
+            }
+        }
+    }
+
+    func retryText(_ candidate: Submission) {
+        guard recoveredDrafts.contains(where: { $0.id == candidate.id }) else { return }
+        if sendText(candidate.text, clearDraft: false) {
+            recoveredDrafts.removeAll { $0.id == candidate.id }
+        }
+    }
+
+    @discardableResult
+    func sendText(_ input: String, clearDraft: Bool = true) -> Bool {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, text.count <= 2000 else { return false }
+        guard !text.isEmpty, text.unicodeScalars.count <= 2000 else { return false }
         guard canInput else { error = language.text("conversation.input.sendOffline"); return false }
+        guard canSendText else { return false }
+        let previous = messages.filter { $0.role == "patient" && $0.text == text }.count
+        let candidate = Submission(text: text, previousMatches: previous)
+        submissions.append(candidate)
+        if clearDraft { draft = "" }
         error = nil
         noSpeech = false
         waiting = true
-        messages.append(Message(id: UUID().uuidString, role: "patient", text: text))
+        messages.append(Message(id: candidate.id.uuidString, role: "patient", text: text))
         emit("text_message", ["text": text])
         updateMic()
         return true
@@ -412,6 +474,7 @@ final class KioskConversation {
         guard canInput else { error = language.text("conversation.error.endSessionOffline"); return }
         audio.finishUtterance()
         ending = true
+        stopPlayback()
         updateMic()
         control("end_session")
         watchForTerminal()
@@ -419,19 +482,16 @@ final class KioskConversation {
 
     private func watchForTerminal() {
         endWatch?.cancel()
-        endWatch = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(12)) } catch { return }
-            guard let self, !disposed, terminal == nil else { return }
-            let latest = try? await source.kioskSnapshot(for: id, language: language)
-            guard !Task.isCancelled, !disposed, terminal == nil else { return }
-            if let status = latest?.status, setTerminal(status) { return }
-            if critical {
-                // A critical alert forbids another patient turn, even if the terminal ACK was lost.
-                socket?.cancel(with: .goingAway, reason: nil)
-            } else {
-                ending = false
-                error = language.text("conversation.error.endSessionTimeout")
-                updateMic()
+        endWatch = Task { [weak self, endCheckInterval] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: endCheckInterval) } catch { return }
+                guard let self, !disposed, terminal == nil else { return }
+                // STT, red-flag screening and the final reply run before the queued end command.
+                // A still-active REST status cannot distinguish slow processing from a lost ACK.
+                canLeaveWithoutConfirmation = true
+                let latest = try? await source.kioskSnapshot(for: id, language: language)
+                guard !Task.isCancelled, !disposed, terminal == nil else { return }
+                if let status = latest?.status, setTerminal(status) { return }
             }
         }
     }
@@ -442,6 +502,10 @@ final class KioskConversation {
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
         endWatch?.cancel()
+        textCheck?.cancel()
+        textCheck = nil
+        if ending && terminal == nil { error = language.text("conversation.error.endSessionTimeout") }
+        canLeaveWithoutConfirmation = false
         ending = false
         responding = false
         waiting = false
@@ -454,6 +518,9 @@ final class KioskConversation {
         connection = .ended
         resetConnection()
         audio.close()
+        draft = ""
+        submissions.removeAll()
+        recoveredDrafts.removeAll()
         messages.removeAll()
         flags.removeAll()
         focus = ""
