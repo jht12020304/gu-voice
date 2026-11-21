@@ -2,7 +2,11 @@ import SwiftUI
 
 @main
 struct GUVoiceApp: App {
+    @UIApplicationDelegateAdaptor(PushNotifications.self) private var push
     @AppStorage("appLanguage") private var savedLanguage = ""
+    @AppStorage("clinicalColorScheme") private var theme = ""
+    @AppStorage("clinicalTextScale") private var textScale = 1.0
+    @Environment(\.dynamicTypeSize) private var dynamicType
     @State private var account: Account?
 
     init() {
@@ -21,7 +25,7 @@ struct GUVoiceApp: App {
             let language = AppLanguage.resolve(saved: savedLanguage)
             Group {
                 if let account {
-                    RootScreen(account: account, savedLanguage: $savedLanguage, language: language)
+                    RootScreen(account: account, push: push, savedLanguage: $savedLanguage, language: language)
                 } else {
                     ContentUnavailableView(
                         language.text("native.configurationError"), systemImage: "exclamationmark.triangle"
@@ -29,20 +33,35 @@ struct GUVoiceApp: App {
                 }
             }
             .environment(\.locale, Locale(identifier: language.rawValue))
+            .environment(\.dynamicTypeSize, scaledType)
+            .preferredColorScheme(theme == "dark" ? .dark : theme == "light" ? .light : nil)
         }
+    }
+
+    private var scaledType: DynamicTypeSize {
+        let sizes = DynamicTypeSize.allCases
+        guard let index = sizes.firstIndex(of: dynamicType) else { return dynamicType }
+        let steps = textScale >= 1.4 ? 2 : textScale >= 1.2 ? 1 : 0
+        return sizes[min(index + steps, sizes.count - 1)]
     }
 }
 
 @MainActor @Observable
 final class Account {
     enum State {
-        case starting, signedOut, unavailable, clearanceFailed, signedIn(User)
+        case starting, signedOut, unavailable, clearanceFailed, reauthenticate, signedIn(User)
     }
 
     let api: APIClient
     private(set) var state: State = .starting
+    private(set) var dashboardRevision = 0
     private(set) var isWorking = false
     private(set) var credentialsUnavailable = false
+
+    var currentUser: User? {
+        if case let .signedIn(user) = state { return user }
+        return nil
+    }
 
     init(api: APIClient) {
         self.api = api
@@ -56,6 +75,15 @@ final class Account {
         do {
             if let user = try await api.restore(language: language) { state = .signedIn(user) }
             else { state = .signedOut }
+        } catch is PushCleanupPending {
+            do {
+                try await api.signOut(language: language)
+                state = .signedOut
+            } catch is PushCleanupReauthentication {
+                state = .reauthenticate
+            } catch {
+                state = .clearanceFailed
+            }
         } catch is CredentialClearancePending {
             state = .clearanceFailed
         } catch APIError.credentialsUnavailable {
@@ -67,10 +95,20 @@ final class Account {
     }
 
     func signIn(email: String, password: String, language: AppLanguage) async throws {
-        guard !isWorking else { return }
+        guard !isWorking, !credentialsUnavailable else { return }
         isWorking = true
         defer { isWorking = false }
-        state = .signedIn(try await api.signIn(email: email, password: password, language: language))
+        if case .reauthenticate = state {
+            do {
+                try await api.reauthenticateForPushCleanup(email: email, password: password, language: language)
+                state = .signedOut
+            } catch is PushCleanupPending {
+                state = .clearanceFailed
+            }
+        } else {
+            do { state = .signedIn(try await api.signIn(email: email, password: password, language: language)) }
+            catch is PushCleanupPending { state = .clearanceFailed }
+        }
     }
 
     func signOut(_ language: AppLanguage) async {
@@ -82,20 +120,79 @@ final class Account {
         do {
             try await api.signOut(language: language)
             state = .signedOut
+        } catch is PushCleanupReauthentication {
+            state = .reauthenticate
         } catch {
             state = .clearanceFailed
         }
     }
 
-    func noticeAuthorizationLoss() async {
+    func watchDashboard(user: UUID, language: AppLanguage) async {
+        while !Task.isCancelled, currentUser?.id == user {
+            do {
+                let socket = try await api.dashboardConnection()
+                await withTaskCancellationHandler {
+                    await receiveDashboardEvents(socket, user: user)
+                } onCancel: {
+                    socket.cancel(with: .goingAway, reason: nil)
+                }
+                if socket.closeCode.rawValue == 4003 { return }
+                if socket.closeCode.rawValue == 4001 {
+                    let _: User = try await api.get("auth/me", language: language)
+                }
+            } catch APIError.signedOut {
+                await noticeAuthorizationLoss(language)
+                return
+            } catch {}
+            do { try await Task.sleep(for: .seconds(8)) } catch { return }
+        }
+    }
+
+    private func receiveDashboardEvents(_ socket: URLSessionWebSocketTask, user: UUID) async {
+        let heartbeat = Task {
+            while !Task.isCancelled {
+                try await Task.sleep(for: .seconds(25))
+                try await socket.send(.string("{\"type\":\"ping\"}"))
+            }
+        }
+        defer {
+            heartbeat.cancel()
+            socket.cancel(with: .goingAway, reason: nil)
+        }
+        do {
+            while !Task.isCancelled, currentUser?.id == user {
+                let message = try await socket.receive()
+                handleDashboardMessage(message, user: user)
+            }
+        } catch {}
+    }
+
+    private func handleDashboardMessage(_ message: URLSessionWebSocketTask.Message, user: UUID) {
+        guard currentUser?.id == user else { return }
+        struct Envelope: Decodable { let type: String }
+        let data: Data
+        switch message {
+        case let .string(value): data = Data(value.utf8)
+        case let .data(value): data = value
+        @unknown default: return
+        }
+        guard let event = try? JSONDecoder().decode(Envelope.self, from: data),
+              event.type != "pong" else { return }
+        dashboardRevision += 1
+    }
+
+    func noticeAuthorizationLoss(_ language: AppLanguage) async {
         let active = await api.hasSession
         guard !isWorking, !active else { return }
-        state = .signedOut
+        if await api.needsPushCleanup { await signOut(language) }
+        else { state = .signedOut }
     }
 }
 
 private struct RootScreen: View {
+    @Environment(\.scenePhase) private var scenePhase
     let account: Account
+    let push: PushNotifications
     @Binding var savedLanguage: String
     let language: AppLanguage
     @State private var path = NavigationPath()
@@ -108,6 +205,8 @@ private struct RootScreen: View {
                     ProgressView(language.text("common.loading"))
                 case .signedOut:
                     LoginScreen(account: account, language: language)
+                case .reauthenticate:
+                    LoginScreen(account: account, language: language, recovering: true)
                 case .unavailable:
                     ContentUnavailableView {
                         Label(language.text("native.restoreFailed"), systemImage: "exclamationmark.triangle")
@@ -126,6 +225,9 @@ private struct RootScreen: View {
                 case let .signedIn(user):
                     landing(user)
                         .id(user.id)
+                        .navigationDestination(for: NotificationRoute.self) { route in
+                            ClinicalDestination(route: route, account: account, language: language)
+                        }
                 }
             }
             .toolbar {
@@ -142,6 +244,8 @@ private struct RootScreen: View {
                         if case let .signedIn(user) = account.state {
                             Section(user.name) {
                                 Button(role: .destructive) {
+                                    path = NavigationPath()
+                                    push.deactivate()
                                     Task { await account.signOut(language) }
                                 } label: {
                                     Label(language.text("common.header.logout"), systemImage: "rectangle.portrait.and.arrow.right")
@@ -156,8 +260,42 @@ private struct RootScreen: View {
                 }
             }
         }
-        .onChange(of: activeUserID) { path = NavigationPath() }
+        .onChange(of: activeUserID) {
+            path = NavigationPath()
+            if activeUserID == nil { push.deactivate() }
+            openPush()
+        }
+        .onChange(of: push.tappedRoute) { openPush() }
+        .onChange(of: accountHasNoAccessibleSession) {
+            if accountHasNoAccessibleSession { push.deactivate() }
+        }
+        .task(id: waitingForCleanup && scenePhase == .active) {
+            if waitingForCleanup && scenePhase == .active { await push.prepareCleanup(account: account, language: language) }
+        }
         .task { await account.restore(language) }
+        .task(id: PushActivation(user: activeUserID, phase: scenePhase, language: language)) {
+            guard scenePhase == .active, let user = account.currentUser, user.role != .patient else { return }
+            await account.watchDashboard(user: user.id, language: language)
+        }
+        .task(id: PushActivation(user: activeUserID, phase: scenePhase, language: language)) {
+            guard scenePhase == .active else { return }
+            if case .clearanceFailed = account.state { await account.signOut(language) }
+            if let user = account.currentUser {
+                await push.activate(account: account, user: user, language: language)
+            }
+        }
+    }
+
+    private var waitingForCleanup: Bool {
+        if case .clearanceFailed = account.state { return true }
+        return false
+    }
+
+    private var accountHasNoAccessibleSession: Bool {
+        switch account.state {
+        case .signedOut, .unavailable, .clearanceFailed, .reauthenticate: true
+        case .signedIn, .starting: false
+        }
     }
 
     private var activeUserID: UUID? {
@@ -165,17 +303,27 @@ private struct RootScreen: View {
         return nil
     }
 
+    private struct PushActivation: Equatable {
+        let user: UUID?
+        let phase: ScenePhase
+        let language: AppLanguage
+    }
+
+    private func openPush() {
+        guard let user = account.currentUser, user.role != .patient,
+              let route = push.takeRoute() else { return }
+        path.append(route)
+    }
+
     @ViewBuilder
     private func landing(_ user: User) -> some View {
         switch user.role {
-        case .doctor:
-            ReportListScreen(account: account, language: language)
-        case .admin, .patient:
-            let isAdmin = user.role == .admin
+        case .doctor, .admin:
+            ClinicalHome(user: user, account: account, language: language)
+        case .patient:
             ContentUnavailableView(
-                language.text(isAdmin ? "common.roles.admin" : "native.patientKiosk"),
-                systemImage: isAdmin ? "person.badge.key" : "ipad",
-                description: Text(language.text(isAdmin ? "native.adminPlaceholder" : "native.kioskPlaceholder"))
+                language.text("native.patientKiosk"), systemImage: "ipad",
+                description: Text(language.text("native.kioskPlaceholder"))
             )
             .navigationTitle(user.name)
         }
@@ -185,6 +333,7 @@ private struct RootScreen: View {
 private struct LoginScreen: View {
     let account: Account
     let language: AppLanguage
+    var recovering = false
     @State private var email = ""
     @State private var password = ""
     @State private var errorKey: String?
@@ -194,7 +343,7 @@ private struct LoginScreen: View {
 
     var body: some View {
         Form {
-            Section(language.text("common.login.prompt")) {
+            Section(language.text(recovering ? "native.pushReauthentication" : "common.login.prompt")) {
                 TextField(language.text("common.login.emailLabel"), text: $email)
                     .textContentType(.username)
                     .keyboardType(.emailAddress)
@@ -220,7 +369,7 @@ private struct LoginScreen: View {
                             .fontWeight(.semibold)
                     }
                 }
-                .disabled(account.isWorking || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty)
+                .disabled(account.isWorking || account.credentialsUnavailable || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty)
                 .accessibilityIdentifier("login-submit")
             } footer: {
                 if let errorKey {
@@ -236,13 +385,15 @@ private struct LoginScreen: View {
 
     private func submit() {
         let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !account.isWorking, !address.isEmpty, !password.isEmpty else { return }
+        guard !account.isWorking, !account.credentialsUnavailable, !address.isEmpty, !password.isEmpty else { return }
         errorKey = nil
         focus = nil
         Task {
             do {
                 try await account.signIn(email: address, password: password, language: language)
                 password = ""
+            } catch is PushCleanupReauthentication {
+                errorKey = "native.pushReauthentication"
             } catch APIError.status(401) {
                 errorKey = "native.invalidLogin"
             } catch APIError.status(403) {

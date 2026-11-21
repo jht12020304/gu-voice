@@ -11,8 +11,16 @@ struct User: Decodable, Sendable {
     let id: UUID
     let name: String
     let role: Role
+    let licenseNumber: String?
 
-    enum Role: String, Decodable, Sendable {
+    var isSystemAdmin: Bool { role == .admin && (licenseNumber ?? "").isEmpty }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, role
+        case licenseNumber = "license_number"
+    }
+
+    enum Role: String, Codable, CaseIterable, Sendable {
         case doctor, admin, patient
     }
 }
@@ -22,13 +30,19 @@ actor APIClient {
     private let credentials: any CredentialStore
     private let session: URLSession
     private var tokens: Tokens?
+    private var userID: UUID?
+    private var pushBinding: PushBinding?
+    private var pushRegistration: Task<Data, Error>?
     private var revision = 0
     private var refreshTask: (id: UUID, task: Task<Tokens, Error>)?
     private var signingOut = false
     private var pendingRevocation: Tokens?
     private var needsPersistence = false
 
-    var hasSession: Bool { tokens != nil }
+    var needsPushCleanup: Bool { pushBinding?.isSigningOut == true }
+    var needsDeviceIdentity: Bool { pushBinding?.requiresLegacyLookup == true }
+
+    var hasSession: Bool { tokens != nil && !signingOut && pushBinding?.isSigningOut != true }
 
     init(configuration: Configuration, credentials: any CredentialStore, session: URLSession = APIClient.makeSession()) {
         self.configuration = configuration
@@ -49,42 +63,170 @@ actor APIClient {
 
     func restore(language: AppLanguage) async throws -> User? {
         guard !signingOut else { throw APIError.signedOut }
+        do { pushBinding = try credentials.loadPushBinding() }
+        catch { throw APIError.credentialsUnavailable }
+        if pushBinding?.isSigningOut == true { throw PushCleanupPending() }
         if tokens == nil {
             do { tokens = try credentials.load() }
             catch let error as CredentialClearancePending { throw error }
             catch { throw APIError.credentialsUnavailable }
         }
-        guard tokens != nil else { return nil }
+        guard tokens != nil else {
+            if var binding = pushBinding {
+                binding.isSigningOut = true
+                try credentials.savePushBinding(binding)
+                pushBinding = binding
+                throw PushCleanupPending()
+            }
+            return nil
+        }
         do {
-            return try await get("auth/me", language: language)
+            let user: User = try await get("auth/me", language: language)
+            if var binding = pushBinding, binding.userID != user.id {
+                binding.isSigningOut = true
+                try credentials.savePushBinding(binding)
+                pushBinding = binding
+                tokens = nil
+                revision += 1
+                throw PushCleanupPending()
+            }
+            if credentials.migratedFromFlutter, user.role != .patient, pushBinding == nil {
+                let binding = PushBinding(userID: user.id, requiresLegacyLookup: true)
+                try credentials.savePushBinding(binding)
+                pushBinding = binding
+            }
+            userID = user.id
+            return user
         } catch APIError.signedOut {
+            if needsPushCleanup { throw PushCleanupPending() }
             return nil
         }
     }
 
     func signIn(email: String, password: String, language: AppLanguage) async throws -> User {
-        guard tokens == nil, !signingOut else { throw APIError.invalidResponse }
+        guard tokens == nil, !signingOut, pushBinding?.isSigningOut != true else { throw APIError.invalidResponse }
         let attempt = revision
         let body = try JSONEncoder().encode(["email": email, "password": password])
         let data = try await send("auth/login", language: language, body: body)
-        let user = try Self.decoder().decode(UserEnvelope.self, from: data).user
         let pair = try decodeTokens(data)
+        let user: User
+        let loginUser = try Self.decoder().decode(UserEnvelope.self, from: data).user
+        if loginUser.role == .admin {
+            let profile = try await send("auth/me", language: language, access: pair.access)
+            user = try Self.decoder().decode(User.self, from: profile)
+            guard user.id == loginUser.id else { throw APIError.invalidResponse }
+        } else {
+            user = loginUser
+        }
+        if let binding = pushBinding, binding.userID != user.id {
+            throw PushCleanupPending()
+        }
         guard revision == attempt, !signingOut else { throw APIError.signedOut }
         try credentials.removeLegacy()
         try credentials.save(pair)
         revision += 1
         tokens = pair
+        userID = user.id
         return user
+    }
+
+    func dashboardConnection() async throws -> URLSessionWebSocketTask {
+        guard hasSession, let pair = tokens else { throw APIError.signedOut }
+        let expected = revision
+        let socket = session.webSocketTask(with: configuration.webSocket.appendingPathComponent("dashboard"))
+        let data = try JSONEncoder().encode(["type": "auth", "token": pair.access])
+        socket.resume()
+        do {
+            try await socket.send(.string(String(decoding: data, as: UTF8.self)))
+            guard hasSession, revision == expected else { throw APIError.signedOut }
+            return socket
+        } catch {
+            socket.cancel(with: .goingAway, reason: nil)
+            throw error
+        }
+    }
+
+    func registerPush(user: UUID, token: String, apnsToken: String, language: AppLanguage) async throws {
+        guard user == userID, hasSession, pushRegistration == nil else { return }
+        var binding = pushBinding ?? PushBinding(userID: user)
+        guard binding.userID == user else { throw PushCleanupPending() }
+        binding.tokens.insert(token)
+        binding.apnsToken = apnsToken
+        binding.requiresLegacyLookup = false
+        try credentials.savePushBinding(binding)
+        pushBinding = binding
+
+        let payload = ["device_token": token, "apns_token": apnsToken, "platform": "ios"]
+        let body = try JSONEncoder().encode(payload)
+        let task = Task {
+            try await request("notifications/fcm-token", language: language, method: "POST", body: body)
+        }
+        pushRegistration = task
+        defer { pushRegistration = nil }
+        _ = try await task.value
+        credentials.finishFlutterPushMigration()
+    }
+
+    func captureLegacyDevice(apnsToken: String, fcmToken: String?) throws {
+        guard var binding = pushBinding, binding.requiresLegacyLookup == true else { return }
+        binding.apnsToken = apnsToken
+        if let fcmToken, !fcmToken.isEmpty { binding.tokens.insert(fcmToken) }
+        binding.requiresLegacyLookup = false
+        try credentials.savePushBinding(binding)
+        pushBinding = binding
+    }
+
+    func reauthenticateForPushCleanup(email: String, password: String, language: AppLanguage) async throws {
+        guard !signingOut, let binding = pushBinding, binding.isSigningOut else { throw APIError.invalidResponse }
+        signingOut = true
+        defer { signingOut = false }
+
+        let body = try JSONEncoder().encode(["email": email, "password": password])
+        let data = try await send("auth/login", language: language, body: body)
+        let user = try Self.decoder().decode(UserEnvelope.self, from: data).user
+        let pair = try decodeTokens(data)
+        guard user.id == binding.userID else {
+            _ = await revokeOnLogout(pair, language: language)
+            throw PushCleanupReauthentication()
+        }
+        try credentials.save(pair)
+        try await completePushCleanup(binding, pair: pair, language: language)
     }
 
     func signOut(language: AppLanguage) async throws {
         guard !signingOut else { return }
         signingOut = true
         defer { signingOut = false }
+        if pushBinding == nil { pushBinding = try credentials.loadPushBinding() }
+        if var binding = pushBinding {
+            binding.isSigningOut = true
+            try credentials.savePushBinding(binding)
+            pushBinding = binding
+            let current = tokens
+            let pending = refreshTask?.task
+            revision += 1
+            tokens = nil
+            userID = nil
+            refreshTask = nil
+            needsPersistence = false
+            _ = try? await pushRegistration?.value
+            let pair: Tokens?
+            if let pending, let rotated = try? await pending.value {
+                try credentials.save(rotated)
+                pair = rotated
+            } else if let current {
+                pair = current
+            } else {
+                pair = try credentials.load()
+            }
+            try await completePushCleanup(binding, pair: pair, language: language)
+            return
+        }
         let current = tokens ?? pendingRevocation
         let pending = refreshTask?.task
         revision += 1
         tokens = nil
+        userID = nil
         refreshTask = nil
         needsPersistence = false
         pendingRevocation = nil
@@ -97,6 +239,48 @@ actor APIClient {
             if case .failure = clearance { pendingRevocation = remaining }
         }
         try clearance.get()
+    }
+
+    private func completePushCleanup(_ binding: PushBinding, pair: Tokens?, language: AppLanguage) async throws {
+        guard binding.requiresLegacyLookup != true else { throw PushCleanupPending() }
+        guard var pair else { throw PushCleanupReauthentication() }
+        do {
+            do {
+                try await unbindPush(binding, using: pair, language: language)
+            } catch APIError.status(401) {
+                pair = try await rotate(pair, language: language)
+                try credentials.save(pair)
+                try await unbindPush(binding, using: pair, language: language)
+            }
+        } catch APIError.status(401), APIError.status(403) {
+            throw PushCleanupReauthentication()
+        } catch {
+            throw PushCleanupPending()
+        }
+
+        _ = await revokeOnLogout(pair, language: language)
+        try credentials.clear()
+        try credentials.savePushBinding(nil)
+        credentials.finishFlutterPushMigration()
+        pushBinding = nil
+    }
+
+    private func unbindPush(_ binding: PushBinding, using pair: Tokens, language: AppLanguage) async throws {
+        let profile = try await send("auth/me", language: language, access: pair.access)
+        let user = try Self.decoder().decode(User.self, from: profile)
+        guard user.id == binding.userID else { throw APIError.status(403) }
+        let tokens = binding.tokens.sorted()
+        for start in stride(from: 0, to: max(tokens.count, 1), by: 50) {
+            let batch = Array(tokens[start..<min(start + 50, tokens.count)])
+            let payload = UnbindPayload(device_tokens: batch, apns_token: binding.apnsToken)
+            let data = try JSONEncoder().encode(payload)
+            _ = try await send("notifications/devices/unbind", language: language, access: pair.access, body: data)
+        }
+    }
+
+    private struct UnbindPayload: Encodable {
+        let device_tokens: [String]
+        let apns_token: String?
     }
 
     private func revokeOnLogout(_ pair: Tokens, language: AppLanguage) async -> Tokens? {
@@ -121,16 +305,32 @@ actor APIClient {
     func get<Value: Decodable & Sendable>(
         _ path: String, language: AppLanguage, query: [URLQueryItem] = []
     ) async throws -> Value {
-        guard let pair = tokens else { throw APIError.signedOut }
+        let data = try await request(path, language: language, query: query)
+        return try Self.decoder().decode(Value.self, from: data)
+    }
+
+    func write<Value: Decodable & Sendable, Body: Encodable & Sendable>(
+        _ path: String, method: String, language: AppLanguage, body: Body
+    ) async throws -> Value {
+        let data = try await request(path, language: language, method: method, body: try JSONEncoder().encode(body))
+        return try Self.decoder().decode(Value.self, from: data)
+    }
+
+    @discardableResult
+    func request(
+        _ path: String, language: AppLanguage, query: [URLQueryItem] = [],
+        method: String = "GET", body: Data? = nil, accept: String = "application/json"
+    ) async throws -> Data {
+        guard hasSession, let pair = tokens else { throw APIError.signedOut }
         if needsPersistence { persistRotation(pair) }
         let requestRevision = revision
         let data: Data
         do {
-            data = try await send(path, language: language, query: query, access: pair.access)
+            data = try await send(path, language: language, query: query, access: pair.access, body: body, method: method, accept: accept)
         } catch APIError.status(401) {
             let fresh = try await refresh(after: pair, revision: requestRevision, language: language)
             do {
-                data = try await send(path, language: language, query: query, access: fresh.access)
+                data = try await send(path, language: language, query: query, access: fresh.access, body: body, method: method, accept: accept)
             } catch let error as APIError
                 where error == .status(401) || (path == "auth/me" && error == .status(403)) {
                 if requestRevision == revision, tokens == fresh { try discard() }
@@ -142,7 +342,7 @@ actor APIClient {
         }
         guard revision == requestRevision else { throw APIError.signedOut }
         try Task.checkCancellation()
-        return try Self.decoder().decode(Value.self, from: data)
+        return data
     }
 
     private func refresh(after rejected: Tokens, revision expected: Int, language: AppLanguage) async throws -> Tokens {
@@ -185,8 +385,14 @@ actor APIClient {
     }
 
     private func discard() throws {
+        if var binding = pushBinding {
+            binding.isSigningOut = true
+            try credentials.savePushBinding(binding)
+            pushBinding = binding
+        }
         revision += 1
         tokens = nil
+        userID = nil
         refreshTask = nil
         needsPersistence = false
         try credentials.clear()
@@ -211,23 +417,26 @@ actor APIClient {
 
     private func send(
         _ path: String, language: AppLanguage, query: [URLQueryItem] = [],
-        access: String? = nil, body: Data? = nil
+        access: String? = nil, body: Data? = nil, method: String? = nil, accept: String = "application/json"
     ) async throws -> Data {
         let endpoint = configuration.api.appendingPathComponent(path)
         guard var parts = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
             throw APIError.invalidResponse
         }
-        if !query.isEmpty { parts.queryItems = query }
+        if !query.isEmpty {
+            parts.queryItems = query
+            parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        }
         guard let url = parts.url else { throw APIError.invalidResponse }
 
         var request = URLRequest(url: url)
         request.setValue(language.rawValue, forHTTPHeaderField: "Accept-Language")
         request.setValue(language.rawValue, forHTTPHeaderField: "X-Language")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(accept, forHTTPHeaderField: "Accept")
         request.httpShouldHandleCookies = false
         if let access { request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization") }
+        request.httpMethod = method ?? (body == nil ? "GET" : "POST")
         if let body {
-            request.httpMethod = "POST"
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }

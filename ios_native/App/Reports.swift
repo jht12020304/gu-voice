@@ -3,6 +3,12 @@ import Foundation
 struct Page<Item: Decodable & Sendable>: Decodable, Sendable {
     let data: [Item]
     let pagination: Pagination
+    let reviewCounts: [String: Int]?
+
+    enum CodingKeys: String, CodingKey {
+        case data, pagination
+        case reviewCounts = "review_counts"
+    }
 
     struct Pagination: Decodable, Sendable {
         let nextCursor: String?
@@ -28,12 +34,14 @@ struct Report: Decodable, Identifiable, Sendable {
     let sessionID: UUID
     let patientName: String?
     let chiefComplaint: String?
+    let doctorName: String?
     let hasRedFlag: Bool?
     let summary: String?
     let confidence: Decimal?
     let createdAt: Date
     let generatedAt: Date?
     let status: Status
+    let reviewNotes: String?
     let reviewStatus: Review
     let subjective: [String: ClinicalValue]?
     let objective: [String: ClinicalValue]?
@@ -55,10 +63,12 @@ struct Report: Decodable, Identifiable, Sendable {
         case patientName = "patient_name"
         case chiefComplaint = "chief_complaint_text"
         case hasRedFlag = "session_red_flag"
+        case doctorName = "doctor_name"
         case confidence = "ai_confidence_score"
         case createdAt = "created_at"
         case generatedAt = "generated_at"
         case reviewStatus = "review_status"
+        case reviewNotes = "review_notes"
         case rawTranscript = "raw_transcript"
         case codes = "icd10_codes"
     }
@@ -67,12 +77,14 @@ struct Report: Decodable, Identifiable, Sendable {
 struct ReportSession: Decodable, Sendable {
     let patientName: String?
     let chiefComplaint: String?
+    let status: String?
     let redFlag: Bool
     let redFlagReason: String?
 
     enum CodingKeys: String, CodingKey {
         case patientName = "patient_name"
         case chiefComplaint = "chief_complaint_text"
+        case status
         case redFlag = "red_flag"
         case redFlagReason = "red_flag_reason"
     }
@@ -181,9 +193,36 @@ struct Reports: Sendable {
     let api: APIClient
     let language: AppLanguage
 
-    func page(after cursor: String?) async throws -> Page<Report> {
-        let query = cursor.map { [URLQueryItem(name: "cursor", value: $0)] } ?? []
+    func page(after cursor: String?, review: String = "") async throws -> Page<Report> {
+        var query = cursor.map { [URLQueryItem(name: "cursor", value: $0)] } ?? []
+        if !review.isEmpty { query.append(.init(name: "review_status", value: review)) }
         return try await api.get("reports", language: language, query: query)
+    }
+
+    func review(_ report: Report, decision: Report.Review, notes: String) async throws -> Report {
+        let notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard decision == .approved || decision == .revisionNeeded && !notes.isEmpty else {
+            throw APIError.invalidResponse
+        }
+        var body = ["review_status": decision.rawValue]
+        if !notes.isEmpty { body["review_notes"] = notes }
+        return try await api.write("reports/\(report.id)/review", method: "PUT", language: language, body: body)
+    }
+
+    func pdf(_ report: Report) async throws -> Data {
+        let data = try await api.request(
+            "reports/\(report.id)/pdf", language: language,
+            query: [.init(name: "include_transcript", value: "true"), .init(name: "language", value: language.rawValue)],
+            accept: "application/pdf"
+        )
+        guard data.starts(with: Data("%PDF-".utf8)) else { throw APIError.invalidResponse }
+        return data
+    }
+
+    func generate(_ sessionID: UUID) async throws -> Report {
+        try await api.write(
+            "sessions/\(sessionID)/reports/generate", method: "POST", language: language, body: ["regenerate": true]
+        )
     }
 
     private enum DetailUpdate: Sendable {

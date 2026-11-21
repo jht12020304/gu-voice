@@ -5,6 +5,10 @@ struct ReportListScreen: View {
     let language: AppLanguage
 
     @State private var reports: [Report] = []
+    @State private var search = ""
+    @State private var filter = ""
+    @State private var counts: [String: Int]?
+    private let filters = [("", "all"), ("pending", "pending"), ("approved", "approved"), ("revision_needed", "revisionNeeded")]
     @State private var cursor: String?
     @State private var seenCursors: Set<String> = []
     @State private var isLoading = true
@@ -14,6 +18,15 @@ struct ReportListScreen: View {
 
     var body: some View {
         List {
+            Section {
+                Picker(language.text("dashboard.sidebar.nav.soapReports"), selection: $filter) {
+                    ForEach(filters, id: \.0) { key, suffix in
+                        let label = language.text("dashboard.reportList.tabs.\(suffix)")
+                        let count = key.isEmpty ? counts.map { $0.values.reduce(0, +) } : counts.map { $0[key, default: 0] }
+                        Text(count.map { "\(label) (\($0))" } ?? label).tag(key)
+                    }
+                }
+            }
             if failedReset == true {
                 FailureRow(key: "native.reportsFailed", language: language) { await load(reset: true) }
             } else if reports.isEmpty {
@@ -27,8 +40,11 @@ struct ReportListScreen: View {
                 }
             }
 
-            ForEach(reports) { report in
-                NavigationLink(value: report.sessionID) { reportRow(report) }
+            ForEach(reports.filter(matches)) { report in
+                NavigationLink(value: NotificationRoute.report(report.sessionID)) { reportRow(report) }
+            }
+            if !reports.isEmpty, reports.filter(matches).isEmpty, cursor == nil {
+                Text(language.text("dashboard.reportList.emptyTitle"))
             }
 
             if !reports.isEmpty, let cursor {
@@ -41,13 +57,17 @@ struct ReportListScreen: View {
             }
         }
         .navigationTitle(language.text("dashboard.sidebar.nav.soapReports"))
-        .navigationDestination(for: UUID.self) { id in
-            ReportDetailScreen(sessionID: id, account: account, language: language)
-        }
-        .task(id: language) {
-            if loadedLanguage != language { await load(reset: true) }
+        .searchable(text: $search, prompt: language.text("dashboard.reportList.searchPlaceholder"))
+        .task(id: [language.rawValue, filter, String(account.dashboardRevision)]) {
+            await load(reset: true)
         }
         .refreshable { await load(reset: true) }
+    }
+
+    private func matches(_ report: Report) -> Bool {
+        let value = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty || [report.patientName, report.chiefComplaint, report.doctorName, report.summary]
+            .compactMap { $0 }.contains { $0.localizedCaseInsensitiveContains(value) }
     }
 
     private func reportRow(_ report: Report) -> some View {
@@ -64,6 +84,10 @@ struct ReportListScreen: View {
             } else if report.hasRedFlag == nil {
                 Label(language.text("native.redFlagUnknown"), systemImage: "questionmark.circle")
                     .foregroundStyle(.secondary)
+            }
+            if let notes = report.reviewNotes, report.reviewStatus == .revisionNeeded {
+                Text(language.text("dashboard.reportList.revisionReason")).font(.subheadline.bold())
+                Text(notes).lineLimit(2)
             }
             ViewThatFits(in: .horizontal) {
                 HStack {
@@ -103,18 +127,19 @@ struct ReportListScreen: View {
         defer { if id == requestID { isLoading = false } }
         let previous = reset ? nil : cursor
         do {
-            let page = try await Reports(api: account.api, language: language).page(after: previous)
+            let page = try await Reports(api: account.api, language: language).page(after: previous, review: filter)
             guard id == requestID, !Task.isCancelled else { return }
             var visited = reset ? Set<String>() : seenCursors
             let next = try page.continuation(seen: &visited)
             if reset { reports = [] }
             seenCursors = visited
             loadedLanguage = language
+            counts = page.reviewCounts
             var existing = Set(reports.map(\.id))
             reports.append(contentsOf: page.data.filter { existing.insert($0.id).inserted })
             cursor = next
         } catch APIError.signedOut {
-            await account.noticeAuthorizationLoss()
+            await account.noticeAuthorizationLoss(language)
         } catch {
             guard id == requestID, !Task.isCancelled else { return }
             failedReset = reset
@@ -122,7 +147,7 @@ struct ReportListScreen: View {
     }
 }
 
-private struct ReportDetailScreen: View {
+struct ReportDetailScreen: View {
     let sessionID: UUID
     let account: Account
     let language: AppLanguage
@@ -130,6 +155,21 @@ private struct ReportDetailScreen: View {
     @State private var displayedLanguage: AppLanguage?
     @State private var requestID = UUID()
     @State private var tab: Tab = .report
+    @State private var decision: Report.Review?
+    @State private var notes = ""
+    @State private var submitting = false
+    @State private var uncertainReview = false
+    @State private var regenerating = false
+    @State private var confirmGeneration = false
+    @State private var exporting = false
+    @State private var pdf: ReportPDF?
+    @State private var errorKey: String?
+
+    private var reports: Reports { Reports(api: account.api, language: language) }
+    private var canGenerate: Bool {
+        ["completed", "aborted_red_flag"].contains(details.session.value?.status ?? "")
+        && report?.status != .generating
+    }
 
     private enum Tab: String, CaseIterable { case report, transcript }
 
@@ -199,12 +239,49 @@ private struct ReportDetailScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: language) { await load() }
         .refreshable { await load() }
+        .task(id: report?.status) {
+            while report?.status == .generating {
+                do { try await Task.sleep(for: .seconds(3)) }
+                catch { return }
+                await load()
+            }
+        }
+        .sheet(isPresented: Binding(get: { decision != nil }, set: { if !$0 { decision = nil } })) {
+            if let decision { reviewForm(decision) }
+        }
+        .sheet(item: $pdf) { pdf in
+            ActivitySheet(items: [pdf.url])
+        }
+        .confirmationDialog(language.text("soap.regenerate.title"), isPresented: $confirmGeneration) {
+            Button(language.text("soap.regenerate.confirm")) { Task { await generate() } }
+        } message: {
+            Text(language.text("soap.regenerate.description"))
+        }
     }
 
     @ViewBuilder private var soapContent: some View {
         switch details.report {
         case .loaded(let report):
             if let report, report.status == .generated {
+                Section {
+                    Button { Task { await export(report) } } label: {
+                        Label(language.text("soap.export.button"), systemImage: "doc")
+                    }
+                    .disabled(exporting)
+                    NavigationLink {
+                        QuickOrdersScreen(sessionID: sessionID, report: report, account: account, language: language)
+                    } label: {
+                        Label(language.text("soap.quickOrders.title"), systemImage: "checklist")
+                    }
+                    Text(language.text("soap.reviewStatus.\(report.reviewStatus == .revisionNeeded ? "revisionNeeded" : report.reviewStatus.rawValue)"))
+                    if report.reviewStatus == .pending {
+                        Button(language.text("soap.review.approveButton")) { startReview(.approved) }
+                        Button(language.text("soap.review.rejectButton"), role: .destructive) { startReview(.revisionNeeded) }
+                    }
+                }
+                if let notes = report.reviewNotes, !notes.isEmpty {
+                    Section(language.text("soap.reviewNotesCard.title")) { Text(notes) }
+                }
                 if let summary = report.summary, !summary.isEmpty {
                     Section(language.text("soap.page.clinicalSummaryEyebrow")) { Text(summary) }
                 }
@@ -219,10 +296,110 @@ private struct ReportDetailScreen: View {
                 let key = report.map { "soap.reportStatus.\($0.status.rawValue)" } ?? "native.reportUnavailable"
                 Text(language.text(key)).foregroundStyle(.secondary)
             }
+            if canGenerate {
+                Button(language.text("soap.regenerate.button")) { confirmGeneration = true }
+                    .disabled(regenerating)
+            }
+            if let errorKey, decision == nil { Text(language.text(errorKey)).foregroundStyle(.red) }
         case .failed:
             FailureRow(key: "native.reportFailed", language: language, retry: load)
         case .loading, .signedOut:
             ProgressView(language.text("soap.page.loadingReport"))
+        }
+    }
+
+    private func startReview(_ value: Report.Review) {
+        guard !submitting else { return }
+        decision = value
+        notes = ""
+        uncertainReview = false
+        errorKey = nil
+    }
+
+    private func reviewForm(_ value: Report.Review) -> some View {
+        let approving = value == .approved
+        let action = language.text(approving ? "soap.review.approveButton" : "soap.review.rejectButton")
+        return NavigationStack {
+            Form {
+                Text(language.text(approving ? "soap.review.approveDescription" : "soap.review.rejectDescription"))
+                TextField(
+                    language.text(approving ? "soap.review.approveNotesPlaceholder" : "soap.review.rejectNotesPlaceholder"),
+                    text: $notes, axis: .vertical
+                )
+                .disabled(submitting || uncertainReview)
+                if let errorKey { Text(language.text(errorKey)).foregroundStyle(.red) }
+                if uncertainReview {
+                    Button(language.text("common.retry")) { Task { await reconcileReview(value) } }
+                        .disabled(submitting)
+                } else {
+                    Button(action) { Task { await submitReview(value) } }
+                        .disabled(submitting || (!approving && notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                }
+            }
+            .navigationTitle(action)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(language.text("common.cancel")) { decision = nil }
+                        .disabled(submitting || uncertainReview)
+                }
+            }
+        }
+        .interactiveDismissDisabled(submitting || uncertainReview)
+    }
+
+    private func submitReview(_ value: Report.Review) async {
+        guard !submitting, !uncertainReview, let report else { return }
+        submitting = true
+        defer { submitting = false }
+        do {
+            details.report = .loaded(try await reports.review(report, decision: value, notes: notes))
+            decision = nil
+        } catch {
+            errorKey = "soap.review.submitError"
+            uncertainReview = true
+            await reconcileReview(value)
+        }
+    }
+
+    private func reconcileReview(_ value: Report.Review) async {
+        do {
+            let refreshed: Report = try await account.api.get("sessions/\(sessionID)/report", language: language)
+            details.report = .loaded(refreshed)
+            uncertainReview = false
+            if refreshed.reviewStatus != .pending {
+                decision = nil
+                if refreshed.reviewStatus == value { errorKey = nil }
+            }
+        } catch APIError.signedOut {
+            await account.noticeAuthorizationLoss(language)
+        } catch {}
+    }
+
+    private func generate() async {
+        guard canGenerate, !regenerating else { return }
+        regenerating = true
+        errorKey = nil
+        defer { regenerating = false }
+        do {
+            details.report = .loaded(try await reports.generate(sessionID))
+        } catch {
+            errorKey = "soap.regenerate.error"
+            await load()
+        }
+    }
+
+    private func export(_ report: Report) async {
+        guard !exporting else { return }
+        exporting = true
+        errorKey = nil
+        defer { exporting = false }
+        do {
+            pdf = try ReportPDF(data: await reports.pdf(report), id: report.id)
+        } catch APIError.signedOut {
+            await account.noticeAuthorizationLoss(language)
+        } catch {
+            errorKey = "soap.export.error"
         }
     }
 
@@ -280,7 +457,7 @@ private struct ReportDetailScreen: View {
             details.apply(result)
         }
         guard id == requestID, !Task.isCancelled else { return }
-        if result.isSignedOut { await account.noticeAuthorizationLoss() }
+        if result.isSignedOut { await account.noticeAuthorizationLoss(language) }
     }
 }
 

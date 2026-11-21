@@ -9,17 +9,28 @@ settings:
     DEVELOPMENT_TEAM: K593X99M7G
     CODE_SIGN_STYLE: Automatic
     TARGETED_DEVICE_FAMILY: "1,2"
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    exactVersion: 12.17.0
 targets:
   GUVoice:
     type: application
     platform: iOS
-    sources: [App]
+    sources:
+      - App
+      - path: ../flutter_app/ios/Runner/GoogleService-Info.plist
+        buildPhase: resources
+    dependencies:
+      - package: Firebase
+        product: FirebaseMessaging
     configFiles:
       Debug: Config/Local.xcconfig
       Release: Config/Production.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.guvoice.guVoice
+        CODE_SIGN_ENTITLEMENTS: Config/GUVoice.entitlements
         INFOPLIST_FILE: Config/Info.plist
         INFOPLIST_PREPROCESS: YES
         MARKETING_VERSION: "1.0"
